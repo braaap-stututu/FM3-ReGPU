@@ -1,8 +1,28 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-07, session 6)
+## ▶ Current status / next step  (updated 2026-11-07, session 7)
 
-**Status:** **Phase 2 (first recompilation) is done.** `tools/recomp.ps1` turns `game/default.xex` into `out/ppc` (45,760 functions, 179 files, 164 MB) with **0 unresolved branches**, and **all of it compiles** with clang-cl 23 (`-DFM3_PPC_ONLY=ON` → `fm3_ppc.lib`, 118 MB, no errors). The pipeline is reproducible: re-running it with `-Prepare` gives the same config, the same switch tables and byte-identical output. The repo is on GitHub: **https://github.com/braaap-stututu/FM3-ReGPU** (`main`).
+**Status:** **Phase 3 goal reached: `fm3.exe` boots and renders.** The runtime (ported from the FM4 port, see `NOTICE.md`) runs FM3's recompiled code on ReGPU. From a fresh user folder, with no input: ESRB screen at ~8 s (correct, see `out/shots/boot_08s.png`), logo fades, then the **R8 intro video plays** (40 s: the door close-up hl360's dump showed; 70 s: the Le Mans prototype shot). **59.6 fps average** (4,140 swaps in 69.5 s, vblank 60 Hz, frame cap 60), 54 draws/frame in the video like hl360. 15 guest threads, GPU interrupt and ring buffer OK, audio driver at 188 callbacks/s with 0 dropped frames. No unimplemented-import warnings so far; only `ExGetXConfigSetting 0003/0001` and kernel variable ordinals 0x156/0x1BF are unknown.
+
+**How to run:**
+```powershell
+$env:FM3_USER_DIR = "G:\claude code projects\FM3-ReGPU recomp\out\user"   # keep test saves out of Documents
+cd "G:\claude code projects\FM3-ReGPU recomp\out\run"                       # fm3.log is written here
+& ..\..\build\rel\fm3.exe "G:\claude code projects\FM3-ReGPU recomp\reference\rexglue recomp reference\hl360-forza3\game\disc1"
+```
+Build: `tools\vcenv.cmd cmake -S . -B build/rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_LINKER=lld-link`, then `tools\vcenv.cmd ninja -C build/rel fm3` (≈ 2 min incremental; the first build compiles `out/ppc`, several minutes). Screenshots: dot-source `tools/fm3_route.ps1`, set `$Fm3Run`, then `Connect-Fm3` / `Save-Shot` (works on our window too).
+
+**Next steps (Phase 4):**
+1. Input: check keyboard/XInput reach the game (Return to skip the video), then get past the controls/loading screen to the intro race, as hl360 does in ~2.5 min.
+2. Profiles/DLC (Q11–Q16): the FM4 XAM code is untested on FM3; Disc 2 DLC lives in hl360's `user/`.
+3. Compare frames against hl360 (`dumps/hl360/runA`) once the start grid is reachable; Phase 5's dump hook.
+4. Leftovers from Phase 2 (not hit yet): `blrl` trap in `sub_82A918F0` (SEH funclet call), SEH policy.
+5. Still your call: a licence for our code; whether to delete the empty `githubfileignorepls`.
+
+---
+
+### Previous status (session 6)
+**Phase 2 (first recompilation) is done.** `tools/recomp.ps1` turns `game/default.xex` into `out/ppc` (45,760 functions, 179 files, 164 MB) with **0 unresolved branches**, and **all of it compiles** with clang-cl 23 (`-DFM3_PPC_ONLY=ON` → `fm3_ppc.lib`, 118 MB, no errors). The pipeline is reproducible: re-running it with `-Prepare` gives the same config, the same switch tables and byte-identical output. The repo is on GitHub: **https://github.com/braaap-stututu/FM3-ReGPU** (`main`).
 
 **How to recompile:**
 ```powershell
@@ -18,12 +38,9 @@ Outputs: `out/ppc`, `out/recomp.log`, `out/check.txt` (errors / traps / run-offs
 - **23 functions run off their end.** All end in calls that don't return: CRT `exit`/`_exit` (`825366E0`/`825366F0`), `longjmp`, `ExTerminateThread`, and assert/error paths (`82528800`, `82538110`, `82258A08`, `82AB4F18`, `822991F8`, probably no-return; not verified one by one).
 - 313 imports become weak stubs (`tools/genstubs.py`, generated into the build folder).
 
-**Deps (session 6b):** **FidelityFX SDK 2.1.0 is wired in** (`thirdparty/fidelityfx` is a junction to `G:\claude code projects\tools\FidelityFX-SDK-2.1.0`; all 5 signedbin DLLs Authenticode-valid, AMD). The full game CMake configures, and **`regpu.lib` builds against our `out/ppc` with FSR3 on**; `regpu_linkcheck` links with no unresolved externals. **FFmpeg still missing:** the winget `Gyan.FFmpeg` 9.0.2 you installed is the static **GPL** full_build (only `ffmpeg/ffplay/ffprobe.exe`, no `include/`, `lib/` or DLLs), so it can't be linked. Needed: BtbN `ffmpeg-n8.x-latest-win64-lgpl-shared-8.x.zip` (what FM2 names) extracted so `thirdparty/ffmpeg/{include,lib,bin}` exist. Only audio (`src/audio`) needs it.
+**Deps (session 6b; FFmpeg resolved in session 7):** **FidelityFX SDK 2.1.0 is wired in** (`thirdparty/fidelityfx` is a junction to `G:\claude code projects\tools\FidelityFX-SDK-2.1.0`; all 5 signedbin DLLs Authenticode-valid, AMD). The full game CMake configures, and **`regpu.lib` builds against our `out/ppc` with FSR3 on**; `regpu_linkcheck` links with no unresolved externals. **FFmpeg still missing:** the winget `Gyan.FFmpeg` 9.0.2 you installed is the static **GPL** full_build (only `ffmpeg/ffplay/ffprobe.exe`, no `include/`, `lib/` or DLLs), so it can't be linked. Needed: BtbN `ffmpeg-n8.x-latest-win64-lgpl-shared-8.x.zip` (what FM2 names) extracted so `thirdparty/ffmpeg/{include,lib,bin}` exist. Only audio (`src/audio`) needs it.
 
-**Next steps:**
-1. FFmpeg LGPL shared build (see above). Not needed for a silent first boot.
-2. Phase 3: port the runtime (loader, memory, kernel/XAM, threads, `indirect.cpp`, fibers with FM3 addresses, `patch_mftb`), then boot to the first frame with vblank at 60 Hz.
-3. Still your call: a licence for our code; whether to delete the empty `githubfileignorepls`.
+(Session 6 next steps, now done: FFmpeg LGPL shared build; Phase 3 runtime port.)
 
 ---
 
@@ -191,14 +208,13 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
    - SwitchToFiber `{0x82A82210, 0x40C}` (Q7)
 4. Run XenonRecomp; grep the log for `// ERROR` / out-of-function switch cases; iterate until clean. Generate `stubs.cpp`.
 
-**Phase 3 — Boot to first frame ▶**
-- Also from Phase 2: `PPC_FUNC` override for `sub_82A918F0` (blrl trap), SEH policy, `src/indirect.cpp` for the `PPCLookupIndirect` table declared in `src/ppc_hooks.h`, `PPCMsrChanged`, `PPCMmioStore32`.
-- Kernel/XAM from FM2's `src/kernel` (re-address everything; never link FM2/FM4 `sub_` addresses).
-- Fiber overrides (port FM4 `fibers.cpp` with an FM3 `addresses.h`), mftb patch, `cache:` utility-drive override (Q8), `PPCLookupIndirect` fatal-on-miss.
-- **Set `REGPU_VBLANK_HZ=60` from the start (Q24)** and measure game speed.
-- Goal: ESRB/Turn 10 logos and the intro video render. Compare with hl360 screenshots from `fm3_route.ps1` / `dumps/route/x1_*.png`.
+**Phase 3 — Boot to first frame ✅ (session 7)**
+- ✅ Runtime ported from FM4 (`src/`, NOTICE.md); `indirect.cpp`, `PPCMsrChanged`, `PPCMmioStore32` come with it; `PPCLookupIndirect` is fatal on a miss.
+- ✅ Fiber overrides with FM3 `hooks/addresses.h`; mftb patch (`tools/patch_mftb.py`, 25 reads in 11 files); vblank 60 Hz (Q24).
+- ✅ Goal: ESRB/logos and the intro video render, ~60 fps.
+- ☐ Carried to Phase 4/5: `sub_82A918F0` blrl override and SEH policy (not hit yet); `cache:` utility drive (Q8: FM4's VFS may already mount it; check at race start); game-speed check against hl360 (timing of the intro/video).
 
-**Phase 4 — Menus & content ☐**
+**Phase 4 — Menus & content ▶**
 - Disc 2 DLC (Q11–Q14), licence mask all bits (Q12), profile XUID/gamertag rules (Q15), language+country pairs (Q16).
 - Reach the controls/loading screen and the intro race cutscene.
 
@@ -211,6 +227,20 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 **Phase 6 — Polish ☐** Frame-rate unlock only after confirming FM3's sim timing (Q24), launcher/settings, mods (Q9 re-signing, PF+3).
 
 ## Session log
+### 2026-11-07 — session 7 (FFmpeg + Phase 3: runtime port, first boot)
+- **FFmpeg** (you asked me to get the right one): BtbN release `latest`, asset `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` (80,407,192 B). SHA-256 `9cb911fc…04c0` matches both GitHub's asset digest and BtbN's `checksums.sha256`. Downloaded to an empty scratch folder, extracted to `thirdparty/ffmpeg` (gitignored). Version n8.1.3-34-ga35157abb9 (2026-11-07), LGPL v3 (`--enable-version3`, no `--enable-gpl`), with `xma1`/`xma2` decoders; DLLs avcodec-62, avutil-60, swresample-6.
+- **Runtime port:** copied FM4's `src/` from its git objects (51 files) and adapted it:
+  - fibers re-addressed (`hooks/addresses.h`: 82A7B098 / 82A7B128 / 82A7B178 / 82A7B258 / 82A82210; FM4-identical object layout confirmed in disassembly);
+  - single-image `recomp_modules.cpp` (from `ppc_config.h`);
+  - `Fm2Timebase` → `GuestTimebase`; `FM2_*`/`FM4_*` env switches → `FM3_*`; log `fm3.log`; user dir `Documents\fm3` (`FM3_USER_DIR`);
+  - removed: the test launcher call, the FM2 ring-dump addresses in `crash.cpp`, FM2/FM4 ui.zip patches (behind `FM3_LEGACY_UI_PATCHES`), benchmark mode and the draw-worker profiler (FM4's vendored ReGPU API);
+  - `regpu::RendererLogCrashContext` → upstream `regpu::LogCrashContext`.
+  - Not copied: boot screen (FM4 art), static shader scan (`.fxobj`), pipeline seed, updater, launcher, `.rc`.
+- CMake: mftb patch at configure time (`tools/patch_mftb.py`, own), FFmpeg linkage and DLL copies, `winhttp`.
+- **Build:** 4 compile errors (benchmark calls), then 2 link errors (FM4-vendored ReGPU symbols), then `fm3.exe` links (40 MB).
+- **First boot** (`out/run`, `FM3_USER_DIR=out/user`, game = hl360's verified `game/disc1`): runs, swaps, intro video. Screenshots `out/shots/boot_{08,20,40,70}s.png`: ESRB, white logo fade, R8 door, LMP cars. 59.6 fps. Audio trace: 188 callbacks/s, 0 dropped. XMA: 0 packets in the intro (FM3's video audio likely isn't XMA; check in menus/race).
+- **Credit fix:** the FM4 repo is Aiden-Piercee's (`Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`); its MIT notice is FM2's (© zer0ducksgiven). I had credited zer0ducksgiven alone in `patches/README.md` and the README; corrected, with `NOTICE.md` holding the licence text.
+
 ### 2026-11-07 — session 6b (dependencies)
 - You installed FFmpeg via winget and extracted FidelityFX-SDK 2.1.0 to `G:\claude code projects\tools\`.
 - FidelityFX: the layout matches (`Kits/FidelityFX/upscalers/fsr3/include/gpu/fsr1/ffx_fsr1.h`, `signedbin/*_dx12.{dll,lib}`; DLLs dated 2025-12-09: loader, upscaler, framegeneration, denoiser, radiancecache). All 5 DLLs: Authenticode **Valid**, CN=Advanced Micro Devices. Junction `thirdparty/fidelityfx` → SDK root (gitignored, no copy). FM2/FM4 used v2.3.0; 2.1.0 compiles fine for ReGPU.

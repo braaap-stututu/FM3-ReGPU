@@ -7,9 +7,9 @@ for Windows x64, on [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) +
 
 (i tried to make this a fork of the FM2 ReGPU project but github wouldn't let me)
 
-**Status:** Phase 2 done. `default.xex` recompiles cleanly (45,760 functions, 0 unresolved
-branches) and the generated code compiles. The runtime (kernel, loader, ReGPU host) is Phase 3,
-so nothing runs yet. Running log and roadmap: [NOTES.md](NOTES.md). Game quirks: [FM3-QUIRKS.md](FM3-QUIRKS.md).
+**Status:** Phase 3 goal reached. `fm3.exe` boots: the ESRB / logo screens and the intro video
+render at about 60 fps on ReGPU (D3D12), and audio frames flow. No input or menus checked yet (Phase 4).
+Run: `build/rel/fm3.exe <folder with the Disc 1 files>`. Running log and roadmap: [NOTES.md](NOTES.md). Game quirks: [FM3-QUIRKS.md](FM3-QUIRKS.md).
 
 No game data is in this repository. You need your own disc dump.
 
@@ -39,9 +39,9 @@ VS 2022 Build Tools (MSVC 14.44, CMake, Ninja), Windows SDK 10.0.26100, LLVM/cla
 tools\vcenv.cmd cmake -S . -B build/ppc -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DFM3_PPC_ONLY=ON
 tools\vcenv.cmd ninja -C build/ppc fm3_ppc     # compile check of the recompiled code
 ```
-The full game target needs the runtime (Phase 3) and `thirdparty/fidelityfx`.
+Full game: `tools/vcenv.cmd cmake -S . -B build/rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_LINKER=lld-link` then `ninja -C build/rel fm3` (needs `thirdparty/fidelityfx` and `thirdparty/ffmpeg`).
 
 ## Licences
 Our code: to be decided. XenonRecomp (MIT, hedge-dev and contributors) and ReGPU (MIT) are
-submodules. The XenonRecomp patches in `patches/` come from the MIT-licensed FM2/FM4 ReGPU ports
-(zer0ducksgiven); see `patches/README.md`.
+submodules. Most of `src/` and the XenonRecomp patches in `patches/` come from the MIT-licensed FM4 port
+(Aiden-Piercee, building on zer0ducksgiven's FM2 port): see [NOTICE.md](NOTICE.md).

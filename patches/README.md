@@ -11,8 +11,8 @@ by `tools/setup.ps1` (which checks the whole stack against the working tree, so 
 | 4 | `xenonrecomp-fm4-instructions.patch` | FM4-ReGPU | Missing/incorrect VMX128 and CR-bit instructions (e.g. `vsldoi128` decoded before PPC405 MAC forms) |
 | 5 | `xenonrecomp-switch-u32.patch` | FM4-ReGPU | `switch` on the 32-bit table index; `vcmpbfp(128)` implemented instead of a trap |
 
-Source: `Fuzzy-Rittersport-4-ReGPU` commit `69bdae44d22a9e0f52733ff55b9f1d0dd5e55b2b` (`patches/`), MIT
-licence, © 2026 zer0ducksgiven. Taken unmodified from the git objects (LF line endings).
+Source: [Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU](https://github.com/Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU) commit `69bdae44d22a9e0f52733ff55b9f1d0dd5e55b2b` (`patches/`), MIT
+licence (the notice it carries, from FM2: © 2026 zer0ducksgiven; full text in NOTICE.md). Taken unmodified from the git objects (LF line endings).
 
 All five are generic recompiler fixes, not FM2/FM4 addresses. FM3 is a single image (only
 `default.xex` on Disc 1), so patch 2's prefix stays unused for now.

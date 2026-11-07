@@ -31,6 +31,15 @@ target_include_directories(fm3_ppc PUBLIC "${FM3_PPC_DIR}" thirdparty/XenonRecom
 target_compile_options(fm3_ppc PRIVATE -Wno-everything -gline-tables-only "/FI${CMAKE_SOURCE_DIR}/src/ppc_hooks.h")
 target_compile_options(fm3_ppc PUBLIC -msse4.1 -fno-strict-aliasing)
 
+# mftb reads the host's raw timestamp counter; give it the console's 49.875 MHz timebase
+# (tools/patch_mftb.py, GuestTimebase in src/kernel/runtime.cpp). Idempotent.
+execute_process(COMMAND ${Python3_EXECUTABLE} -I "${CMAKE_SOURCE_DIR}/tools/patch_mftb.py" "${FM3_PPC_DIR}"
+                OUTPUT_VARIABLE FM3_MFTB_RESULT RESULT_VARIABLE FM3_MFTB_CODE OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(NOT FM3_MFTB_CODE EQUAL 0)
+    message(FATAL_ERROR "tools/patch_mftb.py failed on ${FM3_PPC_DIR}")
+endif()
+message(STATUS "mftb: ${FM3_MFTB_RESULT}")
+
 # Weak import stubs (tools/genstubs.py), regenerated from out/ppc so the list always matches.
 set(FM3_GENERATED "${CMAKE_BINARY_DIR}/generated")
 add_custom_command(OUTPUT "${FM3_GENERATED}/stubs.cpp"
@@ -80,5 +89,13 @@ if(EXISTS "${REGPU_D3DCOMPILER}")
         "${REGPU_D3DCOMPILER}" $<TARGET_FILE_DIR:fm3>)
 endif()
 
-# XMA audio through FFmpeg's xma2 decoder (LGPL, linked dynamically) arrives with src/audio in
-# Phase 3/5: a win64 LGPL shared build in thirdparty/ffmpeg (include/, lib/, bin/).
+# XMA audio through FFmpeg's xma2 decoder (LGPL, linked dynamically): a win64 LGPL shared build
+# (BtbN ffmpeg-n8.1-latest-win64-lgpl-shared) in thirdparty/ffmpeg with include/, lib/ and bin/.
+set(FM3_FFMPEG "${CMAKE_SOURCE_DIR}/thirdparty/ffmpeg")
+if(NOT EXISTS "${FM3_FFMPEG}/include/libavcodec/avcodec.h")
+    message(FATAL_ERROR "thirdparty/ffmpeg is missing: extract an FFmpeg win64 LGPL shared build there (README.md)")
+endif()
+target_include_directories(fm3 PRIVATE "${FM3_FFMPEG}/include")
+target_link_libraries(fm3 PRIVATE "${FM3_FFMPEG}/lib/avcodec.lib" "${FM3_FFMPEG}/lib/avutil.lib" winhttp)
+file(GLOB FM3_FFMPEG_DLLS "${FM3_FFMPEG}/bin/avcodec-*.dll" "${FM3_FFMPEG}/bin/avutil-*.dll" "${FM3_FFMPEG}/bin/swresample-*.dll")
+add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FM3_FFMPEG_DLLS} $<TARGET_FILE_DIR:fm3>)

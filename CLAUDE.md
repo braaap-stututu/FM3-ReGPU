@@ -3,7 +3,7 @@
 Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 360, title `4D53084D`, media `6F74359D`, `default.xex` v0.0.0.8, SHA-256 `aa15372c…8742`) for Windows x64, built with **XenonRecomp + ReGPU**, the same stack as the FM2 and FM4 ReGPU ports. Two ReXGlue-based FM3 recomps are kept as reference, and one of them (**hl360-forza3**) is built locally as the **comparison baseline** for frame-dump diffs.
 
 ## Start every session here
-1. Read **[NOTES.md](NOTES.md)**: the top section is current status / next step, and *Work plan (phases)* is the roadmap. **Phases 1–2 are done**: the repo is on GitHub (`braaap-stututu/FM3-ReGPU`, `main`; push our work there), and `tools/recomp.ps1` produces a clean, compiling `out/ppc`. Next is Phase 3 (runtime port, boot to first frame).
+1. Read **[NOTES.md](NOTES.md)**: the top section is current status / next step, and *Work plan (phases)* is the roadmap. **Phases 1–3 are done**: the repo is on GitHub (`braaap-stututu/FM3-ReGPU`, `main`; push our work there), `tools/recomp.ps1` produces a clean `out/ppc`, and `build\rel\fm3.exe` boots to the intro video at ~60 fps (how to run: top of NOTES.md). Next is Phase 4 (input, menus, profiles/DLC, reach the intro race).
 2. Game-specific knowledge (addresses, symptoms, fixes, and how each maps to XenonRecomp/ReGPU) is in **[FM3-QUIRKS.md](FM3-QUIRKS.md)**. Verbatim address lists are in `reference/catalogs/`.
 3. **Update NOTES.md at the end of every work session without being asked**: status/next step at the top, config decisions, every patch applied and why, known-broken areas, and a session-log entry.
 
@@ -17,7 +17,9 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 | `tools/recomp.ps1` | Phase 2 pipeline: `game/default.xex` → `out/ppc` + `out/check.txt` (`-Prepare` also rescans helpers and switch tables) |
 | `tools/fm3_config.py`, `tools/fm3_check.py`, `tools/genstubs.py` | Helper/EH scan; output checks (errors, traps, run-offs, pointer-only targets); weak import stubs |
 | `tools/vcenv.cmd` | `tools\vcenv.cmd <cmd>` = vcvars64 + LLVM on PATH |
-| `src/` | Runtime (Phase 3; planned layout in `src/README.md`); `gpu_host.cpp` and `ppc_hooks.h` (force-included into `out/ppc`) written |
+| `src/` | Runtime ported from the FM4 port (MIT, `NOTICE.md`): kernel/XAM, loader, threads, fibers (`hooks/addresses.h` = FM3 addresses), audio, ReGPU host; layout in `src/README.md` |
+| `tools/patch_mftb.py` | Configure-time: mftb → 49.875 MHz `GuestTimebase()` in `out/ppc` |
+| `thirdparty/{fidelityfx,ffmpeg}` | Local deps (gitignored): FidelityFX 2.1.0 junction; FFmpeg 8.1 LGPL shared (BtbN) |
 | `thirdparty/{XenonRecomp,ReGPU}` | Our submodules, pinned (commits in NOTES.md) |
 | `FM3-QUIRKS.md` | 26 FM3 quirks: address, symptom, hl360 fix, forza3-recomp fix, XR+ReGPU equivalent |
 | `tools/fm3_route.ps1` | Drives the hl360 baseline: fresh-profile boot → intro-race start grid → pause → screenshots + dumps |
@@ -44,7 +46,7 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 
 ## Toolchain (installed)
 VS 2022 Build Tools 17.14 (MSVC 14.44, bundled CMake 3.31.6 + Ninja 1.12.1), Windows SDK 10.0.26100, **LLVM 23.1.5** at `C:\Program Files\LLVM` (not on PATH; scripts call `vcvars64` + prepend LLVM, like hl360's `scripts\devenv.cmd`), Python 3.15 (no numpy), Git 2.56 (`sh` in `C:\Program Files\Git\usr\bin`, not on PATH), RenderDoc 1.47. Host GPU: RX 7900 XTX.
-**FidelityFX SDK 2.1.0** at `G:/claude code projects/tools/FidelityFX-SDK-2.1.0`, junctioned as `thirdparty/fidelityfx`. Not yet usable (**ask before installing**): FFmpeg win64 **LGPL shared** (BtbN build → `thirdparty/ffmpeg/{include,lib,bin}`; the winget Gyan.FFmpeg GPL static build is exe-only and unusable), optional numpy.
+**FidelityFX SDK 2.1.0** at `G:/claude code projects/tools/FidelityFX-SDK-2.1.0`, junctioned as `thirdparty/fidelityfx`. **FFmpeg 8.1 LGPL shared** (BtbN, checksum-verified) in `thirdparty/ffmpeg`; the winget Gyan.FFmpeg GPL static build is exe-only and not used. Optional (ask first): numpy.
 
 ## Gotchas learned the hard way
 - **Line endings:** the global git `core.autocrlf=true` turns patch files into CRLF, so `git apply` fails. Use `.gitattributes` with `*.patch -text` (keep `.cmd/.bat/.ps1` CRLF). hl360 + its SDK already have repo-local fixes. The reference clones' working trees are CRLF too: take patch files from their git objects (`git show HEAD:path`), not by copying.
