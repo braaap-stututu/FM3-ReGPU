@@ -1,8 +1,17 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-07, session 7)
+## ▶ Current status / next step  (updated 2026-11-07, session 8)
 
-**Status:** **Phase 3 goal reached: `fm3.exe` boots and renders.** The runtime (ported from the FM4 port, see `NOTICE.md`) runs FM3's recompiled code on ReGPU. From a fresh user folder, with no input: ESRB screen at ~8 s (correct, see `out/shots/boot_08s.png`), logo fades, then the **R8 intro video plays** (40 s: the door close-up hl360's dump showed; 70 s: the Le Mans prototype shot). **59.6 fps average** (4,140 swaps in 69.5 s, vblank 60 Hz, frame cap 60), 54 draws/frame in the video like hl360. 15 guest threads, GPU interrupt and ring buffer OK, audio driver at 188 callbacks/s with 0 dropped frames. No unimplemented-import warnings so far; only `ExGetXConfigSetting 0003/0001` and kernel variable ordinals 0x156/0x1BF are unknown.
+**Status:** **Races are playable** (you finished the intro race; controller, keyboard and audio OK). Of the three visual bugs you reported, **two are fixed** (verified on the paused start grid, `out/shots/fix_paused2.png` vs `p_base.png`):
+- **Bar across the screen** (rows ~360–511, ending at the EDRAM tile seam at 512): ReGPU's "foreign MSAA" path. Now off by default in `src/gpu_host.cpp` (`REGPU_NO_FOREIGN_MSAA=1`; `FM3_FOREIGN_MSAA=1` restores it). Brightness either side of the seam 114/64 → 40/39.
+- **Asphalt streaks**: the road shader's car/track shadow lookup (fetch slot 11 = 256×256 `k_16_16` variance shadow map, resolved as signed integers, fetched as unsigned fractions) got unconverted integer-unit floats from ReGPU. Fixed in ReGPU by our patch `patches/regpu-fixed16-fetch.patch` (game-neutral; `REGPU_NO_FIXED16_FETCH=1` A/B). Road now dark asphalt like hl360, and the car shadow is right (no hl360 dark square).
+- **Still open: sun white-out + slowdown.** Seen at full strength in `out/shots/ab_merge_on.png`. Candidates: the occlusion-query path (turning `REGPU_NO_OCCLUSION_COVERAGE` on gave pure white, but the camera was moving then, so not conclusive) and the auto-exposure chain (k_32_FLOAT 32×32). Next: reproduce with the camera parked on the sun, then flip the occlusion/7e3 switches.
+- Also seen: 30–36 fps for the first seconds of the race (3,000+ draws, while the shader cache rebuilds after the preamble change), then 58–60.
+
+**Tools added this session:** `tools/fm3ctl.ps1` (our client for ReGPU's debug server: `Start-Fm3Dev [-Fresh]`, `Fm3 "<cmd>"`, `Save-Fm3Shot`; scripted runs use `out/user-route`, never your `out/user`). The pattern that found both bugs: pause → `switch` sweeps with a brightness/edge metric → `capture` → `ps <hash> tint` to find the draw → `hlsl <hash>` → read the fetch constant.
+
+### Previous status (session 7)
+**Phase 3 goal reached: `fm3.exe` boots and renders.** The runtime (ported from the FM4 port, see `NOTICE.md`) runs FM3's recompiled code on ReGPU. From a fresh user folder, with no input: ESRB screen at ~8 s (correct, see `out/shots/boot_08s.png`), logo fades, then the **R8 intro video plays** (40 s: the door close-up hl360's dump showed; 70 s: the Le Mans prototype shot). **59.6 fps average** (4,140 swaps in 69.5 s, vblank 60 Hz, frame cap 60), 54 draws/frame in the video like hl360. 15 guest threads, GPU interrupt and ring buffer OK, audio driver at 188 callbacks/s with 0 dropped frames. No unimplemented-import warnings so far; only `ExGetXConfigSetting 0003/0001` and kernel variable ordinals 0x156/0x1BF are unknown.
 
 **How to run:**
 ```powershell
@@ -227,6 +236,16 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 **Phase 6 — Polish ☐** Frame-rate unlock only after confirming FM3's sim timing (Q24), launcher/settings, mods (Q9 re-signing, PF+3).
 
 ## Session log
+### 2026-11-07 — session 8 (visual bugs: bar, asphalt, sun)
+- You reported: race playable to the finish; input + audio fine; three visual bugs (screen-wide bar, sun white-out + slowdown, asphalt streaks worse in motion).
+- `tools/fm3ctl.ps1` (own TCP client for ReGPU's debug server, port 7341). The debug pad's presses reach the game (A skips the intro; START pauses after the countdown, not on "GO!").
+- **Bar:** a hard edge at row 512. hl360's grid dump shows FM3 resolves the 2x-MSAA scene in two tiles (`1280×512` + `1280×208`, contiguous), and ReGPU's trace shows it handles the tile replay. On a paused frame I swept ~60 live switches with a row-brightness metric; only `REGPU_NO_FOREIGN_MSAA` removed the band (rows 496–511: 114 → 64). Made it an FM3 default.
+- **Asphalt:** swept texture/sampler switches with an edge-energy metric (only `REGPU_NO_FETCH_BOUNDS` helped partly, a red herring). `capture` → pixel shaders bound to the shadow maps → tinting each found the road shader `08a4eb8fbebd07fe`. Its slot 11 = `18708000` (256×256 `k_16_16` VSM). The resolved images themselves were clean (`out/run/out/res`). Fetch constant `8200D802 … 01281690 … 00000219`: clamp to border (white), unsigned, fraction. The resolve had been signed integer with exp bias +10 (`dest_info 000A6C81`). ReGPU's fetch setup never applied the fetch's number format/sign to resolved fixed-16 images → fix in ReGPU (`regpu-fixed16-fetch.patch`; `setup.ps1` now applies ReGPU patch stacks too).
+- **My mistake, caught by you:** the first version of the shader helper used a loop writing `v[c]`; fxc can't unroll that (X3500/X3511), so **160 shaders failed to compile** and the scene went black with a broken UI. Rewritten with vector selects: 0 failures. Lesson: after any change to ReGPU's HLSL preamble, boot and grep `failed to compile` before looking at anything else.
+- **FM4's vendored ReGPU A/B:** added CMake `FM3_REGPU_DIR` / `FM3_REGPU_FM4` (crash.cpp has an `#if`), but building FM4's copy from `reference/` was **blocked by the permission classifier** (third-party code in the reference clones). Not needed for these two fixes.
+- My scripted A presses carried into the race (the car drove off); the scene changes in the first sweep were you rotating the camera, so that sweep was discarded and redone on a paused frame.
+- Stray file: ReGPU's `hlsl` debug command cut my path at the first space and wrote `G:\claude`; moved it into `out/ps_road.hlsl`. Use paths without spaces for that command.
+
 ### 2026-11-07 — session 7 (FFmpeg + Phase 3: runtime port, first boot)
 - **FFmpeg** (you asked me to get the right one): BtbN release `latest`, asset `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` (80,407,192 B). SHA-256 `9cb911fc…04c0` matches both GitHub's asset digest and BtbN's `checksums.sha256`. Downloaded to an empty scratch folder, extracted to `thirdparty/ffmpeg` (gitignored). Version n8.1.3-34-ga35157abb9 (2026-11-07), LGPL v3 (`--enable-version3`, no `--enable-gpl`), with `xma1`/`xma2` decoders; DLLs avcodec-62, avutil-60, swresample-6.
 - **Runtime port:** copied FM4's `src/` from its git objects (51 files) and adapted it:

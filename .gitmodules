@@ -5,3 +5,4 @@
 [submodule "thirdparty/ReGPU"]
 	path = thirdparty/ReGPU
 	url = https://github.com/zer0ducksgiven/ReGPU
+	ignore = dirty

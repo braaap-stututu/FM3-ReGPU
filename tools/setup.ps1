@@ -1,6 +1,6 @@
 # One-time (and idempotent) setup of the build tree:
 #   1. submodules (XenonRecomp + its thirdparty, ReGPU) at the pinned commits, LF line endings;
-#   2. our XenonRecomp patches, applied in order (skipped when already applied);
+#   2. our XenonRecomp and ReGPU patches, applied in order (skipped when already applied);
 #   3. the host tools (XenonRecomp, XenonAnalyse, xexdump) built into build\tools.
 # Usage (PowerShell, from anywhere):  & "<project>\tools\setup.ps1" [-NoBuild]
 param([switch]$NoBuild)
@@ -17,6 +17,10 @@ $patches = @(
     'xenonrecomp-fm4-instructions', # extra/fixed VMX128 and CR-bit instructions
     'xenonrecomp-switch-u32'        # switch on the u32 index; vcmpbfp implemented
 )
+# ReGPU (our own, game-neutral Xenos fixes; see patches/README.md).
+$regpuPatches = @(
+    'regpu-fixed16-fetch'           # resolved 16-bit fixed images read with the fetch's number format and sign
+)
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }
 
@@ -28,36 +32,40 @@ foreach ($sm in @('thirdparty/XenonRecomp', 'thirdparty/ReGPU')) {
 }
 Invoke-Git -C thirdparty/XenonRecomp submodule foreach --quiet 'git config core.autocrlf false'
 
-$xr = Join-Path $root 'thirdparty/XenonRecomp'
-# Idempotent check of the whole stack: build the tree "upstream commit + all patches" in a scratch
-# index and compare it with the working tree (the patches overlap, so reverse-checking one at a
+# Idempotent check of a whole stack: build the tree "pinned commit + all patches" in a scratch
+# index and compare it with the working tree (patches can overlap, so reverse-checking one at a
 # time does not work once later ones are applied).
-function Get-Tree([scriptblock]$fill) {
-    $idx = Join-Path ([IO.Path]::GetTempPath()) ("fm3-xr-" + [guid]::NewGuid() + ".idx")
+function Get-Tree([string]$repo, [scriptblock]$fill) {
+    $idx = Join-Path ([IO.Path]::GetTempPath()) ("fm3-patch-" + [guid]::NewGuid() + ".idx")
     $env:GIT_INDEX_FILE = $idx
-    try { & $fill | Out-Null; $t = (& git -C $xr write-tree); if ($LASTEXITCODE -ne 0) { throw 'write-tree failed' }; return $t }
+    try { & $fill | Out-Null; $t = (& git -C $repo write-tree); if ($LASTEXITCODE -ne 0) { throw 'write-tree failed' }; return $t }
     finally { Remove-Item Env:GIT_INDEX_FILE; Remove-Item $idx -ErrorAction SilentlyContinue }
 }
-$expected = Get-Tree {
-    & git -C $xr read-tree HEAD
-    foreach ($p in $patches) {
-        & git -C $xr apply --cached (Join-Path $root "patches/$p.patch")
-        if ($LASTEXITCODE -ne 0) { throw "patch $p does not apply to the pinned XenonRecomp commit" }
+function Set-PatchStack([string]$name, [string[]]$stack) {
+    $repo = Join-Path $root "thirdparty/$name"
+    $expected = Get-Tree $repo {
+        & git -C $repo read-tree HEAD
+        foreach ($p in $stack) {
+            & git -C $repo apply --cached (Join-Path $root "patches/$p.patch")
+            if ($LASTEXITCODE -ne 0) { throw "patch $p does not apply to the pinned $name commit" }
+        }
+    }
+    $current = Get-Tree $repo { & git -C $repo read-tree HEAD; & git -C $repo add -A }
+    $clean = Get-Tree $repo { & git -C $repo read-tree HEAD }
+    if ($current -eq $expected) {
+        Write-Host "${name}: all $($stack.Count) patches already applied"
+    } elseif ($current -eq $clean) {
+        foreach ($p in $stack) {
+            & git -C $repo apply (Join-Path $root "patches/$p.patch")
+            if ($LASTEXITCODE -ne 0) { throw "patch $p failed (CRLF checkout? see NOTES.md gotchas)" }
+            Write-Host "patch $p : applied"
+        }
+    } else {
+        throw "thirdparty/$name has changes that are neither upstream nor exactly our patch stack: inspect with git -C thirdparty/$name diff"
     }
 }
-$current = Get-Tree { & git -C $xr read-tree HEAD; & git -C $xr add -A }
-$clean = Get-Tree { & git -C $xr read-tree HEAD }
-if ($current -eq $expected) {
-    Write-Host "XenonRecomp: all $($patches.Count) patches already applied"
-} elseif ($current -eq $clean) {
-    foreach ($p in $patches) {
-        & git -C $xr apply (Join-Path $root "patches/$p.patch")
-        if ($LASTEXITCODE -ne 0) { throw "patch $p failed (CRLF checkout? see NOTES.md gotchas)" }
-        Write-Host "patch $p : applied"
-    }
-} else {
-    throw "thirdparty/XenonRecomp has changes that are neither upstream nor exactly our patch stack: inspect with git -C thirdparty/XenonRecomp diff"
-}
+Set-PatchStack 'XenonRecomp' $patches
+Set-PatchStack 'ReGPU' $regpuPatches
 
 if ($NoBuild) { return }
 $vcenv = Join-Path $PSScriptRoot 'vcenv.cmd'

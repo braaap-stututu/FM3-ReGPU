@@ -75,6 +75,13 @@ void GpuStart()
     host.logThreadStacks = [](const char* why) { LogAllHostThreadStacks(why); };
     host.currentStack = [](int maxFrames) { return CurrentHostStack(maxFrames); };
 
+    // The bar across the 3D view (rows ~360-511, ending at the EDRAM tile seam: FM3 draws its 2x MSAA 720p
+    // scene in two tiles, 1280x512 and 1280x208): ReGPU's "foreign MSAA" path, which reinterprets a surface's
+    // samples when a view with another MSAA layout reads it, washed those rows out. Off, the band is gone and
+    // nothing else changed (paused start grid, A/B in NOTES.md session 8). FM3_FOREIGN_MSAA=1 keeps it on.
+    if (!getenv("FM3_FOREIGN_MSAA"))
+        DefaultEnv("REGPU_NO_FOREIGN_MSAA", "1");
+
     // Q24: guest vblank at 60 Hz.
     if (const char* hz = getenv("FM3_VBLANK_HZ"))
         _putenv_s("REGPU_VBLANK_HZ", hz);

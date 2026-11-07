@@ -71,12 +71,17 @@ set(REGPU_FFX "${FM3_FFX}")
 if(EXISTS "${FM3_FFX}/signedbin/amd_fidelityfx_upscaler_dx12.dll")
     set(REGPU_FSR3 ON)
 endif()
-add_subdirectory(thirdparty/ReGPU)
+# FM3_REGPU_DIR: which ReGPU to build. Default: our submodule (upstream). For A/B tests it can point
+# at another copy, e.g. the FM4 port's vendored ReGPU (more EDRAM emulation); set FM3_REGPU_FM4=ON
+# then, as that copy's API differs slightly (src/crash.cpp).
+set(FM3_REGPU_DIR "${CMAKE_SOURCE_DIR}/thirdparty/ReGPU" CACHE PATH "ReGPU source folder")
+option(FM3_REGPU_FM4 "FM3_REGPU_DIR is the FM4 port's vendored ReGPU" OFF)
+add_subdirectory("${FM3_REGPU_DIR}" regpu)
 
 add_executable(fm3 ${FM3_SOURCES})
 target_include_directories(fm3 PRIVATE src "${FM3_PPC_DIR}" thirdparty/XenonRecomp/thirdparty/simde)
 target_link_libraries(fm3 PRIVATE regpu fm3_ppc XenonUtils synchronization winmm onecore dbghelp xaudio2 bcrypt)
-target_compile_definitions(fm3 PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+target_compile_definitions(fm3 PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS FM3_REGPU_FM4=$<BOOL:${FM3_REGPU_FM4}>)
 target_compile_options(fm3 PRIVATE -gline-tables-only)
 target_link_options(fm3 PRIVATE /STACK:0x1000000 /DEBUG)
 if(REGPU_FSR3)

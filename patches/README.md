@@ -17,5 +17,14 @@ licence (the notice it carries, from FM2: © 2026 zer0ducksgiven; full text in N
 All five are generic recompiler fixes, not FM2/FM4 addresses. FM3 is a single image (only
 `default.xex` on Disc 1), so patch 2's prefix stays unused for now.
 
+## ReGPU patches (ours)
+
+Applied to `thirdparty/ReGPU` at `57143cb79e8dd4de7b776c70867313cd0b1862f2` by `tools/setup.ps1`. Game-neutral
+Xenos behaviour, each behind a `REGPU_*` switch, as ReGPU's own rules ask; candidates to send upstream.
+
+| Patch | What | Switch |
+|---|---|---|
+| `regpu-fixed16-fetch.patch` | A resolved 16-bit fixed image (copy destination `k_16`, `k_16_16`, `k_16_16_16_16`) is read with the **fetch constant's** number format and sign: unsigned fraction = bits / 65535 (negative integers wrap to value + 65536), signed fraction = value / 32767, integer = value. ReGPU stored the copy's integers as floats and returned them unconverted. Fixes FM3's road streaks: its variance shadow map is resolved as signed integers (exp bias +10) and fetched as unsigned fractions by the road shader (slot 11). | `REGPU_NO_FIXED16_FETCH=1` (start-up) |
+
 Line endings: these files must stay LF (`.gitattributes`: `*.patch -text`). The global
 `core.autocrlf=true` would otherwise make them CRLF and `git apply` fails on every hunk.

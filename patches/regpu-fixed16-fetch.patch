@@ -1,0 +1,70 @@
+diff --git a/src/gpu/hlsl.cpp b/src/gpu/hlsl.cpp
+index 4ee67db..4778900 100644
+--- a/src/gpu/hlsl.cpp
++++ b/src/gpu/hlsl.cpp
+@@ -255,9 +255,25 @@ float PWLGammaToLinear(float g)
+     return l / 1023.0;
+ }
+ 
++// A resolved 16-bit fixed image (tinfo.x bits 14-15 mode, bits 2-3 components: 0 one, 1 two, 2 four) holds
++// the copy's integers as floats; the fetch reads those 16 bits with its own number format and sign
++// (renderer.cpp): 1 unsigned fraction (bits / 65535), 2 signed fraction (value / 32767), 3 unsigned integer.
++float4 Fixed16Fetch(float4 v, uint info)
++{
++    const uint mode = (info >> 14) & 3u;
++    if (mode == 0u)
++        return v;
++    // Vector selects, no loop: fxc can't unroll a loop that writes v[c] (error X3500 / X3511).
++    const uint comps = 1u << ((info >> 2) & 3u);
++    const float4 bits = v + (v < 0.0 ? 65536.0 : 0.0);
++    const float4 r = mode == 1u ? bits / 65535.0 : (mode == 2u ? max(v / 32767.0, -1.0) : bits);
++    const bool4 use = bool4(true, comps >= 2u, comps >= 4u, comps >= 4u);
++    return use ? r : v;
++}
++
+ float4 TFetch(uint slot, float3 coord, bool denorm, bool vertexStage, float bias, float2 texel)
+ {
+-    float4 v = TFetchRaw(slot, coord, denorm, vertexStage, bias, texel);
++    float4 v = Fixed16Fetch(TFetchRaw(slot, coord, denorm, vertexStage, bias, texel), tinfo[slot].x);
+     // Gamma-signed components (tinfo.x bits 24-27, in v's order): before the exponent adjust.
+     uint gamma = (tinfo[slot].x >> 24) & 0xFu;
+     if (gamma != 0u)
+@@ -1083,7 +1099,7 @@ float4 TFetch2D(uint slot, float3 coord, bool denorm, float bias, float2 texel)
+     // Sampler index: the filter mode (1-3 its own sampler), else the anisotropy (s4-s7), else s0.
+     const uint mode = info & 3u, aniso = (info >> 20) & 7u;
+     const uint s = mode != 0u ? mode : (aniso >= 1u && aniso <= 4u ? aniso + 3u : 0u);
+-    float4 v = gtex[asuint(tbias[slot].y)].SampleBias(gsamp[s], uv, bias);
++    float4 v = Fixed16Fetch(gtex[asuint(tbias[slot].y)].SampleBias(gsamp[s], uv, bias), info);
+     uint gamma = (info >> 24) & 0xFu;
+     if (gamma != 0u)
+     {
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 75e248f..7dc07fb 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -9986,6 +9986,25 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         // outside the image (dword 5 bits 0-1: 1 white, else black).
+         if (clampX >= 6 && clampY >= 6)
+             ti[0] |= (1u << 16) | ((fetch.dwords[5] & 3) == 1 ? 1u << 17 : 0u);
++        // A resolved 16-bit fixed image (copy destination k_16, k_16_16, k_16_16_16_16: formats 24-26) holds the
++        // copy's integers as floats (see the resolve: the exponent bias applied, saturated to 16 bits by the
++        // copy's number format). On the console a fetch reads those 16 bits with the fetch constant's own
++        // number format (dword 3 bit 0: integer) and sign (dword 0 bits 2-3: 1 signed): an unsigned fraction
++        // is bits / 65535 (a negative integer's bits are value + 65536), a signed one value / 32767, an
++        // integer the value itself. Unconverted, a fraction fetch read values up to 65535 times too large
++        // (FM3's variance shadow map, resolved as signed integers and fetched as unsigned fractions: the
++        // road shader's shadow test banded into streaks). tinfo.x bits 14-15 (mode) and 2-3 (components),
++        // applied before the exponent adjust (hlsl.cpp Fixed16Fetch). REGPU_NO_FIXED16_FETCH=1: unconverted
++        // (A/B; read with the fetch constant, so set it before the start).
++        static const bool noFixed16Fetch = getenv("REGPU_NO_FIXED16_FETCH") != nullptr;
++        if (onGpu && resolvedPtr && resolvedPtr->guestFormat >= 24 && resolvedPtr->guestFormat <= 26 && !noFixed16Fetch)
++        {
++            const bool isSigned = ((fetch.dwords[0] >> 2) & 3) == 1;
++            const bool integer = (fetch.dwords[3] & 1) != 0;
++            const uint32_t mode = integer ? (isSigned ? 0u : 3u) : (isSigned ? 2u : 1u);
++            const uint32_t comps = resolvedPtr->guestFormat == 24 ? 0u : resolvedPtr->guestFormat == 25 ? 1u : 2u;
++            ti[0] |= (mode << 14) | (comps << 2);
++        }
+         // Below the output resolution (a temporal upscaler's scene) the mips are biased sharper by log2 of the
+         // scale (-0.58 at 67%), as upscalers ask, so the upscaled image keeps the output's texture detail
+         // (from the FM4 port). REGPU_NO_LOD_BIAS=1 (live): the fetch's bias alone.

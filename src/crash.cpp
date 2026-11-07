@@ -13,6 +13,12 @@
 #include "memory.h"
 
 #include "regpu/regpu.h"
+#if FM3_REGPU_FM4
+namespace regpu
+{
+void RendererLogCrashContext(); // the FM4 port's vendored ReGPU: not public there
+}
+#endif
 
 namespace
 {
@@ -85,7 +91,11 @@ LONG WINAPI OnCrash(EXCEPTION_POINTERS* info)
         Describe(frame.AddrPC.Offset, where, sizeof(where));
         Log("CRASH:   #%d %s", i, where);
     }
-    regpu::LogCrashContext(); // (upstream ReGPU public API; FM4 called a renderer internal)
+#if FM3_REGPU_FM4
+    regpu::RendererLogCrashContext();
+#else
+    regpu::LogCrashContext();
+#endif
     Log("CRASH: other threads:");
     LogGuestThreads();
     LogFlush();
