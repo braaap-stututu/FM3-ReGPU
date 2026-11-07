@@ -22,7 +22,8 @@ $regpuPatches = @(
     'regpu-fixed16-fetch',          # resolved 16-bit fixed images read with the fetch's number format and sign
     'regpu-zpd-tile-spans',         # occlusion queries count only inside each tile's ZPD event pair
     'regpu-resolve-into-image',     # a full-width resolve into an existing image is part of it, not a tile
-    'regpu-timer-overlay'           # REGPU_TIMER: the log clock in the top-left corner (test aid)
+    'regpu-timer-overlay',          # REGPU_TIMER: the log clock in the top-left corner (test aid)
+    'regpu-cube-2101010'            # k_2_10_10_10 textures decoded; cube faces read from memory staged at their own offsets
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }
