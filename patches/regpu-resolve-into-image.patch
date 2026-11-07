@@ -1,0 +1,27 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 953ca7c..e095167 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -6910,7 +6910,21 @@ void Resolve()
+         const uint32_t declaredHeight = (pitchReg >> 16) & 0x3FFF;
+         // (Only for a rectangle narrower than the image: full-width rows are a tall pass's tiles, which
+         // FH1's scene resolves are too, at the tile's own row.)
+-        const bool placedInImage = imageBase && rect.top > 0 && uint32_t(rect.bottom) <= declaredHeight && uint32_t(rect.right - rect.left) < pitch;
++        bool placedInImage = imageBase && rect.top > 0 && uint32_t(rect.bottom) <= declaredHeight && uint32_t(rect.right - rect.left) < pitch;
++        // A full-width rectangle whose destination already holds a resolved image of that width covering its rows
++        // is a part of that image, not a tile: a tile's destination is its own row (the image base plus its top
++        // rows), where no image starts. FM3 rebuilds its 512x512 road detail image half at a time, rows 256-511
++        // to the image's own base; taken as a tile it went to a separate image 256 rows earlier, and the road
++        // image kept a stale, blurred lower half (smooth bands on the asphalt once the chase camera turned).
++        // REGPU_NO_RESOLVE_INTO_IMAGE=1: as a tile, as before (A/B).
++        static LiveSwitch noIntoImage("REGPU_NO_RESOLVE_INTO_IMAGE");
++        if (!placedInImage && !noIntoImage && rect.top > 0 && uint32_t(rect.bottom) <= declaredHeight)
++        {
++            const auto existing = g_r.resolved.find(gpureg::Get(RB_COPY_DEST_BASE) & 0x1FFFFFFF);
++            if (existing != g_r.resolved.end() && existing->second.resource && existing->second.width == pitch &&
++                existing->second.height >= uint32_t(rect.bottom))
++                placedInImage = true;
++        }
+         const uint32_t base = placedInImage ? gpureg::Get(RB_COPY_DEST_BASE) & 0x1FFFFFFF
+                                             : ((gpureg::Get(RB_COPY_DEST_BASE) & 0x1FFFFFFF) - uint32_t(rect.top) * pitch * (noTileBpp ? 4 : guestBpp)) & 0x1FFFFFFF;
+         const uint32_t width = std::clamp<uint32_t>(pitch, 1, std::max<uint32_t>(kWidth, BigPassSize()));

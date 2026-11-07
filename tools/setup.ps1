@@ -20,7 +20,8 @@ $patches = @(
 # ReGPU (our own, game-neutral Xenos fixes; see patches/README.md).
 $regpuPatches = @(
     'regpu-fixed16-fetch',          # resolved 16-bit fixed images read with the fetch's number format and sign
-    'regpu-zpd-tile-spans'          # occlusion queries count only inside each tile's ZPD event pair
+    'regpu-zpd-tile-spans',         # occlusion queries count only inside each tile's ZPD event pair
+    'regpu-resolve-into-image'      # a full-width resolve into an existing image is part of it, not a tile
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }
