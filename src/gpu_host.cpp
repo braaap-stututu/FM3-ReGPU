@@ -14,6 +14,8 @@
 // cascade switches (FM4 addresses/formats). FM3's own versions (Q18, Q19) come in Phase 5, decided
 // from hl360-vs-ReGPU frame-dump diffs.
 #include <cstdlib>
+#include <mutex>
+#include <set>
 #include <string>
 
 #include "regpu/regpu.h"
@@ -81,6 +83,32 @@ void GpuStart()
     // nothing else changed (paused start grid, A/B in NOTES.md session 8). FM3_FOREIGN_MSAA=1 keeps it on.
     if (!getenv("FM3_FOREIGN_MSAA"))
         DefaultEnv("REGPU_NO_FOREIGN_MSAA", "1");
+
+    // Q18, the road surface: the road shader samples a 512x512 detail image the game composes at run time
+    // (half of it a frame, plus its mip chain) from a base asphalt texture and four 32x512 strips it reads
+    // as DXT1. The strips are rendered and resolved once, when the track loads (none during a race; an
+    // earlier capture had the 32x512 resolve). ReGPU keeps resolves on the GPU, so their memory never got
+    // the strips: they held whatever was there before (pieces of car textures), and the composed image
+    // came out with light crossing bands and dashed lines (streaks on the asphalt turning with the camera).
+    // The same mechanism FM4's port fixed with this rule: 32x512 colour resolves written back to memory.
+    // Now, not Deferred: these 8888 strips are compressed to separate DXT1 strips (32 KB each, elsewhere)
+    // right after they are rendered, by code reading their memory; a write-back a frame or two later came
+    // too late (streaks unchanged with 64 strips written back Deferred). Now stalls the GPU for each, ~64
+    // resolves once per track load. Each one is logged once.
+    // FM3_NO_STRIP_WRITEBACK=1: not written back (A/B, from the start of a track).
+    host.resolveWriteback = [](const regpu::ResolveCopy& c) {
+        regpu::Writeback w;
+        static const bool off = getenv("FM3_NO_STRIP_WRITEBACK") != nullptr;
+        if (off || c.depth || c.width != 32 || c.height != 512)
+            return w;
+        w.mode = regpu::Writeback::Mode::Now;
+        static std::mutex m;
+        static std::set<uint32_t> seen;
+        std::lock_guard lock(m);
+        if (seen.insert(c.base).second && seen.size() <= 64)
+            Log("strip writeback: %08X 32x512 format %u rows %d-%d", c.base, c.format, c.top, c.bottom);
+        return w;
+    };
 
     // Q24: guest vblank at 60 Hz.
     if (const char* hz = getenv("FM3_VBLANK_HZ"))

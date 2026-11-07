@@ -1,35 +1,60 @@
 diff --git a/src/gpu/hlsl.cpp b/src/gpu/hlsl.cpp
-index 4ee67db..4778900 100644
+index 4ee67db..465956b 100644
 --- a/src/gpu/hlsl.cpp
 +++ b/src/gpu/hlsl.cpp
-@@ -255,9 +255,25 @@ float PWLGammaToLinear(float g)
+@@ -211,6 +211,7 @@ float3 CubeDirection(float3 stf)
+ 
+ float4 TFetchRaw(uint slot, float3 coord, bool denorm, bool vertexStage, float bias, float2 texel);
+ static int gFilterOverride = -1; // the fetch instruction's filter (0 point, 1 linear), -1 the constant's
++static bool gBorderHit = false;  // TFetchRaw returned the border colour (clamp to border, outside the image)
+ // The sampler for a fetch: the constant's mode (0 linear wrap, 1 linear clamp, 2 point clamp, 3 point
+ // wrap), its filter replaced by the instruction's when it has one.
+ uint FetchMode(uint mode)
+@@ -255,9 +256,32 @@ float PWLGammaToLinear(float g)
      return l / 1023.0;
  }
  
-+// A resolved 16-bit fixed image (tinfo.x bits 14-15 mode, bits 2-3 components: 0 one, 1 two, 2 four) holds
-+// the copy's integers as floats; the fetch reads those 16 bits with its own number format and sign
-+// (renderer.cpp): 1 unsigned fraction (bits / 65535), 2 signed fraction (value / 32767), 3 unsigned integer.
++// A resolved 16-bit fixed image read with another number format than it was copied in (renderer.cpp: tinfo.x
++// bit 6 on; bits 4-5 the copy's format, 0 integer, 1 unsigned fraction, 2 signed fraction; bits 14-15 the
++// fetch's, 0 signed integer, 1 unsigned fraction, 2 signed fraction, 3 unsigned integer; bits 2-3 the
++// components, 0 one, 1 two, 2 four). Back to the 16 bits the console stores, then read as the fetch asks.
 +float4 Fixed16Fetch(float4 v, uint info)
 +{
-+    const uint mode = (info >> 14) & 3u;
-+    if (mode == 0u)
++    if (!((info >> 6) & 1u))
 +        return v;
++    const uint copy = (info >> 4) & 3u, mode = (info >> 14) & 3u;
 +    // Vector selects, no loop: fxc can't unroll a loop that writes v[c] (error X3500 / X3511).
++    const float4 stored = copy == 1u ? round(saturate(v) * 65535.0) : (copy == 2u ? round(clamp(v, -1.0, 1.0) * 32767.0) : v);
++    const float4 asSigned = stored - (stored >= 32768.0 ? 65536.0 : 0.0);
++    const float4 asUnsigned = stored + (stored < 0.0 ? 65536.0 : 0.0);
++    const float4 r = mode == 1u ? asUnsigned / 65535.0 : (mode == 2u ? max(asSigned / 32767.0, -1.0) : (mode == 3u ? asUnsigned : asSigned));
 +    const uint comps = 1u << ((info >> 2) & 3u);
-+    const float4 bits = v + (v < 0.0 ? 65536.0 : 0.0);
-+    const float4 r = mode == 1u ? bits / 65535.0 : (mode == 2u ? max(v / 32767.0, -1.0) : bits);
 +    const bool4 use = bool4(true, comps >= 2u, comps >= 4u, comps >= 4u);
 +    return use ? r : v;
 +}
 +
  float4 TFetch(uint slot, float3 coord, bool denorm, bool vertexStage, float bias, float2 texel)
  {
--    float4 v = TFetchRaw(slot, coord, denorm, vertexStage, bias, texel);
-+    float4 v = Fixed16Fetch(TFetchRaw(slot, coord, denorm, vertexStage, bias, texel), tinfo[slot].x);
++    gBorderHit = false;
+     float4 v = TFetchRaw(slot, coord, denorm, vertexStage, bias, texel);
++    // A texel of a resolved 16-bit fixed image, converted as the fetch reads it; the border colour is not.
++    if (!gBorderHit)
++        v = Fixed16Fetch(v, tinfo[slot].x);
      // Gamma-signed components (tinfo.x bits 24-27, in v's order): before the exponent adjust.
      uint gamma = (tinfo[slot].x >> 24) & 0xFu;
      if (gamma != 0u)
-@@ -1083,7 +1099,7 @@ float4 TFetch2D(uint slot, float3 coord, bool denorm, float bias, float2 texel)
+@@ -323,7 +347,10 @@ float4 TFetchRaw(uint slot, float3 coord, bool denorm, bool vertexStage, float b
+     // Clamp to border (tinfo.x bit 16; bit 17 white): outside the image the border colour, as
+     // shadow maps rely on (white: nothing casts a shadow beyond the map).
+     if (((tinfo[slot].x >> 16) & 1u) && any(uv < 0.0 || uv > 1.0))
++    {
++        gBorderHit = true; // the border colour is final: TFetch doesn't convert it (Fixed16Fetch)
+         return ((tinfo[slot].x >> 17) & 1u) ? float4(1, 1, 1, 1) : float4(0, 0, 0, 0);
++    }
+     // One axis clamped, the other wrapping (tinfo.x bits 18 U, 19 V): clamp that axis here to
+     // the edge texels' centres; the sampler wraps.
+     if ((tinfo[slot].x >> 18) & 1u) uv.x = clamp(uv.x, 0.5 / texelSize.x, 1.0 - 0.5 / texelSize.x);
+@@ -1083,7 +1110,7 @@ float4 TFetch2D(uint slot, float3 coord, bool denorm, float bias, float2 texel)
      // Sampler index: the filter mode (1-3 its own sampler), else the anisotropy (s4-s7), else s0.
      const uint mode = info & 3u, aniso = (info >> 20) & 7u;
      const uint s = mode != 0u ? mode : (aniso >= 1u && aniso <= 4u ? aniso + 3u : 0u);
@@ -39,31 +64,55 @@ index 4ee67db..4778900 100644
      if (gamma != 0u)
      {
 diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
-index 75e248f..7dc07fb 100644
+index 75e248f..9cc7aa4 100644
 --- a/src/gpu/renderer.cpp
 +++ b/src/gpu/renderer.cpp
-@@ -9986,6 +9986,25 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+@@ -409,6 +409,7 @@ struct ResolvedTexture
+     bool stale = false;
+     uint32_t guestBpp = 4; // bytes per pixel of the guest image: the hash covers only its memory
+     uint32_t guestFormat = 0; // the copy's destination format (RB_COPY_DEST_INFO bits 7-12)
++    uint32_t guestNumber = 0; // the copy's destination number format (bits 13-15: 0 unsigned fraction, 1 signed, 2 uint, 3 sint)
+     // The title resolves differently sized images (bloom chain) to one address within a
+     // frame: keep earlier sizes here and swap them in rather than recreating them.
+     std::vector<ResolvedTexture> spares;
+@@ -6985,6 +6986,7 @@ void Resolve()
+             UpscaleScene(base);
+         g_r.resolved[base].swapped = swapRB;
+         g_r.resolved[base].guestFormat = depth ? 0u : destFormat;
++        g_r.resolved[base].guestNumber = depth ? 0u : numberFormat;
+         // Images the game reads on the CPU are also written to memory (regpu.h Host::resolveWriteback;
+         // without it, REGPU_RESOLVE_WRITEBACK's "WxH,WxH" sizes of 8888 colour, at once).
+         regpu::Writeback request;
+@@ -9986,6 +9988,33 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
          // outside the image (dword 5 bits 0-1: 1 white, else black).
          if (clampX >= 6 && clampY >= 6)
              ti[0] |= (1u << 16) | ((fetch.dwords[5] & 3) == 1 ? 1u << 17 : 0u);
-+        // A resolved 16-bit fixed image (copy destination k_16, k_16_16, k_16_16_16_16: formats 24-26) holds the
-+        // copy's integers as floats (see the resolve: the exponent bias applied, saturated to 16 bits by the
-+        // copy's number format). On the console a fetch reads those 16 bits with the fetch constant's own
-+        // number format (dword 3 bit 0: integer) and sign (dword 0 bits 2-3: 1 signed): an unsigned fraction
-+        // is bits / 65535 (a negative integer's bits are value + 65536), a signed one value / 32767, an
-+        // integer the value itself. Unconverted, a fraction fetch read values up to 65535 times too large
-+        // (FM3's variance shadow map, resolved as signed integers and fetched as unsigned fractions: the
-+        // road shader's shadow test banded into streaks). tinfo.x bits 14-15 (mode) and 2-3 (components),
-+        // applied before the exponent adjust (hlsl.cpp Fixed16Fetch). REGPU_NO_FIXED16_FETCH=1: unconverted
-+        // (A/B; read with the fetch constant, so set it before the start).
++        // A resolved 16-bit fixed image (copy destination k_16, k_16_16, k_16_16_16_16: formats 24-26) keeps each
++        // value as a float in the copy's own number format (the resolve): a fraction destination holds the
++        // fraction (the console stores fraction * 65535, or * 32767 signed), an integer destination the integer
++        // (the exponent bias applied, saturated to 16 bits). On the console a fetch reads those 16 bits with
++        // the fetch constant's number format (dword 3 bit 0: integer) and sign (dword 0 bits 2-3: 1 signed):
++        // an unsigned fraction is bits / 65535 (a negative integer's bits are value + 65536), a signed one
++        // value / 32767, an integer the bits themselves. So: back to the stored bits, then read as the fetch
++        // asks; a fetch that matches the copy (fraction read as the same fraction) is unchanged. Unconverted, a
++        // fraction fetch of an integer copy read values up to 65535 times too large (FM3's variance shadow
++        // map: resolved as signed integers with exponent bias 10, fetched as unsigned fractions by its blur).
++        // tinfo.x bit 6 on, bits 14-15 the fetch's mode (0 signed integer, 1 unsigned fraction, 2 signed
++        // fraction, 3 unsigned integer), bits 4-5 the copy's (0 integer, 1 unsigned fraction, 2 signed
++        // fraction), bits 2-3 the components (0 one, 1 two, 2 four); applied before the exponent adjust and not
++        // to the border colour (hlsl.cpp Fixed16Fetch). REGPU_NO_FIXED16_FETCH=1: unconverted (A/B; read with
++        // the fetch constant, so set it before the start).
 +        static const bool noFixed16Fetch = getenv("REGPU_NO_FIXED16_FETCH") != nullptr;
 +        if (onGpu && resolvedPtr && resolvedPtr->guestFormat >= 24 && resolvedPtr->guestFormat <= 26 && !noFixed16Fetch)
 +        {
 +            const bool isSigned = ((fetch.dwords[0] >> 2) & 3) == 1;
 +            const bool integer = (fetch.dwords[3] & 1) != 0;
 +            const uint32_t mode = integer ? (isSigned ? 0u : 3u) : (isSigned ? 2u : 1u);
++            const uint32_t copy = resolvedPtr->guestNumber == 0 ? 1u : resolvedPtr->guestNumber == 1 ? 2u : 0u;
 +            const uint32_t comps = resolvedPtr->guestFormat == 24 ? 0u : resolvedPtr->guestFormat == 25 ? 1u : 2u;
-+            ti[0] |= (mode << 14) | (comps << 2);
++            // The same number format on both sides is the stored value itself: nothing to do.
++            if (!(mode == 1u && copy == 1u) && !(mode == 2u && copy == 2u))
++                ti[0] |= (1u << 6) | (mode << 14) | (copy << 4) | (comps << 2);
 +        }
          // Below the output resolution (a temporal upscaler's scene) the mips are biased sharper by log2 of the
          // scale (-0.58 at 67%), as upscalers ask, so the upscaled image keeps the output's texture detail
