@@ -1,8 +1,22 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-07, end of session 8)
+## ▶ Current status / next step  (updated 2026-11-07, session 9)
 
-**Status: FM3 is playable on our build.** Boots, menus, races to the finish; controller, keyboard and audio work. All visual bugs you reported in session 8 are **fixed and confirmed by you**:
+**Session 9:** an on-screen timer (top-left, the log clock to 0.1 s; ReGPU patch `regpu-timer-overlay`, `REGPU_TIMER`, FM3 default on, `FM3_NO_TIMER=1` hides it) lets your screenshots point into the log. You then explored beyond the intro race (career menus, upgrade shop, paint/vinyl editors, a solo race, photo mode). Log of that run kept as `out/logs/session9-explore.log` (times below are its `[time]`/the timer). **New issue list (not fixed yet; FM2/FM4 comparison reported to you, waiting for your go):**
+
+| # | Issue (timer) | Our log / first lead | FM2 / FM4 port |
+|---|---|---|---|
+| A | Out-of-race 3D (showroom 66.6, career-menu car 576.1, paint booth 1382.1): paint dull/matte, chrome (badges, chrome rims 655.4) **matte black** | Garage/showroom renders its own reflection cube? Nothing logged. Check cube faces live vs read from memory vs null | FM2: same open bug ("paint turns matte, loses reflections" in garage); null cube SRV reads black. FM4 ReGPU: cube keep/stale/mips fixes; upstream has `REGPU_NO_CUBE_KEEP`, `REGPU_NO_LIVE_CUBE`, `REGPU_DUMP_CUBES` |
+| B | Vinyls/decals invisible when applying (1509.2) and in the vinyl editor (1567.6), sometimes partly visible | `resolve … (352x131) stale` at 1483; editor uses big EDRAM surfaces (1368: bases up to B40000, 1539: 1400000) | **FM2 fixed it** in its own renderer: tall 1024-row / 2048 "big pass" livery targets, stencil clears through foreign-MSAA views rescaled, tile shift for foreign views (`FM2_NO_TALL_PASS`, `_BIG_PASS`, `_FOREIGN_MSAA`, `_MSAA_SCALE`, `_FOREIGN_TILE`). Upstream ReGPU has `REGPU_NO_FOREIGN_TILE`; we force `REGPU_NO_FOREIGN_MSAA=1` (bar fix) — may matter here |
+| C | My Cars: car picture = noise blocks, centre thumbnail missing (1782.5) | `resolve … (256x256) is stale: the memory was reused` ×~40 in the rim shop and My Cars (616–856, 1471, 1671–1767) | **FM2 fixed it**: thumbnails are rendered, resolved, then compressed/saved by the CPU → resolve write-back of those sizes, with R/B swap handled. Old saved thumbnails stay broken |
+| D | Pre-race menu (119.3) and photo mode (1219.9): upper third slightly whitened (edge ≈ y 410 of 1125 in the shot ≈ row 262 of 720) | — | FM4: photo mode's 64-bit accumulation shares an EDRAM base with the 32-bit scene; fixed with vendored-only `REGPU_COLOR_SURFACE_PER_BPP` (not in upstream). FM2: photo-mode tile fixes |
+| E | Flickering shadow on the player car's right rear from other cars (266.2, intro race) | — | **FM4 fixed a match**: soft car-shadow cascades; other cars' silhouettes come from a depth copy read as 8888 bytes → vendored-only `REGPU_DEPTH_AS_8888` + `REGPU_CASCADE_*` (FM4 `gpu_host.cpp`) |
+| F | Dither/stipple on foliage and fences (365.8) | We render at host MSAA 1× (log: `anti-aliasing 1x`) | Upstream ReGPU dithers alpha-to-coverage 2×2 at 1× (Xenia-style); FM4 uses plain D3D coverage (hard cut). A/B: `REGPU_NO_ALPHA_DITHER=1` (live) |
+| G | Engine audio cutouts holding RPM (1027.1) | `xma: 5 s` stats: **0 discontinuity flushes in menus, 110–200 per 5 s in a solo race, 500–730 in the 6-car intro race**, each with codec reopens and 4–11k decoded samples dropped at "stream restarts". Our seek guard (`FM3_NO_XMA_SEEK_GUARD`) + drop-ahead (`FM3_NO_XMA_DROP_AHEAD`) fire ~30×/s while driving | Both ports have the queue depth/top-up/boost/consumed-means-delivered fixes we already carry. FM2: engine loops get a fresh codec per restart plus a seamless-loop table and crossfades (`seamless_loops.h`) |
+
+Also logged (not reported as visible bugs): `unimplemented import XamParseGamerTileKey/XamReadTileToTexture` (1598.9, gamer picture), `XamSwapDisc/XamSwapCancel` (2070), `XamShowMarketplaceUI` (2077); `vfs: no mapping for "Update:\media\cars\driver\*.gr2"` at each race load (title-update files we don't mount).
+
+**Session 8 status:** FM3 is playable on our build. Boots, menus, races to the finish; controller, keyboard and audio work. All visual bugs you reported in session 8 are **fixed and confirmed by you**:
 
 | Bug | Cause | Fix (where) | A/B switch |
 |---|---|---|---|
@@ -13,7 +27,7 @@
 | Smooth road bands (rotated chase cam) | Road image's lower-half rebuild filed 256 rows early as a "tile" | ReGPU patch `regpu-resolve-into-image` | `REGPU_NO_RESOLVE_INTO_IMAGE=1` |
 
 **Open / next (pick from here):**
-1. **Photo mode:** whitened band over the top third of the render (not seen in races). Likely another tiling/resolve-placement case; same method as the bar.
+1. **Session 9 issue list A–G above** (D is the photo-mode band; also in the pre-race menu).
 2. Phase 4 items not yet checked: Disc 2 DLC cars (Q11–Q14), profile rules (Q15), language/country (Q16), career and menus beyond the intro race.
 3. Phase 5 items: car thumbnails (Q18), audio queue depth (Q26), post-race 30 fps menu check, fps over a full lap (the first seconds after a shader-cache rebuild run 30–36 fps).
 4. Leftovers: `sub_82A918F0` blrl trap and SEH policy (not hit yet); a licence for our code; delete `githubfileignorepls`?
@@ -254,6 +268,11 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 **Phase 6 — Polish ☐** Frame-rate unlock only after confirming FM3's sim timing (Q24), launcher/settings, mods (Q9 re-signing, PF+3).
 
 ## Session log
+### 2026-11-07 — session 9 (timer overlay, exploring past the intro race)
+- Added the on-screen timer you asked for: ReGPU patch `regpu-timer-overlay.patch` (4th ReGPU patch; `setup.ps1` verifies it). A 136×34 white-on-black GDI panel copied onto the back buffer by the presenter after the game's frame (and during the shader-compile hold); text = `LogSeconds()`, which both logs now export. The game's own `src/log.cpp` is the one linked (it defines the same symbols as ReGPU's), so the timer and `fm3.log` share one clock. The shader-compile panel moves below it. You confirmed it works.
+- You explored career menus, the upgrade shop, paint booth, vinyl apply/editor, My Cars, a solo race and photo mode, with 12 timed screenshots → issue list A–G in the status section.
+- Two read-only searches of the FM2 and FM4 ports (both repos are one squashed commit, so only code comments/docs count as evidence). FM2 has its own renderer (not ReGPU) with `FM2_*` switches; FM4 vendors a ReGPU fork that is not a superset of upstream (~90 switches each side only). Results per issue are in the table.
+- Not changed yet: you asked for the report first.
 ### 2026-11-07 — session 8f (smooth bands fixed)
 - You parked on the start grid with the chase cam rotated (bands visible) and paused. Two 16×16 boxes measured (smooth band at (875,635), grainy at (990,620)) across `ps` outputs: the slot-0 sample alone already differs (detail 9.5 vs 23.4), while its mip level and derivatives are identical (≈ level 1.4). So the **road image's content** was banded, and my earlier "t0 looks uniform" by eye was wrong.
 - Capture: road image `05A1B000` level 0 had a **sharp top half and a blurred bottom half**; a phantom `0599B000` 512×768 image (256 rows earlier) held the fresh half. Cause: the half resolve `rect 0,256-512,512 dest 05A1B000` went through ReGPU's tile rule (`base = dest - top·pitch`). The existing `REGPU_RESOLVE_IMAGE_BASE` didn't apply (it only takes partial-width rectangles).
