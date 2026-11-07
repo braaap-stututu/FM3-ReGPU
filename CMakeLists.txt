@@ -31,9 +31,24 @@ target_include_directories(fm3_ppc PUBLIC "${FM3_PPC_DIR}" thirdparty/XenonRecom
 target_compile_options(fm3_ppc PRIVATE -Wno-everything -gline-tables-only "/FI${CMAKE_SOURCE_DIR}/src/ppc_hooks.h")
 target_compile_options(fm3_ppc PUBLIC -msse4.1 -fno-strict-aliasing)
 
+# Weak import stubs (tools/genstubs.py), regenerated from out/ppc so the list always matches.
+set(FM3_GENERATED "${CMAKE_BINARY_DIR}/generated")
+add_custom_command(OUTPUT "${FM3_GENERATED}/stubs.cpp"
+    COMMAND ${Python3_EXECUTABLE} -I "${CMAKE_SOURCE_DIR}/tools/genstubs.py" "${FM3_PPC_DIR}/ppc_recomp_shared.h" "${FM3_GENERATED}/stubs.cpp"
+    DEPENDS "${FM3_PPC_DIR}/ppc_recomp_shared.h" "${CMAKE_SOURCE_DIR}/tools/genstubs.py"
+    COMMENT "Generating import stubs")
+
+# FM3_PPC_ONLY: build only the recompiled code (a compile check of out/ppc before the runtime
+# exists; needs neither src/ nor the FidelityFX SDK).
+option(FM3_PPC_ONLY "Build only fm3_ppc (the recompiled code)" OFF)
+if(FM3_PPC_ONLY)
+    return()
+endif()
+
 # Runtime sources. Everything under src/ is ours; address-bound hooks live in src/hooks and are
 # addressed for this default.xex only (never FM2/FM4 sub_ addresses).
 file(GLOB_RECURSE FM3_SOURCES CONFIGURE_DEPENDS src/*.cpp)
+list(APPEND FM3_SOURCES "${FM3_GENERATED}/stubs.cpp")
 
 # The GPU: ReGPU (thirdparty/ReGPU, MIT), a static library providing the Vd* imports. It builds
 # against XenonRecomp and the game's ppc_config.h, and needs the AMD FidelityFX SDK (MIT) for FSR 1.

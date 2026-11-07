@@ -3,7 +3,7 @@
 Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 360, title `4D53084D`, media `6F74359D`, `default.xex` v0.0.0.8, SHA-256 `aa15372c…8742`) for Windows x64, built with **XenonRecomp + ReGPU**, the same stack as the FM2 and FM4 ReGPU ports. Two ReXGlue-based FM3 recomps are kept as reference, and one of them (**hl360-forza3**) is built locally as the **comparison baseline** for frame-dump diffs.
 
 ## Start every session here
-1. Read **[NOTES.md](NOTES.md)**: the top section is current status / next step, and *Work plan (phases)* is the roadmap. **Phase 1 (skeleton) is mostly done**: git repo, pinned submodules, patched XenonRecomp + host tools build. Next is Phase 2 (first recompilation).
+1. Read **[NOTES.md](NOTES.md)**: the top section is current status / next step, and *Work plan (phases)* is the roadmap. **Phases 1–2 are done**: the repo is on GitHub (`braaap-stututu/FM3-ReGPU`, `main`; push our work there), and `tools/recomp.ps1` produces a clean, compiling `out/ppc`. Next is Phase 3 (runtime port, boot to first frame).
 2. Game-specific knowledge (addresses, symptoms, fixes, and how each maps to XenonRecomp/ReGPU) is in **[FM3-QUIRKS.md](FM3-QUIRKS.md)**. Verbatim address lists are in `reference/catalogs/`.
 3. **Update NOTES.md at the end of every work session without being asked**: status/next step at the top, config decisions, every patch applied and why, known-broken areas, and a session-log entry.
 
@@ -11,10 +11,13 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 | Path | What |
 |---|---|
 | `NOTES.md` | Running log + phased work plan (source of truth for state) |
-| `CMakeLists.txt` | Game build (FM4-style ReGPU linkage); FATALs until `out/ppc` + `thirdparty/fidelityfx` exist |
-| `tools/setup.ps1` | Idempotent: submodules, the 5 XenonRecomp patches (`patches/`), host tools → `build\tools\` (XenonRecomp, XenonAnalyse, xexdump) |
+| `CMakeLists.txt` | Game build (FM4-style ReGPU linkage); needs `out/ppc` + `thirdparty/fidelityfx`. `-DFM3_PPC_ONLY=ON` builds just the recompiled code (compile check) |
+| `config/fm3.toml`, `config/fm3_switch_tables.toml` | XenonRecomp config (every entry explained) + XenonAnalyse tables |
+| `tools/setup.ps1` | Idempotent: submodules, the 5 XenonRecomp patches (`patches/`), host tools → `build\tools\` (XenonRecomp, XenonAnalyse, xexdump, ppcdis) |
+| `tools/recomp.ps1` | Phase 2 pipeline: `game/default.xex` → `out/ppc` + `out/check.txt` (`-Prepare` also rescans helpers and switch tables) |
+| `tools/fm3_config.py`, `tools/fm3_check.py`, `tools/genstubs.py` | Helper/EH scan; output checks (errors, traps, run-offs, pointer-only targets); weak import stubs |
 | `tools/vcenv.cmd` | `tools\vcenv.cmd <cmd>` = vcvars64 + LLVM on PATH |
-| `src/` | Runtime (Phase 3; planned layout in `src/README.md`); `gpu_host.cpp` written |
+| `src/` | Runtime (Phase 3; planned layout in `src/README.md`); `gpu_host.cpp` and `ppc_hooks.h` (force-included into `out/ppc`) written |
 | `thirdparty/{XenonRecomp,ReGPU}` | Our submodules, pinned (commits in NOTES.md) |
 | `FM3-QUIRKS.md` | 26 FM3 quirks: address, symptom, hl360 fix, forza3-recomp fix, XR+ReGPU equivalent |
 | `tools/fm3_route.ps1` | Drives the hl360 baseline: fresh-profile boot → intro-race start grid → pause → screenshots + dumps |
@@ -50,5 +53,7 @@ Not yet installed (needed from Phase 1/5; **ask before installing**): FFmpeg win
 - **Timed key presses drift**: Return both skips cutscenes and toggles pause. Drive the game state-aware (`Test-Paused` checks the RESUME-bar shape twice, then re-confirms).
 - **CLI cvars outrank toml** in the ReXGlue SDK (`--profile_xuid=…` overrides `fm3.user.toml`). The route uses profile `E0000BA5E11E0002` and deletes only that save; your `Baseline` save `E0000BA5E11E0001` must be left alone.
 - **Don't execute third-party repo code** (e.g. `forza3-recomp/tools/*.py`): the permission classifier blocks it. Read it for ideas, write our own.
+- **Windows PowerShell 5.1 `>` writes UTF-16**, which the Python tools can't read: redirect native commands through `cmd /c "... > file"` (as `tools/recomp.ps1` does).
+- When writing files through shell heredocs/inline Python, Windows backslashes can turn into tabs/CRs (`\t`, `\r`, `\f`). Use forward slashes or the Edit tool, then check with `grep -c $'[\x01-\x08\x09\x0b\x0c\x0e-\x1f]'`.
 - Never link FM2/FM4 `sub_XXXXXXXX` addresses into FM3. Every hook must be re-addressed for this xex.
 - `reference/` and `dumps/` hold third-party code and game-derived data: keep them out of any repository we create.

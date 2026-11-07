@@ -1,0 +1,86 @@
+# XenonRecomp config for Forza Motorsport 3 Ultimate Collection (USA), title 4D53084D,
+# default.xex v0.0.0.8, SHA-256 aa15372c13bc4c899b5ef90a1cfb5634d389b0a3620cc9715f6023d61a9b8742.
+# Paths are relative to this file. Quirk numbers (Qn) refer to FM3-QUIRKS.md.
+[main]
+file_path = "../game/default.xex"
+out_directory_path = "../out/ppc"
+switch_table_file_path = "fm3_switch_tables.toml"
+
+# Registers kept in host locals instead of the guest context (faster), as in FM2/FM4.
+# Hooks and diagnostics read GPRs and LR from the context, so those stay in it.
+skip_lr = false
+skip_msr = false
+ctr_as_local = true
+xer_as_local = true
+reserved_as_local = true
+cr_as_local = true
+non_argument_as_local = false
+non_volatile_as_local = false
+
+# Register save/restore helpers: tools/fm3_config.py --write (one match each in this image).
+restgprlr_14_address = 0x82530230
+savegprlr_14_address = 0x825301E0
+restfpr_14_address = 0x8253147C
+savefpr_14_address = 0x82531430
+restvmx_14_address = 0x82531828
+savevmx_14_address = 0x82531590
+restvmx_64_address = 0x825318BC
+savevmx_64_address = 0x82531624
+
+# Q1: CRT setjmp/longjmp, mapped to host setjmp/longjmp with the guest context saved and
+# restored. Checked in build/tools/ppcdis.exe: setjmp (no .pdata) stores f14-f31 at +0, r13-r31
+# at +152, v64+ further on; longjmp (.pdata 825345E0+314) reads r1 at +144, LR at +308, unwinds
+# first when +312 is set, then restores the same layout: the FM4 CRT layout. fm3_config.py's
+# other candidates are not setjmp/longjmp: 82A82224 / 82A82418 are inside SwitchToFiber and
+# 82A91994 is an exception-unwind context restore (r4 = CONTEXT).
+setjmp_address = 0x82534B20
+longjmp_address = 0x825345E0
+
+functions = [
+    # Q7: SwitchToFiber, hand-written (no .pdata), 82A82210..82A8261C; its last instruction is
+    # the b at 82A82618. Callers reach it through the export thunk 82A7B2B8 (b 0x82A82210).
+    # The fiber hooks (Phase 3) replace it, so it needs its own entry.
+    { address = 0x82A82210, size = 0x40C },
+    # Q7: the new-fiber start trampoline CreateFiber puts in LR (mr r3,r31; bl entry; li r3,14;
+    # bl <bugcheck>): no .pdata, reached only through that pointer.
+    { address = 0x82A82200, size = 0x10 },
+
+    # Q2: tail-call / vtable-only thunks and refcount leaves without .pdata (sizes from hl360).
+    { address = 0x82576940, size = 0x4C }, # interlocked Release (+0x110)
+    { address = 0x8254ABF0, size = 0x24 }, # interlocked AddRef (+0xE0)
+    { address = 0x82A97418, size = 0x24 }, # interlocked AddRef (+0x174)
+    { address = 0x82B123E0, size = 0x04 }, # b 0x82B12068
+    { address = 0x828DCE98, size = 0x08 }, # addi r3,r3,0x8C; b 0x828DCDF8
+    { address = 0x82B14310, size = 0x08 }, # addi r3,r3,4; b 0x82B0DAC8
+    { address = 0x826E0998, size = 0x18 }, # virtual-base adjustor -> 0x826E0F70
+    { address = 0x82713848, size = 0x18 }, # thunk -> 0x82713668
+    { address = 0x82AB2668, size = 0x18 }, # thunk -> 0x82AB2468
+    { address = 0x82A07F68, size = 0x4C }, # tail-branch-only leaf
+    { address = 0x82A60EF0, size = 0x28 }, # tail-branch-only leaf
+
+    # Q3: leaves with a tail-merged "li r3,0; blr" exit after the first blr.
+    { address = 0x8295AB20, size = 0x80 }, # list walk, returns 0 / 0x25
+    { address = 0x8295ABA0, size = 0x3C }, # list-count leaf right after it (forza3-recomp only)
+    { address = 0x82971FE0, size = 0x74 }, # getter
+    { address = 0x829720D8, size = 0x74 }, # setter
+
+    # Leaves without .pdata that hold a byte-offset jump table (XenonAnalyse finds the table):
+    # the sweep ended them at the bctr and made every case a function of its own, so the cases'
+    # branches back into the shared tail were unresolved (// ERROR in the first recompile).
+    { address = 0x82354668, size = 0x15C }, # 10 cases, ends in a tail-call bctr at 823547C0
+    { address = 0x825F16B8, size = 0xAC },  # 73 cases (clrlwi 20 + cmplwi 72)
+    { address = 0x829D5508, size = 0x1F8 }, # 12 cases, up to .pdata 829D5700
+
+    # BEGIN fm3_fptrs.py pointer-only functions
+    # END fm3_fptrs.py pointer-only functions
+]
+
+invalid_instructions = [
+    { data = 0x00000000, size = 4 }, # padding
+    # Exception data (handler + scope table) before .pdata functions with the exception flag.
+    # BEGIN fm3_config.py exception data
+    { data = 0x82A89918, size = 8 }, # handler of 349 functions
+    { data = 0x82B6747C, size = 8 }, # handler of 63 functions
+    { data = 0x82A91B00, size = 8 }, # handler of 1 functions
+    # END fm3_config.py exception data
+]

@@ -1,15 +1,32 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-07, session 5)
+## ▶ Current status / next step  (updated 2026-11-07, session 6)
 
-**Status:** **Phase 1 skeleton is in place and pushed** to **https://github.com/braaap-stututu/FM3-ReGPU** (`main`, commit `65f82d0` on top of your placeholder commit `24563c0`). Repo-local git identity: `braaap-stututu` + the same email as your own first commit. XenonRecomp and ReGPU are pinned submodules, FM4's 5 XenonRecomp patches are applied, and `tools/setup.ps1` builds the patched **XenonRecomp, XenonAnalyse and our `xexdump`** into `build\tools\`. `xexdump` reads FM3's `default.xex` correctly. The game CMake (`CMakeLists.txt`) is written and stops, as intended, at "out/ppc is empty".
+**Status:** **Phase 2 (first recompilation) is done.** `tools/recomp.ps1` turns `game/default.xex` into `out/ppc` (45,760 functions, 179 files, 164 MB) with **0 unresolved branches**, and **all of it compiles** with clang-cl 23 (`-DFM3_PPC_ONLY=ON` → `fm3_ppc.lib`, 118 MB, no errors). The pipeline is reproducible: re-running it with `-Prepare` gives the same config, the same switch tables and byte-identical output. The repo is on GitHub: **https://github.com/braaap-stututu/FM3-ReGPU** (`main`).
 
-**Next steps (Phase 1 leftovers, then Phase 2):**
-1. Your call: a licence for our own code (the repo has none yet), and whether to delete the empty placeholder file `githubfileignorepls` (kept, untouched).
-2. Your OK to install: **AMD FidelityFX SDK v2.x** → `thirdparty/fidelityfx` (ReGPU's CMake refuses to configure without it) and an **FFmpeg win64 LGPL shared** build → `thirdparty/ffmpeg` (audio, Phase 3/5). Both are only needed once `out/ppc` exists, so Phase 2 can start without them.
-3. Phase 2: `build\tools\xexdump.exe` → image dump, helper/EH scans (FM4 `fm4_config.py` approach, our own script), `XenonAnalyse` switch tables, `config/fm3.toml`.
+**How to recompile:**
+```powershell
+& ./tools/setup.ps1                 # once: submodules, XenonRecomp patches, build/tools
+& ./tools/recomp.ps1 -Prepare       # xexdump, helper/EH scan, XenonAnalyse, XenonRecomp, checks
+& ./tools/recomp.ps1                # recompile only (config unchanged)
+```
+Outputs: `out/ppc`, `out/recomp.log`, `out/check.txt` (errors / traps / run-offs / pointer-only targets). Disassemble: `build/tools/ppcdis.exe game/default.xex <hex addr> <count>`.
+
+**Known leftovers for Phase 3** (none block a first boot):
+- **1 trap:** `blrl` in `sub_82A918F0`, the SEH helper that calls a filter/handler funclet by address (`mtlr r3; blrl`, with r12 = frame). Give it a `PPC_FUNC` override that does the indirect call.
+- **16 SEH `__except` resume targets** (from the scope tables at the end of `.rdata`, 82199B10–8219A150) are not function starts. hl360 lists 15 of them as functions, and the 16th (`0x82A8E440`) is the one it excluded as an "EH continuation". They are resume points inside functions, so they are not added. They matter only if the guest raises an exception: decide a policy then (log + fatal is the likely start).
+- **23 functions run off their end.** All end in calls that don't return: CRT `exit`/`_exit` (`825366E0`/`825366F0`), `longjmp`, `ExTerminateThread`, and assert/error paths (`82528800`, `82538110`, `82258A08`, `82AB4F18`, `822991F8`, probably no-return; not verified one by one).
+- 313 imports become weak stubs (`tools/genstubs.py`, generated into the build folder).
+
+**Next steps:**
+1. Your OK to install: **AMD FidelityFX SDK v2.x** → `thirdparty/fidelityfx` (ReGPU's CMake refuses to configure without it) and an **FFmpeg win64 LGPL shared** build → `thirdparty/ffmpeg` (audio). Phase 3 needs FidelityFX to link the game.
+2. Phase 3: port the runtime (loader, memory, kernel/XAM, threads, `indirect.cpp`, fibers with FM3 addresses, `patch_mftb`), then boot to the first frame with vblank at 60 Hz.
+3. Still your call: a licence for our code; whether to delete the empty `githubfileignorepls`.
 
 ---
+
+### Previous status (session 5)
+Phase 1 skeleton pushed (`65f82d0`): pinned submodules, FM4's 5 XenonRecomp patches, `tools/setup.ps1`, host tools, game CMake, `src/gpu_host.cpp`.
 
 ### Previous status (session 4)
 **The baseline comparison kit is complete.**
@@ -155,14 +172,14 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ✅ hl360 baseline built and running (SDK patches 0001–0006 + our 0007 dump hook); races at 60 fps.
 - ✅ Comparison kit: `tools/fm3_route.ps1` (scripted start-grid capture), `tools/dumpdecode.py` (list/decode/diff).
 
-**Phase 1 — Project skeleton ▶ (mostly done, session 5)**
+**Phase 1 — Project skeleton ✅ (session 5; licence still open)**
 1. ✅ `git init`, `.gitattributes`, `.gitignore` (see config decisions). ☐ First commit: needs your identity/OK.
 2. ✅ Layout: `config/`, `patches/`, `src/` (planned layout in `src/README.md`), `tools/`, `thirdparty/{XenonRecomp,ReGPU}` submodules, pinned.
 3. ✅ ReGPU CMake block + `src/gpu_host.cpp` (FM4-style, FM3 title, vblank 60 Hz default; compiles from Phase 3 when the runtime exists).
 4. ✅ All 5 XenonRecomp patches applied; patched XenonRecomp/XenonAnalyse build with clang-cl 23.1.5.
 5. ☐ Deps to request: FidelityFX SDK v2.x (required by ReGPU's CMake), FFmpeg win64 LGPL shared. SDL3 only if we take FM2's wheel input. Optional: numpy.
 
-**Phase 2 — First recompilation ☐**
+**Phase 2 — First recompilation ✅ (session 6; details in the session log)**
 1. Extract `default.xex` from Disc 1 into `game/` (or reuse `reference/.../hl360-forza3/game/disc1`). Verify SHA-256 `aa15372c…8742`.
 2. XenonAnalyse → switch tables. Find helpers (`savegprlr_14` etc.) and EH `invalid_instructions` with the FM4 `fm4_config.py` approach.
 3. `config/fm3.toml`:
@@ -172,7 +189,8 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
    - SwitchToFiber `{0x82A82210, 0x40C}` (Q7)
 4. Run XenonRecomp; grep the log for `// ERROR` / out-of-function switch cases; iterate until clean. Generate `stubs.cpp`.
 
-**Phase 3 — Boot to first frame ☐**
+**Phase 3 — Boot to first frame ▶**
+- Also from Phase 2: `PPC_FUNC` override for `sub_82A918F0` (blrl trap), SEH policy, `src/indirect.cpp` for the `PPCLookupIndirect` table declared in `src/ppc_hooks.h`, `PPCMsrChanged`, `PPCMmioStore32`.
 - Kernel/XAM from FM2's `src/kernel` (re-address everything; never link FM2/FM4 `sub_` addresses).
 - Fiber overrides (port FM4 `fibers.cpp` with an FM3 `addresses.h`), mftb patch, `cache:` utility-drive override (Q8), `PPCLookupIndirect` fatal-on-miss.
 - **Set `REGPU_VBLANK_HZ=60` from the start (Q24)** and measure game speed.
@@ -191,6 +209,20 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 **Phase 6 — Polish ☐** Frame-rate unlock only after confirming FM3's sim timing (Q24), launcher/settings, mods (Q9 re-signing, PF+3).
 
 ## Session log
+### 2026-11-07 — session 6 (Phase 2: first recompilation)
+- `game/default.xex` copied from hl360's verified `game/disc1` (SHA-256 matches). `xexdump` → `out/fm3.bin` + `out/fm3.sections`.
+- **New tools (own code):** `build/tools/ppcdis.exe` (XenonRecomp's disassembler over the loaded image), `tools/fm3_config.py` (helpers, EH words, setjmp/longjmp candidates; `--write`), `tools/fm3_check.py` (output checks), `tools/genstubs.py`, `tools/recomp.ps1` (whole pipeline). FM4's `fm4_config.py`/`fallthrough.py`/`genstubs.py` were read for the approach, not run.
+- **Helpers:** all 8 match exactly once: restgprlr `82530230`, savegprlr `825301E0`, restfpr `8253147C`, savefpr `82531430`, restvmx14 `82531828`, savevmx14 `82531590`, restvmx64 `825318BC`, savevmx64 `82531624`.
+- **.pdata:** 32,352 functions (0x8F8244 bytes); 413 carry exception data, with handler words `82A89918` (349), `82B6747C` (63), `82A91B00` (1) → `invalid_instructions`.
+- **Q1 confirmed in disassembly:** setjmp `82534B20` (no .pdata; optional hook through the word at `82CE72D8`, then f14–f31 @0, r13–r31 @152, v64+) and longjmp `825345E0` (r1 @144, LR @308, unwind flag @312): the same CRT layout as FM4. The other run-matches: `82A82224`/`82A82418` = inside SwitchToFiber; `82A91994` = EH context restore.
+- **Q7 confirmed:** thunk `82A7B2B8` = `b 0x82A82210`; body `82A82210`–`82A8261C` (0x40C, ends `b 0x82B67B1C`, no .pdata). The new-fiber trampoline `82A82200` (0x10, no .pdata) was added as a function too.
+- **XenonAnalyse:** 262 jump tables, **251 of them only found by FM4's back-trace patch** (so Q6's guess was right). The 2 "unresolved" `bctr`s (`82923EE4`, `82923F1C`) are indirect tail calls through function-pointer tables `82C08488`/`82C08528` (index r3·10+r4, 40 words); all 31 non-null entries are already function starts.
+- **First recompile:** 15 unresolved branches in 3 functions with no .pdata that each hold a byte-offset jump table (`82354668`, `825F16B8`, `829D5508`). XenonAnalyse found the tables, but the sweep ended each function at its `bctr` and made every case a function of its own. Fixed with explicit `functions` sizes (0x15C, 0xAC, 0x1F8) → **0 errors**. (My first guess, that `nop`s broke the trace, was wrong: the tables' `base` field is the first table instruction, not the `bctr`.)
+- **Q2/Q3** entries added with hl360's sizes (11 + 4).
+- **Q4 cross-check** (hl360 `fptr_functions.toml` + `codegen.toml` + forza3-recomp manifest, plus our own data/`lis+addi` scan, with jump-table loads, inline tables and `loc_` labels filtered out): of 19,469 pointer targets, 19,453 are already function starts. XenonRecomp's gap sweep finds the pointer-only functions by itself; **no fptr entries needed**. The remaining 16 are the SEH resume targets above. Parsing note: the forza3-recomp manifest has addresses in comments ("data ref 0x…"), so only entry keys are read.
+- **Compile check:** `cmake -S . -B build/ppc -DFM3_PPC_ONLY=ON` + `ninja fm3_ppc`: 180/181 steps, no errors. `src/ppc_hooks.h` (own, same contract as FM4's) provides `PPC_MSR_CHANGED`, `PPC_MM_STORE_U32` (17 uses), `ppc_half_to_float` (298) / `ppc_float_to_half` (2), and `PPC_CALL_INDIRECT_FUNC` (42,574) → fatal-on-miss `PPCLookupIndirect`.
+- Gotcha: Windows PowerShell 5.1's `>` writes UTF-16, which the Python tools can't parse. `recomp.ps1` redirects through `cmd /c`.
+
 ### 2026-11-07 — session 5 (Phase 1 skeleton)
 - Studied FM2-ReGPU (`c5e71cd`) and FM4-ReGPU (`69bdae4`) layouts. FM2 has its own embedded renderer (`src/gpu`), so **FM4 is the template for ReGPU linkage** (its CMake, `src/gpu_host.cpp`). Found FM4's ReGPU is a vendored, diverged copy (config decisions).
 - `git init`; added the two submodules from GitHub at the pinned commits; fixed their CRLF checkout.

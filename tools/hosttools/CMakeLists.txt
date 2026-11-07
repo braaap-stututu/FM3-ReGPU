@@ -19,3 +19,7 @@ add_executable(xexdump xexdump.cpp)
 target_link_libraries(xexdump PRIVATE XenonUtils fmt::fmt)
 
 # Build everything by default (XenonRecomp's own targets are not EXCLUDE_FROM_ALL here).
+
+# Disassembler over the loaded image (XenonRecomp's decoder), for checking config addresses.
+add_executable(ppcdis ppcdis.cpp)
+target_link_libraries(ppcdis PRIVATE XenonUtils fmt::fmt)

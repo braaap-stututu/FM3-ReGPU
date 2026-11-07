@@ -81,6 +81,7 @@ All addresses below are only valid for this exact xex. The original 2009 release
 - **HL:** `tools/find_fptrs.py` scans `.rdata`/`.data` for words pointing into `.text` that follow a function end (blr / bctr / pad / b), plus lis+addi/ori pairs. `tools/prune_fptrs.py` drops candidates that lie inside unresolved-branch spans in codegen.log.
 - **TS:** `tools/analysis/ptrscan.py` does the same and also estimates sizes (first unconditional b/blr/bctr, cap 64 insns); it excludes `loc_` labels such as jump-table bases.
 - **XR + ReGPU:** XR has no separate "fptr" key. A pointer-only target is callable only if it is in `PPCFuncMappings`, which means it must be an XR function, so add each as a `functions` entry **with a size** (TS's ptrscan comments give estimates; verify). Use the union of HL and TS. Run `fm4_crosscheck.py` to drop entries XR already finds. Adopt FM4's `PPCLookupIndirect` (`src/ppc_hooks.h` + `src/indirect.cpp`) so a miss gives `Fatal("indirect call to %08X")` instead of a null call. FM2's `GuestCall` does the same for thread entries.
+- **Phase 2 result (2026-11-07):** XenonRecomp's gap sweep already makes 19,453 of 19,469 pointer targets (both ports' lists + our own scan) function starts: **no fptr entries were needed**. The other 16 are SEH `__except` resume points inside functions (scope tables at the end of `.rdata`), not entry points. `tools/fm3_check.py` repeats the cross-check after each recompile.
 
 ### Q5. vmsum3fp128 / vmsum4fp128 overflow must return QNaN — **TS only** (FH1 patch 0025)
 - **Address:** codegen-wide (no FM3 address given).
@@ -91,6 +92,7 @@ All addresses below are only valid for this exact xex. The original 2009 release
 ### Q6. Jump tables / EH data / save-restore helpers — not covered by either ReXGlue project
 - Neither ReXGlue project needed explicit jump-table config, because the SDK handles them.
 - **XR + ReGPU:** run XenonAnalyse → `switch_table_file_path`. FM3 (2009) sits between FM2 (2007) and FM4 (2011) in compiler age. **(inf)** Expect to need FM4's `xenonrecomp-fm4.patch` (back-trace from every `bctr`) and `xenonrecomp-switch-u32.patch`. Also find `invalid_instructions` (EH handler words, `0x00000000` padding) and the `savegprlr_14`/`restgprlr_14`/fpr/vmx helper addresses with `FM4/tools/fm4_config.py` or `FM2/tools/findhelpers.py`. Apply `tools/patch_mftb.py` (mftb → 49.875 MHz timebase).
+- **Phase 2 result (2026-11-07):** confirmed. XenonAnalyse finds 262 tables, 251 of them only through the FM4 back-trace patch. Helpers found by `tools/fm3_config.py` (savegprlr_14 `825301E0` etc., all unique). Three leaves with no .pdata that hold byte-offset tables (`82354668`, `825F16B8`, `829D5508`) needed explicit sizes. The `vmsum` QNaN fix (Q5) is not applied yet.
 
 ---
 
