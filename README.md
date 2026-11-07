@@ -20,7 +20,7 @@ No game data is in this repository. You need your own disc dump.
 | `config/` | XenonRecomp configs for `default.xex` (Phase 2) |
 | `patches/` | Patches to XenonRecomp, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
 | `src/` | Runtime: kernel/XAM, hooks, audio, input, ReGPU host glue ([src/README.md](src/README.md)) |
-| `play.cmd` | Starts the build for testing (debug server on, saves in `outSer`, log in `outun`) |
+| `play.cmd` | Starts the build for testing (debug server on, saves in `out/user`, log in `out/run`) |
 | `tools/setup.ps1` | Submodules + patches + host tools, idempotent |
 | `tools/vcenv.cmd` | Runs a command with VS 2022 Build Tools x64 + LLVM on PATH |
 | `tools/hosttools/` | CMake project: patched XenonRecomp, XenonAnalyse, `xexdump`, `ppcdis` |
