@@ -8,6 +8,8 @@
 - **Still open: sun white-out + slowdown.** Seen at full strength in `out/shots/ab_merge_on.png`. Candidates: the occlusion-query path (turning `REGPU_NO_OCCLUSION_COVERAGE` on gave pure white, but the camera was moving then, so not conclusive) and the auto-exposure chain (k_32_FLOAT 32×32). Next: reproduce with the camera parked on the sun, then flip the occlusion/7e3 switches.
 - Also seen: 30–36 fps for the first seconds of the race (3,000+ draws, while the shader cache rebuilds after the preamble change), then 58–60.
 
+**How to run (manual tests): `play.cmd` in the project root.** It starts `build\rel\fm3.exe` with the debug server on (`REGPU_DEBUG=1`), saves in `out\user`, the log in `out\run\fm3.log`, and the game data from hl360's `game\disc1` (`FM3_GAME_DIR` overrides). You start the game with it and drive to the place a test needs; I attach with `tools/fm3ctl.ps1`.
+
 **Tools added this session:** `tools/fm3ctl.ps1` (our client for ReGPU's debug server: `Start-Fm3Dev [-Fresh]`, `Fm3 "<cmd>"`, `Save-Fm3Shot`; scripted runs use `out/user-route`, never your `out/user`). The pattern that found both bugs: pause → `switch` sweeps with a brightness/edge metric → `capture` → `ps <hash> tint` to find the draw → `hlsl <hash>` → read the fetch constant.
 
 ### Previous status (session 7)
