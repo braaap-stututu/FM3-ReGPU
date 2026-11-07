@@ -1,0 +1,15 @@
+# Normalise to LF in the repository and the working tree; the global core.autocrlf=true
+# would otherwise turn patch files into CRLF and break `git apply`.
+* text=auto eol=lf
+*.patch -text
+*.diff -text
+# cmd.exe and Windows PowerShell prefer CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+# Binary
+*.png binary
+*.ico binary
+*.bin binary
+*.iso binary
+*.xex binary

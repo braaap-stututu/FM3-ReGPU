@@ -1,0 +1,25 @@
+# Game data and anything derived from it: never commit.
+*.iso
+*.xex
+*.xexp
+/game/
+/dumps/
+/out/
+*.log
+
+# Build output
+/build/
+
+# Third-party code kept for reference only (cloned repos, not our history)
+/reference/
+
+# Dependencies supplied locally (see README)
+/thirdparty/ffmpeg/
+/thirdparty/fidelityfx/
+/thirdparty/dlss/
+/thirdparty/sdl3/
+/thirdparty/directx-headers/
+
+# Python
+__pycache__/
+*.pyc
