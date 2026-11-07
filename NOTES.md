@@ -2,10 +2,10 @@
 
 ## ▶ Current status / next step  (updated 2026-11-07, session 5)
 
-**Status:** **Phase 1 skeleton is in place (nothing committed yet).** The project root is now a git repo (`main`, everything staged, no commit). XenonRecomp and ReGPU are pinned submodules, FM4's 5 XenonRecomp patches are applied, and `tools/setup.ps1` builds the patched **XenonRecomp, XenonAnalyse and our `xexdump`** into `build\tools\`. `xexdump` reads FM3's `default.xex` correctly. The game CMake (`CMakeLists.txt`) is written and stops, as intended, at "out/ppc is empty".
+**Status:** **Phase 1 skeleton is in place and pushed** to **https://github.com/braaap-stututu/FM3-ReGPU** (`main`, commit `65f82d0` on top of your placeholder commit `24563c0`). Repo-local git identity: `braaap-stututu` + the same email as your own first commit. XenonRecomp and ReGPU are pinned submodules, FM4's 5 XenonRecomp patches are applied, and `tools/setup.ps1` builds the patched **XenonRecomp, XenonAnalyse and our `xexdump`** into `build\tools\`. `xexdump` reads FM3's `default.xex` correctly. The game CMake (`CMakeLists.txt`) is written and stops, as intended, at "out/ppc is empty".
 
 **Next steps (Phase 1 leftovers, then Phase 2):**
-1. Your call: the first commit (no global git `user.name`/`user.email` is set, so the identity to use is needed), and a licence for our own code.
+1. Your call: a licence for our own code (the repo has none yet), and whether to delete the empty placeholder file `githubfileignorepls` (kept, untouched).
 2. Your OK to install: **AMD FidelityFX SDK v2.x** → `thirdparty/fidelityfx` (ReGPU's CMake refuses to configure without it) and an **FFmpeg win64 LGPL shared** build → `thirdparty/ffmpeg` (audio, Phase 3/5). Both are only needed once `out/ppc` exists, so Phase 2 can start without them.
 3. Phase 2: `build\tools\xexdump.exe` → image dump, helper/EH scans (FM4 `fm4_config.py` approach, our own script), `XenonAnalyse` switch tables, `config/fm3.toml`.
 
@@ -200,7 +200,8 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - **xexdump on FM3** (`hl360-forza3/game/disc1/default.xex`, SHA-256 matches): base `82000000`, size `D60000`, **entry `82529DD8`**. Code sections: `.text` 821E0000+987BCC, `_TEXT` 82B67C00+39C, `.embsec_` 82B68000+4E18, `PAGELK` 82B6D000+984, `BINK` 82B6DA00+10728 (ends `82B7E128`, matching the code range above). Data includes `BINKCONS`, `BINKBSS`, `BINKDATA`, `.XBMOVIE`, `.tls` 82CE7C00+1821.
   - XenonUtils reads 8-byte section names as C strings, so full-length names (`BINKCONS`, `.embsec_N…`) run into the next bytes. Our xexdump cuts at 8; **XenonRecomp itself has the same behaviour**, so watch for odd section-name matches in Phase 2 logs.
 - Top-level CMake configure checked: it stops with the intended "out/ppc is empty" message.
-- Nothing committed (git identity not set globally; waiting for you). Nothing installed.
+- Nothing installed.
+- **Session 5b (publish):** you created `braaap-stututu/FM3-ReGPU` and asked for the project there. Remote `origin` added; its one commit (`24563c0`, an empty `githubfileignorepls`) became our parent, so no force-push and nothing of yours removed. Scanned the staged files for personal data first (none: no email, user paths only as `G:\claude code projects`). Pushed `65f82d0` (25 files; `reference/`, `dumps/`, ISOs, `build/` stay ignored). `gh` CLI is not installed; push went through Git Credential Manager.
 
 ### 2026-11-06 — session 1 (setup)
 - Audited the toolchain (table above). LLVM is the only blocker for building the baseline; the game ISO is also needed.
