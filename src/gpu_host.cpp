@@ -110,6 +110,12 @@ void GpuStart()
         return w;
     };
 
+    // Test aid: ReGPU's timer panel in the top-left corner (the log clock, to a tenth of a second), so a
+    // screenshot says where to look in fm3.log. Drawn by the presenter, not the game. FM3_NO_TIMER=1 hides
+    // it; live: Fm3 "switch REGPU_TIMER 0|1".
+    if (!getenv("FM3_NO_TIMER"))
+        DefaultEnv("REGPU_TIMER", "1");
+
     // Q24: guest vblank at 60 Hz.
     if (const char* hz = getenv("FM3_VBLANK_HZ"))
         _putenv_s("REGPU_VBLANK_HZ", hz);

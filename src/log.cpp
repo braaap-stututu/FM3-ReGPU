@@ -116,6 +116,12 @@ void Fatal(const char* fmt, ...)
     std::_Exit(1);
 }
 
+// Seconds since the log started: the [time] at the start of each line.
+double LogSeconds()
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - g_start).count();
+}
+
 std::vector<std::string> LogTail(size_t n)
 {
     std::lock_guard lock(g_logMutex);

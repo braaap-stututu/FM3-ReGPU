@@ -1,0 +1,330 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index e095167..c2409f3 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -7521,6 +7521,46 @@ struct OverlayUpload
+     UINT64 offset = 0;
+ };
+ 
++UINT64 PanelUploadBytes(UINT w, UINT h)
++{
++    return UINT64((w * 4 + 255) & ~255u) * h;
++}
++
++// Copies RGBA pixels (w x h) through the staging space into texture, leaving it COPY_SOURCE.
++bool UploadPanelPixels(ID3D12GraphicsCommandList* list, ID3D12Resource* texture, D3D12_RESOURCE_STATES& state, UINT w, UINT h,
++    const std::vector<uint32_t>& pixels, const OverlayUpload& staging)
++{
++    if (!staging.resource)
++        return false;
++    const UINT pitch = w * 4;
++    const UINT alignedPitch = (pitch + 255) & ~255u;
++    for (UINT y = 0; y < h; y++)
++        memcpy(staging.cpu + staging.offset + UINT64(y) * alignedPitch, pixels.data() + size_t(y) * w, pitch);
++    D3D12_RESOURCE_BARRIER b{};
++    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++    b.Transition.pResource = texture;
++    b.Transition.Subresource = 0;
++    if (state != D3D12_RESOURCE_STATE_COPY_DEST)
++    {
++        b.Transition.StateBefore = state;
++        b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
++        list->ResourceBarrier(1, &b);
++    }
++    D3D12_TEXTURE_COPY_LOCATION dst{}, src{};
++    dst.pResource = texture;
++    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++    src.pResource = staging.resource;
++    src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
++    src.PlacedFootprint.Offset = staging.offset;
++    src.PlacedFootprint.Footprint = { DXGI_FORMAT_R8G8B8A8_UNORM, w, h, 1, alignedPitch };
++    list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
++    b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
++    b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
++    list->ResourceBarrier(1, &b);
++    state = D3D12_RESOURCE_STATE_COPY_SOURCE;
++    return true;
++}
++
+ // upload(bytes) returns staging space (resource + CPU pointer + offset) or a null resource.
+ ID3D12Resource* PrepareOverlayOn(ID3D12GraphicsCommandList* list, const std::function<OverlayUpload(UINT64)>& upload, bool force)
+ {
+@@ -7561,45 +7601,112 @@ ID3D12Resource* PrepareOverlayOn(ID3D12GraphicsCommandList* list, const std::fun
+             memcpy(rgba.data(), pixels.data(), rgba.size());
+             WritePng("overlay.png", kOverlayW, kOverlayH, rgba);
+         }
+-        const UINT pitch = kOverlayW * 4;
+-        const UINT alignedPitch = (pitch + 255) & ~255u;
+-        const OverlayUpload staging = upload(UINT64(alignedPitch) * kOverlayH);
+-        if (!staging.resource)
++        if (!UploadPanelPixels(list, g_overlay.texture.Get(), g_overlay.state, kOverlayW, kOverlayH, pixels, upload(PanelUploadBytes(kOverlayW, kOverlayH))))
+             return nullptr;
+-        for (UINT y = 0; y < kOverlayH; y++)
+-            memcpy(staging.cpu + staging.offset + UINT64(y) * alignedPitch, pixels.data() + size_t(y) * kOverlayW, pitch);
+-        if (g_overlay.state != D3D12_RESOURCE_STATE_COPY_DEST)
+-        {
+-            D3D12_RESOURCE_BARRIER b{};
+-            b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+-            b.Transition.pResource = g_overlay.texture.Get();
+-            b.Transition.Subresource = 0;
+-            b.Transition.StateBefore = g_overlay.state;
+-            b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+-            list->ResourceBarrier(1, &b);
+-        }
+-        D3D12_TEXTURE_COPY_LOCATION dst{}, src{};
+-        dst.pResource = g_overlay.texture.Get();
+-        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+-        src.pResource = staging.resource;
+-        src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+-        src.PlacedFootprint.Offset = staging.offset;
+-        src.PlacedFootprint.Footprint = { DXGI_FORMAT_R8G8B8A8_UNORM, kOverlayW, kOverlayH, 1, alignedPitch };
+-        list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+-        D3D12_RESOURCE_BARRIER b{};
+-        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+-        b.Transition.pResource = g_overlay.texture.Get();
+-        b.Transition.Subresource = 0;
+-        b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+-        b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+-        list->ResourceBarrier(1, &b);
+-        g_overlay.state = D3D12_RESOURCE_STATE_COPY_SOURCE;
+         g_overlay.lastText = text;
+         g_overlay.lastRender = now;
+     }
+     return g_overlay.state == D3D12_RESOURCE_STATE_COPY_SOURCE ? g_overlay.texture.Get() : nullptr;
+ }
+ 
++// ---- Timer: REGPU_TIMER=1 shows the log clock (seconds, to a tenth) in the top-left corner, white on
++// black, over the game's picture (it never goes through the guest's frame). A screenshot then says
++// which [time] in the log to look at. Live: "switch REGPU_TIMER 0|1".
++constexpr UINT kTimerW = 136, kTimerH = 34;
++struct TimerPanel
++{
++    ComPtr<ID3D12Resource> texture;
++    D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COPY_DEST;
++    std::string lastText;
++} g_timer;
++
++void RenderTimerPixels(const std::string& text, std::vector<uint32_t>& pixels)
++{
++    BITMAPINFO bi{};
++    bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
++    bi.bmiHeader.biWidth = kTimerW;
++    bi.bmiHeader.biHeight = -int(kTimerH);
++    bi.bmiHeader.biPlanes = 1;
++    bi.bmiHeader.biBitCount = 32;
++    bi.bmiHeader.biCompression = BI_RGB;
++    HDC dc = CreateCompatibleDC(nullptr);
++    void* bits = nullptr;
++    HBITMAP bitmap = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
++    HGDIOBJ oldBitmap = SelectObject(dc, bitmap);
++    RECT all{ 0, 0, LONG(kTimerW), LONG(kTimerH) };
++    FillRect(dc, &all, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
++    // Grey anti-aliasing (not ClearType): the copy is 1:1, but colour fringes read badly on black.
++    HFONT font = CreateFontW(26, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
++        FIXED_PITCH | FF_MODERN, L"Consolas");
++    HGDIOBJ oldFont = SelectObject(dc, font);
++    SetBkMode(dc, TRANSPARENT);
++    SetTextColor(dc, RGB(255, 255, 255));
++    DrawTextA(dc, text.c_str(), int(text.size()), &all, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
++    GdiFlush();
++    pixels.resize(size_t(kTimerW) * kTimerH);
++    const uint32_t* src = static_cast<const uint32_t*>(bits);
++    for (size_t i = 0; i < pixels.size(); i++)
++    {
++        const uint32_t p = src[i]; // 0x00RRGGBB
++        pixels[i] = 0xFF000000u | ((p & 0xFF) << 16) | (p & 0xFF00) | ((p >> 16) & 0xFF);
++    }
++    SelectObject(dc, oldFont);
++    SelectObject(dc, oldBitmap);
++    DeleteObject(font);
++    DeleteObject(bitmap);
++    DeleteDC(dc);
++}
++
++// Like PrepareOverlayOn: records the upload when the shown tenth changed, returns the texture or null.
++ID3D12Resource* PrepareTimerOn(ID3D12GraphicsCommandList* list, const std::function<OverlayUpload(UINT64)>& upload)
++{
++    static LiveSwitch on("REGPU_TIMER");
++    if (!on)
++        return nullptr;
++    char text[32];
++    snprintf(text, sizeof(text), "%.1f s", std::floor(LogSeconds() * 10.0) / 10.0);
++    if (!g_timer.texture)
++    {
++        D3D12_HEAP_PROPERTIES hp{};
++        hp.Type = D3D12_HEAP_TYPE_DEFAULT;
++        D3D12_RESOURCE_DESC td{};
++        td.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
++        td.Width = kTimerW;
++        td.Height = kTimerH;
++        td.DepthOrArraySize = 1;
++        td.MipLevels = 1;
++        td.SampleDesc.Count = 1;
++        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
++        if (FAILED(g_r.device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&g_timer.texture))))
++            return nullptr;
++        g_timer.state = D3D12_RESOURCE_STATE_COPY_DEST;
++    }
++    if (text != g_timer.lastText || g_timer.state != D3D12_RESOURCE_STATE_COPY_SOURCE)
++    {
++        std::vector<uint32_t> pixels;
++        RenderTimerPixels(text, pixels);
++        if (!UploadPanelPixels(list, g_timer.texture.Get(), g_timer.state, kTimerW, kTimerH, pixels, upload(PanelUploadBytes(kTimerW, kTimerH))))
++            return nullptr;
++        g_timer.lastText = text;
++    }
++    return g_timer.texture.Get();
++}
++
++// The frame path's timer, staged through the frame's upload ring.
++ID3D12Resource* PrepareTimer()
++{
++    return PrepareTimerOn(C().list->Real(), [](UINT64 bytes) {
++        OverlayUpload u;
++        const UINT64 offset = RingAlloc(bytes, 512);
++        if (offset == ~0ull)
++            return u;
++        u.resource = Frame().ring.Get();
++        u.cpu = Frame().ringCpu;
++        u.offset = offset;
++        return u;
++    });
++}
++
+ // The frame path stages through the frame's upload ring.
+ ID3D12Resource* PrepareOverlay()
+ {
+@@ -7628,7 +7735,8 @@ void HoldPresent()
+             FAILED(g_r.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, g_hold.allocator.Get(), nullptr, IID_PPV_ARGS(&g_hold.list))))
+             return;
+         g_hold.list->Close();
+-        const UINT64 bytes = UINT64((kOverlayW * 4 + 255) & ~255u) * kOverlayH + 1024;
++        // The overlay at 0, the timer after it (512-aligned placement).
++        const UINT64 bytes = ((PanelUploadBytes(kOverlayW, kOverlayH) + 511) & ~511ull) + PanelUploadBytes(kTimerW, kTimerH) + 1024;
+         g_hold.upload = CreateBuffer(bytes, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+         void* mapped = nullptr;
+         g_hold.upload->Map(0, nullptr, &mapped);
+@@ -7643,6 +7751,13 @@ void HoldPresent()
+         u.cpu = g_hold.uploadCpu;
+         return u;
+     }, true);
++    ID3D12Resource* timer = PrepareTimerOn(g_hold.list.Get(), [](UINT64) {
++        OverlayUpload u;
++        u.resource = g_hold.upload.Get();
++        u.cpu = g_hold.uploadCpu;
++        u.offset = (PanelUploadBytes(kOverlayW, kOverlayH) + 511) & ~511ull;
++        return u;
++    });
+     D3D12_RESOURCE_BARRIER b{};
+     b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+     b.Transition.pResource = g_hold.image.Get();
+@@ -7650,7 +7765,7 @@ void HoldPresent()
+     b.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+     b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+     g_hold.list->ResourceBarrier(1, &b);
+-    const bool ok = PresenterRecordCopy(g_hold.list.Get(), g_hold.image.Get(), overlay, kOverlayW, kOverlayH);
++    const bool ok = PresenterRecordCopy(g_hold.list.Get(), g_hold.image.Get(), overlay, kOverlayW, kOverlayH, timer, kTimerW, kTimerH);
+     std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
+     g_hold.list->ResourceBarrier(1, &b);
+     g_hold.list->Close();
+@@ -7686,7 +7801,8 @@ void BootPresent(const std::vector<uint8_t>& rgba)
+             FAILED(g_r.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, g_hold.allocator.Get(), nullptr, IID_PPV_ARGS(&g_hold.list))))
+             return;
+         g_hold.list->Close();
+-        const UINT64 bytes = UINT64((kOverlayW * 4 + 255) & ~255u) * kOverlayH + 1024;
++        // Sized like HoldPresent's (which shares it): the overlay, then the timer.
++        const UINT64 bytes = ((PanelUploadBytes(kOverlayW, kOverlayH) + 511) & ~511ull) + PanelUploadBytes(kTimerW, kTimerH) + 1024;
+         g_hold.upload = CreateBuffer(bytes, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+         void* mapped = nullptr;
+         g_hold.upload->Map(0, nullptr, &mapped);
+@@ -11267,11 +11383,12 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     if (fromResolve)
+         g_hold.image = it->second.resource;
+     ID3D12Resource* overlay = fromResolve ? PrepareOverlay() : nullptr;
++    ID3D12Resource* timer = fromResolve ? PrepareTimer() : nullptr;
+     ID3D12Resource* shown = graded ? graded : image;
+     if (fromResolve)
+         if (ID3D12Resource* enhanced = EnhanceFrontBuffer(shown))
+             shown = enhanced;
+-    const bool presenting = fromResolve && PresenterRecordCopy(C().list->Real(), shown, overlay, kOverlayW, kOverlayH);
++    const bool presenting = fromResolve && PresenterRecordCopy(C().list->Real(), shown, overlay, kOverlayW, kOverlayH, timer, kTimerW, kTimerH);
+     {
+         const uint64_t traceFrame = TraceFrame();
+         if (traceFrame && g_r.frame + 1 == traceFrame)
+diff --git a/src/log.cpp b/src/log.cpp
+index 527926a..c873877 100644
+--- a/src/log.cpp
++++ b/src/log.cpp
+@@ -125,6 +125,12 @@ void Fatal(const char* fmt, ...)
+     std::_Exit(1);
+ }
+ 
++// Seconds since the log started: the [time] at the start of each line.
++double LogSeconds()
++{
++    return std::chrono::duration<double>(std::chrono::steady_clock::now() - g_start).count();
++}
++
+ std::vector<std::string> LogTail(size_t n)
+ {
+     std::lock_guard lock(g_logMutex);
+diff --git a/src/log.h b/src/log.h
+index 589503e..e844b4c 100644
+--- a/src/log.h
++++ b/src/log.h
+@@ -12,6 +12,8 @@ void LogFlush();
+ [[noreturn]] void Fatal(const char* fmt, ...);
+ // The last n lines (up to 2000 are kept), for the debug server.
+ std::vector<std::string> LogTail(size_t n);
++// Seconds since the log started (the clock of the [time] stamps; the on-screen timer shows it).
++double LogSeconds();
+ 
+ #define LOG_ONCE(...)                \
+     do                               \
+diff --git a/src/render/presenter.cpp b/src/render/presenter.cpp
+index 3055166..de96070 100644
+--- a/src/render/presenter.cpp
++++ b/src/render/presenter.cpp
+@@ -440,7 +440,8 @@ void PresenterUseRenderer()
+     g_rendererActive = true;
+ }
+ 
+-bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, ID3D12Resource* overlay, uint32_t overlayW, uint32_t overlayH)
++bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, ID3D12Resource* overlay, uint32_t overlayW, uint32_t overlayH,
++    ID3D12Resource* timer, uint32_t timerW, uint32_t timerH)
+ {
+     if (!g_p.ready)
+         return false;
+@@ -487,7 +488,16 @@ bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, I
+         dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+         from.pResource = overlay;
+         from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+-        list->CopyTextureRegion(&dst, offsetX + 24, offsetY + 24, 0, &from, nullptr);
++        list->CopyTextureRegion(&dst, offsetX + 24, offsetY + 24 + (timer ? timerH : 0), 0, &from, nullptr);
++    }
++    if (timer && timerW <= bd.Width && timerH <= bd.Height)
++    {
++        D3D12_TEXTURE_COPY_LOCATION dst{}, from{};
++        dst.pResource = backBuffer;
++        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++        from.pResource = timer;
++        from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++        list->CopyTextureRegion(&dst, offsetX, offsetY, 0, &from, nullptr);
+     }
+     b.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+     b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+diff --git a/src/render/presenter.h b/src/render/presenter.h
+index 31fcc86..843e1d9 100644
+--- a/src/render/presenter.h
++++ b/src/render/presenter.h
+@@ -29,7 +29,9 @@ ID3D12CommandQueue* RenderQueue();
+ // buffer; returns false when there is no window. Call PresenterPresent()
+ // after executing the list.
+ // overlay (COPY_SOURCE RGBA8, overlayW x overlayH) is copied over the top-left corner when given.
+-bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, ID3D12Resource* overlay = nullptr, uint32_t overlayW = 0, uint32_t overlayH = 0);
++// timer (same kind, timerW x timerH) goes in the very corner, the overlay below it.
++bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, ID3D12Resource* overlay = nullptr, uint32_t overlayW = 0, uint32_t overlayH = 0,
++    ID3D12Resource* timer = nullptr, uint32_t timerW = 0, uint32_t timerH = 0);
+ void PresenterPresent();
+ // The swap chain to a new output size (host GPU idle; renderer.cpp ApplyOutputSize).
+ void PresenterResize(uint32_t width, uint32_t height);
