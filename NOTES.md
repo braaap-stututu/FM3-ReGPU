@@ -5,7 +5,8 @@
 **Status:** **Races are playable** (you finished the intro race; controller, keyboard and audio OK). Of the three visual bugs you reported, **two are fixed** (verified on the paused start grid, `out/shots/fix_paused2.png` vs `p_base.png`):
 - **Bar across the screen** (rows ~360–511, ending at the EDRAM tile seam at 512): ReGPU's "foreign MSAA" path. Now off by default in `src/gpu_host.cpp` (`REGPU_NO_FOREIGN_MSAA=1`; `FM3_FOREIGN_MSAA=1` restores it). Brightness either side of the seam 114/64 → 40/39.
 - **Asphalt streaks**: the road shader's car/track shadow lookup (fetch slot 11 = 256×256 `k_16_16` variance shadow map, resolved as signed integers, fetched as unsigned fractions) got unconverted integer-unit floats from ReGPU. Fixed in ReGPU by our patch `patches/regpu-fixed16-fetch.patch` (game-neutral; `REGPU_NO_FIXED16_FETCH=1` A/B). Road now dark asphalt like hl360, and the car shadow is right (no hl360 dark square).
-- **Still open: sun white-out + slowdown.** Seen at full strength in `out/shots/ab_merge_on.png`. Candidates: the occlusion-query path (turning `REGPU_NO_OCCLUSION_COVERAGE` on gave pure white, but the camera was moving then, so not conclusive) and the auto-exposure chain (k_32_FLOAT 32×32). Next: reproduce with the camera parked on the sun, then flip the occlusion/7e3 switches.
+- **Sun white-out + slowdown: fixed** (ReGPU patch `regpu-zpd-tile-spans.patch`). FM3's sun-visibility occlusion query runs under predicated tiling: one ZPD count-on/count-off pair per tile. ReGPU counted one span from the first start to the end, which took in all 621 draws of tile 2's replay: 6,472,508 samples (3.5 screens), so maximum glare, plus a coverage re-draw of those draws. Now 5,780 samples: a normal sun glare with rays (`out/shots/sunfix_base.png`), and the old behaviour toggled live goes white again (`sunfix_oldspans.png`). Facing the sun it now runs 60 fps (39–40 before, at a similar spot; toggling live didn't bring the drop back at this spot, so the fps link isn't proven).
+- **To watch:** at the sun spot, the backlit asphalt still shows light dashes. That may be FM3's real sun reflection; check in motion against your earlier streak report.
 - Also seen: 30–36 fps for the first seconds of the race (3,000+ draws, while the shader cache rebuilds after the preamble change), then 58–60.
 
 **How to run (manual tests): `play.cmd` in the project root.** It starts `build\rel\fm3.exe` with the debug server on (`REGPU_DEBUG=1`), saves in `out\user`, the log in `out\run\fm3.log`, and the game data from hl360's `game\disc1` (`FM3_GAME_DIR` overrides). You start the game with it and drive to the place a test needs; I attach with `tools/fm3ctl.ps1`.
@@ -238,6 +239,13 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 **Phase 6 — Polish ☐** Frame-rate unlock only after confirming FM3's sim timing (Q24), launcher/settings, mods (Q9 re-signing, PF+3).
 
 ## Session log
+### 2026-11-07 — session 8b (sun white-out)
+- You drove to a spot facing the sun and paused, with the debug server on (later runs via `play.cmd`, made at your request; you start the game and report when in position, and I don't repeat the launch steps).
+- Switch sweep facing the sun: only `REGPU_FAKE_OCCLUSION` removed the white-out (brightness 152 → 38). fps 39–40, 53 with fake answers, 55 without coverage draws.
+- `REGPU_TRACE_ZPD_RESULTS`: one query per frame answering **zpass 6,472,508**. A capture showed it beginning before the 6-vertex sun quad in tile 1 and ending after tile 2's, with 621 tile-2 draws inside. The trace showed 3 plain ZPD events + 1 end per frame, i.e. a count-on/off pair per tile.
+- Fix in ReGPU (`RendererOcclusionBegin`: a start while counting = pause, then resume in a new D3D query part; the end sums them; swap finalises a paused query; `REGPU_NO_ZPD_SPANS` A/B). The ZPD trace now prints `RB_SAMPLE_COUNT_CTL` (00000002 for all four events in FM3, so the control register doesn't separate begin from end here; the pairing does) and is no longer capped at 12 lines per run.
+- Result: zpass 5,780; normal glare; 60 fps. Saved as `patches/regpu-zpd-tile-spans.patch` (split from the working tree with a scratch index); `setup.ps1` verifies both ReGPU patches.
+
 ### 2026-11-07 — session 8 (visual bugs: bar, asphalt, sun)
 - You reported: race playable to the finish; input + audio fine; three visual bugs (screen-wide bar, sun white-out + slowdown, asphalt streaks worse in motion).
 - `tools/fm3ctl.ps1` (own TCP client for ReGPU's debug server, port 7341). The debug pad's presses reach the game (A skips the intro; START pauses after the countdown, not on "GO!").

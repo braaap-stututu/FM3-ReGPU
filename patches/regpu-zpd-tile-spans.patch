@@ -1,0 +1,95 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index e8560d8..74a9bd6 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -1028,10 +1028,13 @@ uint32_t ExecutePacket(uint32_t ptr)
+         const bool end = (c[4] == finished && c[5] == finished) || (c[2] == finished && c[3] == finished);
+         static int logged = 0;
+         static LiveSwitch traceZpd("REGPU_TRACE_ZPD"); // (a getenv per query was ~1% of the command processor)
+-        if (logged < 12 && traceZpd)
++        if (!traceZpd)
++            logged = 0; // (12 more each time it is switched on)
++        else if (logged < 12)
+         {
+             logged++;
+-            Log("zpd: %08X %08X %08X %08X %08X %08X %08X %08X%s", c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], end ? " (end)" : "");
++            Log("zpd: %08X %08X %08X %08X %08X %08X %08X %08X%s, RB_SAMPLE_COUNT_CTL %08X", c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
++                end ? " (end)" : "", gpureg::Get(0x2324));
+         }
+         // Real counts when draws are recorded here in stream order (not with the draw thread
+         // or workers, whose lists the query would not wrap): the sun flare fades behind trees.
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 7dc07fb..28ef402 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -858,6 +858,7 @@ OcclusionParts g_occlusionCurrent;
+ uint64_t g_occlusionFrame = ~0ull;
+ UINT g_occlusionCount = 0, g_occlusionIndex = 0, g_occlusionOrder = 0, g_occlusionOrders = 0; // D3D queries used, open one, guest order, guest queries
+ bool g_occlusionOpen = false;
++bool g_occlusionPaused = false; // a guest query between its counting spans (RendererOcclusionBegin: predicated tiles)
+ std::map<std::string, std::pair<double, uint64_t>> g_passTotals; // ms, draws
+ uint64_t g_passFrames = 0;
+ ComPtr<ID3D12Resource> g_timestampReadback;
+@@ -8741,6 +8742,32 @@ void RendererOcclusionBegin()
+         g_occlusionOrders = 0;
+         g_occlusionKindCount.clear();
+     }
++    // Predicated tiles: D3D replays a tile's commands once per tile, so a query's ZPD events come in
++    // pairs per tile (count on before its draws, off after them) and only the final one carries the end
++    // markers; the hardware sums the samples counted inside the pairs. A second start while counting is
++    // that pause, the next one resumes in a new part. Treated as one long span, a query began in the
++    // first tile also counted every draw of the next tile's replay up to its end (FM3's sun query: 3.5
++    // screens of samples, the glare went white, and each of those draws was drawn again for coverage).
++    // REGPU_NO_ZPD_SPANS=1: one span from the first start to the end, as before (A/B).
++    static LiveSwitch noSpans("REGPU_NO_ZPD_SPANS");
++    if (!noSpans && g_occlusionOpen)
++    {
++        EndOcclusionPart();
++        g_occlusionOpen = false;
++        g_occlusionPaused = true;
++        return;
++    }
++    if (!noSpans && g_occlusionPaused)
++    {
++        if (g_occlusionCount + 1 > kOcclusionPerFrame)
++            return; // out of D3D queries: what was counted so far is its result
++        g_occlusionIndex = g_r.frameIndex * kOcclusionPerFrame + g_occlusionCount++;
++        g_occlusionCurrent.main.push_back(g_occlusionIndex);
++        C().list->BeginQuery(g_occlusionHeap.Get(), D3D12_QUERY_TYPE_OCCLUSION, g_occlusionIndex);
++        g_occlusionOpen = true;
++        g_occlusionPaused = false;
++        return;
++    }
+     if (g_occlusionOpen || g_occlusionCount + 4 > kOcclusionPerFrame)
+         return;
+     if (!g_occlusionHeap)
+@@ -8809,13 +8836,17 @@ bool RendererOcclusionEnd(uint32_t& samples, uint32_t& total, uint32_t address)
+ 
+ bool OcclusionEndImpl(uint32_t& samples, uint32_t& total, uint32_t address)
+ {
+-    if (!g_occlusionOpen)
++    if (!g_occlusionOpen && !g_occlusionPaused)
+         return false;
+     const UINT order = g_occlusionOrder;
+     g_occlusionCurrent.kind = uint64_t(address) << 1 | 1;
+     g_occlusionCurrent.kindOrder = g_occlusionKindCount[g_occlusionCurrent.kind]++;
+     const std::pair<uint64_t, UINT> kind{ g_occlusionCurrent.kind, g_occlusionCurrent.kindOrder };
+-    EndOcclusionQuery();
++    if (g_occlusionOpen)
++        EndOcclusionQuery();
++    else
++        g_occlusionPending[g_r.frameIndex].push_back(g_occlusionCurrent); // its last span already ended
++    g_occlusionPaused = false;
+     // REGPU_OCCLUSION_BY_ORDER=1: answered by order in the frame, as before (A/B).
+     static LiveSwitch byOrder("REGPU_OCCLUSION_BY_ORDER");
+     int64_t passed = -1, covered = -1;
+@@ -11382,6 +11413,9 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     // ended after) made Close fail and removed the device. Its end then answers fully visible.
+     if (g_occlusionOpen)
+         EndOcclusionQuery();
++    else if (g_occlusionPaused)
++        g_occlusionPending[g_r.frameIndex].push_back(g_occlusionCurrent);
++    g_occlusionPaused = false;
+     C().list->Close();
+     ID3D12CommandList* lists[] = { C().list->Real() };
+     SubmitLists(1, lists);
