@@ -5,6 +5,8 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 for Windows x64, on [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) +
 [ReGPU](https://github.com/zer0ducksgiven/ReGPU). Layout and build follow the FM2 and FM4 ReGPU ports.
 
+(i tried to make this a fork of the FM2 ReGPU project but github wouldn't let me)
+
 **Status:** Phase 1 (project skeleton). The patched recompiler and host tools build; the game
 does not exist yet. Running log and roadmap: [NOTES.md](NOTES.md). Game quirks: [FM3-QUIRKS.md](FM3-QUIRKS.md).
 
