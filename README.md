@@ -11,8 +11,8 @@ No game data is in this repository. You need your own disc dump.
 
 ## Status
 
-**Playable.** The game boots, plays the intro, and the prologue race can be driven to the finish at
-about 60 fps. Controller, keyboard and audio work. Running log and roadmap: [NOTES.md](NOTES.md);
+**"Playable."** The game boots, plays the intro, and the prologue race can be driven to the finish at
+about 60 fps (i have not yet tested beyond this point). Controller, keyboard and audio work (as far as i can tell). Running log and roadmap: [NOTES.md](NOTES.md);
 game-specific quirks: [FM3-QUIRKS.md](FM3-QUIRKS.md).
 
 Fixed so far (all confirmed in game):
