@@ -1,19 +1,27 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-07, session 8c)
+## ▶ Current status / next step  (updated 2026-11-07, end of session 8)
 
-**Status:** **Races are playable** (controller, keyboard and audio OK). Visual bugs you reported:
-- **Bar across the screen: fixed** (rows ~360–511, ending at the EDRAM tile seam at 512): ReGPU's "foreign MSAA" path, off by default in `src/gpu_host.cpp` (`REGPU_NO_FOREIGN_MSAA=1`; `FM3_FOREIGN_MSAA=1` restores it).
-- **Car shadow: right** (no square; you confirmed). My first fixed-16 patch had drawn a square (the hl360/Xenia one); corrected.
-- **Asphalt streaks: mostly fixed, bands remain.** Cause: the road samples a 512×512 detail image the game composes at run time from its base asphalt texture and DXT1 "strips". At **track load** it renders 64 strips as 8888 32×512 images (`05B75000…`, 64 KB apart) and CPU code compresses them into separate DXT1 strips right away. ReGPU kept those resolves on the GPU, so the DXT1 strips were built from leftover memory (pieces of car paint): light bands with fine dashed lines. Fix: `src/gpu_host.cpp` writes every 32×512 colour resolve back to memory **immediately** (`Mode::Now`; Deferred came too late), `FM3_NO_STRIP_WRITEBACK=1` for A/B. You confirmed the fine dashed lines are gone. **Smooth bands: fixed** (session 8f, you confirmed "bands gone"). ReGPU patch `regpu-resolve-into-image.patch`: the road image's lower-half rebuild (rows 256–511 to the image's own base) was taken for a tiling tile and filed 256 rows early, so the road image kept a stale blurred lower half. The road is now high-res asphalt everywhere; the capture shows the road image sharp in both halves.
-- **My mistake this session:** the "asphalt fix" from session 8 (fixed-16 conversion) only darkened the sunlit road, which hid part of the streaks; the 512×512 road-image write-back I tried in between changed nothing (removed).
-- **Sun white-out + slowdown: fixed** (ReGPU patch `regpu-zpd-tile-spans.patch`). FM3's sun-visibility occlusion query runs under predicated tiling: one ZPD count-on/count-off pair per tile. ReGPU counted one span from the first start to the end, which took in all 621 draws of tile 2's replay: 6,472,508 samples (3.5 screens), so maximum glare, plus a coverage re-draw of those draws. Now 5,780 samples: a normal sun glare with rays (`out/shots/sunfix_base.png`), and the old behaviour toggled live goes white again (`sunfix_oldspans.png`). Facing the sun it now runs 60 fps (39–40 before, at a similar spot; toggling live didn't bring the drop back at this spot, so the fps link isn't proven).
-- **To watch:** at the sun spot, the backlit asphalt still shows light dashes. That may be FM3's real sun reflection; check in motion against your earlier streak report.
-- Also seen: 30–36 fps for the first seconds of the race (3,000+ draws, while the shader cache rebuilds after the preamble change), then 58–60.
+**Status: FM3 is playable on our build.** Boots, menus, races to the finish; controller, keyboard and audio work. All visual bugs you reported in session 8 are **fixed and confirmed by you**:
 
-**How to run (manual tests): `play.cmd` in the project root.** It starts `build\rel\fm3.exe` with the debug server on (`REGPU_DEBUG=1`), saves in `out\user`, the log in `out\run\fm3.log`, and the game data from hl360's `game\disc1` (`FM3_GAME_DIR` overrides). You start the game with it and drive to the place a test needs; I attach with `tools/fm3ctl.ps1`.
+| Bug | Cause | Fix (where) | A/B switch |
+|---|---|---|---|
+| Screen-wide bar (rows ~360–511) | ReGPU "foreign MSAA" view path on FM3's two-tile 2×MSAA scene | `src/gpu_host.cpp` default `REGPU_NO_FOREIGN_MSAA=1` | `FM3_FOREIGN_MSAA=1` |
+| Sun white-out + slowdown | Occlusion query counted from tile 1's start to tile 2's end (6.47M samples) | ReGPU patch `regpu-zpd-tile-spans` | `REGPU_NO_ZPD_SPANS=1` |
+| Fine dashed road streaks | Road strips rendered at track load, read from memory, never written back | `src/gpu_host.cpp`: 32×512 resolves → `Writeback::Mode::Now` | `FM3_NO_STRIP_WRITEBACK=1` |
+| Square car shadow (my regression) | Fixed-16 fetch conversion applied to same-format reads and the border | ReGPU patch `regpu-fixed16-fetch` (corrected) | `REGPU_NO_FIXED16_FETCH=1` |
+| Smooth road bands (rotated chase cam) | Road image's lower-half rebuild filed 256 rows early as a "tile" | ReGPU patch `regpu-resolve-into-image` | `REGPU_NO_RESOLVE_INTO_IMAGE=1` |
 
-**Tools added this session:** `tools/fm3ctl.ps1` (our client for ReGPU's debug server: `Start-Fm3Dev [-Fresh]`, `Fm3 "<cmd>"`, `Save-Fm3Shot`; scripted runs use `out/user-route`, never your `out/user`). The pattern that found both bugs: pause → `switch` sweeps with a brightness/edge metric → `capture` → `ps <hash> tint` to find the draw → `hlsl <hash>` → read the fetch constant.
+**Open / next (pick from here):**
+1. **Photo mode:** whitened band over the top third of the render (not seen in races). Likely another tiling/resolve-placement case; same method as the bar.
+2. Phase 4 items not yet checked: Disc 2 DLC cars (Q11–Q14), profile rules (Q15), language/country (Q16), career and menus beyond the intro race.
+3. Phase 5 items: car thumbnails (Q18), audio queue depth (Q26), post-race 30 fps menu check, fps over a full lap (the first seconds after a shader-cache rebuild run 30–36 fps).
+4. Leftovers: `sub_82A918F0` blrl trap and SEH policy (not hit yet); a licence for our code; delete `githubfileignorepls`?
+
+**How we work (agreed with you):**
+- **You start the game with `play.cmd`** (project root: debug server on, saves in `out/user`, log in `out/run/fm3.log`) and drive to where a test needs to be, then report. Don't repeat the launch steps unless `play.cmd` changes; say so when it does. Temporary test lines in it get removed afterwards.
+- I attach with `tools/fm3ctl.ps1`: `Fm3 "status"`, `Fm3 "capture"`, `ps <hash> tint|<expr>`, `hlsl <hash> out/hlsl/x.hlsl` (no spaces in that path), `switch NAME 0|1`, `Save-Fm3Shot`. I pause the game myself if needed. Rebuilding needs the game closed: ask first, then link with `tools/vcenv.cmd ninja -C build/rel fm3`.
+- Method that worked: pause → shots → live `switch` A/B → `capture` (draw list in the log, resolved images in `out/run/out/res`, textures in `out/run/out/capture/tex`) → tint candidates to find the draw → `hlsl` → show single terms with `ps` edits → **measure** (box/edge metrics) rather than judge by eye → compare with hl360 when unsure what is correct.
 
 ### Previous status (session 7)
 **Phase 3 goal reached: `fm3.exe` boots and renders.** The runtime (ported from the FM4 port, see `NOTICE.md`) runs FM3's recompiled code on ReGPU. From a fresh user folder, with no input: ESRB screen at ~8 s (correct, see `out/shots/boot_08s.png`), logo fades, then the **R8 intro video plays** (40 s: the door close-up hl360's dump showed; 70 s: the Le Mans prototype shot). **59.6 fps average** (4,140 swaps in 69.5 s, vblank 60 Hz, frame cap 60), 54 draws/frame in the video like hl360. 15 guest threads, GPU interrupt and ring buffer OK, audio driver at 188 callbacks/s with 0 dropped frames. No unimplemented-import warnings so far; only `ExGetXConfigSetting 0003/0001` and kernel variable ordinals 0x156/0x1BF are unknown.
@@ -150,7 +158,11 @@ python -I tools/dumpdecode.py diff   dumps/hl360/runA/r01_grid_paused dumps/hl36
   4. `xenonrecomp-fm4-instructions` — VMX128 / CR-bit instruction fixes.
   5. `xenonrecomp-switch-u32` — switch on `u32` index; `vcmpbfp` implemented.
   **Why:** all generic recompiler fixes the FM4 port needed on the same engine family; none carries FM2/FM4 addresses. Taken unmodified from FM4 commit `69bdae4` git objects (LF). Combined: 8 files, +1241/−24.
-- **Our project, ReGPU** (`57143cb`): none.
+- **Our project, ReGPU** (`57143cb`), session 8, in this order, applied and verified by `tools/setup.ps1`; details in `patches/README.md`. All game-neutral, each behind a `REGPU_*` switch:
+  1. `regpu-fixed16-fetch`: resolved 16-bit fixed images read with the fetch's number format when it differs from the copy's (not the border colour).
+  2. `regpu-zpd-tile-spans`: occlusion queries count only inside each tile's ZPD on/off pair (sun glare). Also: `REGPU_TRACE_ZPD` logs `RB_SAMPLE_COUNT_CTL`.
+  3. `regpu-resolve-into-image`: a resolve with a row offset into an existing image of the same width is part of that image, not a tile (road bands).
+- **Our project, host rules** (`src/gpu_host.cpp`, not patches): `REGPU_NO_FOREIGN_MSAA=1` default (bar); 32×512 colour resolves written back `Now` (road strips); vblank 60 Hz (Q24).
 - **hl360 baseline:** its own `patches/sdk/0001–0006`, applied unmodified by `build_sdk.cmd` to ReXGlue SDK `c94f5eb` (v0.10.0+2). No changes to hl360 sources. The only changes to the checkout are repo-local git line-ending settings (see config decisions).
 - **hl360 baseline, ours: `patches/sdk/0007-frame-dump-hook.patch`** (2026-11-07, about 215 lines, written from scratch; revised twice in session 4: per-frame hash cache, never reuse an existing `frame_NNNN`). It lives in hl360's `patches/sdk/` so `build_sdk.cmd` picks it up like the others. **Why:** hl360 has no frame dump, and `--texture_dump_dir` is *not* in stock ReXGlue (it was forza3-recomp's unpublished local hook). We need guest-side texture/resolve data from the baseline to diff against ReGPU later. **What:**
   - cvar `texture_dump_dir` (hot-reload, default empty = off).
@@ -228,15 +240,16 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ✅ Goal: ESRB/logos and the intro video render, ~60 fps.
 - ☐ Carried to Phase 4/5: `sub_82A918F0` blrl override and SEH policy (not hit yet); `cache:` utility drive (Q8: FM4's VFS may already mount it; check at race start); game-speed check against hl360 (timing of the intro/video).
 
-**Phase 4 — Menus & content ▶**
-- Disc 2 DLC (Q11–Q14), licence mask all bits (Q12), profile XUID/gamertag rules (Q15), language+country pairs (Q16).
-- Reach the controls/loading screen and the intro race cutscene.
+**Phase 4 — Menus & content ▶ (partly done)**
+- ✅ Intro, controls/loading screen, intro race to the finish, pause menu, photo mode reachable (session 8, you).
+- ☐ Disc 2 DLC (Q11–Q14), licence mask all bits (Q12), profile XUID/gamertag rules (Q15), language+country pairs (Q16); career and menus beyond the intro race.
 
-**Phase 5 — Race & GPU parity ☐**
-- Resolve writeback rules for road/thumbnails (Q18). Integer num_format resolve+fetch for the car VSM (Q19: the 256×256 k_16_16 + k_24_8 pair seen at draws ~582/583 on the grid).
-- Audio queue depth (Q26). XMA path check (kernel exports vs APU MMIO).
-- Add a ReGPU-side dump hook that writes the **same index.txt/tex_*.bin format**, then `dumpdecode.py diff` hl360-grid vs ReGPU-grid.
-- Check the post-race finish menu runs at exactly 30.0 fps (game-native present interval?).
+**Phase 5 — Race & GPU parity ▶ (started, session 8)**
+- ✅ Road: strip write-back at load (Q18 part) and road-image half placement (ReGPU patch). ✅ Car shadow correct (Q19: no square, unlike hl360). ✅ Sun glare (occlusion under tiling). ✅ Screen bar (foreign MSAA).
+- ☐ Photo mode whitened top-third band.
+- ☐ Car thumbnails (Q18 rest), audio queue depth (Q26), XMA path check.
+- ☐ ReGPU-side dump hook in the **same index.txt/tex_*.bin format**, then `dumpdecode.py diff` hl360-grid vs ReGPU-grid (would speed up finding the next parity bugs).
+- ☐ Post-race finish menu at exactly 30.0 fps? Full-lap fps measurement.
 
 **Phase 6 — Polish ☐** Frame-rate unlock only after confirming FM3's sim timing (Q24), launcher/settings, mods (Q9 re-signing, PF+3).
 

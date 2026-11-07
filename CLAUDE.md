@@ -3,17 +3,29 @@
 Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 360, title `4D53084D`, media `6F74359D`, `default.xex` v0.0.0.8, SHA-256 `aa15372c…8742`) for Windows x64, built with **XenonRecomp + ReGPU**, the same stack as the FM2 and FM4 ReGPU ports. Two ReXGlue-based FM3 recomps are kept as reference, and one of them (**hl360-forza3**) is built locally as the **comparison baseline** for frame-dump diffs.
 
 ## Start every session here
-1. Read **[NOTES.md](NOTES.md)**: the top section is current status / next step, and *Work plan (phases)* is the roadmap. **Phases 1–3 are done**: the repo is on GitHub (`braaap-stututu/FM3-ReGPU`, `main`; push our work there), `tools/recomp.ps1` produces a clean `out/ppc`, and `build\rel\fm3.exe` boots to the intro video at ~60 fps (how to run: top of NOTES.md). Next is Phase 4 (input, menus, profiles/DLC, reach the intro race).
+1. Read **[NOTES.md](NOTES.md)**: the top section is current status, the bug/fix table, the open list and **how we work**; *Work plan (phases)* is the roadmap. **Phases 1–3 done, 4–5 in progress**: FM3 is playable on our build (races to the finish, input + audio OK). All visual bugs reported in session 8 are fixed (bar, sun, road streaks, road bands, shadow). Repo on GitHub (`braaap-stututu/FM3-ReGPU`, `main`; commit and push our work there).
+   **Next candidates:** photo-mode whitened top-third band; Phase 4 content (DLC, profiles, career); Phase 5 parity (thumbnails, audio, fps).
 2. Game-specific knowledge (addresses, symptoms, fixes, and how each maps to XenonRecomp/ReGPU) is in **[FM3-QUIRKS.md](FM3-QUIRKS.md)**. Verbatim address lists are in `reference/catalogs/`.
 3. **Update NOTES.md at the end of every work session without being asked**: status/next step at the top, config decisions, every patch applied and why, known-broken areas, and a session-log entry.
+
+## Testing workflow (agreed with the user)
+- **The user starts the game with `play.cmd`** (project root: `build\rel\fm3.exe`, debug server on, saves in `out\user`, log `out\run\fm3.log`) and drives to the place a test needs, then reports. Don't repeat launch instructions unless `play.cmd` changes; say when it does, and remove temporary test lines afterwards. Don't script the boot → race route yourself.
+- Attach with **`tools/fm3ctl.ps1`** (dot-source it): `Fm3 "status"`, `Fm3 "capture"` (draw list into the log, resolved images to `out\run\out\res`, textures to `out\run\out\capture\tex`), `Fm3 "ps <hash> tint 1,0,1"` / `"ps <hash> <hlsl expr>"` / `"ps <hash>"` (restore), `Fm3 "hlsl <hash> out/hlsl/x.hlsl"` (**no spaces in that path**), `Fm3 "switch REGPU_X 1"`, `Fm3 "peek A6375000 4096"` (physical memory via the `A0000000` mirror), `Save-Fm3Shot name.png` (to `out\shots`). You may pause the game yourself (`press START`).
+- **Rebuild needs the game closed**: ask the user to close it, then `tools\vcenv.cmd ninja -C build/rel fm3`. After any change to ReGPU's HLSL preamble, boot and grep the log for `failed to compile` first.
+- Method that found every session-8 bug: pause → live `switch` A/B → `capture` → tint candidates to find the draw → `hlsl` → show single terms with `ps` edits → **measure numerically** (scratchpad scripts `pngstat.py`, `boxes.py`, `crop.py`) instead of judging by eye → compare with hl360 when unsure what "correct" looks like. Read ReGPU's `CLAUDE.md` (in the submodule) for its rules: game-neutral fixes go in ReGPU behind a `REGPU_*` switch; game-specific ones go in `src/gpu_host.cpp` hooks.
+- **ReGPU patches** live in `patches/regpu-*.patch` (applied/verified by `tools/setup.ps1`). After changing ReGPU, regenerate the patch for your change only (scratch-index trick in NOTES.md session logs) and run `tools\setup.ps1 -NoBuild` to verify the stack.
 
 ## Layout
 | Path | What |
 |---|---|
 | `NOTES.md` | Running log + phased work plan (source of truth for state) |
+| `play.cmd` | Test launcher the user runs (debug server on) |
+| `tools/fm3ctl.ps1` | Client for ReGPU's debug server (port 7341) |
+| `patches/regpu-*.patch` | Our 3 ReGPU patches (fixed-16 fetch, ZPD tile spans, resolve into image) |
+| `src/gpu_host.cpp` | ReGPU host glue + FM3 rules: no foreign MSAA, 32×512 strip write-back (`Now`), vblank 60 Hz |
 | `CMakeLists.txt` | Game build (FM4-style ReGPU linkage); needs `out/ppc` + `thirdparty/fidelityfx`. `-DFM3_PPC_ONLY=ON` builds just the recompiled code (compile check) |
 | `config/fm3.toml`, `config/fm3_switch_tables.toml` | XenonRecomp config (every entry explained) + XenonAnalyse tables |
-| `tools/setup.ps1` | Idempotent: submodules, the 5 XenonRecomp patches (`patches/`), host tools → `build\tools\` (XenonRecomp, XenonAnalyse, xexdump, ppcdis) |
+| `tools/setup.ps1` | Idempotent: submodules, the 5 XenonRecomp + 3 ReGPU patches (`patches/`), host tools → `build\tools\` (XenonRecomp, XenonAnalyse, xexdump, ppcdis) |
 | `tools/recomp.ps1` | Phase 2 pipeline: `game/default.xex` → `out/ppc` + `out/check.txt` (`-Prepare` also rescans helpers and switch tables) |
 | `tools/fm3_config.py`, `tools/fm3_check.py`, `tools/genstubs.py` | Helper/EH scan; output checks (errors, traps, run-offs, pointer-only targets); weak import stubs |
 | `tools/vcenv.cmd` | `tools\vcenv.cmd <cmd>` = vcvars64 + LLVM on PATH |
@@ -58,4 +70,8 @@ VS 2022 Build Tools 17.14 (MSVC 14.44, bundled CMake 3.31.6 + Ninja 1.12.1), Win
 - **Windows PowerShell 5.1 `>` writes UTF-16**, which the Python tools can't read: redirect native commands through `cmd /c "... > file"` (as `tools/recomp.ps1` does).
 - When writing files through shell heredocs/inline Python, Windows backslashes can turn into tabs/CRs (`\t`, `\r`, `\f`). Use forward slashes or the Edit tool, then check with `grep -c $'[\x01-\x08\x09\x0b\x0c\x0e-\x1f]'`.
 - Never link FM2/FM4 `sub_XXXXXXXX` addresses into FM3. Every hook must be re-addressed for this xex.
+- **Don't trust "looks fixed" by eye.** In session 8 a change that only darkened the road looked like a streak fix, and a texture I called "uniform" was banded. Measure (box detail/mean) and get the user's confirmation in game.
+- **Building FM4's vendored ReGPU from `reference/` is blocked** by the permission classifier (third-party code). CMake still has `FM3_REGPU_DIR`/`FM3_REGPU_FM4` for such A/B builds if the user allows it.
+- PowerShell sessions spawned from Bash hit the execution policy; run `.ps1` scripts from the PowerShell tool.
+- FM3 draws its 720p 2×MSAA scene in **two EDRAM tiles** (rows 0–511, 512–719). Many ReGPU bugs show up at that seam or in passes that run once per tile (resolves, occlusion queries).
 - `reference/` and `dumps/` hold third-party code and game-derived data: keep them out of any repository we create.
