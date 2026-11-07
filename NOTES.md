@@ -18,8 +18,10 @@ Outputs: `out/ppc`, `out/recomp.log`, `out/check.txt` (errors / traps / run-offs
 - **23 functions run off their end.** All end in calls that don't return: CRT `exit`/`_exit` (`825366E0`/`825366F0`), `longjmp`, `ExTerminateThread`, and assert/error paths (`82528800`, `82538110`, `82258A08`, `82AB4F18`, `822991F8`, probably no-return; not verified one by one).
 - 313 imports become weak stubs (`tools/genstubs.py`, generated into the build folder).
 
+**Deps (session 6b):** **FidelityFX SDK 2.1.0 is wired in** (`thirdparty/fidelityfx` is a junction to `G:\claude code projects\tools\FidelityFX-SDK-2.1.0`; all 5 signedbin DLLs Authenticode-valid, AMD). The full game CMake configures, and **`regpu.lib` builds against our `out/ppc` with FSR3 on**; `regpu_linkcheck` links with no unresolved externals. **FFmpeg still missing:** the winget `Gyan.FFmpeg` 9.0.2 you installed is the static **GPL** full_build (only `ffmpeg/ffplay/ffprobe.exe`, no `include/`, `lib/` or DLLs), so it can't be linked. Needed: BtbN `ffmpeg-n8.x-latest-win64-lgpl-shared-8.x.zip` (what FM2 names) extracted so `thirdparty/ffmpeg/{include,lib,bin}` exist. Only audio (`src/audio`) needs it.
+
 **Next steps:**
-1. Your OK to install: **AMD FidelityFX SDK v2.x** → `thirdparty/fidelityfx` (ReGPU's CMake refuses to configure without it) and an **FFmpeg win64 LGPL shared** build → `thirdparty/ffmpeg` (audio). Phase 3 needs FidelityFX to link the game.
+1. FFmpeg LGPL shared build (see above). Not needed for a silent first boot.
 2. Phase 3: port the runtime (loader, memory, kernel/XAM, threads, `indirect.cpp`, fibers with FM3 addresses, `patch_mftb`), then boot to the first frame with vblank at 60 Hz.
 3. Still your call: a licence for our code; whether to delete the empty `githubfileignorepls`.
 
@@ -209,6 +211,12 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 **Phase 6 — Polish ☐** Frame-rate unlock only after confirming FM3's sim timing (Q24), launcher/settings, mods (Q9 re-signing, PF+3).
 
 ## Session log
+### 2026-11-07 — session 6b (dependencies)
+- You installed FFmpeg via winget and extracted FidelityFX-SDK 2.1.0 to `G:\claude code projects\tools\`.
+- FidelityFX: the layout matches (`Kits/FidelityFX/upscalers/fsr3/include/gpu/fsr1/ffx_fsr1.h`, `signedbin/*_dx12.{dll,lib}`; DLLs dated 2025-12-09: loader, upscaler, framegeneration, denoiser, radiancecache). All 5 DLLs: Authenticode **Valid**, CN=Advanced Micro Devices. Junction `thirdparty/fidelityfx` → SDK root (gitignored, no copy). FM2/FM4 used v2.3.0; 2.1.0 compiles fine for ReGPU.
+- `cmake -S . -B build/rel` (full game) configures; `ninja regpu` 20/20 (warnings only: `-Wswitch` in AMD's `ffx_api_dx12.h`, `-Wformat` DWORD in ReGPU `renderer.cpp:10629`); `regpu_linkcheck` links.
+- FFmpeg: winget's `Gyan.FFmpeg` = `ffmpeg-9.0.2-full_build`, `--enable-gpl --enable-static`, executables only → unusable for linking (and GPL). Left installed, not referenced.
+
 ### 2026-11-07 — session 6 (Phase 2: first recompilation)
 - `game/default.xex` copied from hl360's verified `game/disc1` (SHA-256 matches). `xexdump` → `out/fm3.bin` + `out/fm3.sections`.
 - **New tools (own code):** `build/tools/ppcdis.exe` (XenonRecomp's disassembler over the loaded image), `tools/fm3_config.py` (helpers, EH words, setjmp/longjmp candidates; `--write`), `tools/fm3_check.py` (output checks), `tools/genstubs.py`, `tools/recomp.ps1` (whole pipeline). FM4's `fm4_config.py`/`fallthrough.py`/`genstubs.py` were read for the approach, not run.
