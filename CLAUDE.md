@@ -44,7 +44,7 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 
 ## Toolchain (installed)
 VS 2022 Build Tools 17.14 (MSVC 14.44, bundled CMake 3.31.6 + Ninja 1.12.1), Windows SDK 10.0.26100, **LLVM 23.1.5** at `C:\Program Files\LLVM` (not on PATH; scripts call `vcvars64` + prepend LLVM, like hl360's `scripts\devenv.cmd`), Python 3.15 (no numpy), Git 2.56 (`sh` in `C:\Program Files\Git\usr\bin`, not on PATH), RenderDoc 1.47. Host GPU: RX 7900 XTX.
-**FidelityFX SDK 2.1.0** at `G:aude code projects	oolsFidelityFX-SDK-2.1.0`, junctioned as `thirdparty/fidelityfx`. Not yet usable (**ask before installing**): FFmpeg win64 **LGPL shared** (BtbN build → `thirdparty/ffmpeg/{include,lib,bin}`; the winget Gyan.FFmpeg GPL static build is exe-only and unusable), optional numpy.
+**FidelityFX SDK 2.1.0** at `G:/claude code projects/tools/FidelityFX-SDK-2.1.0`, junctioned as `thirdparty/fidelityfx`. Not yet usable (**ask before installing**): FFmpeg win64 **LGPL shared** (BtbN build → `thirdparty/ffmpeg/{include,lib,bin}`; the winget Gyan.FFmpeg GPL static build is exe-only and unusable), optional numpy.
 
 ## Gotchas learned the hard way
 - **Line endings:** the global git `core.autocrlf=true` turns patch files into CRLF, so `git apply` fails. Use `.gitattributes` with `*.patch -text` (keep `.cmd/.bat/.ps1` CRLF). hl360 + its SDK already have repo-local fixes. The reference clones' working trees are CRLF too: take patch files from their git objects (`git show HEAD:path`), not by copying.
