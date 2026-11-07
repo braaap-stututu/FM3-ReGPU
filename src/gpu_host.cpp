@@ -13,7 +13,10 @@
 // Deliberately NOT carried over from FM4: its road-strip resolve write-back rule and its car-shadow
 // cascade switches (FM4 addresses/formats). FM3's own versions (Q18, Q19) come in Phase 5, decided
 // from hl360-vs-ReGPU frame-dump diffs.
+#include <atomic>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <set>
 #include <string>
@@ -22,6 +25,7 @@
 
 #include "kernel/runtime.h"
 #include "kernel/thread.h"
+#include "live_switch.h"
 #include "log.h"
 #include "memory.h"
 #include "settings.h"
@@ -45,6 +49,40 @@ void ApplySettings(regpu::Config& c)
     c.upscaler = regpu::Config::Upscaler(uint32_t(s.upscaler));
     c.quality = s.quality;
     c.sharpness = s.sharpness;
+}
+
+// Test aid: FM3_WRITEBACK="WxH,WxH,..." writes colour resolves of those sizes back to memory at once, to find out
+// which images the game reads on the CPU. Re-read whenever it changes, so it can be set live
+// (Fm3 "env FM3_WRITEBACK 256x256"; Fm3 "env FM3_WRITEBACK" clears it). Each size written is logged once per value.
+bool ExperimentWriteback(const regpu::ResolveCopy& c)
+{
+    static std::mutex m;
+    static std::string text;
+    static std::set<std::pair<uint32_t, uint32_t>> sizes, logged;
+    const char* env = getenv("FM3_WRITEBACK");
+    std::lock_guard lock(m);
+    if ((env ? env : "") != text)
+    {
+        text = env ? env : "";
+        sizes.clear();
+        logged.clear();
+        for (const char* p = text.c_str(); *p;)
+        {
+            uint32_t w = 0, h = 0;
+            if (sscanf(p, "%ux%u", &w, &h) == 2)
+                sizes.insert({ w, h });
+            const char* comma = strchr(p, ',');
+            if (!comma)
+                break;
+            p = comma + 1;
+        }
+        Log("writeback experiment: FM3_WRITEBACK=\"%s\" (%zu sizes)", text.c_str(), sizes.size());
+    }
+    if (!sizes.count({ c.width, c.height }))
+        return false;
+    if (logged.insert({ c.width, c.height }).second)
+        Log("writeback experiment: %ux%u format %u at %08X rows %d-%d written back", c.width, c.height, c.format, c.base, c.top, c.bottom);
+    return true;
 }
 
 // Sets a ReGPU environment default unless the player (or a test script) already set it.
@@ -96,8 +134,31 @@ void GpuStart()
     // too late (streaks unchanged with 64 strips written back Deferred). Now stalls the GPU for each, ~64
     // resolves once per track load. Each one is logged once.
     // FM3_NO_STRIP_WRITEBACK=1: not written back (A/B, from the start of a track).
+    //
+    // Car pictures (My Cars, garage): when a car changes (paint saved, bought...), the game renders it and resolves
+    // a 512x256 picture (the big one) and a 256x128 thumbnail, 8888 with the red/blue swap a CPU-read copy has, then
+    // its CPU code copies them into the car's own images (e.g. a 512x256 8888 texture) that are saved with it. Kept
+    // on the GPU, the copies read whatever was in memory: noise, or nothing. Found with FM3_WRITEBACK during
+    // repaints (session 9: 512x256 at 14C5F000, 256x128 at 1205F000, once each per save); confirmed in game.
+    // Pictures saved by earlier builds stay broken until the car is changed again. No resolve of these sizes was
+    // seen elsewhere (menus, race loads). FM3_NO_PICTURE_WRITEBACK=1: not written back (A/B).
     host.resolveWriteback = [](const regpu::ResolveCopy& c) {
         regpu::Writeback w;
+        if (!c.depth && ExperimentWriteback(c))
+        {
+            w.mode = regpu::Writeback::Mode::Now;
+            return w;
+        }
+        static LiveSwitch noPictures("FM3_NO_PICTURE_WRITEBACK");
+        if (!noPictures && !c.depth && c.format == 6 && c.top == 0 &&
+            ((c.width == 512 && c.height == 256) || (c.width == 256 && c.height == 128)))
+        {
+            w.mode = regpu::Writeback::Mode::Now;
+            static std::atomic<int> logged{ 0 };
+            if (logged.fetch_add(1) < 32)
+                Log("picture writeback: %08X %ux%u", c.base, c.width, c.height);
+            return w;
+        }
         static const bool off = getenv("FM3_NO_STRIP_WRITEBACK") != nullptr;
         if (off || c.depth || c.width != 32 || c.height != 512)
             return w;
