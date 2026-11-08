@@ -7,7 +7,7 @@ let customFps = false // "Custom…" picked in the Max FPS list
 let nextId = 1
 const pending = new Map()
 const PAGES = ["play", "profiles", "graphics", "wheel", "settings", "about"]
-const SWITCHES = ["vsync", "anisotropy", "hideShaderOverlay", "timer", "debugServer", "perfLog"]
+const SWITCHES = ["vsync", "accurateSun", "anisotropy", "hideShaderOverlay", "timer", "debugServer", "perfLog"]
 
 // ---- host calls
 

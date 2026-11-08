@@ -62,6 +62,9 @@ public sealed class GameSettings
     public int Upscale { get; set; } = 1;
     public int Sharpening { get; set; } = 50; // percent; settings.ini holds 0-1
     public int Language { get; set; } = 1;
+    // accurate_sun (fm3.exe reads it, src/gpu_host.cpp): ReGPU's parallel draw workers off, so the sun's occlusion
+    // queries work (sun flare); off by default: the workers are faster near other cars but every query reads "barely visible".
+    public bool AccurateSun { get; set; }
     // Launcher only, set on the game's environment at launch (Game.Launch):
     public bool Anisotropy { get; set; } = true;   // off: REGPU_NO_ANISO
     public bool HideShaderOverlay { get; set; }    // REGPU_NO_OVERLAY
@@ -72,7 +75,7 @@ public sealed class GameSettings
     public string GameFolder { get; set; } = "";
 
     // The racing wheel's wheel_* keys are the Wheel stuff tab's (Wheel.cs); Save keeps them like any other key it doesn't know.
-    static readonly string[] Known = ["profile", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "anisotropy", "hide_shader_overlay", "timer", "perf_log", "debug_server", "game_folder"];
+    static readonly string[] Known = ["profile", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "accurate_sun", "anisotropy", "hide_shader_overlay", "timer", "perf_log", "debug_server", "game_folder"];
 
     public static GameSettings Load()
     {
@@ -94,6 +97,7 @@ public sealed class GameSettings
                         ? (int)Math.Round(sh * 100) : 50;
                     break;
                 case "language": s.Language = int.TryParse(v, out var l) && l > 0 ? l : 1; break;
+                case "accurate_sun": s.AccurateSun = v == "1"; break;
                 case "anisotropy": s.Anisotropy = v != "0"; break;
                 case "hide_shader_overlay": s.HideShaderOverlay = v == "1"; break;
                 case "timer": s.Timer = v != "0"; break;
@@ -115,6 +119,7 @@ public sealed class GameSettings
         sb.Append($"msaa={(Options.Msaa.Any(x => x.Value == Msaa) ? Msaa : 1)}\n");
         sb.Append($"upscaler={(Options.Upscalers.Any(u => u.Value == Upscaler) ? Upscaler : "off")}\nupscale_quality={Math.Clamp(Upscale, 1, 4)}\nsharpness={sharp}\n");
         sb.Append($"language={Language}\n");
+        sb.Append($"accurate_sun={B(AccurateSun)}\n");
         sb.Append($"anisotropy={B(Anisotropy)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nperf_log={B(PerfLog)}\ndebug_server={B(DebugServer)}\n");
         sb.Append($"game_folder={Clean(GameFolder)}\n");
         foreach (var (k, v) in keep) sb.Append($"{k}={v}\n");

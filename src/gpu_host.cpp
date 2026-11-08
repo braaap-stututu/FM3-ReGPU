@@ -163,6 +163,17 @@ void GpuStart()
     if (!getenv("FM3_LATE_FENCES"))
         DefaultEnv("REGPU_EARLY_FENCES", "1");
 
+    // Parallel draw workers (OPEN-ISSUES.md P): draw translation on 3 threads, which helps where the
+    // command processor is the bound (near other cars). With workers our pinned ReGPU can't count
+    // occlusion queries (each answers a fixed 1000, which FM3 reads as "barely visible": no sun flare or
+    // glare); PGR4's logged queries would fix that but conflict with regpu-zpd-tile-spans. The player
+    // picks: settings.ini accurate_sun=1 (launcher: Graphics, "Accurate sun flare") keeps them off and
+    // the sun right. REGPU_DRAW_WORKERS=<n> overrides; live A/B: Fm3 "switch REGPU_NO_DRAW_WORKERS 1".
+    const bool accurateSun = GetSettings().Extra("accurate_sun") == "1";
+    if (!accurateSun)
+        DefaultEnv("REGPU_DRAW_WORKERS", "3");
+    Log("gpu: %s", accurateSun ? "accurate sun flare (draw workers off)" : "draw workers on (no sun flare; accurate_sun=1 turns them off)");
+
     // Q18, the road surface: the road shader samples a 512x512 detail image the game composes at run time
     // (half of it a frame, plus its mip chain) from a base asphalt texture and four 32x512 strips it reads
     // as DXT1. The strips are rendered and resolved once, when the track loads (none during a race; an
