@@ -7,6 +7,9 @@ set "ROOT=%~dp0"
 if not defined FM3_GAME_DIR set "FM3_GAME_DIR=%ROOT%reference\rexglue recomp reference\hl360-forza3\game\disc1"
 set "FM3_USER_DIR=%ROOT%out\user"
 set "REGPU_DEBUG=1"
+rem Profile: "Baseline" (out\user\profiles\Baseline), a copy of hl360's Baseline save with its XUID, used since
+rem session 11; the old "Player" profile has a damaged save (issue H). Set FM3_PROFILE before running to pick another.
+if not defined FM3_PROFILE set "FM3_PROFILE=Baseline"
 if not exist "%ROOT%build\rel\fm3.exe" (
     echo build\rel\fm3.exe is missing: build it first ^(README.md^).
     pause
