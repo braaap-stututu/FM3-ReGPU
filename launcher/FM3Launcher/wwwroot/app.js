@@ -6,13 +6,14 @@ let state = null
 let customFps = false // "Custom…" picked in the Max FPS list
 let nextId = 1
 const pending = new Map()
-const PAGES = ["play", "profiles", "graphics", "settings", "about"]
+const PAGES = ["play", "profiles", "graphics", "wheel", "settings", "about"]
 const SWITCHES = ["vsync", "anisotropy", "hideShaderOverlay", "timer", "debugServer", "perfLog"]
 
 // ---- host calls
 
 if (host) host.addEventListener("message", (e) => {
   const m = e.data
+  if (m.event === "wheel") return typeof wheelEvent === "function" && wheelEvent(m.data) // wheel.js
   const p = pending.get(m.id)
   if (!p) return
   pending.delete(m.id)
@@ -129,6 +130,9 @@ $("tabs").onclick = (e) => {
   if (!b) return
   for (const t of $("tabs").children) t.classList.toggle("on", t === b)
   showPage(b.dataset.tab)
+  // The Wheel stuff tab's live view runs only while it is open (wheel.js).
+  if (b.dataset.tab === "wheel") wheelShow()
+  else wheelHide()
   if (b.dataset.tab === "profiles") loadProfiles()
   else if (b.dataset.tab === "settings") refresh()
 }
@@ -136,6 +140,7 @@ $("tabs").onclick = (e) => {
 // The title opens the About page (no tab of its own).
 $("brand").onclick = () => {
   for (const t of $("tabs").children) t.classList.remove("on")
+  wheelHide()
   showPage("about")
 }
 $("brand").onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") $("brand").onclick() }

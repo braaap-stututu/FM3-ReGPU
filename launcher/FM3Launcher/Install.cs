@@ -71,6 +71,7 @@ public sealed class GameSettings
     // Launcher only: where the disc's files are; empty = Paths.GameDirDefault.
     public string GameFolder { get; set; } = "";
 
+    // The racing wheel's wheel_* keys are the Wheel stuff tab's (Wheel.cs); Save keeps them like any other key it doesn't know.
     static readonly string[] Known = ["profile", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "anisotropy", "hide_shader_overlay", "timer", "perf_log", "debug_server", "game_folder"];
 
     public static GameSettings Load()
