@@ -17,10 +17,19 @@
 // the loop's dt register f31 set from the host clock: each frame is stamped with the nominal
 // time of the vblank that released it when it starts within 2 ms of it, else with the time
 // it starts (a late frame). dt is the difference of two stamps, so frames that keep up get
-// exactly the vblank period and the sum is real time. At 60 fps nothing changes.
+// exactly the frame period and the sum is real time. At 60 fps nothing changes.
 //
-// Live switches (Fm3 "switch NAME 1"): FM3_GAME_FRAME_TIME keeps the game's millisecond dt (A/B);
-// FM3_FRAMETIME_LOG logs dt statistics every 10 s.
+// Pacing (divider 2). With mainthread30fps off the render thread draws only every second main
+// frame once the main loop outruns 60 (measured in session 13: a 120 Hz vblank gave a 120 Hz
+// main loop and 60 drawn fps; with mainthread30fps poked on, the counter released every second
+// vblank and every main frame was drawn). So at rates other than 60 the guest vblank runs at
+// twice the target and mainthread30fps (options 0x82C21C60 +1086) is set before each vblank's
+// check: the main loop runs at the target and every frame is drawn, as FH1-ReImagined does it.
+// FM3_VBLANK_DIVIDER=1 (at start) keeps one vblank per frame with the option off (A/B).
+//
+// Read every second, so the debug server can set them live (Fm3 "env NAME 1"):
+// FM3_GAME_FRAME_TIME=1 keeps the game's millisecond dt (A/B); FM3_FRAMETIME_LOG=1 logs dt
+// statistics every 10 s.
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -31,14 +40,14 @@
 
 #include "hooks/frame_time.h"
 #include "kernel/imports.h"
-#include "live_switch.h"
 #include "log.h"
 
 namespace
 {
 constexpr uint32_t kFrameTimeCallReturn = 0x821F6004; // sub_821F5DE8's call of sub_821F6AF8
+constexpr uint32_t kMainThread30Fps = 0x82C21C60 + 1086; // developer option (byte), off by default
 
-std::atomic<uint32_t> g_hz{ 60 };
+std::atomic<uint32_t> g_vblankHz{ 60 }, g_targetFps{ 60 }, g_divider{ 1 };
 
 double Freq()
 {
@@ -56,9 +65,29 @@ int64_t Now()
     return q.QuadPart;
 }
 
+// An environment variable as a switch ("1" = on), read at most once a second.
+struct EnvSwitch
+{
+    const char* name;
+    std::atomic<bool> on{ false };
+    std::atomic<int64_t> next{ 0 };
+    explicit EnvSwitch(const char* n) : name(n) {}
+    operator bool()
+    {
+        const int64_t now = Now();
+        if (now >= next.load(std::memory_order_relaxed))
+        {
+            char v[8] = {};
+            on.store(GetEnvironmentVariableA(name, v, sizeof(v)) && v[0] == '1', std::memory_order_relaxed);
+            next.store(now + int64_t(Freq()), std::memory_order_relaxed);
+        }
+        return on.load(std::memory_order_relaxed);
+    }
+};
+
 bool Precise()
 {
-    static LiveSwitch game("FM3_GAME_FRAME_TIME");
+    static EnvSwitch game("FM3_GAME_FRAME_TIME");
     return !game;
 }
 
@@ -70,7 +99,7 @@ std::atomic<int64_t> g_vblankNominal{ 0 };
 void OnVblank()
 {
     const int64_t now = Now();
-    const int64_t period = int64_t(Freq() / g_hz.load(std::memory_order_relaxed));
+    const int64_t period = int64_t(Freq() / g_vblankHz.load(std::memory_order_relaxed));
     int64_t nominal = g_vblankNominal.load(std::memory_order_relaxed);
     if (nominal == 0)
         nominal = now;
@@ -94,7 +123,7 @@ struct Stats
 
 void Account(double dt, double gameDt, bool late)
 {
-    static LiveSwitch log("FM3_FRAMETIME_LOG");
+    static EnvSwitch log("FM3_FRAMETIME_LOG");
     if (!log)
     {
         g_stats = Stats{};
@@ -125,24 +154,29 @@ void Account(double dt, double gameDt, bool late)
 }
 } // namespace
 
-void FrameTimeSetHz(uint32_t hz)
+void FrameTimeSetPacing(uint32_t fps, uint32_t vblankHz, uint32_t divider)
 {
-    g_hz.store(std::max<uint32_t>(hz, 1), std::memory_order_relaxed);
-    Log("frame time: guest vblank %u Hz, %s", hz,
-        hz == 60 ? "the game's own frame time" : "frame time from the vblank clock (switch FM3_GAME_FRAME_TIME: the game's)");
+    g_targetFps.store(std::max<uint32_t>(fps, 1), std::memory_order_relaxed);
+    g_vblankHz.store(std::max<uint32_t>(vblankHz, 1), std::memory_order_relaxed);
+    g_divider.store(divider, std::memory_order_relaxed);
+    Log("frame time: %u fps, guest vblank %u Hz, %s; %s", fps, vblankHz,
+        divider == 2 ? "mainthread30fps on (a main frame every second vblank)" : "one main frame per vblank",
+        fps == 60 ? "the game's own frame time" : "frame time from the vblank clock (FM3_GAME_FRAME_TIME=1: the game's)");
 }
 
 PPC_FUNC_IMPL(__imp__sub_822580C8);
 PPC_FUNC(sub_822580C8)
 {
     OnVblank();
+    if (g_divider.load(std::memory_order_relaxed) == 2)
+        *GuestPtr<uint8_t>(kMainThread30Fps) = 1; // read by the vblank counter below
     __imp__sub_822580C8(ctx, base);
 }
 
 PPC_FUNC_IMPL(__imp__sub_821F6AF8);
 PPC_FUNC(sub_821F6AF8)
 {
-    if (ctx.lr != kFrameTimeCallReturn || g_hz.load(std::memory_order_relaxed) == 60 || !Precise())
+    if (ctx.lr != kFrameTimeCallReturn || g_targetFps.load(std::memory_order_relaxed) == 60 || !Precise())
     {
         __imp__sub_821F6AF8(ctx, base);
         return;

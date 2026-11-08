@@ -201,9 +201,11 @@ void GpuStart()
     if (!getenv("FM3_NO_TIMER"))
         DefaultEnv("REGPU_TIMER", "1");
 
-    // Q24: guest vblank at the frame cap (60 by default): one main-loop frame per vblank.
-    if (const char* hz = getenv("FM3_VBLANK_HZ"))
-        _putenv_s("REGPU_VBLANK_HZ", hz);
+    // Q24: the main loop runs on guest vblanks (src/hooks/frame_time.cpp). At the frame cap's 60
+    // (the default) one vblank per frame, as before; at other caps (max_fps, or the display's
+    // refresh if lower and vsync is on) the vblank runs at twice the cap with mainthread30fps on
+    // (divider 2), so the render thread draws every main frame. FM3_VBLANK_DIVIDER=1: one vblank
+    // per frame at any cap. FM3_VBLANK_HZ=<n> sets the rate itself (divider 1, for measuring).
     {
         const Settings& s = GetSettings();
         uint32_t cap = s.maxFps;
@@ -212,9 +214,20 @@ void GpuStart()
         if (s.vsync && EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &mode) && mode.dmDisplayFrequency > 1)
             cap = std::min<uint32_t>(cap, mode.dmDisplayFrequency);
         cap = std::clamp<uint32_t>(cap, 30, 360);
-        DefaultEnv("REGPU_VBLANK_HZ", std::to_string(cap).c_str());
+        const char* div = getenv("FM3_VBLANK_DIVIDER");
+        uint32_t divider = cap == 60 || (div && atoi(div) == 1) ? 1 : 2;
+        uint32_t hz = cap * divider;
+        const char* fixed = getenv("FM3_VBLANK_HZ");
+        if (!fixed)
+            fixed = getenv("REGPU_VBLANK_HZ");
+        if (fixed)
+        {
+            hz = uint32_t(std::clamp(atoi(fixed), 30, 1000));
+            divider = 1;
+        }
+        _putenv_s("REGPU_VBLANK_HZ", std::to_string(hz).c_str());
+        FrameTimeSetPacing(hz / divider, hz, divider);
     }
-    FrameTimeSetHz(uint32_t(std::clamp(atoi(getenv("REGPU_VBLANK_HZ")), 30, 1000)));
 
     Log("gpu: ReGPU at %ux%u, msaa %u, vblank %s Hz", config.width, config.height, config.msaa, getenv("REGPU_VBLANK_HZ"));
     regpu::Start();
