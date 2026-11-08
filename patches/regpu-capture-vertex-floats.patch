@@ -1,0 +1,27 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 311b77c..58a4e0d 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -10717,6 +10717,22 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             const uint32_t* v = GuestPtr<uint32_t>(GpuPhysToGuest(d0 & 0xFFFFFFFC));
+             Log("    vf%u: %08X size %u endian %u: %08X %08X %08X %08X %08X %08X %08X %08X", k, d0 & 0xFFFFFFFC, ((d1 >> 2) & 0xFFFFFF) * 4, d1 & 3,
+                 v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
++            // Small buffers (screen-space quads, rectangles) in full, as big-endian floats: the corners of a
++            // pass's geometry decide which rows it covers, and the buffer is gone by the time anyone peeks it.
++            if (const uint32_t dwords = (d1 >> 2) & 0xFFFFFF; dwords <= 64)
++            {
++                std::string all;
++                for (uint32_t i = 0; i < dwords; i++)
++                {
++                    const uint32_t b = __builtin_bswap32(v[i]);
++                    float f;
++                    memcpy(&f, &b, 4);
++                    char t[24];
++                    snprintf(t, sizeof(t), " %g", f);
++                    all += t;
++                }
++                Log("    vf%u floats:%s", k, all.c_str());
++            }
+             if ((initiator & 0x3F) == 8)
+             {
+                 // Rectangle lists: print the corners as floats (big-endian vertex data).
