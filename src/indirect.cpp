@@ -13,8 +13,12 @@
 
 PPCHostFunc** g_indirectTable = nullptr;
 
+std::string CurrentHostStack(int maxFrames); // crash.cpp
+
 void PPCIndirectMiss(uint32_t address)
 {
+    // The caller (recompiled frames name the guest functions): a null or stale function pointer is found from there.
+    Log("indirect call to %08X: caller stack: %s", address, CurrentHostStack(16).c_str());
     Fatal("indirect call to %08X: no recompiled function there", address);
 }
 
