@@ -1,0 +1,22 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index f554b52..c876f76 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -9222,7 +9222,16 @@ bool OcclusionEndImpl(uint32_t& samples, uint32_t& total, uint32_t address)
+     // Host samples to the console's: the output is ScaleX x ScaleY host pixels per game pixel
+     // with g_msaa samples each; the guest surface has 1, 2 or 4 samples per pixel.
+     const uint32_t guestMsaa = (gpureg::Get(RB_SURFACE_INFO) >> 16) & 3;
+-    const double perHost = double(1u << guestMsaa) / (double(ScaleX()) * double(ScaleY()) * double(g_msaa));
++    // REGPU_ZPD_SCALE=<f> (env, read live: Fm3 "env REGPU_ZPD_SCALE 0.5"): multiplies the answer, to
++    // A/B how a title sizes an effect from the count (e.g. pixels instead of samples). Default 1.
++    static double zpdScale = 1.0;
++    static uint32_t zpdScaleAge = 0;
++    if (zpdScaleAge++ % 64 == 0)
++    {
++        const char* e = getenv("REGPU_ZPD_SCALE");
++        zpdScale = e && *e ? atof(e) : 1.0;
++    }
++    const double perHost = zpdScale * double(1u << guestMsaa) / (double(ScaleX()) * double(ScaleY()) * double(g_msaa));
+     samples = uint32_t(std::min(double(passed) * perHost + 0.5, 4294967295.0));
+     // Total: the samples the query's draws covered, depth test aside (their coverage draws); without
+     // one (REGPU_NO_OCCLUSION_COVERAGE, or none yet), the passed count as before.

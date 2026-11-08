@@ -335,6 +335,21 @@ GUEST_EXPORT(RtlRaiseException)
     for (uint32_t i = 0, n = 0; i < count && i < 4; i++)
         n += snprintf(hex + n, sizeof(hex) - n, " %08X", LoadBE32(record + 0x14 + i * 4));
     // The throwing function is the one containing lr; the crash handler's guest stack names it.
+    // Guest call stack from the back chain: each frame's first word is the caller's r1, and the caller's
+    // return address was saved at -8 from it (mflr r12; stw r12,-8(r1) in the prologue).
+    {
+        char stack[512] = {};
+        uint32_t sp = ctx.r1.u32;
+        for (int i = 0, n = 0; i < 16 && sp >= 0x40000000 && sp < 0xA0000000; i++)
+        {
+            const uint32_t next = LoadBE32(sp);
+            if (next <= sp || next >= 0xA0000000)
+                break;
+            n += snprintf(stack + n, sizeof(stack) - n, " %08X", LoadBE32(next - 8));
+            sp = next;
+        }
+        Log("guest exception: stack (return addresses):%s", stack);
+    }
     Fatal("guest raised exception %08X%s flags %08X at %08X, parameters%s (lr %08llX)", code,
         code == 0xE06D7363 ? " (MSVC C++ throw; guest unwinding is not implemented)" : "", flags, address, hex, ctx.lr);
 }

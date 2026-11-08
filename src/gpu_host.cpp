@@ -171,6 +171,12 @@ void GpuStart()
     // REGPU_DRAW_WORKERS=<n> overrides; live A/B: Fm3 "switch REGPU_NO_DRAW_WORKERS 1",
     // Fm3 "switch REGPU_NO_WORKER_QUERIES 1" (the old fixed answer).
     DefaultEnv("REGPU_DRAW_WORKERS", "3");
+    // Sun glare size (session 14): FM3 sizes the glare from the occlusion query's raw sample count (not
+    // the visible share): none below ~0.55x our count of a fully visible sun, largest at ~1.5-2x. At 1x
+    // the glare covered half the screen, far bigger than console footage (YouTube Fx4sKnongdM, 1:16-1:21);
+    // 0.6 matched it by eye (0.75, 0.65 still too big). Why the console counts fewer samples is not known.
+    // REGPU_ZPD_SCALE=<f> overrides (live: Fm3 "env REGPU_ZPD_SCALE 1").
+    DefaultEnv("REGPU_ZPD_SCALE", "0.6");
     Log("gpu: draw workers on by default (occlusion queries counted on the command processor)");
 
     // Q18, the road surface: the road shader samples a 512x512 detail image the game composes at run time
