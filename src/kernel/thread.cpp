@@ -76,10 +76,14 @@ std::shared_ptr<GuestThread> SetUpGuestThread(uint32_t stackSize, const char* na
 
 DWORD WINAPI HostThreadMain(void* param)
 {
-    auto* object = static_cast<ThreadObject*>(param);
+    // The thread's own reference, made by StartThread before the host thread existed: the title's handle is the only
+    // other strong one, and a title that closes it right after creating the thread (before this host thread first
+    // ran) freed the object under it. The thread then read a freed GuestThread (a garbage id, TLS at -1) and
+    // crashed in KeTlsGetValue (session 9, race load: a thread at 822974B0 created while the game was busy).
+    std::unique_ptr<std::shared_ptr<ThreadObject>> owned(static_cast<std::shared_ptr<ThreadObject>*>(param));
+    const std::shared_ptr<ThreadObject> self = *owned;
+    ThreadObject* object = self.get();
     std::shared_ptr<GuestThread> thread = object->thread;
-    // Keep the object alive until the thread is done with it.
-    std::shared_ptr<ThreadObject> self = std::static_pointer_cast<ThreadObject>(GetHandle(object->handle));
     t_thread = thread.get();
 
     {
@@ -196,9 +200,14 @@ std::shared_ptr<ThreadObject> StartThread(uint32_t entry, uint32_t param, uint32
     }
 
     DWORD hostId = 0;
-    HANDLE handle = CreateThread(nullptr, kHostStackSize, HostThreadMain, object.get(), STACK_SIZE_PARAM_IS_A_RESERVATION, &hostId);
+    // (The host thread's own strong reference; HostThreadMain takes it over.)
+    auto* reference = new std::shared_ptr<ThreadObject>(object);
+    HANDLE handle = CreateThread(nullptr, kHostStackSize, HostThreadMain, reference, STACK_SIZE_PARAM_IS_A_RESERVATION, &hostId);
     if (!handle)
+    {
+        delete reference;
         Fatal("CreateThread failed (%lu)", GetLastError());
+    }
     object->thread->hostHandle = handle;
     // A priority the title set before the host thread existed.
     if (object->thread->basePriority != 0)

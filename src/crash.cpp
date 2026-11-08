@@ -71,8 +71,28 @@ LONG WINAPI OnCrash(EXCEPTION_POINTERS* info)
         const uint64_t guest = fault - uint64_t(g_base);
         Log("CRASH: %s host %016llX = guest %llX", record->ExceptionInformation[0] == 8 ? "execute at" : record->ExceptionInformation[0] ? "write to" : "read from", fault, guest);
     }
+    // Written now: a second fault later in this handler ends the process at once (an access violation at race load
+    // in session 9 left no report: the handler itself faulted on a stale ctx, below).
+    LogFlush();
     if (thread && thread->ctx)
-        Log("CRASH: guest lr %08llX r1 %08X r3 %08X", thread->ctx->lr, thread->ctx->r1.u32, thread->ctx->r3.u32); // (ctr is a local of the recompiled code)
+    {
+        // ctx can be stale (a guest call that has returned, a fiber's): read it under SEH.
+        uint64_t lr = 0;
+        uint32_t r1 = 0, r3 = 0;
+        bool ok = true;
+        __try
+        {
+            lr = thread->ctx->lr, r1 = thread->ctx->r1.u32, r3 = thread->ctx->r3.u32;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            ok = false;
+        }
+        if (ok)
+            Log("CRASH: guest lr %08llX r1 %08X r3 %08X", lr, r1, r3); // (ctr is a local of the recompiled code)
+        else
+            Log("CRASH: guest registers unreadable (stale context %p)", static_cast<void*>(thread->ctx));
+    }
 
     // Host call stack.
     CONTEXT context = *info->ContextRecord;
@@ -91,6 +111,7 @@ LONG WINAPI OnCrash(EXCEPTION_POINTERS* info)
         Describe(frame.AddrPC.Offset, where, sizeof(where));
         Log("CRASH:   #%d %s", i, where);
     }
+    LogFlush(); // (the stack is the important part; what follows may fault too)
 #if FM3_REGPU_FM4
     regpu::RendererLogCrashContext();
 #else

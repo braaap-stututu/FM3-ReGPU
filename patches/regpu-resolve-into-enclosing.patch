@@ -1,0 +1,196 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index f544a82..311b77c 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -1547,7 +1547,7 @@ void InitDepthBlit()
+     params[0].DescriptorTable.pDescriptorRanges = &range;
+     params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+     params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+-    params[1].Constants.Num32BitValues = 6;
++    params[1].Constants.Num32BitValues = 10;
+     params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+     D3D12_ROOT_SIGNATURE_DESC rs{};
+     rs.NumParameters = 2;
+@@ -1561,7 +1561,7 @@ void InitDepthBlit()
+     static const char kSource[] = R"(
+ Texture2D<float> depthTex : register(t0);
+ Texture2D<float4> colorTex : register(t0);
+-cbuffer Blit : register(b0) { float scale; uint swapRB; uint clampDest; float destMin; float destMax; uint toGamma; };
++cbuffer Blit : register(b0) { float scale; uint swapRB; uint clampDest; float destMin; float destMax; uint toGamma; float2 srcStep; float2 srcOrigin; };
+ // Xenia's LinearToPWLGamma: what a k_8_8_8_8_GAMMA surface holds in memory.
+ float LinearToPWLGamma(float l)
+ {
+@@ -1606,9 +1606,11 @@ float4 psPack(float4 pos : SV_Position) : SV_Target
+     uint d = swapRB != 0 ? Encode20e4(z) : uint(round(saturate(z) * 16777215.0));
+     return float4(float(st & 0xFFu), float(d & 0xFFu), float((d >> 8) & 0xFFu), float(d >> 16)) / 255.0;
+ }
++// The source pixel: the destination's own (step 1, origin 0), or scaled and offset for a resolve into another image.
++int2 Src(float4 pos) { return int2(pos.xy * srcStep + srcOrigin); }
+ float4 psColor(float4 pos : SV_Position) : SV_Target
+ {
+-    float4 c = colorTex.Load(int3(int2(pos.xy), 0)) * scale;
++    float4 c = colorTex.Load(int3(Src(pos), 0)) * scale;
+     if (clampDest) c = clamp(c, destMin, destMax);
+     if (toGamma & 1u) c.rgb = float3(LinearToPWLGamma(c.r), LinearToPWLGamma(c.g), LinearToPWLGamma(c.b));
+     if (toGamma & 2u) c.a = round(saturate(c.a) * 3.0) / 3.0; // a 2-bit alpha destination (k_2_10_10_10)
+@@ -1655,7 +1657,7 @@ float4 psColor(float4 pos : SV_Position) : SV_Target
+         const std::string msSource = "#define SAMPLES " + std::to_string(g_msaa) + R"(
+ Texture2DMS<float, SAMPLES> depthMs : register(t0);
+ Texture2DMS<float4, SAMPLES> colorMs : register(t0);
+-cbuffer Blit : register(b0) { float scale; uint swapRB; uint clampDest; float destMin; float destMax; uint toGamma; };
++cbuffer Blit : register(b0) { float scale; uint swapRB; uint clampDest; float destMin; float destMax; uint toGamma; float2 srcStep; float2 srcOrigin; };
+ // Xenia's LinearToPWLGamma: what a k_8_8_8_8_GAMMA surface holds in memory.
+ float LinearToPWLGamma(float l)
+ {
+@@ -1685,8 +1687,9 @@ float ps(float4 pos : SV_Position) : SV_Target
+ float4 psColor(float4 pos : SV_Position) : SV_Target
+ {
+     float4 c = 0;
++    const int2 src = int2(pos.xy * srcStep + srcOrigin);
+     [unroll] for (int i = 0; i < SAMPLES; i++)
+-        c += colorMs.Load(int2(pos.xy), i);
++        c += colorMs.Load(src, i);
+     c = c / SAMPLES * scale;
+     if (clampDest) c = clamp(c, destMin, destMax);
+     if (toGamma & 1u) c.rgb = float3(LinearToPWLGamma(c.r), LinearToPWLGamma(c.g), LinearToPWLGamma(c.b));
+@@ -5995,7 +5998,13 @@ void EnsureResolved(ResolvedTexture& dest, uint32_t width, uint32_t height, uint
+ // destRange: the destination's fixed-point range after the scale (the 16-bit integer range for the
+ // 16-bit fixed formats); null none.
+ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXGI_FORMAT format, const D3D12_RECT& rect, float scale, bool swapRB = false,
+-    const float* destRange = nullptr, uint32_t toGamma = 0)
++    const float* destRange = nullptr, uint32_t toGamma = 0);
++
++void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight, uint32_t guestBpp, DXGI_FORMAT format, const D3D12_RECT& rect, float scale,
++    const float* destRange, uint32_t toGamma);
++
++void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXGI_FORMAT format, const D3D12_RECT& rect, float scale, bool swapRB,
++    const float* destRange, uint32_t toGamma)
+ {
+     // REGPU_FREEZE_RESOLVES=<hex base>[,<hex base>...]: those images keep what they hold, later resolves
+     // to them are skipped (debug: does a flicker come from an image's redraws?). Read every resolve, so
+@@ -6080,9 +6089,10 @@ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXG
+     C().list->SetGraphicsRootSignature(g_r.blitRootSignature.Get());
+     C().list->SetPipelineState(pso);
+     C().list->SetGraphicsRootDescriptorTable(0, Gpu(g_r.srvHeap.Get(), slot, g_r.srvStride));
+-    const uint32_t blitConstants[6] = { std::bit_cast<uint32_t>(scale), uint32_t(swapRB), uint32_t(destRange != nullptr),
+-        std::bit_cast<uint32_t>(destRange ? destRange[0] : 0.0f), std::bit_cast<uint32_t>(destRange ? destRange[1] : 0.0f), uint32_t(toGamma) };
+-    C().list->SetGraphicsRoot32BitConstants(1, 6, blitConstants, 0);
++    const uint32_t blitConstants[10] = { std::bit_cast<uint32_t>(scale), uint32_t(swapRB), uint32_t(destRange != nullptr),
++        std::bit_cast<uint32_t>(destRange ? destRange[0] : 0.0f), std::bit_cast<uint32_t>(destRange ? destRange[1] : 0.0f), uint32_t(toGamma),
++        std::bit_cast<uint32_t>(1.0f), std::bit_cast<uint32_t>(1.0f), 0, 0 }; // source step 1, origin 0: the destination's own pixel
++    C().list->SetGraphicsRoot32BitConstants(1, 10, blitConstants, 0);
+     // Width and height stay in game pixels (the size the title knows); the texture and the
+     // rectangle are scaled.
+     const D3D12_VIEWPORT vp{ 0, 0, float(hostWidth), float(hostHeight), 0, 1 };
+@@ -6157,6 +6167,102 @@ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXG
+     g_drawState.Invalidate();
+ }
+ 
++// A colour resolve whose destination lies inside an image resolved earlier is also drawn into that image, at its
++// place. Xenos textures are tiled in 32x32-texel tiles (32 * 32 * bytes per pixel each, row after row of tiles),
++// so a destination a whole number of tiles past an image's base is the texel (x, y) of that tile; the copy writes
++// the EDRAM rectangle from there, and declares as its height the image's rows left below y. FM3 builds a car's
++// 2048x2048 texture (body, parts, vinyls) this way: in four 2048x512 strips (x 0, y 0/512/1024/1536), and on
++// every vinyl edit one rectangle per changed region (e.g. 1416x568 at x 512, y 512). Each became an image of its
++// own at an address nothing fetches; the car read the texture at its base, which held only the first strip: no
++// vinyls. Each copy is still resolved as its own image too, as before. Matched strictly: same row width (pitch),
++// format and bytes per pixel, the rectangle inside the image, and the declared height exactly the rows left.
++// The pass's scale and the image's may differ (a vinyl region is drawn at 1x, the composite at the big pass's):
++// the source is read scaled. REGPU_NO_RESOLVE_INTO_ENCLOSING=1 (live): not drawn (A/B).
++void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight, uint32_t guestBpp, DXGI_FORMAT format, const D3D12_RECT& rect, float scale,
++    const float* destRange, uint32_t toGamma)
++{
++    static LiveSwitch off("REGPU_NO_RESOLVE_INTO_ENCLOSING");
++    if (off || rect.right <= rect.left || rect.bottom <= rect.top)
++        return;
++    const uint32_t tileBytes = 32 * 32 * guestBpp, tilesAcross = (pitch + 31) / 32;
++    // The outermost match: the strips' own images match too (each declares the rows left to the end), and the
++    // texture the title fetches is the one at the lowest base.
++    uint32_t encBase = 0, x = 0, y = 0;
++    ResolvedTexture* found = nullptr;
++    for (auto& [candidateBase, candidate] : g_r.resolved)
++    {
++        if (candidateBase >= base || (found && candidateBase >= encBase) || !candidate.resource || candidate.width != pitch || candidate.format != format ||
++            candidate.guestBpp != guestBpp || !candidate.height || !candidate.hostHeight)
++            continue;
++        const uint32_t offset = base - candidateBase;
++        if (offset % tileBytes)
++            continue;
++        const uint32_t tile = offset / tileBytes, cx = tile % tilesAcross * 32, cy = tile / tilesAcross * 32;
++        if (cy >= candidate.height || cy + declaredHeight != candidate.height || cx + uint32_t(rect.right) > candidate.width ||
++            cy + uint32_t(rect.bottom) > candidate.height)
++            continue;
++        encBase = candidateBase, x = cx, y = cy, found = &candidate;
++    }
++    if (found)
++    {
++        ResolvedTexture& enc = *found;
++        FrameResources& f = Frame();
++        if (f.descriptorsUsed >= kDescriptorsPerFrame)
++            return;
++        // Host scales: the image's own, and the pass's (where the EDRAM rectangle is).
++        const float encSx = float(enc.hostWidth) / float(enc.width), encSy = float(enc.hostHeight) / float(enc.height);
++        const float srcSx = float(ScaleX()), srcSy = float(ScaleY());
++        const UINT slot = f.descriptorBase + f.descriptorsUsed++;
++        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
++        srv.Format = kColorFormat;
++        srv.ViewDimension = g_msaa > 1 ? D3D12_SRV_DIMENSION_TEXTURE2DMS : D3D12_SRV_DIMENSION_TEXTURE2D;
++        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
++        srv.Texture2D.MipLevels = 1;
++        g_r.device->CreateShaderResourceView(C().color.Get(), &srv, Cpu(g_r.srvHeap.Get(), slot, g_r.srvStride));
++        const auto rtv = g_r.blitRtvHeap->GetCPUDescriptorHandleForHeapStart();
++        C().list->CreateRenderTargetView(g_r.device, enc.resource.Get(), rtv);
++        D3D12_RESOURCE_BARRIER b{};
++        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++        b.Transition.pResource = enc.resource.Get();
++        b.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
++        b.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
++        TransitionColor(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
++        C().list->ResourceBarrier(1, &b);
++        const bool ms = g_msaa > 1;
++        C().list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
++        C().list->SetGraphicsRootSignature(g_r.blitRootSignature.Get());
++        C().list->SetPipelineState(format == DXGI_FORMAT_R8G8B8A8_UNORM ? (ms ? g_r.colorBlitMs8.Get() : g_r.colorBlit8.Get())
++                                                                       : (ms ? g_r.colorBlitMs16.Get() : g_r.colorBlit16.Get()));
++        C().list->SetGraphicsRootDescriptorTable(0, Gpu(g_r.srvHeap.Get(), slot, g_r.srvStride));
++        // Image pixel p (host) is game pixel p / encScale, which came from EDRAM game pixel (p / encScale - (x, y)),
++        // host (p / encScale - (x, y)) * srcScale.
++        const float step[2] = { srcSx / encSx, srcSy / encSy }, origin[2] = { -float(x) * srcSx, -float(y) * srcSy };
++        const uint32_t constants[10] = { std::bit_cast<uint32_t>(scale), 0u, uint32_t(destRange != nullptr),
++            std::bit_cast<uint32_t>(destRange ? destRange[0] : 0.0f), std::bit_cast<uint32_t>(destRange ? destRange[1] : 0.0f), toGamma,
++            std::bit_cast<uint32_t>(step[0]), std::bit_cast<uint32_t>(step[1]), std::bit_cast<uint32_t>(origin[0]), std::bit_cast<uint32_t>(origin[1]) };
++        C().list->SetGraphicsRoot32BitConstants(1, 10, constants, 0);
++        const D3D12_VIEWPORT vp{ 0, 0, float(enc.hostWidth), float(enc.hostHeight), 0, 1 };
++        const D3D12_RECT hostRect{ LONG(float(x + uint32_t(rect.left)) * encSx), LONG(float(y + uint32_t(rect.top)) * encSy),
++            std::min<LONG>(LONG(enc.hostWidth), LONG(float(x + uint32_t(rect.right)) * encSx)),
++            std::min<LONG>(LONG(enc.hostHeight), LONG(float(y + uint32_t(rect.bottom)) * encSy)) };
++        C().list->RSSetViewports(1, &vp);
++        C().list->RSSetScissorRects(1, &hostRect);
++        C().list->DrawInstanced(3, 1, 0, 0);
++        std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
++        C().list->ResourceBarrier(1, &b);
++        TransitionColor(D3D12_RESOURCE_STATE_RENDER_TARGET);
++        C().list->OMSetRenderTargets(1, &C().rtv, FALSE, &C().dsv);
++        C().list->SetGraphicsRootSignature(g_r.rootSignature.Get());
++        g_drawState.Invalidate();
++        enc.frame = g_r.frame;
++        enc.serial = ++g_resolveSerial;
++        if (RendererTracing())
++            Log("resolve: %08X (%ldx%ld) also drawn into %08X at %u,%u (scale %.3f -> %.3f)", base, rect.right - rect.left, rect.bottom - rect.top, encBase, x,
++                y, srcSx, encSx);
++        return;
++    }
++}
++
+ // EDRAM resolve: copy a rectangle of the render target to the destination
+ // (as a host texture), then optionally clear colour and depth.
+ // ---- Upscaling ---------------------------------------------------------------------------
+@@ -7002,6 +7108,8 @@ void Resolve()
+         static LiveSwitch noAlpha2("REGPU_NO_RESOLVE_ALPHA2");
+         const uint32_t blitFlags = (toGamma ? 1u : 0u) | (!depth && destFormat == 7 && !noAlpha2 ? 2u : 0u);
+         BlitResolve(depth, base, width, height, format, rect, depth ? 1.0f : std::ldexp(1.0f, bias), false, destRange, blitFlags);
++        if (!depth && !placedInImage && rect.top == 0 && rect.left == 0)
++            ResolveIntoEnclosing(base, pitch, declaredHeight, guestBpp, format, rect, std::ldexp(1.0f, bias), destRange, blitFlags);
+         // Temporal upscaling: each tile of the main view keeps its depth before it is cleared.
+         if (g_temporal && g_scenePhase && !depth && width >= kWidth && rect.left == 0 && rect.right >= LONG(kWidth))
+             CopySceneDepth(rect);
