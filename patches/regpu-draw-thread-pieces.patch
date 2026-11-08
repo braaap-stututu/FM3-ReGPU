@@ -1,0 +1,377 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index 0393714..2238dc4 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -139,7 +139,7 @@ void RaiseInterrupt(uint32_t source, uint32_t cpu)
+ // 5800X, 98-100 -> 106-108 fps once its main and render threads overlapped.
+ namespace work
+ {
+-enum : uint32_t { kPad, kRegs, kShader, kDraw, kSwap, kWriteBack, kStore };
++enum : uint32_t { kPad, kRegs, kShader, kDraw, kSwap, kWriteBack, kStore, kQuery };
+ constexpr uint64_t kWords = 16ull << 20; // 64 MB
+ std::vector<uint32_t> g_ring(kWords);
+ alignas(64) std::atomic<uint64_t> g_head{ 0 }; // written by the command processor
+@@ -208,6 +208,8 @@ void LogRegs(uint32_t index, const uint32_t* valuesBE, uint32_t count)
+ }
+ 
+ void WriteBackNow(uint32_t address, uint32_t value);
++// Occlusion queries with the draw thread: this frame's queries so far, by their count address (EVENT_WRITE_ZPD).
++std::unordered_map<uint32_t, uint32_t> g_zpdKindCount;
+ namespace PendingWrites
+ {
+ void Add(uint64_t fence, uint32_t address, uint32_t value, bool raw = false);
+@@ -222,6 +224,10 @@ void OrderedStore(uint32_t address, uint32_t value);
+ // At the segment's end, it is cut at snapshots into pieces of about equal draw counts that
+ // are translated on the draw workers into their own command lists, executed in order
+ // (RendererRunPieces). REGPU_DRAW_WORKERS=0 turns it off.
++// The draw thread (work::, REGPU_DRAW_THREAD): with draw workers too, it runs the segments below (the
++// command processor only parses and queues), so translation, cut into pieces, overlaps the parsing.
++thread_local bool t_drawThread = false;
++
+ namespace seg
+ {
+ enum : uint32_t { kRegs = 1, kShader, kDraw };
+@@ -253,7 +259,7 @@ void TakeSnapshot()
+     s.logPos = g_log.size();
+     s.drawsBefore = g_draws;
+     s.regs.resize(0x8000 * 4); // (type-0 packets address registers up to 0x7FFF)
+-    memcpy(s.regs.data(), gpureg::LiveFile(), s.regs.size());
++    memcpy(s.regs.data(), gpureg::File(), s.regs.size()); // (the draw thread's own file there)
+     s.vs = g_vs;
+     s.ps = g_ps;
+     s.vsAddress = g_vsAddress;
+@@ -364,6 +370,8 @@ void EndFrame()
+ // Translates the open segment (on the workers if it is large enough).
+ void Flush()
+ {
++    if (work::Active() && !t_drawThread)
++        return; // the draw thread owns the segments (it flushes at the records that need it)
+     EndSegment(g_open ? g_draws : g_directDraws);
+     g_directDraws = 0;
+     if (!g_open)
+@@ -428,12 +436,15 @@ void Flush()
+ 
+ bool Enabled()
+ {
+-    static const bool on = RendererDrawWorkers() > 0 && !getenv("REGPU_DRAW_THREAD");
++    // With the draw thread the segments run there; REGPU_DRAW_THREAD_SERIAL=1: the draw thread translates
++    // every draw itself, as before (A/B; read at start).
++    static const bool on = RendererDrawWorkers() > 0 && !(getenv("REGPU_DRAW_THREAD") && getenv("REGPU_DRAW_THREAD_SERIAL"));
+     return on;
+ }
+ }
+ 
+-void SubmitShaderLoad(ShaderType type, const uint32_t* microcodeBE, uint32_t dwords, uint32_t guestAddress)
++// A shader load on the thread that translates (the command processor, or the draw thread).
++void SegShaderLoad(ShaderType type, const uint32_t* microcodeBE, uint32_t dwords, uint32_t guestAddress)
+ {
+     if (seg::Enabled())
+     {
+@@ -448,9 +459,14 @@ void SubmitShaderLoad(ShaderType type, const uint32_t* microcodeBE, uint32_t dwo
+             return;
+         }
+     }
++    FrameOnShaderLoad(type, microcodeBE, dwords, guestAddress);
++}
++
++void SubmitShaderLoad(ShaderType type, const uint32_t* microcodeBE, uint32_t dwords, uint32_t guestAddress)
++{
+     if (!work::Active())
+     {
+-        FrameOnShaderLoad(type, microcodeBE, dwords, guestAddress);
++        SegShaderLoad(type, microcodeBE, dwords, guestAddress);
+         return;
+     }
+     dwords = std::min<uint32_t>(dwords, 0x10000);
+@@ -462,6 +478,7 @@ void SubmitShaderLoad(ShaderType type, const uint32_t* microcodeBE, uint32_t dwo
+     work::End(dwords + 3);
+ }
+ 
++void SegDraw(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize);
+ void SubmitDraw(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+ {
+     // A later tile's draw that the first tile drew for all of them (TileMerge).
+@@ -475,6 +492,22 @@ void SubmitDraw(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         g_gpu.droppedDraws++;
+         return;
+     }
++    if (work::Active())
++    {
++        uint32_t* p = work::Begin(work::kDraw, 3);
++        p[0] = initiator;
++        p[1] = dmaBase;
++        p[2] = dmaSize;
++        work::End(3);
++        return;
++    }
++    SegDraw(initiator, dmaBase, dmaSize);
++}
++
++// A draw on the thread that translates (the command processor, or the draw thread): logged into the open
++// segment, or drawn now.
++void SegDraw(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
++{
+     if (seg::Enabled())
+     {
+         if (RendererIsResolveDraw() || !RendererParallelReady())
+@@ -512,16 +545,7 @@ void SubmitDraw(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         RendererTrackTile(seg::g_tile);
+         return;
+     }
+-    if (!work::Active())
+-    {
+-        FrameOnDraw(initiator, dmaBase, dmaSize);
+-        return;
+-    }
+-    uint32_t* p = work::Begin(work::kDraw, 3);
+-    p[0] = initiator;
+-    p[1] = dmaBase;
+-    p[2] = dmaSize;
+-    work::End(3);
++    FrameOnDraw(initiator, dmaBase, dmaSize);
+ }
+ 
+ void WorkerLoop()
+@@ -531,12 +555,17 @@ void WorkerLoop()
+     if (!g_profiledWorker)
+         DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &g_profiledWorker, 0, FALSE, DUPLICATE_SAME_ACCESS);
+     gpureg::t_file = work::g_file.data();
++    t_drawThread = true;
+     for (;;)
+     {
+         uint64_t tail = work::g_tail.load(std::memory_order_relaxed);
+         uint64_t head;
+         while ((head = work::g_head.load(std::memory_order_acquire)) == tail)
++        {
++            if (seg::g_open)
++                seg::Flush(); // caught up: translate the open segment before waiting
+             work::g_head.wait(head, std::memory_order_acquire);
++        }
+         // Everything published so far, then let the command processor know.
+         while (tail != head)
+         {
+@@ -547,22 +576,45 @@ void WorkerLoop()
+             {
+             case work::kRegs:
+                 memcpy(work::g_file.data() + a[0] * 4, a + 1, size_t(words - 1) * 4);
++                if (seg::g_open)
++                    seg::Append(seg::kRegs, a, words);
+                 break;
+             case work::kShader:
+-                FrameOnShaderLoad(ShaderType(a[0]), a + 3, a[2], a[1]);
++                SegShaderLoad(ShaderType(a[0]), a + 3, a[2], a[1]);
+                 break;
+             case work::kDraw:
+-                FrameOnDraw(a[0], a[1], a[2]);
++                SegDraw(a[0], a[1], a[2]);
+                 break;
+             case work::kSwap:
++                seg::Flush();
++                seg::EndFrame();
++                seg::g_tile = RendererTile{};
++                seg::g_query = false;
+                 FrameOnSwap(uint64_t(a[0]) | uint64_t(a[1]) << 32, a[2]);
+                 break;
+             case work::kWriteBack:
++                seg::Flush(); // a fence: after the draws before it
+                 PendingWrites::Add(RendererFenceSubmit(), a[0], a[1]); // after the host GPU, as on the command processor
+                 break;
+             case work::kStore:
++                seg::Flush();
+                 OrderedStore(a[0], a[1]);
+                 break;
++            case work::kQuery: // an occlusion query's start (a[0] 0) or end (1: address, place), in stream order
++                if (a[0] == 0)
++                {
++                    // While it counts, its draws are drawn here, on this thread's list (seg::g_query).
++                    if (seg::Enabled() && seg::g_open)
++                        seg::Flush();
++                    RendererOcclusionBegin();
++                    seg::g_query = seg::Enabled() && RendererOcclusionCounting();
++                }
++                else
++                {
++                    RendererOcclusionEndOn(a[1], a[2]);
++                    seg::g_query = false;
++                }
++                break;
+             default:
+                 break;
+             }
+@@ -818,7 +870,7 @@ void WriteRegister(uint32_t index, uint32_t value)
+ {
+     SetReg(index, value);
+     WriteLut(index, value);
+-    if (seg::g_open)
++    if (!work::Active() && seg::g_open)
+     {
+         const uint32_t be[2] = { index, __builtin_bswap32(value) };
+         seg::Append(seg::kRegs, be, 2);
+@@ -856,7 +908,7 @@ void WriteRegisters(uint32_t index, uint32_t source, uint32_t count)
+     if (!lut && (index + count <= SCRATCH_REG0 || index >= SCRATCH_REG0 + 8))
+     {
+         memcpy(gpureg::LiveFile() + index * 4, GuestPtr<uint8_t>(source), size_t(count) * 4);
+-        if (seg::g_open)
++        if (!work::Active() && seg::g_open)
+             seg::Append(seg::kRegs, &index, 1, GuestPtr<uint32_t>(source), count);
+         if (work::Active())
+             work::LogRegs(index, GuestPtr<uint32_t>(source), count);
+@@ -1055,9 +1107,24 @@ uint32_t ExecutePacket(uint32_t ptr)
+         // answers the fixed 1000, as before (A/B: no sun flare).
+         static LiveSwitch fake("REGPU_FAKE_OCCLUSION"); // A/B: the old fixed answer
+         static LiveSwitch noWorkerQueries("REGPU_NO_WORKER_QUERIES");
+-        const bool real = !fake && !work::Active() && !(seg::Enabled() && noWorkerQueries);
++        const bool real = !fake && !((seg::Enabled() || work::Active()) && noWorkerQueries);
+         uint32_t samples = 1000, total = 1000;
+-        if (real && !end)
++        // With the draw thread: answered here from earlier frames, recorded there in stream order (its draws are
++        // translated there). This frame's queries to each address are counted here (cleared at the swap).
++        if (real && work::Active())
++        {
++            uint32_t rec[3] = { 0, 0, 0 };
++            if (end)
++            {
++                const uint32_t kindOrder = g_zpdKindCount[counts]++;
++                if (!RendererOcclusionAnswer(samples, total, counts, kindOrder))
++                    samples = total = 1000; // no result yet: fully visible
++                rec[0] = 1, rec[1] = counts, rec[2] = kindOrder;
++            }
++            memcpy(work::Begin(work::kQuery, 3), rec, sizeof(rec));
++            work::End(3);
++        }
++        else if (real && !end)
+         {
+             if (seg::Enabled() && seg::g_open)
+                 seg::Flush();
+@@ -1648,10 +1715,14 @@ namespace
+ // The command processor reached a swap: the frame so far goes to the screen.
+ void PresentSwap(uint64_t frame, uint32_t frontBuffer)
+ {
+-    seg::Flush();
+-    seg::EndFrame();
+-    seg::g_tile = RendererTile{};
+-    seg::g_query = false; // (the renderer ends a query still open at the swap)
++    if (!work::Active()) // (else at the draw thread's swap record)
++    {
++        seg::Flush();
++        seg::EndFrame();
++        seg::g_tile = RendererTile{};
++        seg::g_query = false; // (the renderer ends a query still open at the swap)
++    }
++    g_zpdKindCount.clear();
+     if (work::Active())
+     {
+         uint32_t* p = work::Begin(work::kSwap, 3);
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index c876f76..f0da496 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -859,6 +859,9 @@ std::vector<int64_t> g_occlusionResult;              // by order in the frame: h
+ std::vector<int64_t> g_occlusionCoverage;            // by order in the frame: host samples covered, -1 none
+ std::map<std::pair<uint64_t, UINT>, std::pair<int64_t, int64_t>> g_occlusionByKind; // address, place: passed, covered (-1 none)
+ std::unordered_map<uint64_t, UINT> g_occlusionKindCount; // this frame's queries so far, by address
++// g_occlusionByKind, g_occlusionResult/Coverage: written at a frame slot's reuse by the recording thread, read
++// by the command processor when the draw thread records (RendererOcclusionAnswer).
++std::mutex g_occlusionResultLock;
+ OcclusionParts g_occlusionCurrent;
+ uint64_t g_occlusionFrame = ~0ull;
+ UINT g_occlusionCount = 0, g_occlusionIndex = 0, g_occlusionOrder = 0, g_occlusionOrders = 0; // D3D queries used, open one, guest order, guest queries
+@@ -2369,6 +2372,7 @@ void BeginFrameIfNeeded()
+         const D3D12_RANGE range{ size_t(frameIndex) * kOcclusionPerFrame * 8, size_t(frameIndex + 1) * kOcclusionPerFrame * 8 };
+         if (SUCCEEDED(g_occlusionReadback->Map(0, &range, reinterpret_cast<void**>(&counts))))
+         {
++            std::lock_guard resultLock(g_occlusionResultLock);
+             for (const OcclusionParts& q : g_occlusionPending[frameIndex])
+             {
+                 if (g_occlusionResult.size() <= q.order)
+@@ -9191,29 +9195,63 @@ bool RendererOcclusionEnd(uint32_t& samples, uint32_t& total, uint32_t address)
+     return known;
+ }
+ 
+-bool OcclusionEndImpl(uint32_t& samples, uint32_t& total, uint32_t address)
++// The recording side of a query's end (the thread that records its draws): which query it is.
++bool OcclusionRecordEnd(uint64_t kind, UINT kindOrder)
+ {
+     if (!g_occlusionOpen && !g_occlusionPaused)
+         return false;
+-    const UINT order = g_occlusionOrder;
+-    g_occlusionCurrent.kind = uint64_t(address) << 1 | 1;
+-    g_occlusionCurrent.kindOrder = g_occlusionKindCount[g_occlusionCurrent.kind]++;
+-    const std::pair<uint64_t, UINT> kind{ g_occlusionCurrent.kind, g_occlusionCurrent.kindOrder };
++    g_occlusionCurrent.kind = kind;
++    g_occlusionCurrent.kindOrder = kindOrder;
+     if (g_occlusionOpen)
+         EndOcclusionQuery();
+     else
+         g_occlusionPending[g_r.frameIndex].push_back(g_occlusionCurrent); // its last span already ended
+     g_occlusionPaused = false;
+-    // REGPU_OCCLUSION_BY_ORDER=1: answered by order in the frame, as before (A/B).
++    return true;
++}
++
++bool OcclusionLookup(uint32_t& samples, uint32_t& total, UINT order, const std::pair<uint64_t, UINT>& kind, bool allowByOrder);
++
++bool OcclusionEndImpl(uint32_t& samples, uint32_t& total, uint32_t address)
++{
++    const UINT order = g_occlusionOrder;
++    const uint64_t k = uint64_t(address) << 1 | 1;
++    if (!g_occlusionOpen && !g_occlusionPaused)
++        return false;
++    const UINT kindOrder = g_occlusionKindCount[k]++;
++    OcclusionRecordEnd(k, kindOrder);
++    return OcclusionLookup(samples, total, order, { k, kindOrder }, true);
++}
++
++// With the draw thread (gpu.cpp work::): the command processor answers a query's end from earlier frames'
++// results (its place among this frame's queries to `address` counted there), and the draw thread records
++// the D3D query around its draws in stream order (RendererOcclusionBegin for every start, EndOn at the end).
++bool RendererOcclusionAnswer(uint32_t& samples, uint32_t& total, uint32_t address, uint32_t kindOrder)
++{
++    return OcclusionLookup(samples, total, ~0u, { uint64_t(address) << 1 | 1, kindOrder }, false);
++}
++
++void RendererOcclusionEndOn(uint32_t address, uint32_t kindOrder)
++{
++    OcclusionRecordEnd(uint64_t(address) << 1 | 1, kindOrder);
++}
++
++// The answer for a query: the last finished result of the same kind (address, place in the frame).
++bool OcclusionLookup(uint32_t& samples, uint32_t& total, UINT order, const std::pair<uint64_t, UINT>& kind, bool allowByOrder)
++{
++    // REGPU_OCCLUSION_BY_ORDER=1: answered by order in the frame, as before (A/B; not with the draw thread).
+     static LiveSwitch byOrder("REGPU_OCCLUSION_BY_ORDER");
+     int64_t passed = -1, covered = -1;
+-    if (byOrder)
+     {
+-        if (order < g_occlusionResult.size())
+-            passed = g_occlusionResult[order], covered = g_occlusionCoverage[order];
++        std::lock_guard resultLock(g_occlusionResultLock);
++        if (byOrder && allowByOrder)
++        {
++            if (order < g_occlusionResult.size())
++                passed = g_occlusionResult[order], covered = g_occlusionCoverage[order];
++        }
++        else if (auto it = g_occlusionByKind.find(kind); it != g_occlusionByKind.end())
++            std::tie(passed, covered) = it->second;
+     }
+-    else if (auto it = g_occlusionByKind.find(kind); it != g_occlusionByKind.end())
+-        std::tie(passed, covered) = it->second;
+     if (const uint64_t t = TraceFrame(); t && g_r.frame + 1 == t)
+         Log("occlusion query %u ends: kind %016llx #%u, answer passed %lld covered %lld (host samples)", order, (unsigned long long)kind.first,
+             kind.second, (long long)passed, (long long)covered);
+diff --git a/src/gpu/renderer.h b/src/gpu/renderer.h
+index 9fb53d8..616e800 100644
+--- a/src/gpu/renderer.h
++++ b/src/gpu/renderer.h
+@@ -83,6 +83,11 @@ bool RendererOcclusionEnd(uint32_t& samples, uint32_t& total, uint32_t address);
+ // Whether a query is counting now (begun or resumed, not paused or ended): its draws must be recorded on
+ // the command processor's list (gpu.cpp, seg::g_query).
+ bool RendererOcclusionCounting();
++// With the draw thread: the command processor answers a query's end (`kindOrder`: its place among this
++// frame's queries to `address`, counted by the caller), the draw thread records its end (after
++// RendererOcclusionBegin for each of its starts).
++bool RendererOcclusionAnswer(uint32_t& samples, uint32_t& total, uint32_t address, uint32_t kindOrder);
++void RendererOcclusionEndOn(uint32_t address, uint32_t kindOrder);
+ // Follows the tile state draws set (see DrawImpl), for the state at each piece's start.
+ void RendererTrackTile(RendererTile& tile);
+ void RendererSetTile(const RendererTile& tile);

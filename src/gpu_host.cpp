@@ -171,6 +171,19 @@ void GpuStart()
     // REGPU_DRAW_WORKERS=<n> overrides; live A/B: Fm3 "switch REGPU_NO_DRAW_WORKERS 1",
     // Fm3 "switch REGPU_NO_WORKER_QUERIES 1" (the old fixed answer).
     DefaultEnv("REGPU_DRAW_WORKERS", "3");
+    // The draw thread (session 14): the command processor only parses and queues; a draw thread translates
+    // in stream order and hands big segments to the draw workers (our ReGPU patch regpu-draw-thread-pieces),
+    // with occlusion queries answered on the command processor and recorded there. Cars grid, paused:
+    // 720p 1x 175 -> 202 fps, 1440p 4x MSAA 175 -> 181 (GPU-bound there). FM3_NO_DRAW_THREAD=1: workers on
+    // the command processor as before. For now without the workers on the draw thread (REGPU_DRAW_THREAD_SERIAL):
+    // with them the sun flare was gone in a race (not found yet); FM3_DRAW_THREAD_PIECES=1 turns them on
+    // (720p 1x: serial draw thread not measured; with pieces 202 fps; 1440p 4x MSAA: both 181).
+    if (!getenv("FM3_NO_DRAW_THREAD"))
+    {
+        DefaultEnv("REGPU_DRAW_THREAD", "1");
+        if (!getenv("FM3_DRAW_THREAD_PIECES"))
+            DefaultEnv("REGPU_DRAW_THREAD_SERIAL", "1");
+    }
     // Sun glare size (session 14): FM3 sizes the glare from the occlusion query's raw sample count (not
     // the visible share): none below ~0.55x our count of a fully visible sun, largest at ~1.5-2x. At 1x
     // the glare covered half the screen, far bigger than console footage (YouTube Fx4sKnongdM, 1:16-1:21);

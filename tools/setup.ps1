@@ -32,7 +32,8 @@ $regpuPatches = @(
     'regpu-guest-lod-short-mips',   # short mip chains (separate images per level) sampled at the guest's mip choice above 1x
     'regpu-early-fence-writebacks', # early fences still wait for a deferred resolve write-back before them
     'regpu-worker-queries', # occlusion queries with draw workers: counting spans drawn on the command processor
-    'regpu-zpd-scale'       # REGPU_ZPD_SCALE: live multiplier for occlusion query answers (FM3 sun glare size)
+    'regpu-zpd-scale',      # REGPU_ZPD_SCALE: live multiplier for occlusion query answers (FM3 sun glare size)
+    'regpu-draw-thread-pieces' # draw thread runs the parallel segments; occlusion queries with the draw thread
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

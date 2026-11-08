@@ -690,7 +690,7 @@ void StartThreadProfiler()
                     top.push_back({ k, n });
                 std::sort(top.rbegin(), top.rend());
                 Log("profile: thread %u, %llu samples", target, (unsigned long long)samples);
-                for (size_t i = 0; i < top.size() && i < 25; i++)
+                for (size_t i = 0; i < top.size() && i < 60; i++)
                     Log("profile: %5.1f%% %s", top[i].first * 100.0 / samples, top[i].second.c_str());
                 counts.clear();
                 samples = 0;
