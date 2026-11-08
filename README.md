@@ -77,7 +77,7 @@ W / S = throttle / brake, A / D = steer, Q / E = LB / RB, J L I K = right stick.
 |---|---|
 | `CMakeLists.txt` | The game build (needs `out/ppc`, `thirdparty/fidelityfx`, `thirdparty/ffmpeg`) |
 | `config/` | XenonRecomp config and switch tables for `default.xex` |
-| `patches/` | 5 XenonRecomp + 10 ReGPU patches, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
+| `patches/` | 5 XenonRecomp + 11 ReGPU patches, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
 | `src/` | Runtime: kernel/XAM, loader, threads, fibers, audio, ReGPU host glue ([src/README.md](src/README.md)) |
 | `play.cmd` | Development launcher (debug server on, saves in `out/user`, log in `out/run`) |
 | `launcher/FM3Launcher`, `launcher.cmd` | The launcher (C#, .NET 9, Photino/WebView2) and its dev start script |

@@ -1,0 +1,24 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 5e9a2ec..b21b39e 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -10401,6 +10401,19 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         // (from the FM4 port). REGPU_NO_LOD_BIAS=1 (live): the fetch's bias alone.
+         static LiveSwitch noLodBias("REGPU_NO_LOD_BIAS");
+         tb[0] = fetch.LodBias() + (g_sceneScale < 1.0f && !noLodBias ? std::log2(g_sceneScale) : 0.0f);
++        // The console picks a mip level from derivatives in guest pixels. Rendered above the guest resolution,
++        // the host's derivatives are smaller, so it picks finer levels (sharper, fine for a filtered chain). A
++        // short chain (its smallest level still 64 texels or more) can hold separate images in its levels that
++        // the title selects by how large it draws them (e.g. a picture at level 0, a smaller differently framed
++        // one at level 1): there the host's finer choice blends the wrong image in. Such textures take the
++        // guest's choice (bias + log2 of the draw scale). REGPU_NO_GUEST_LOD_SHORT_MIPS=1 (live): host choice.
++        static LiveSwitch noGuestLod("REGPU_NO_GUEST_LOD_SHORT_MIPS");
++        if (!noGuestLod && fetch.MipMaxLevel() > 0 && (std::min(fetch.Width(), fetch.Height()) >> fetch.MipMaxLevel()) >= 64)
++        {
++            const float drawScale = ScaleY();
++            if (drawScale > 1.0f)
++                tb[0] += std::log2(drawScale);
++        }
+         memcpy(&tb[1], &index, 4);
+         // A resolved texture is as wide as the pitch it was resolved with; the fetch
+         // constant may declare a narrower image inside it (e.g. 163 of 192 columns):
