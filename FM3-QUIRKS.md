@@ -230,6 +230,8 @@ Each is game-neutral Xenos behaviour that FM3 exercises (HL notes FM3 issues ~17
 - **HL:** `vsync = true` (forced), plus an undocumented part of patch 0003: a high-resolution waitable-timer vblank worker (sleep to about 1 ms before the deadline, then spin; resync if ≥4 intervals behind).
 - **XR + ReGPU:** **high-priority risk.** ReGPU's `VblankLoop` fires at **2× the frame cap (120–720 Hz)** because FM2 keeps game time by the clock. If FM3 counts vblanks, it will run 2× fast or worse. Start with `REGPU_VBLANK_HZ=60` (or `driver::SetRefreshRate(60)`), measure game speed, and only then investigate whether FM3's sim/physics follow the clock (needed before any framerate unlock). ReGPU already uses precise sleep (`PreciseSleepUntil`).
 
+- **Session 13:** FM3's main loop (`sub_821F5DE8`) runs once per vblank but takes dt from the ms tick, as FH1/FM4 do: the vblank now runs at the frame cap and `src/hooks/frame_time.cpp` gives precise dt off 60 (NOTES.md "Session 13"). "2x speed" still unmeasured.
+
 ### Q25. Present-path hook point — **HL**
 - **Address:** `sub_824AF280` (XDK present path that every frame ends in); it calls `VdSwap` at `0x824AF4F4`.
 - **HL:** wraps it for frame stats (`frame_stats` cvar).

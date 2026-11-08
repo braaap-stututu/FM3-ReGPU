@@ -7,12 +7,14 @@
 // until then (CMakeLists.txt builds the game only once out/ppc exists).
 //
 // FM3-specific defaults set here (see FM3-QUIRKS.md):
-//   Q24  FM3 paces itself on guest vblank. ReGPU's default vblank is 2x the frame cap (FM2 keeps
-//        game time by the clock), which would run FM3 at double speed: start at 60 Hz.
+//   Q24  FM3's main loop runs once per guest vblank (game time follows the clock, src/hooks/
+//        frame_time.cpp). So the vblank runs at the frame cap (max_fps, or the display's refresh
+//        if lower and vsync is on; 60 by default), not at ReGPU's 2x the cap.
 //        FM3_VBLANK_HZ=<n> (or REGPU_VBLANK_HZ) overrides it, to measure game speed.
 // Deliberately NOT carried over from FM4: its road-strip resolve write-back rule and its car-shadow
 // cascade switches (FM4 addresses/formats). FM3's own versions (Q18, Q19) come in Phase 5, decided
 // from hl360-vs-ReGPU frame-dump diffs.
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -20,6 +22,8 @@
 #include <mutex>
 #include <set>
 #include <string>
+
+#include <windows.h>
 
 #include "regpu/regpu.h"
 
@@ -29,6 +33,7 @@
 #include "log.h"
 #include "memory.h"
 #include "settings.h"
+#include "hooks/frame_time.h"
 
 std::string CurrentHostStack(int maxFrames); // crash.cpp
 void LogAllHostThreadStacks(const char* why); // hang.cpp
@@ -196,10 +201,20 @@ void GpuStart()
     if (!getenv("FM3_NO_TIMER"))
         DefaultEnv("REGPU_TIMER", "1");
 
-    // Q24: guest vblank at 60 Hz.
+    // Q24: guest vblank at the frame cap (60 by default): one main-loop frame per vblank.
     if (const char* hz = getenv("FM3_VBLANK_HZ"))
         _putenv_s("REGPU_VBLANK_HZ", hz);
-    DefaultEnv("REGPU_VBLANK_HZ", "60");
+    {
+        const Settings& s = GetSettings();
+        uint32_t cap = s.maxFps;
+        DEVMODEW mode{};
+        mode.dmSize = sizeof(mode);
+        if (s.vsync && EnumDisplaySettingsW(nullptr, ENUM_CURRENT_SETTINGS, &mode) && mode.dmDisplayFrequency > 1)
+            cap = std::min<uint32_t>(cap, mode.dmDisplayFrequency);
+        cap = std::clamp<uint32_t>(cap, 30, 360);
+        DefaultEnv("REGPU_VBLANK_HZ", std::to_string(cap).c_str());
+    }
+    FrameTimeSetHz(uint32_t(std::clamp(atoi(getenv("REGPU_VBLANK_HZ")), 30, 1000)));
 
     Log("gpu: ReGPU at %ux%u, msaa %u, vblank %s Hz", config.width, config.height, config.msaa, getenv("REGPU_VBLANK_HZ"));
     regpu::Start();
