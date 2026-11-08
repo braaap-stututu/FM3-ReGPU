@@ -1,8 +1,13 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-08, end of session 14)
+## ▶ Current status / next step  (updated 2026-11-08, end of session 15)
 
-### ▶ Start here next session (state at the end of session 14)
+### ▶ Session 15: sun flare with the workers on the draw thread fixed; that is the default now
+**Cause:** in ReGPU's ZPD packet handler the command processor ran `if (end) seg::g_query = false;` also in draw-thread mode. `seg::g_query` (the counting query's draws go straight onto the draw thread's list) belongs to the draw thread, and the command processor runs ahead of it, so the flag was often cleared before the draw thread reached the sun's draws: they went to worker lists the D3D query does not count → 0 samples → no flare. The serial draw thread never reads the flag, so it worked. **Fix:** cleared there only without the draw thread (its `kQuery` end record clears it on the draw thread), folded into patch 15 `regpu-draw-thread-pieces`. **Test** (you, Montserrat sun spot, paused, 1440p 4x MSAA, pieces on): query answers zpass 3214 / total 3214 every frame, ~257 fps (6 samples), **flare looks right** (you). **Default now: draw thread + workers** (`src/gpu_host.cpp`); `FM3_DRAW_THREAD_SERIAL=1` = session 14's serial draw thread, `FM3_NO_DRAW_THREAD=1` = workers on the command processor; `FM3_DRAW_THREAD_PIECES` is gone. Not done: a clean serial-vs-pieces fps A/B at the same spot/cap (session 14: 720p 1x 175 → 202 with pieces). **Testing note:** no race start grid shows the sun flare; flare tests need a sun-facing spot reached by driving (the Montserrat spot). Grids are fine for fps A/B.
+
+**Pick the next topic with you:** crash C1 (log the short string in `sub_828AFD40`, check `isUsed` running out), upstream bug report (early-fence write-backs; also this `g_query` one if upstream has the draw-thread pieces), wheel test, LOD distances (L), launcher features, vinyl leftovers, OPEN-ISSUES D/E/F/G.
+
+### Session 14 state (kept for reference; its flare-with-pieces lead is solved in session 15)
 All work is committed and pushed (`main`). **Session 14 in short:** (1) the sun flare works with ReGPU's draw workers (patch 13 `regpu-worker-queries`; launcher "Accurate sun flare" option removed); (2) the sun glare was far too big: FM3 sizes it from the raw sample count, now scaled by `REGPU_ZPD_SCALE=0.6` (patch 14, matched to console footage by eye); (3) the command processor was the speed limit: **ReGPU's draw thread is the default now** (patch 15 `regpu-draw-thread-pieces`; 1440p 4x MSAA cars grid 175 → 181–184, Montserrat 225 → 240, now GPU-bound), with the workers on the draw thread opt-in only (`FM3_DRAW_THREAD_PIECES=1`, +15% at 720p but **no sun flare**: the open lead); (4) crash **C1** (OPEN-ISSUES) on some race loads; (5) your cap is 360. Sections below in that order; the next-topic list is after the performance paragraph.
 
 **How it works:** a D3D12 occlusion query only counts the draws of its own command list, and the workers record into their own lists, so with workers every query answered a fixed 1000 (no flare). Now a ZPD start flushes the open logged segment and, while the query **counts** (`RendererOcclusionCounting`, between a start and its tile-span pause or end from `regpu-zpd-tile-spans`), its draws go straight to the command processor's list (`seg::g_query` in `gpu.cpp`); between FM3's two tile spans and outside queries the workers go on. Worker draws never take a coverage draw of the command processor's query (`!C().worker`). PGR4's logged queries (3cbd0f4) were not ported: they record a query into a worker's piece, and FM3's query spans both tiles (pieces would split it, or the frame would stay one piece). Undo live: `Fm3 "switch REGPU_NO_WORKER_QUERIES 1"` (fixed answer).
@@ -344,7 +349,7 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ✅ (session 13) **Performance pass** (OPEN-ISSUES P): near cars ~70 → ~150 fps at 1440p 4x MSAA (no fence order, early fences + ReGPU patch 12, two per-draw switches, draw workers).
 - ✅ (session 14) Occlusion queries with draw workers (patch 13) and with the draw thread (patch 15): sun flare and speed together; sun glare sized to console footage (patch 14, `REGPU_ZPD_SCALE=0.6`).
 - ✅ (session 14) Command-processor bound found and moved: **draw thread default** (cars grid 175 → 181–184, Montserrat 225 → 240 at 1440p 4x MSAA, now GPU-bound there).
-- ▶ Draw thread + workers (`FM3_DRAW_THREAD_PIECES=1`, 720p 1x 175 → 202): find why the sun flare is gone with it, then make it the default.
+- ✅ (session 15) Draw thread + workers (720p 1x 175 → 202): sun flare fixed with it (`seg::g_query` cleared by the CP ahead of the draw thread); now the default.
 - ☐ Crash C1: AI-driver database string on some race loads (OPEN-ISSUES C1).
 - ☐ Report the early-fence write-back bug upstream (ReGPU `gpu.cpp` `WriteBack`; also in FH1's fork and PGR4). Smaller CP ideas left: FH1R's CP tricks, PGO, `-march=x86-64-v3`.
 - ☐ LOD / render distances (OPEN-ISSUES L).
@@ -357,6 +362,11 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-08 — session 15 (sun flare with the workers on the draw thread)
+- You picked the flare bug with pieces on the draw thread. Read patch 15: the only command-processor write to the draw thread's segment state was `seg::g_query = false` at a ZPD end (the CP runs ahead → the sun's draws went to worker lists). Fixed (`end && !work::Active()`), patch 15 regenerated (only that hunk changed), `setup.ps1 -NoBuild` OK.
+- Test with a temporary `play.cmd` line (`FM3_DRAW_THREAD_PIECES=1`, removed): Montserrat sun spot, 1440p 4x MSAA: answers 3214/3214, ~257 fps, flare right (you). You noted no start grid shows the flare (memory saved).
+- Made draw thread + workers FM3's default (`src/gpu_host.cpp`; `FM3_DRAW_THREAD_SERIAL=1` undoes it).
+
 ### 2026-11-08 — session 14 (sun flare with draw workers, glare size, draw thread default)
 - You picked "sun flare + speed". Compared PGR4's vendored ReGPU with ours: same `seg::` structure (gpu.cpp differs by ~110 lines), PGR4 adds `kQuery` log records, thread-local query state and a direct path (`seg::g_query`) for queries outside a logged segment. Its logged path does not fit our tile spans (FM3's sun query = on/off pair per EDRAM tile, the end only on the last), so I used only the direct idea: flush at a ZPD start, draws direct while counting, workers between spans. Coverage draws: workers excluded (`!C().worker`), since they read the command processor's global query state.
 - Patch `regpu-worker-queries` (gpu.cpp, renderer.cpp/.h), stack verified with `setup.ps1 -NoBuild` (13 patches).

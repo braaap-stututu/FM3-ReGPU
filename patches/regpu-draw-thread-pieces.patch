@@ -1,5 +1,5 @@
 diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
-index 0393714..2238dc4 100644
+index 0393714..67c4371 100644
 --- a/src/gpu/gpu.cpp
 +++ b/src/gpu/gpu.cpp
 @@ -139,7 +139,7 @@ void RaiseInterrupt(uint32_t source, uint32_t cpu)
@@ -243,7 +243,18 @@ index 0393714..2238dc4 100644
          {
              if (seg::Enabled() && seg::g_open)
                  seg::Flush();
-@@ -1648,10 +1715,14 @@ namespace
+@@ -1066,7 +1133,9 @@ uint32_t ExecutePacket(uint32_t ptr)
+         }
+         else if (real && !RendererOcclusionEnd(samples, total, counts))
+             samples = total = 1000; // no result yet (the first frames): fully visible
+-        if (end)
++        // (With the draw thread its kQuery record ends it there: the command processor runs ahead, and clearing
++        // it here sent the query's draws to the workers' lists before the draw thread got to them: no sun flare.)
++        if (end && !work::Active())
+             seg::g_query = false;
+         memset(c, 0, 8 * 4);
+         if (end)
+@@ -1648,10 +1717,14 @@ namespace
  // The command processor reached a swap: the frame so far goes to the screen.
  void PresentSwap(uint64_t frame, uint32_t frontBuffer)
  {
