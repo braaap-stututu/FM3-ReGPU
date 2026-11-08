@@ -89,7 +89,9 @@ race-load crash. See NOTES.md for those.
 
 ## Performance and parity (Phase 5)
 
-### P. Frame rate drops near other cars above 60 fps (session 13; research only, nothing tested yet)
+### P. Frame rate drops near other cars above 60 fps (session 13)
+**Test 1 done, now the default:** `REGPU_NO_FENCE_ORDER=1` live A/B near cars (1440p 4x MSAA, 120 cap, ~2,800–3,400 draws): off 69–77 fps, on **100–120** (two rounds), slowest frame 17–19 → 11–13 ms, CP wait on `18C27014` ~840 → ~410 ms per 2 s. No visual change (the spectator LOD popping you saw is the same with it off). `src/gpu_host.cpp` sets it via `regpu::driver::SetSwitch` (a static global, env too late); `FM3_FENCE_ORDER=1` keeps the ordering. Next: test 2 (`REGPU_EARLY_FENCES`).
+
 **Symptom:** with the frame-rate unlock at 120 (1440p, 4x MSAA), drawn fps ≈ 1/(2.7 ms + ~3.5 µs × draws): ~3,200 draws (cars near) 71–75 fps, ~1,900 (alone) 105. The main loop stays at 120 with even dt (smooth).
 **Measured (logs `out/logs/session13-t7profile.log`, `session13-drawthread.log`):** render thread t7 ~86% in D3D's ring-buffer wait (`sub_824B4F78` → `sub_824AAA68`, read pointer at device +10896); ReGPU's command processor (t9) about half its time in WAIT_REG_MEM (fn 3) on guest `18C27014` (+ `18C27000/04`); with `REGPU_DRAW_THREAD=1` fps unchanged, worker ~42% busy, CP 40% spinning + 32% blocked (drains). Nothing saturated: a turn-taking chain. Blocked time (WaitOnAddress/condition variables) is invisible to the sampler.
 **Lead:** our pin already has the switches the faster ports turn on; `src/gpu_host.cpp` sets none of them. At every INTERRUPT packet the CP runs `work::Drain()` and `PendingWrites::Drain()` (waits until every queued fence has passed the **host GPU**, `gpu.cpp:1151-1156`), and by default fences are written only after the host GPU (`renderer.cpp` `FenceSubmitImpl`, fence-writer thread). If the game's write to `18C27014` follows such a fence/interrupt, every turn includes host-GPU latency.
@@ -112,6 +114,12 @@ Sources: upstream ReGPU (`reference/framework/ReGPU`: `main` = our pin; `engine-
 - **ReGPU-side frame dump** in hl360's `index.txt`/`tex_*.bin` format, so `tools/dumpdecode.py diff` can compare
   hl360 and our build directly. That would speed up finding parity bugs like D and E.
 - Frame-rate unlock (Phase 6) only after FM3's simulation timing is confirmed (Q24: FM3 paces itself on guest vblank).
+
+### L. LOD / render distances (future research, session 13 note)
+**Seen:** while testing the frame-rate unlock you noticed animated spectators swapping detail levels (LOD popping) near the track; it is the same with `REGPU_NO_FENCE_ORDER` on or off, so it's the game's own LOD, not a ReGPU bug. At 1440p and above the console's LOD distances (tuned for 720p) are more visible. Idea: push LOD/draw distances out (an option, like FH1R's "World detail beyond the console", #361), now that there is CPU/GPU headroom.
+**What FM3 has (strings in `out/fm3.bin`):** `SpriteDistance` (crowd sprites; in FH1 `TrackSettings <Crowds lod0-3 SpriteDistance>`), `AnimLODValue`, `GrassLODDist`/`GrassLODFadeRange`, `MipMapLodBiasModifier`/`MipMapLodBias`/`LODBias`, `StartLOD`/`EndLOD`/`NumLODs`/`LODCount`/`LODType`/`LODError`, `Lod1EventGroup`/`Lod2EventGroup`, car models `LOD0`..`LOD2` (`HasLOD0`, `CCarBodyModelLOD0`, `CCarPresentationDeferred` load/unload LOD0). **Not** present: FH1's `CarLODTransDist`/`LODdist_*`, `CarLODThresholds`, `CrowdLODCountScales`, `CrowdSpriteDistScale` — FM3's car/crowd LOD selection is set up differently (find it from the strings above: which function reads `SpriteDistance`/`AnimLODValue`, and where car LOD0 is loaded/unloaded).
+**First steps:** (1) find where the crowd's LOD/sprite distance is read (track settings XML in the game data, e.g. `SpriteDistance` per track) and whether it's a value we can scale by hook or data; (2) the car LOD selection (distance thresholds, the "only the N nearest cars get LOD0" rule FH1 has); (3) texture LOD bias (`MipMapLodBiasModifier`, FH1 +1404 in its render settings). Measure the cost (draws/frame) since frame rate near cars is draw-bound (issue P).
+**Reference:** FH1R `docs/graphics-detail.md` (World detail beyond the console, #361: texture LOD bias, model LOD/zone switches, grass, crowd LOD, car detail with `sub_8248CBD0`/`sub_824351D8`/`sub_8247C5C8`/`sub_82477368` in FH1 — FM4 engine; GPL-3, ideas only), `reference/sibling-recomps/ForzaHorizon1-ReImagined/docs/render-tests.md`.
 
 ## Leftovers
 - `sub_82A918F0` blrl trap and the SEH policy (not hit yet).

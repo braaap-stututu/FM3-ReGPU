@@ -25,6 +25,7 @@
 
 #include <windows.h>
 
+#include "regpu/driver.h"
 #include "regpu/regpu.h"
 
 #include "kernel/runtime.h"
@@ -126,6 +127,16 @@ void GpuStart()
     // nothing else changed (paused start grid, A/B in NOTES.md session 8). FM3_FOREIGN_MSAA=1 keeps it on.
     if (!getenv("FM3_FOREIGN_MSAA"))
         DefaultEnv("REGPU_NO_FOREIGN_MSAA", "1");
+
+    // Frame rate near other cars (OPEN-ISSUES.md P, session 13): at every INTERRUPT packet the command
+    // processor waited until every queued fence had passed the host GPU (ReGPU's fence ordering, from the
+    // FM4 port), so the game, the command processor and the GPU took turns. Off, as PGR4 runs: 1440p 4x
+    // MSAA at a 120 cap near cars 69-77 -> 100-120 fps at the same draw counts (two live A/B rounds), no
+    // visual change seen (spectator LOD popping is the same either way). FM3_FENCE_ORDER=1 keeps the
+    // ordering; live: Fm3 "switch REGPU_NO_FENCE_ORDER 0|1". The switch is a global ReGPU reads at static
+    // initialisation, so it is set through SetSwitch, not the environment.
+    if (!getenv("FM3_FENCE_ORDER") && !getenv("REGPU_NO_FENCE_ORDER"))
+        regpu::driver::SetSwitch("REGPU_NO_FENCE_ORDER", true);
 
     // Q18, the road surface: the road shader samples a 512x512 detail image the game composes at run time
     // (half of it a frame, plus its mip chain) from a base asphalt texture and four 32x512 strips it reads
