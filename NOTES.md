@@ -1,8 +1,19 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-08, end of session 13)
+## ▶ Current status / next step  (updated 2026-11-08, end of session 14)
 
-### ▶ Start here next session (state at the end of session 13)
+### ▶ Start here next session (state at the end of session 14)
+All work is committed and pushed (`main`). **Session 14** made the **sun flare work with draw workers** (13th ReGPU patch `regpu-worker-queries`), so you get the flare and the speed together; the launcher's "Accurate sun flare" option is gone (draw workers always on by default; an old `accurate_sun` line in settings.ini is ignored and dropped on the launcher's next save).
+
+**How it works:** a D3D12 occlusion query only counts the draws of its own command list, and the workers record into their own lists, so with workers every query answered a fixed 1000 (no flare). Now a ZPD start flushes the open logged segment and, while the query **counts** (`RendererOcclusionCounting`, between a start and its tile-span pause or end from `regpu-zpd-tile-spans`), its draws go straight to the command processor's list (`seg::g_query` in `gpu.cpp`); between FM3's two tile spans and outside queries the workers go on. Worker draws never take a coverage draw of the command processor's query (`!C().worker`). PGR4's logged queries (3cbd0f4) were not ported: they record a query into a worker's piece, and FM3's query spans both tiles (pieces would split it, or the frame would stay one piece). Undo live: `Fm3 "switch REGPU_NO_WORKER_QUERIES 1"` (fixed answer).
+
+**Measured** (paused on a race start grid, 2560×1440 4x MSAA, `max_fps` 240, cars already gone): real queries + workers **225 fps**, workers off (old "accurate sun") 219, fixed answer + workers 232: the queries cost ~3%. You confirmed the flare is back and looks the same with workers on or off. The sun query answers zpass 5,924 / total 5,924 (fully visible, like session 8b's 5,780). Log: `out/logs/session14-worker-queries.log`.
+
+**Open, from your test:** the flare may be **stronger than on console** (no clean console reference; YouTube is too compressed). Not caused by the workers change. Lead: compare with hl360 at the same spot (`boot hl360.cmd`, its zpd answers vs ours; our coverage/Total scaling at 1440p 4x vs 720p 2x: `OcclusionLookup`'s `perHost`), or the flare draw itself.
+
+**Pick the next topic with you** (the session-13 list minus the flare): per-draw command-processor cost (constants ~1.8 ms, submit ~1.4 ms per frame; ideas in OPEN-ISSUES P), flare strength vs hl360, upstream bug report (early-fence write-backs), wheel test, LOD distances (L), launcher features, vinyl leftovers, OPEN-ISSUES D/E/F/G.
+
+### Session 13 state (kept for reference; the flare trade-off below is solved in session 14)
 All work is committed and pushed (`main`, last `4e63e41`). **Session 13** did three things: racing-wheel support, a frame-rate unlock, and a performance pass that took the game from ~70 to ~150 fps near other cars (1440p 4x MSAA, RX 7900 XTX). Details below and in **OPEN-ISSUES.md issue P**; the step-by-step record is in the session-13 log entry.
 
 **1. Racing wheels (ported, not yet driven with a wheel).** From your FM4 fork's `wheel-support` branch (`88c12e9`): `src/input/wheel/*`, `src/kernel/imports_ff.cpp`, XAM input changes, `fm3.exe --wheel-probe`, launcher **Wheel stuff** tab, `tools/wheelprobe`, `docs/WHEELS.md`, `NOTICE-wheel.md` (FH1R BSD-3 parts). FM3 has FM4's XInputFF library: `sub_82AB6AE0` looks up xboxkrnl 0x282–0x289 and xam 0x1BA/0x208 at boot, and every lookup resolves (log `XexGetProcedureAddress ...`). **To do:** a test with a real wheel (bindings, force feedback; log `Wheel:` lines).
@@ -224,6 +235,7 @@ python -I tools/dumpdecode.py diff   dumps/hl360/runA/r01_grid_paused dumps/hl36
   1. `regpu-fixed16-fetch`: resolved 16-bit fixed images read with the fetch's number format when it differs from the copy's (not the border colour).
   2. `regpu-zpd-tile-spans`: occlusion queries count only inside each tile's ZPD on/off pair (sun glare). Also: `REGPU_TRACE_ZPD` logs `RB_SAMPLE_COUNT_CTL`.
   3. `regpu-resolve-into-image`: a resolve with a row offset into an existing image of the same width is part of that image, not a tile (road bands).
+- **ReGPU patch 13** (session 14) `regpu-worker-queries`: occlusion queries with draw workers (a counting query's draws go to the command processor's list); `REGPU_NO_WORKER_QUERIES=1` = old fixed answer.
 - **ReGPU patches 4–12** (sessions 9–13) are listed with reasons in `patches/README.md`; the 12th (session 13) is `regpu-early-fence-writebacks`: with early fences, a fence behind a deferred resolve write-back keeps the fence `RendererFenceSubmit` returns (ReGPU's `WriteBack` zeroed it), so CPU-read resolves (FM3 liveries) are written before the game sees the fence. `REGPU_EARLY_FENCES_SKIP_WRITEBACKS=1` = old.
 - **Session 13 host defaults** (`src/gpu_host.cpp`): vblank = 2× frame cap off 60 + `mainthread30fps` (frame-rate unlock); `REGPU_NO_FENCE_ORDER`, `REGPU_TEXTURE_CHECK_STAGGER`, `REGPU_DIRECT_DYNAMIC_INDICES` (via `regpu::driver::SetSwitch`), `REGPU_EARLY_FENCES`, `REGPU_DRAW_WORKERS=3` unless `accurate_sun=1`. Table with numbers and undo switches at the top of this file.
 - **Our project, host rules** (`src/gpu_host.cpp`, not patches): `REGPU_NO_FOREIGN_MSAA=1` default (bar); 32×512 colour resolves written back `Now` (road strips); vblank 60 Hz (Q24).
@@ -332,6 +344,11 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-08 — session 14 (sun flare with draw workers)
+- You picked "sun flare + speed". Compared PGR4's vendored ReGPU with ours: same `seg::` structure (gpu.cpp differs by ~110 lines), PGR4 adds `kQuery` log records, thread-local query state and a direct path (`seg::g_query`) for queries outside a logged segment. Its logged path does not fit our tile spans (FM3's sun query = on/off pair per EDRAM tile, the end only on the last), so I used only the direct idea: flush at a ZPD start, draws direct while counting, workers between spans. Coverage draws: workers excluded (`!C().worker`), since they read the command processor's global query state.
+- Patch `regpu-worker-queries` (gpu.cpp, renderer.cpp/.h), stack verified with `setup.ps1 -NoBuild` (13 patches).
+- Test (you, `launcher.cmd`, 1440p 4x MSAA): flare back (timer 250.8). Live A/B on the paused grid: 225 / 219 (workers off) / 232 (fixed answer) fps. You: flare strength the same with workers off; maybe stronger than console (open).
+- Removed the launcher's "Accurate sun flare" toggle (Install.cs, app.js, index.html) and `accurate_sun` in `src/gpu_host.cpp`; game and launcher rebuilt.
 ### 2026-11-08 — session 13 (racing wheels; frame-rate unlock)
 - Wheel support ported from the FM4 fork's `wheel-support` branch: new files applied as-is, the changed files (`imports_xam.cpp`, `settings.*`, `main.cpp`, `CMakeLists.txt`, launcher `Bridge.cs`/`Program.cs`/`app.js`/`index.html`) merged by hand (our versions differ slightly), fm4→fm3 names. Checked that FM3 looks up the same force-feedback ordinals (`sub_82AB6AE0` callers in `ppc_recomp.169.cpp`). Probe mode starts; launcher builds. Commit `6d217bb`.
 - Frame-rate research (a subagent read FM2, PGR4, FH1R, the FM4 ports): details in "Session 13" at the top. Implemented FH1's frame-time scheme for FM3 (own code; FH1R is GPL-3) and the vblank-follows-cap rule. Untested in game.

@@ -30,7 +30,8 @@ $regpuPatches = @(
     'regpu-enclosing-big-pass',     # big-pass tiles find their image (pass width), last tiles clipped to it
     'regpu-writeback-safety',       # pass width only for big passes; late write-backs skip reused memory; stale write-back marks cleared
     'regpu-guest-lod-short-mips',   # short mip chains (separate images per level) sampled at the guest's mip choice above 1x
-    'regpu-early-fence-writebacks'  # early fences still wait for a deferred resolve write-back before them
+    'regpu-early-fence-writebacks', # early fences still wait for a deferred resolve write-back before them
+    'regpu-worker-queries'  # occlusion queries with draw workers: counting spans drawn on the command processor
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

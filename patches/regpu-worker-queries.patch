@@ -1,0 +1,111 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index 309260d..0393714 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -317,12 +317,18 @@ void Replay(size_t first, size_t endPos)
+ std::vector<uint32_t> g_sizes, g_lastSizes; // draws of each segment this frame / the last
+ uint32_t g_index = 0;                        // the segment the next draw belongs to
+ uint32_t g_directDraws = 0;                  // draws of the current segment drawn straight away
++// An occlusion query is counting (between a ZPD start and its pause or end): its draws go straight to the
++// renderer, recorded in stream order on the command processor's list where its D3D query part began (a
++// D3D12 query only counts the draws of its own list; a worker's piece would not be wrapped).
++bool g_query = false;
+ constexpr uint32_t kParallelDraws = 2 * 96;  // fewer than this never make two pieces (Flush)
+ 
+ // Whether the current segment's draws go straight to the renderer.
+ bool Direct()
+ {
+     static LiveSwitch logAll("REGPU_LOG_ALL_SEGMENTS");
++    if (g_query)
++        return true;
+     return !g_open && !logAll && g_index < g_lastSizes.size() && g_lastSizes[g_index] < kParallelDraws;
+ }
+ 
+@@ -1041,15 +1047,27 @@ uint32_t ExecutePacket(uint32_t ptr)
+             Log("zpd: %08X %08X %08X %08X %08X %08X %08X %08X%s, RB_SAMPLE_COUNT_CTL %08X", c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
+                 end ? " (end)" : "", gpureg::Get(0x2324));
+         }
+-        // Real counts when draws are recorded here in stream order (not with the draw thread
+-        // or workers, whose lists the query would not wrap): the sun flare fades behind trees.
++        // Real counts when draws are recorded here in stream order (not with the draw thread, whose
++        // list the query would not wrap): the sun flare fades behind trees. With draw workers the open
++        // logged segment is translated first and, while the query counts, its draws go straight to the
++        // renderer (seg::g_query); between a query's tile spans (RendererOcclusionBegin: pause/resume)
++        // and outside queries the workers go on. REGPU_NO_WORKER_QUERIES=1: with workers every query
++        // answers the fixed 1000, as before (A/B: no sun flare).
+         static LiveSwitch fake("REGPU_FAKE_OCCLUSION"); // A/B: the old fixed answer
+-        const bool real = !fake && !work::Active() && !seg::Enabled();
++        static LiveSwitch noWorkerQueries("REGPU_NO_WORKER_QUERIES");
++        const bool real = !fake && !work::Active() && !(seg::Enabled() && noWorkerQueries);
+         uint32_t samples = 1000, total = 1000;
+         if (real && !end)
++        {
++            if (seg::Enabled() && seg::g_open)
++                seg::Flush();
+             RendererOcclusionBegin();
++            seg::g_query = seg::Enabled() && RendererOcclusionCounting();
++        }
+         else if (real && !RendererOcclusionEnd(samples, total, counts))
+             samples = total = 1000; // no result yet (the first frames): fully visible
++        if (end)
++            seg::g_query = false;
+         memset(c, 0, 8 * 4);
+         if (end)
+         {
+@@ -1633,6 +1651,7 @@ void PresentSwap(uint64_t frame, uint32_t frontBuffer)
+     seg::Flush();
+     seg::EndFrame();
+     seg::g_tile = RendererTile{};
++    seg::g_query = false; // (the renderer ends a query still open at the swap)
+     if (work::Active())
+     {
+         uint32_t* p = work::Begin(work::kSwap, 3);
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index b21b39e..f554b52 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -9143,6 +9143,11 @@ void RendererOcclusionBegin()
+         Log("occlusion query %u begins (draw #%u next)", g_occlusionOrder, g_r.drawsThisFrame.load() + 1);
+ }
+ 
++bool RendererOcclusionCounting()
++{
++    return g_occlusionOpen;
++}
++
+ bool OcclusionEndImpl(uint32_t& samples, uint32_t& total, uint32_t address);
+ namespace
+ {
+@@ -10795,7 +10800,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             (unsigned long long)C().vsHash, (unsigned long long)C().psHash, initiator & 0x3F, list.size(), gpureg::Get(RB_BLENDCONTROL0),
+             gpureg::Get(RB_COLOR_MASK) & 15, scissor.left, scissor.top, scissor.right, scissor.bottom, gpureg::Get(PA_CL_VTE_CNTL) & 0x3FF,
+             int(WidePass()), int(g_drawSamplesResolve), gpureg::Get(RB_SURFACE_INFO) & 0x3FFF,
+-            g_occlusionOpen ? " [in occlusion query]" : GetShader(C().vsHash, C().vsCode, false).info.memExport ? " [memexport]" : "", tex.c_str());
++            !C().worker && g_occlusionOpen ? " [in occlusion query]" : GetShader(C().vsHash, C().vsCode, false).info.memExport ? " [memexport]" : "", tex.c_str());
+         Log("    host: scissor %ld,%ld-%ld,%ld viewport %g,%g %gx%g depth %p colour %p (bases %03X %03X)", hostScissor.left, hostScissor.top,
+             hostScissor.right, hostScissor.bottom, vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height, static_cast<void*>(C().depth.Get()),
+             static_cast<void*>(C().color.Get()), C().depthBase, C().colorBase);
+@@ -10937,7 +10942,8 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+     // its own: the samples it covers, the console's Total (a game fades a light flare by the share that
+     // passed). From pgr4-native's occlusion pairs. REGPU_NO_OCCLUSION_COVERAGE=1: not drawn (Total = ZPass).
+     static LiveSwitch noCoverage("REGPU_NO_OCCLUSION_COVERAGE");
+-    ID3D12PipelineState* coveragePso = g_occlusionOpen && !noCoverage && !motion && g_occlusionCount + 2 <= kOcclusionPerFrame
++    // (A draw worker's draw is never inside the command processor's query: gpu.cpp seg::g_query.)
++    ID3D12PipelineState* coveragePso = !C().worker && g_occlusionOpen && !noCoverage && !motion && g_occlusionCount + 2 <= kOcclusionPerFrame
+         ? GetPipeline(vs, ps, edramMode == 5, cullable, false, stripCut && directIndex, true) : nullptr;
+     {
+         const auto t0 = g_perfTiming ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+diff --git a/src/gpu/renderer.h b/src/gpu/renderer.h
+index 1d579ff..9fb53d8 100644
+--- a/src/gpu/renderer.h
++++ b/src/gpu/renderer.h
+@@ -80,6 +80,9 @@ void RendererOcclusionBegin();
+ // The query's samples that passed and, as the console's Total, the samples its draws covered, as
+ // counted for the last finished query that wrote its counts to `address` (RB_SAMPLE_COUNT_ADDR).
+ bool RendererOcclusionEnd(uint32_t& samples, uint32_t& total, uint32_t address);
++// Whether a query is counting now (begun or resumed, not paused or ended): its draws must be recorded on
++// the command processor's list (gpu.cpp, seg::g_query).
++bool RendererOcclusionCounting();
+ // Follows the tile state draws set (see DrawImpl), for the state at each piece's start.
+ void RendererTrackTile(RendererTile& tile);
+ void RendererSetTile(const RendererTile& tile);
