@@ -1,0 +1,63 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 58a4e0d..d6d790f 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -410,6 +410,10 @@ struct ResolvedTexture
+     uint32_t guestBpp = 4; // bytes per pixel of the guest image: the hash covers only its memory
+     uint32_t guestFormat = 0; // the copy's destination format (RB_COPY_DEST_INFO bits 7-12)
+     uint32_t guestNumber = 0; // the copy's destination number format (bits 13-15: 0 unsigned fraction, 1 signed, 2 uint, 3 sint)
++    // Written back to memory (WriteResolveToGuest, QueueDeferredWriteback), with this RB_COPY_DEST_INFO: resolves later drawn
++    // into it (ResolveIntoEnclosing) write their rectangle of it too, so memory keeps every part of it.
++    bool writtenBack = false;
++    uint32_t writebackInfo = 0;
+     // The title resolves differently sized images (bloom chain) to one address within a
+     // frame: keep earlier sizes here and swap them in rather than recreating them.
+     std::vector<ResolvedTexture> spares;
+@@ -5995,6 +5999,10 @@ void EnsureResolved(ResolvedTexture& dest, uint32_t width, uint32_t height, uint
+     }
+ }
+ 
++void WriteResolveToGuest(uint32_t base, uint32_t width, uint32_t height, uint32_t info);
++void QueueDeferredWriteback(uint32_t base, uint32_t width, uint32_t height, uint32_t info, bool depth, const D3D12_RECT& rect,
++    const regpu::Writeback& request);
++
+ // destRange: the destination's fixed-point range after the scale (the 16-bit integer range for the
+ // 16-bit fixed formats); null none.
+ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXGI_FORMAT format, const D3D12_RECT& rect, float scale, bool swapRB = false,
+@@ -6259,6 +6267,18 @@ void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+         if (RendererTracing())
+             Log("resolve: %08X (%ldx%ld) also drawn into %08X at %u,%u (scale %.3f -> %.3f)", base, rect.right - rect.left, rect.bottom - rect.top, encBase, x,
+                 y, srcSx, encSx);
++        // The console's copy lands in memory inside the image: if that image is one the title reads on the CPU
++        // (written back), memory needs this part too: this rectangle of it, deferred (in memory before the
++        // next fence, without a stall). REGPU_NO_ENCLOSING_WRITEBACK=1: not written (A/B).
++        static LiveSwitch noEnclosingWriteback("REGPU_NO_ENCLOSING_WRITEBACK");
++        if (enc.writtenBack && !noEnclosingWriteback)
++        {
++            regpu::Writeback part;
++            part.mode = regpu::Writeback::Mode::Deferred;
++            part.x0 = x + uint32_t(rect.left), part.x1 = x + uint32_t(rect.right);
++            part.y0 = y + uint32_t(rect.top), part.y1 = y + uint32_t(rect.bottom);
++            QueueDeferredWriteback(encBase, enc.width, enc.height, enc.writebackInfo, false, D3D12_RECT{ 0, 0, LONG(enc.width), LONG(enc.height) }, part);
++        }
+         return;
+     }
+ }
+@@ -8564,6 +8584,8 @@ void QueueDeferredWriteback(uint32_t base, uint32_t width, uint32_t height, uint
+     w.info = info;
+     w.depth = depth;
+     w.x0 = x0, w.x1 = x1, w.y0 = y0, w.y1 = y1;
++    if (!depth)
++        r.writtenBack = true, r.writebackInfo = info;
+ }
+ 
+ // Before a fence write from the command stream: what has been recorded is submitted and a host
+@@ -8658,6 +8680,8 @@ void WriteResolveToGuest(uint32_t base, uint32_t width, uint32_t height, uint32_
+     WriteResolvePixels(pixels, pitch, r.format, r.hostWidth, r.hostHeight, base, width, info, false, 0, width, 0, height);
+     buffer->Unmap(0, nullptr);
+     NoteResolvedMemory(base, r); // our own write: not a reuse of the memory
++    r.writtenBack = true;
++    r.writebackInfo = info;
+     Log("resolve: wrote %ux%u back to guest memory at %08X (format %u, endian %u, swap %u)", width, height, base, (info >> 7) & 0x3F, info & 7,
+         (info >> 24) & 1);
+ }

@@ -159,6 +159,25 @@ void GpuStart()
                 Log("picture writeback: %08X %ux%u", c.base, c.width, c.height);
             return w;
         }
+        // Car liveries (issue B2, session 11): when a car with vinyls is loaded (boot, garage), the game builds its
+        // livery on the GPU as an 8888 2048x2048 texture (close-ups: photo mode, race countdown) and a 1024x1024 one
+        // (racing): the first strip/base resolve declares the whole image, the other strips and the vinyl regions are
+        // resolved into tile positions inside it (ReGPU draws them into the image: ResolveIntoEnclosing). Its CPU code
+        // then compresses them to DXT from memory, so kept on the GPU the car showed noise or other cars' decals.
+        // Written back Deferred (in memory before the next fence, no stall); ReGPU adds each strip/region drawn into
+        // a written-back image as its own deferred rectangle. FM3_NO_LIVERY_WRITEBACK=1: not written (A/B);
+        // FM3_LIVERY_WRITEBACK_NOW=1: written at once (stalls ~55 ms per 2048 image).
+        static LiveSwitch noLivery("FM3_NO_LIVERY_WRITEBACK");
+        static LiveSwitch liveryNow("FM3_LIVERY_WRITEBACK_NOW");
+        if (!noLivery && !c.depth && c.format == 6 && c.top == 0 &&
+            ((c.width == 2048 && c.height == 2048) || (c.width == 1024 && c.height == 1024)))
+        {
+            w.mode = liveryNow ? regpu::Writeback::Mode::Now : regpu::Writeback::Mode::Deferred;
+            static std::atomic<int> logged{ 0 };
+            if (logged.fetch_add(1) < 32)
+                Log("livery writeback: %08X %ux%u", c.base, c.width, c.height);
+            return w;
+        }
         static const bool off = getenv("FM3_NO_STRIP_WRITEBACK") != nullptr;
         if (off || c.depth || c.width != 32 || c.height != 512)
             return w;

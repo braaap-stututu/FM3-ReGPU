@@ -25,7 +25,8 @@ $regpuPatches = @(
     'regpu-timer-overlay',          # REGPU_TIMER: the log clock in the top-left corner (test aid)
     'regpu-cube-2101010',           # k_2_10_10_10 textures decoded; cube faces read from memory staged at their own offsets
     'regpu-resolve-into-enclosing', # a resolve into a tile of an earlier resolved image is also drawn into it, at its place
-    'regpu-capture-vertex-floats'   # captures log small vertex buffers in full, as floats (debugging)
+    'regpu-capture-vertex-floats',  # captures log small vertex buffers in full, as floats (debugging)
+    'regpu-enclosing-writeback'     # a resolve drawn into a written-back image is written back too (its rectangle, deferred)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }
