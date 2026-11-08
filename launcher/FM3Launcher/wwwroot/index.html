@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Forza Motorsport 3 ReGPU</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand" id="brand" role="button" tabindex="0" data-tip="About FM3:ReGPU">
+      <svg class="mark" viewBox="0 0 48 48" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="10" fill="none" stroke="currentColor" stroke-width="3"/><text x="24" y="32" text-anchor="middle" font-size="22" font-weight="800" fill="currentColor" font-family="Segoe UI, sans-serif">3</text></svg>
+      <div>
+        <div class="logo">FM3:<span>ReGPU</span></div>
+        <div class="tag" id="version">Native PC port</div>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button data-tab="play" class="on">Play</button>
+      <button data-tab="profiles">Profiles</button>
+      <button data-tab="graphics">Graphics</button>
+      <button data-tab="settings">Settings</button>
+    </nav>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <!-- PLAY -->
+  <main class="page grid2" id="page-play">
+    <section class="panel tiles-panel">
+      <div class="panel-head"><h2>Game files</h2></div>
+      <p class="hint">Needs Forza Motorsport 3 Ultimate Collection (USA): the files of Disc 1, the play disc, extracted to a folder (default.xex and Media).</p>
+      <div class="tiles">
+        <div class="tile" id="tile-game">
+          <svg class="tile-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3a9 9 0 0 1 7.8 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity=".5"/></svg>
+          <span class="tile-title">Game</span>
+          <div class="tile-bar"><i></i></div>
+          <span class="tile-status" id="tile-game-status"></span>
+          <input id="gameFolder" class="tile-path" readonly data-tip="The game folder the game starts from.">
+          <div class="tile-links">
+            <button class="link" id="gameBrowse" data-tip="Pick the folder with Disc 1's files. Its default.xex is checked first.">Folder…</button>
+            <button class="link" id="gameCheck" data-tip="Checks that default.xex in the game folder is the one this port is built from.">Check game files</button>
+            <button class="link" id="gameReset" data-tip="Go back to the game folder next to the launcher.">Reset</button>
+            <button class="link" data-open="game" data-tip="Opens the game folder.">Open folder</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Game</h2></div>
+      <label class="field" data-tip="The language of the game's menus and text, from the string tables on your disc. Only English has been tested on FM3 so far.">
+        <span>Language</span>
+        <select id="language"></select>
+      </label>
+      <div class="hint" id="lang-note"></div>
+    </section>
+
+    <section class="panel launch-panel">
+      <div class="panel-head"><h2>Ready</h2></div>
+      <div class="summary" id="summary"></div>
+      <div class="checklist" id="checklist"></div>
+      <div class="launch-box">
+        <button class="launch" id="launch" data-tip="Saves these settings and starts the game.">Play</button>
+        <div class="status" id="status"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ABOUT -->
+  <main class="page grid2" id="page-about" hidden>
+    <section class="panel notes">
+      <div class="panel-head"><h2>About FM3:ReGPU</h2></div>
+      <p>A native PC port of <b>Forza Motorsport 3</b> (Xbox 360). The game's PowerPC code is statically recompiled to x64 with XenonRecomp, it runs on its own implementation of the Xbox 360 kernel, and a native Direct3D 12 renderer (ReGPU) replaces the console's GPU.</p>
+      <p>No game data is included: it plays from your own copy of the disc.</p>
+      <p>Built the same way as the FM2 and FM4 ReGPU ports, and shares their kernel, renderer and this launcher.</p>
+    </section>
+    <section class="panel notes">
+      <div class="panel-head"><h2>Credits</h2></div>
+      <h3>Development</h3>
+      <ul>
+        <li><b>braaap-stututu</b>: FM3 port</li>
+        <li><b>Aiden-Piercee</b>: the FM4 ReGPU port, whose runtime and launcher this port starts from</li>
+        <li><b>ZeroDucksGiven</b>: creator of ReGPU and FM2:ReGPU</li>
+        <li><b>tankyx</b>: FM2:ReGPU contributor</li>
+      </ul>
+      <h3>Thanks to</h3>
+      <ul>
+        <li><b>XenonRecomp</b> (hedge-dev): the recompiler the game code is built with</li>
+        <li>Everyone who tests builds and reports bugs</li>
+      </ul>
+    </section>
+  </main>
+
+  <!-- GRAPHICS -->
+  <main class="page grid3" id="page-graphics" hidden>
+    <section class="panel">
+      <div class="panel-head"><h2>Upscaler</h2></div>
+      <label class="field" data-tip="Draws the 3D scene at a lower resolution and scales it up; the HUD stays full size. Faster on a weak graphics card, a little softer. FSR 1 is the simplest; FSR 3 also uses previous frames. Not yet tested on FM3.">
+        <span>Upscaler (experimental)</span>
+        <select id="upscaler"></select>
+      </label>
+      <label class="field" id="upscaleField" data-tip="How much smaller the 3D scene is drawn: Quality about 1.5x, Balanced 1.7x, Performance 2x, Ultra performance 3x smaller on each side.">
+        <span>Upscaler quality</span>
+        <select id="upscale"></select>
+      </label>
+      <label class="field" id="sharpeningField" data-tip="Sharpening of the upscaled scene.">
+        <span>Sharpening</span>
+        <select id="sharpening"></select>
+      </label>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Display</h2></div>
+      <label class="field" data-tip="The size the game renders at. Your display's own modes from 1280x720 up.">
+        <span>Resolution</span>
+        <select id="resolution"></select>
+      </label>
+      <label class="field" data-tip="Forces a picture shape. Auto follows the resolution. Wider than 16:9 is experimental.">
+        <span>Aspect ratio</span>
+        <select id="aspect"></select>
+      </label>
+      <div class="field">
+        <span>Display mode</span>
+        <div class="segmented" id="display">
+          <button data-full="0" data-tip="A normal window you can move and resize.">Windowed</button>
+          <button data-full="1" data-tip="Fills the main display without changing its mode. A narrower aspect ratio is centred with black bars.">Fullscreen</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Anti-aliasing &amp; image</h2></div>
+      <label class="field" id="msaaField" data-tip="Multisample anti-aliasing on the host: smooths the edges of objects as they are drawn. Not yet tested on FM3, which is tested at Off.">
+        <span>MSAA (experimental)</span>
+        <select id="msaa"></select>
+      </label>
+      <div class="toggle-row" data-tip="Keeps road and ground textures sharp when seen at a low angle (16x). Costs little.">
+        <div><div class="toggle-title">Anisotropic filtering</div><div class="toggle-sub">16x</div></div>
+        <button class="switch" id="anisotropy" role="switch"></button>
+      </div>
+      <div class="toggle-row" data-tip="The box in the top left that shows shaders being compiled. Turning it off doesn't stop the compiling, only hides it.">
+        <div><div class="toggle-title">Hide shader compile box</div><div class="toggle-sub">Top left of the screen</div></div>
+        <button class="switch" id="hideShaderOverlay" role="switch"></button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Performance</h2></div>
+      <label class="field" data-tip="The limit on the frames shown. With VSync on, the display's refresh rate also limits it.">
+        <span>Max FPS</span>
+        <select id="maxFps"></select>
+      </label>
+      <label class="field" id="customFpsField" data-tip="Any cap from 30 to 360 fps." hidden>
+        <span>Custom FPS cap</span>
+        <input id="customFps" type="number" min="30" max="360" step="1">
+      </label>
+      <div class="toggle-row" data-tip="Waits for the display's refresh: no tearing, slightly more input lag.">
+        <div><div class="toggle-title">VSync</div><div class="toggle-sub">Sync frames to the display</div></div>
+        <button class="switch" id="vsync" role="switch"></button>
+      </div>
+    </section>
+  </main>
+
+  <!-- PROFILES -->
+  <main class="page grid2" id="page-profiles" hidden>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Profiles</h2>
+        <button class="primary small" id="prof-new" data-tip="Makes an empty profile. The game starts a new save in it the first time you play it.">New</button>
+      </div>
+      <p class="hint">Each profile keeps its own career, garage, liveries and settings. Pick one to play it.</p>
+      <div class="list" id="prof-list"></div>
+      <div class="buttons-row">
+        <button class="ghost small" id="prof-manage" data-tip="Back up, duplicate, rename, export or delete the selected profile.">Manage…</button>
+        <button class="ghost small" id="prof-import" data-tip="Adds a profile from a zip made with Export or Back up.">Import…</button>
+        <button class="ghost small" data-open="user" data-tip="Opens the user folder. Profiles are in its profiles folder.">Open folder</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Backups</h2><button class="ghost small" id="prof-backups-open" data-tip="Opens the backups folder.">Open</button></div>
+      <div class="list" id="prof-backups"></div>
+    </section>
+  </main>
+
+  <!-- SETTINGS -->
+  <main class="page grid2" id="page-settings" hidden>
+    <div class="stack">
+      <section class="panel">
+        <div class="panel-head"><h2>Shader cache</h2></div>
+        <p class="hint">Shaders are compiled the first time they're needed and kept here, so later starts and races don't stutter.</p>
+        <div class="stats" id="shader-stats"></div>
+        <div class="buttons-row">
+          <button class="ghost small" id="shaders-rebuild" data-tip="Deletes the cache and starts the game, which compiles shaders again. Use it if graphics look broken after an update.">Rebuild now</button>
+          <button class="ghost small danger" id="shaders-delete" data-tip="Deletes the compiled shaders and pipelines. The next start rebuilds them. Saves and settings stay.">Delete cache</button>
+          <button class="ghost small" data-open="user" data-tip="Opens the user folder, where the cache lives.">Open folder</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Folders</h2></div>
+        <div class="kv" id="folders"></div>
+        <div class="buttons-row">
+          <button class="ghost small" data-open="user" data-tip="Saves, settings and caches.">Open user folder</button>
+          <button class="ghost small" data-open="install" data-tip="The game build and this launcher.">Open install folder</button>
+          <button class="ghost small" data-open="log" data-tip="fm3.log: the game's log. Send it with bug reports.">Open log folder</button>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Testing</h2></div>
+      <div class="toggle-row" data-tip="The game's clock, top left, to a tenth of a second: the same clock as fm3.log, so a screenshot points into the log.">
+        <div><div class="toggle-title">Test timer</div><div class="toggle-sub">Top left of the screen</div></div>
+        <button class="switch" id="timer" role="switch"></button>
+      </div>
+      <div class="toggle-row" data-tip="ReGPU's debug server on 127.0.0.1 (this PC only), which tools\fm3ctl.ps1 attaches to for status, captures and live switches.">
+        <div><div class="toggle-title">Debug server</div><div class="toggle-sub">For tools\fm3ctl.ps1</div></div>
+        <button class="switch" id="debugServer" role="switch"></button>
+      </div>
+      <div class="toggle-row" data-tip="Writes frame timing lines (CPU and GPU time per part of the frame) to fm3.log. A little extra work per frame.">
+        <div><div class="toggle-title">Performance log</div><div class="toggle-sub">Frame timings in fm3.log</div></div>
+        <button class="switch" id="perfLog" role="switch"></button>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal" id="prof-modal" hidden>
+    <div class="dialog prof-dialog">
+      <div class="panel-head"><h2 id="prof-title">Profile</h2><span class="badge-on" id="prof-active" hidden>Playing</span>
+        <button class="ghost small close" id="prof-modal-close" aria-label="Close">✕</button></div>
+      <div class="kv" id="prof-info"></div>
+      <div class="buttons-col">
+        <button class="ghost" id="prof-backup" data-tip="Saves a zip of this profile in the backups folder. Restore it from the Backups list whenever you like.">Back up now</button>
+        <button class="ghost" id="prof-duplicate" data-tip="A full copy under a new name: career, garage and liveries. Handy before trying something you might want to undo.">Duplicate…</button>
+        <button class="ghost" id="prof-rename" data-tip="Renames the profile and its folder. Its saves keep working.">Rename…</button>
+        <button class="ghost" id="prof-export" data-tip="Saves a zip of this profile wherever you like, to move it to another PC or share it.">Export…</button>
+        <button class="ghost danger" id="prof-delete" data-tip="Deletes the profile. It's backed up first, so you can restore it from the Backups list.">Delete</button>
+      </div>
+      <div class="status" id="prof-status"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="confirm" hidden>
+    <div class="dialog">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-text"></p>
+      <input id="confirm-input" maxlength="15" spellcheck="false" hidden>
+      <div class="buttons">
+        <button class="ghost" data-choice="no">Cancel</button>
+        <button class="primary" data-choice="yes" id="confirm-yes">OK</button>
+      </div>
+    </div>
+  </div>
+  <div class="tooltip" id="tooltip" hidden></div>
+  <div class="toast" id="toast" hidden></div>
+  <script src="host.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

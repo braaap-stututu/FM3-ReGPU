@@ -22,6 +22,7 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 | `NOTES.md` | Running log + phased work plan (source of truth for state) |
 | `OPEN-ISSUES.md` | Open issues other than the current focus: evidence, sibling-port findings, first step each |
 | `play.cmd` | Test launcher the user runs (debug server on) |
+| `launcher/FM3Launcher`, `launcher.cmd` | The player launcher (C# .NET 9, Photino/WebView2), ported from the FM4 fork's; edits `settings.ini`, starts `fm3.exe` in `out\run`. Build: `dotnet build launcher\FM3Launcher -c Release` (`launcher.cmd` builds if missing, same folders as `play.cmd`) |
 | `boot hl360.cmd` | Starts the hl360 baseline for comparison (its own `fm3.user.toml`: Baseline profile); refuses if an `fm3.exe` is already running |
 | `tools/fm3ctl.ps1` | Client for ReGPU's debug server (port 7341) |
 | `patches/regpu-*.patch` | Our 10 ReGPU patches (fixed-16 fetch, ZPD tile spans, resolve into image, timer overlay, cube/2_10_10_10, resolve into enclosing, capture vertex floats, enclosing write-back, enclosing big pass, write-back safety) |

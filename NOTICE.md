@@ -9,6 +9,9 @@ overlay, crash/hang diagnostics, settings, log) started as a copy of
 [Forza-Motorsport-2-ReGPU](https://github.com/zer0ducksgiven/Forza-Motorsport-2-ReGPU); its licence (below) is the one FM2 ships, kept by FM4. It was adapted for FM3: FM3 guest addresses (`src/hooks/addresses.h`),
 a single recompiled image, upstream ReGPU's API, `FM3_*` switches, and FM2/FM4-only parts removed.
 The XenonRecomp patches in `patches/` come from the same project (see `patches/README.md`).
+The launcher in `launcher/FM3Launcher` is adapted from that project's `launcher/FM4Launcher` as of the same
+commit (via the fork `braaap-stututu/Fuzzy-Rittersport-4-ReGPU-testing`): renamed for FM3, its settings and paths
+pointed at `fm3.exe`, and the import, DLC, photo, report and update parts left out.
 
 ```
 MIT License

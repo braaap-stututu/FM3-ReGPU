@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The FM3 launcher, ported from the FM4 ReGPU launcher (braaap-stututu/Fuzzy-Rittersport-4-ReGPU-testing,
+       launcher/FM4Launcher): a Photino window showing wwwroot (the UI) on WebView2. The page talks to Bridge.cs over
+       the window's message channel (no local server). Build: dotnet build -c Release, or dotnet publish -r win-x64. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>FM3Launcher</AssemblyName>
+    <RootNamespace>FM3Launcher</RootNamespace>
+    <Product>Forza Motorsport 3 ReGPU</Product>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Photino.NET" Version="4.0.16" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

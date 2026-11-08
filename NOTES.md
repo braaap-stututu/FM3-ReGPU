@@ -1,6 +1,6 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-08, end of session 11)
+## ▶ Current status / next step  (updated 2026-11-08, session 12)
 
 ### ▶ Start here next session
 All work is committed and pushed (`main`). Session 11 fixed the vinyl issues **B** (cut along a straight line) and **B2** (race/photo-mode livery noise), my own **poster bug** (a bumper vinyl in a career poster), and **H** (a car vanishing from My Cars after painting another; the damaged save then crashed on buying a car). **Everything vinyl/livery-related, with how FM3 builds a livery, the fixes, switches, saves, test tools and the remaining leads, is in [VINYLISSUES.md](VINYLISSUES.md).**
@@ -8,6 +8,8 @@ All work is committed and pushed (`main`). Session 11 fixed the vinyl issues **B
 **Next (vinyls, when you pick it up):** (1) confirm the final build in normal play: paint several cars, buy one, check My Cars keeps every car (the last part of the H fix wasn't played yet); (2) small uncovered spots at the edges of big vinyl regions (Scion right side by the rear wheel arch and rear door window; Fiat similar + a chunk of the rear wing; Supra rear bumper both sides); (3) Honda CRX vinyls invisible (seen once with the poster bug; re-check). Steps and leads in VINYLISSUES.md "Where to continue".
 
 **Profile:** `play.cmd` now starts profile **`Baseline`** (a copy of hl360's Baseline save, XUID `E0000BA5E11E0001`); the old `Player` save is damaged (buying crashes, in hl360 too). Backups of every test state are in `out/profile-backups/` (`rewardcar` = clean restart point). Only swap profiles with the game closed: it saves on exit.
+
+**Launcher (session 12):** `launcher/FM3Launcher`, ported from your FM4 fork; start it with `launcher.cmd`. Built and checked on screen by me, not yet tried by you. Next: your try-out (Play from it, profile switch, a graphics change), then the parts left out (game import, DLC, photos, an icon; FSR 4/SMAA need a newer ReGPU). Details in the session 12 log.
 
 **Other open items:** see OPEN-ISSUES.md (D photo-mode/pre-race band, E shadow flicker, F foliage dither, G engine audio cutouts with a strong lead, Phase 4/5 items).
 
@@ -284,6 +286,13 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 **Phase 6 — Polish ☐** Frame-rate unlock only after confirming FM3's sim timing (Q24), launcher/settings, mods (Q9 re-signing, PF+3).
 
 ## Session log
+### 2026-11-08 — session 12 (launcher, from the FM4 fork)
+- Ported the launcher from your FM4 fork (`braaap-stututu/Fuzzy-Rittersport-4-ReGPU-testing`, `launcher/FM4Launcher`, commit `69bdae44`; reference clone in `reference/sibling-recomps/Fuzzy-Rittersport-4-ReGPU-testing`) to `launcher/FM3Launcher`. Installed the **.NET 9 SDK 9.0.320** (winget `Microsoft.DotNet.SDK.9`). Builds with 0 warnings; page checked in the browser pane with a stand-in host (all tabs, no script errors); the real window opens. **Not yet tried by you, and Play not yet run from it.**
+- Why it ports cleanly: our `src/settings.cpp` is the same file as the fork's (same 14 `settings.ini` keys), and the profile layout (`profiles\<name>\content` + `xuid`, FNV-1a name fallback in `imports_xam.cpp`) is identical, so `Profiles.cs` is the fork's minus photos.
+- Kept (your pick): Play (game folder pick + SHA-256 check of `default.xex` against `aa15372c…8742`, language from the Disc 1 string tables, Play), Graphics (only what our ReGPU has: resolution, aspect, fullscreen, frame cap, VSync, MSAA 1/2/4, FSR 1/3 + quality + sharpening, anisotropy, shader-box toggle), Settings (shader cache, folders), Profiles and backups. Added for our workflow: test timer (`FM3_NO_TIMER`), debug server (`REGPU_DEBUG`), performance log (`REGPU_PERF`) toggles.
+- Left out for now: game import (ISO/drop), DLC, photos, Reports, Updater, Linux/Proton; FSR 4, SMAA, shader optimiser, debug views and fast mode (our ReGPU pin lacks them or they're untested on FM3: `REGPU_EARLY_FENCES`). Enhance and skip_intro are read by `settings.cpp` but not used by FM3 yet, so not offered. No icon yet (FM4's is game art from its xex).
+- How it starts the game: `build\rel\fm3.exe <game dir>` in `out\run` (so `fm3.log` and the debug server's files land where `play.cmd` puts them), `FM3_PROFILE` removed so the Profiles tab decides. `launcher.cmd` (dev) sets `FM3_GAME_DIR` (hl360 Disc 1) and `FM3_USER_DIR=out\user` like `play.cmd`, and seeds `out\user\settings.ini` with `profile=Baseline` if missing. Note: graphics settings saved by the launcher also apply to `play.cmd` runs (same `settings.ini`); `play.cmd`'s `FM3_PROFILE` still wins for the profile.
+
 ### 2026-11-08 — session 11 (B2, B and H fixed; VINYLISSUES.md)
 - End of session: all vinyl/livery knowledge moved into **VINYLISSUES.md** (livery pipeline, fixes, switches, saves, tools, leads, lessons); NOTES.md's "Start here" points there. `play.cmd` defaults to the `Baseline` profile. Patches: 10 ReGPU (`regpu-enclosing-writeback`, `regpu-enclosing-big-pass`, `regpu-writeback-safety` new this session).
 - **B speed test:** temporary switch `REGPU_PACKET_SPIN_US` (spin per type-3 packet, live via `env`) slowed normal frames to traced speed (a traced frame: 22,651 packets in ~1.6 s ≈ 70 µs each). At 80–100 µs (1–2 fps) the editor edits went through (layer X 7.00 → −0.50, held stick 4 s) and the vinyl stayed cut (green top 262). Short nudges with `Fm3 "capture"` also stayed cut, including one whose traced frame was a rebuild (1317–1333 draws vs 1229–1232 idle): the session-10 "traced = complete" result doesn't hold in a clean build. Switch removed afterwards (result recorded here). New script `tools/analysis/greentop.py`.

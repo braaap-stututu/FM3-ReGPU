@@ -61,6 +61,14 @@ working directory. `play.cmd` is the test launcher used during development: it u
 saves, writes the log to `out\run`, and turns on ReGPU's debug server for `tools/fm3ctl.ps1`.
 The first boot compiles shaders, so expect stutter until the cache is built.
 
+**Launcher** (`launcher/FM3Launcher`, ported from the FM4 ReGPU launcher; needs the .NET 9 SDK to build):
+`dotnet build launcher\FM3Launcher -c Release`, or double-click `launcher.cmd`, which builds it if needed and
+uses the same folders as `play.cmd`. Tabs: **Play** (game folder, `default.xex` check, language, Play),
+**Profiles** (switch, create, duplicate, rename, back up, restore, export, import, delete), **Graphics**
+(resolution, aspect, fullscreen, frame cap, VSync, MSAA, FSR 1/3, anisotropy) and **Settings** (shader cache,
+folders, test timer, debug server, performance log). It edits `settings.ini` in the user folder and starts
+`fm3.exe` from `out\run`. `FM3Launcher.exe --play` starts the game with the saved settings, without the window.
+
 Keyboard: Return = A, Backspace = B, Space = X, Y = Y, Escape = Start, Tab = Back, arrow keys = D-pad,
 W / S = throttle / brake, A / D = steer, Q / E = LB / RB, J L I K = right stick. Controllers work through XInput.
 
@@ -72,6 +80,7 @@ W / S = throttle / brake, A / D = steer, Q / E = LB / RB, J L I K = right stick.
 | `patches/` | 5 XenonRecomp + 10 ReGPU patches, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
 | `src/` | Runtime: kernel/XAM, loader, threads, fibers, audio, ReGPU host glue ([src/README.md](src/README.md)) |
 | `play.cmd` | Development launcher (debug server on, saves in `out/user`, log in `out/run`) |
+| `launcher/FM3Launcher`, `launcher.cmd` | The launcher (C#, .NET 9, Photino/WebView2) and its dev start script |
 | `boot hl360.cmd` | Starts the hl360 (ReXGlue) baseline build used for comparisons, if you have it under `reference/` |
 | `tools/setup.ps1`, `tools/recomp.ps1` | Setup (idempotent) and the recompile pipeline |
 | `tools/vcenv.cmd` | Runs a command with VS 2022 Build Tools x64 + LLVM on PATH |
