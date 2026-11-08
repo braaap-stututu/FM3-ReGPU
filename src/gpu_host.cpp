@@ -138,6 +138,31 @@ void GpuStart()
     if (!getenv("FM3_FENCE_ORDER") && !getenv("REGPU_NO_FENCE_ORDER"))
         regpu::driver::SetSwitch("REGPU_NO_FENCE_ORDER", true);
 
+    // Per-draw CPU cost (OPEN-ISSUES.md P, session 13), live A/B on a paused start grid (3,516 draws,
+    // 1440p 4x MSAA): REGPU_TEXTURE_CHECK_STAGGER (unchanged textures rechecked every 4th/16th frame, as
+    // FM4 ships it; texture checks 0.46 -> 0.33 ms) 110 -> 114.5 fps; REGPU_DIRECT_DYNAMIC_INDICES (large
+    // index buffers read in place unless seen changing; indices 0.43 -> 0.16 ms) 110 -> 115.4; both
+    // 108 -> 120. Driving: no stale textures or shadow flicker seen. FM3_NO_DRAW_SHORTCUTS=1 leaves both
+    // off; live: Fm3 "switch NAME 0|1".
+    if (!getenv("FM3_NO_DRAW_SHORTCUTS"))
+    {
+        if (!getenv("REGPU_TEXTURE_CHECK_STAGGER"))
+            regpu::driver::SetSwitch("REGPU_TEXTURE_CHECK_STAGGER", true);
+        if (!getenv("REGPU_DIRECT_DYNAMIC_INDICES"))
+            regpu::driver::SetSwitch("REGPU_DIRECT_DYNAMIC_INDICES", true);
+    }
+
+    // Early fences (OPEN-ISSUES.md P, session 13): the game's render thread spent ~78% of its time in
+    // D3D's block-on-fence (sub_824B5048 -> sub_824B4F78, the fence word at the device's +0x2A90),
+    // waiting for fences ReGPU wrote only after the host GPU finished; the same paused grid ran equally
+    // fast at 720p 1x and 1440p 4x MSAA, so it was the latency, not the GPU. Fences written when the
+    // command processor reaches them (FH1R ships this on): paused grid 117 -> 147-153 fps, driving clean.
+    // Needs our patch regpu-early-fence-writebacks: without it the fence behind the livery's deferred
+    // write-back landed early and the CPU compressed an unwritten livery (noise or blank).
+    // FM3_LATE_FENCES=1 keeps fences after the host GPU. Read at start (not live).
+    if (!getenv("FM3_LATE_FENCES"))
+        DefaultEnv("REGPU_EARLY_FENCES", "1");
+
     // Q18, the road surface: the road shader samples a 512x512 detail image the game composes at run time
     // (half of it a frame, plus its mip chain) from a base asphalt texture and four 32x512 strips it reads
     // as DXT1. The strips are rendered and resolved once, when the track loads (none during a race; an

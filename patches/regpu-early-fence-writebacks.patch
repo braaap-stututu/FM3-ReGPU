@@ -1,0 +1,21 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index 74a9bd6..309260d 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -719,9 +719,14 @@ void WriteBack(uint32_t address, uint32_t value)
+         return;
+     }
+     // With early fences (RendererEarlyFences) the fence lands now; the work before it is still
+-    // submitted.
++    // submitted. RendererFenceSubmit already returns 0 then, except for a fence behind a deferred
++    // resolve write-back of this frame: that one still waits for the host GPU and the write-back, so
++    // a title that reads the image on its CPU once it sees the fence finds it written (FM3 compresses
++    // each car's livery that way: zeroing every fence here left the livery as noise or blank).
++    // REGPU_EARLY_FENCES_SKIP_WRITEBACKS=1: every fence at once, as before (A/B).
+     const uint64_t fence = RendererFenceSubmit();
+-    PendingWrites::Add(RendererEarlyFences() ? 0 : fence, address, value);
++    static const bool skipWritebacks = getenv("REGPU_EARLY_FENCES_SKIP_WRITEBACKS") != nullptr;
++    PendingWrites::Add(RendererEarlyFences() && skipWritebacks ? 0 : fence, address, value);
+ }
+ 
+ uint32_t ReadBack(uint32_t address)

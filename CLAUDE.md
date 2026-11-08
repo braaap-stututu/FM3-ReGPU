@@ -28,13 +28,13 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 | `launcher/FM3Launcher`, `launcher.cmd` | The player launcher (C# .NET 9, Photino/WebView2), ported from the FM4 fork's; edits `settings.ini`, starts `fm3.exe` in `out\run`. Build: `dotnet build launcher\FM3Launcher -c Release` (`launcher.cmd` builds if missing, same folders as `play.cmd`) |
 | `boot hl360.cmd` | Starts the hl360 baseline for comparison (its own `fm3.user.toml`: Baseline profile); refuses if an `fm3.exe` is already running |
 | `tools/fm3ctl.ps1` | Client for ReGPU's debug server (port 7341) |
-| `patches/regpu-*.patch` | Our 11 ReGPU patches (fixed-16 fetch, ZPD tile spans, resolve into image, timer overlay, cube/2_10_10_10, resolve into enclosing, capture vertex floats, enclosing write-back, enclosing big pass, write-back safety, guest LOD for short mip chains) |
+| `patches/regpu-*.patch` | Our 12 ReGPU patches (fixed-16 fetch, ZPD tile spans, resolve into image, timer overlay, cube/2_10_10_10, resolve into enclosing, capture vertex floats, enclosing write-back, enclosing big pass, write-back safety, guest LOD for short mip chains, early fences wait for write-backs) |
 | `src/hooks/frame_time.cpp` | Frame-rate unlock: main-loop dt from the vblank clock at rates other than 60 (FH1R scheme, own code) |
 | `src/input/wheel/`, `src/kernel/imports_ff.cpp`, `docs/WHEELS.md` | Racing wheels + force feedback (from the FM4 fork; FH1R BSD-3 parts, `NOTICE-wheel.md`) |
 | `src/gpu_host.cpp` | ReGPU host glue + FM3 rules: no foreign MSAA, 32×512 strip write-back (`Now`), car pictures (`Now`), car liveries 2048²/1024² (`Deferred`), vblank = frame cap (60 by default) |
 | `CMakeLists.txt` | Game build (FM4-style ReGPU linkage); needs `out/ppc` + `thirdparty/fidelityfx`. `-DFM3_PPC_ONLY=ON` builds just the recompiled code (compile check) |
 | `config/fm3.toml`, `config/fm3_switch_tables.toml` | XenonRecomp config (every entry explained) + XenonAnalyse tables |
-| `tools/setup.ps1` | Idempotent: submodules, the 5 XenonRecomp + 11 ReGPU patches (`patches/`), host tools → `build\tools\` (XenonRecomp, XenonAnalyse, xexdump, ppcdis) |
+| `tools/setup.ps1` | Idempotent: submodules, the 5 XenonRecomp + 12 ReGPU patches (`patches/`), host tools → `build\tools\` (XenonRecomp, XenonAnalyse, xexdump, ppcdis) |
 | `tools/recomp.ps1` | Phase 2 pipeline: `game/default.xex` → `out/ppc` + `out/check.txt` (`-Prepare` also rescans helpers and switch tables) |
 | `tools/fm3_config.py`, `tools/fm3_check.py`, `tools/genstubs.py` | Helper/EH scan; output checks (errors, traps, run-offs, pointer-only targets); weak import stubs |
 | `tools/vcenv.cmd` | `tools\vcenv.cmd <cmd>` = vcvars64 + LLVM on PATH |
