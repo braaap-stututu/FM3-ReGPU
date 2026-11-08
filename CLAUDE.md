@@ -48,7 +48,7 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 | `*.iso` (root) | Your Disc 1/2 dumps (MD5-verified). Never copy them anywhere public |
 
 ## Baseline (hl360) quick reference
-- Run: `reference\rexglue recomp reference\hl360-forza3\out\build\win-amd64-release\fm3.exe` (reads `fm3.user.toml` beside it; logs in `logs\`). Settings: 1280×720 windowed, 1× scale, D3D12, `readback_resolve=fast`, `frame_stats=true`, `texture_dump_dir=<project>\dumps\hl360`.
+- Run: **`boot hl360.cmd`** (project root; what the user double-clicks), or `reference\rexglue recomp reference\hl360-forza3\out\build\win-amd64-release\fm3.exe` from its folder (reads `fm3.user.toml` beside it; logs in `logs\`). Settings: 1280×720 windowed, 1× scale, D3D12, `readback_resolve=fast`, `frame_stats=true`, `texture_dump_dir=<project>\dumps\hl360`.
 - Rebuild after SDK changes (from the hl360 folder, the game must **not** be running because the build copies DLLs):
   `cmd /c scripts\build_sdk.cmd` then `cmd /c scripts\build.cmd release` (SDK incremental ≈ 1 min, game ≈ 1.5 min).
 - Scripted capture (PowerShell; state doesn't persist between tool calls, so do it in one call):
