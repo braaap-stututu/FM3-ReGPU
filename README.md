@@ -11,8 +11,7 @@ No game data is in this repository. You need your own disc dump.
 
 ## Status
 
-**"Playable."** The game boots, plays the intro, and the prologue race can be driven to the finish at
-about 60 fps (i have not yet tested beyond this point). Controller, keyboard and audio work (as far as i can tell). Running log and roadmap: [NOTES.md](NOTES.md);
+**"Playable."** The game boots, can run and finish the audi r8 race and do career races. Performance on my 9800X3D and 7900XTX currently hovers around 180-200fps in races when around ai cars and maxes out at around 300fps in time trial or if no ai cars are visible/near . Controller and keyboard work. Hweel support integrated from my FM4 fork but not yet tested. there are some unresolved random crashes on certain race loads and vinyls are iffy (not fully aligned on some, invisible on others). Always make regular backups. Running log and roadmap: [NOTES.md](NOTES.md);
 game-specific quirks: [FM3-QUIRKS.md](FM3-QUIRKS.md).
 
 Fixed so far (all confirmed in game):
