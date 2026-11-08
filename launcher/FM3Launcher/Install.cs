@@ -262,6 +262,8 @@ public static class Game
         if (!File.Exists(Path.Combine(Paths.GameDir, "default.xex"))) throw new InvalidOperationException("No game files yet: choose the game folder (the extracted Disc 1) on the Play tab.");
         if (Running) throw new InvalidOperationException("The game is already running.");
         Directory.CreateDirectory(Paths.RunDir);
+        // fm3.exe overwrites fm3.log: keep the last run's as fm3.prev.log, so two runs can be compared.
+        try { if (File.Exists(Paths.Log)) File.Copy(Paths.Log, Path.ChangeExtension(Paths.Log, ".prev.log"), true); } catch (IOException) { }
         var psi = new ProcessStartInfo(Paths.Exe) { WorkingDirectory = Paths.RunDir, UseShellExecute = false, CreateNoWindow = true };
         psi.ArgumentList.Add(Paths.GameDir);
         var settings = GameSettings.Load();
