@@ -73,7 +73,7 @@ Build: `tools\vcenv.cmd cmake -S . -B build/rel -G Ninja -DCMAKE_BUILD_TYPE=Rele
 2. Profiles/DLC (Q11–Q16): the FM4 XAM code is untested on FM3; Disc 2 DLC lives in hl360's `user/`.
 3. Compare frames against hl360 (`dumps/hl360/runA`) once the start grid is reachable; Phase 5's dump hook.
 4. Leftovers from Phase 2 (not hit yet): `blrl` trap in `sub_82A918F0` (SEH funclet call), SEH policy.
-5. Still your call: a licence for our code; whether to delete the empty `githubfileignorepls`.
+5. Still your call: whether to delete the empty `githubfileignorepls`. (Licence decided 2026-11-08: MIT, `LICENSE`, copyright braaap-stututu; borrowed code keeps its notices in `NOTICE.md`.)
 
 ---
 

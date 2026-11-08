@@ -97,5 +97,4 @@ race-load crash. See NOTES.md for those.
 
 ## Leftovers
 - `sub_82A918F0` blrl trap and the SEH policy (not hit yet).
-- A licence for our own code (the FM2/FM4-derived parts carry theirs in `NOTICE.md`).
 - `githubfileignorepls` at the project root: delete it? (It's yours; I haven't touched it.)

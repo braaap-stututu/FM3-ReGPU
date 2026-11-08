@@ -81,7 +81,7 @@ W / S = throttle / brake, A / D = steer, Q / E = LB / RB, J L I K = right stick.
 | `thirdparty/XenonRecomp`, `thirdparty/ReGPU` | Submodules (pinned; see NOTES.md) |
 
 ## Licences
-Our code: to be decided. XenonRecomp (MIT, hedge-dev and contributors) and ReGPU (MIT) are
+Our code: MIT, see [LICENSE](LICENSE). XenonRecomp (MIT, hedge-dev and contributors) and ReGPU (MIT) are
 submodules. Most of `src/` and the XenonRecomp patches in `patches/` come from the MIT-licensed FM4 port
 (Aiden-Piercee, building on zer0ducksgiven's FM2 port): see [NOTICE.md](NOTICE.md). FFmpeg is linked
 dynamically and stays under its own LGPL licence.
