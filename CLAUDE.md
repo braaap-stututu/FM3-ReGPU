@@ -22,6 +22,7 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 | `NOTES.md` | Running log + phased work plan (source of truth for state) |
 | `OPEN-ISSUES.md` | Open issues other than the current focus: evidence, sibling-port findings, first step each |
 | `play.cmd` | Test launcher the user runs (debug server on) |
+| `boot hl360.cmd` | Starts the hl360 baseline for comparison (its own `fm3.user.toml`: Baseline profile); refuses if an `fm3.exe` is already running |
 | `tools/fm3ctl.ps1` | Client for ReGPU's debug server (port 7341) |
 | `patches/regpu-*.patch` | Our 6 ReGPU patches (fixed-16 fetch, ZPD tile spans, resolve into image, timer overlay, cube/2_10_10_10, resolve into enclosing) |
 | `src/gpu_host.cpp` | ReGPU host glue + FM3 rules: no foreign MSAA, 32×512 strip write-back (`Now`), vblank 60 Hz |
