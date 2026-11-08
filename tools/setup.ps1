@@ -27,7 +27,8 @@ $regpuPatches = @(
     'regpu-resolve-into-enclosing', # a resolve into a tile of an earlier resolved image is also drawn into it, at its place
     'regpu-capture-vertex-floats',  # captures log small vertex buffers in full, as floats (debugging)
     'regpu-enclosing-writeback',    # a resolve drawn into a written-back image is written back too (its rectangle, deferred)
-    'regpu-enclosing-big-pass'      # big-pass tiles find their image (pass width), last tiles clipped to it
+    'regpu-enclosing-big-pass',     # big-pass tiles find their image (pass width), last tiles clipped to it
+    'regpu-writeback-safety'        # pass width only for big passes; late write-backs skip reused memory; stale write-back marks cleared
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

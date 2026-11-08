@@ -1,0 +1,126 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index d6b13f9..5e9a2ec 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -6202,8 +6202,10 @@ void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+     // Its later tiles name that pitch, so the image matches either. (Matching the pitch only, the tiles after the
+     // first were never drawn into it: FM3's vinyl side-view passes lost every row past 224, and the vinyls on the
+     // car's sides and hood stopped at a straight line.) REGPU_NO_ENCLOSING_PASS_WIDTH=1: the pitch only (A/B).
++    // Only for a big pass: an ordinary one clamps to the 1280-wide output, and a 704-wide copy with pitch 2048 (a car's
++    // bumper region) then matched any 1280-wide image below it (a menu poster showed the bumper's vinyl).
+     static LiveSwitch noPassWidth("REGPU_NO_ENCLOSING_PASS_WIDTH");
+-    const uint32_t passWidth = noPassWidth ? pitch : std::clamp<uint32_t>(pitch, 1, std::max<uint32_t>(kWidth, BigPassSize()));
++    const uint32_t passWidth = noPassWidth || !BigPassSize() ? pitch : std::clamp<uint32_t>(pitch, 1, std::max<uint32_t>(kWidth, BigPassSize()));
+     for (auto& [candidateBase, candidate] : g_r.resolved)
+     {
+         if (candidateBase >= base || (found && candidateBase >= encBase) || !candidate.resource ||
+@@ -7186,6 +7188,13 @@ void Resolve()
+             request.mode = regpu::Writeback::Mode::Deferred;
+         // Any destination format the copy can write (from the FM4 port; 8888 only before).
+         const bool anyFormat = destFormat == 6 || !g_writeback8888Only;
++        // A resolve here that isn't written back makes the image here one the title doesn't read on the CPU: resolves
++        // drawn into it later are not written back either (ResolveIntoEnclosing). The mark used to stay with the address
++        // after the title had reused it for something else. REGPU_KEEP_WRITEBACK_MARK=1: it stays (A/B).
++        static LiveSwitch keepMark("REGPU_KEEP_WRITEBACK_MARK");
++        if (request.mode == regpu::Writeback::Mode::None && !keepMark)
++            if (auto it = g_r.resolved.find(base); it != g_r.resolved.end())
++                it->second.writtenBack = false;
+         if (request.mode == regpu::Writeback::Mode::Now && !depth && anyFormat)
+             WriteResolveToGuest(base, width, height, info);
+         else if (request.mode == regpu::Writeback::Mode::Deferred && (depth || anyFormat))
+@@ -8385,6 +8394,7 @@ struct DeferredWriteback
+     DXGI_FORMAT hostFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+     uint32_t base = 0, width = 0, height = 0, info = 0, x0 = 0, x1 = 0, y0 = 0, y1 = 0;
+     bool depth = false;
++    uint64_t memHash = 0, queuedFrame = 0, queuedSeq = 0; // the guest bytes it will cover, when queued (DeferredSpan)
+     // Fence-ordered write-back (FenceWritebacks): generation << 2 | state (0 waiting, 1 being written,
+     // 2 written); the generation changes each time the entry is reused, so a late claim cannot take
+     // the next use's entry.
+@@ -8507,16 +8517,65 @@ void WriteResolvePixels(const uint8_t* pixels, UINT pitch, DXGI_FORMAT hostForma
+     }
+ }
+ 
++// Our own write-backs per image base (a sequence number each): a change from one of them is not a reuse.
++std::mutex g_ourWritesMutex;
++std::unordered_map<uint32_t, uint64_t> g_ourWrites;
++std::atomic<uint64_t> g_writeSeq{ 0 };
++bool WrittenByUsSince(uint32_t base, uint64_t seq)
++{
++    std::lock_guard lock(g_ourWritesMutex);
++    const auto it = g_ourWrites.find(base);
++    return it != g_ourWrites.end() && it->second > seq;
++}
++void NoteOurWrite(uint32_t base)
++{
++    std::lock_guard lock(g_ourWritesMutex);
++    g_ourWrites[base] = ++g_writeSeq;
++}
++
++// The guest bytes a deferred write-back covers: the tile rows (32 rows each) of its rows, whole width.
++bool DeferredSpan(const DeferredWriteback& w, const uint8_t*& data, size_t& bytes)
++{
++    uint32_t log2Bytes = 2;
++    if (!w.depth && !regpu::resolve::DestLog2Bytes((w.info >> 7) & 0x3F, log2Bytes))
++        return false;
++    const size_t rowBytes = size_t((w.width + 31) & ~31u) << log2Bytes; // one row of texels, tiled in 32-row blocks
++    const size_t first = size_t(w.y0 / 32) * 32 * rowBytes, last = size_t((w.y1 + 31) / 32) * 32 * rowBytes;
++    data = GuestPtr<uint8_t>(GpuPhysToGuest(w.base)) + first;
++    bytes = last - first;
++    return bytes > 0;
++}
++
+ // Writes one entry's pixels if this caller claims it (state waiting, generation as expected).
+ bool ClaimAndWrite(DeferredWriteback& w, uint64_t generation)
+ {
+     uint64_t expected = generation << 2;
+     if (!w.state.compare_exchange_strong(expected, (generation << 2) | 1))
+         return false;
++    // The console writes a resolve when the GPU runs it; ours lands later (before the next fence, or a frame or
++    // two on). If the title has written the memory since (it finished with the image and reused the memory),
++    // writing now would overwrite its new data: skipped. REGPU_NO_WRITEBACK_REUSE_CHECK=1: written anyway (A/B).
++    static LiveSwitch noReuseCheck("REGPU_NO_WRITEBACK_REUSE_CHECK");
++    const uint8_t* span = nullptr;
++    size_t spanBytes = 0;
++    if (w.memHash && DeferredSpan(w, span, spanBytes) && (ContentHash(span, spanBytes, 4) | 1) != w.memHash && !WrittenByUsSince(w.base, w.queuedSeq))
++    {
++        static std::atomic<int> logged{ 0 };
++        if (logged.fetch_add(1) < 64)
++            Log("writeback: %08X %ux%u rows %u-%u: the memory changed since the resolve (%llu frames ago, now frame %llu): %s", w.base, w.width,
++                w.height, w.y0, w.y1, (unsigned long long)(g_r.frame - w.queuedFrame), (unsigned long long)g_r.frame,
++                noReuseCheck ? "written anyway" : "not written");
++        if (!noReuseCheck)
++        {
++            w.state = (generation << 2) | 2;
++            return true;
++        }
++    }
+     const uint8_t* pixels = nullptr;
+     if (SUCCEEDED(w.buffer->Map(0, nullptr, reinterpret_cast<void**>(const_cast<uint8_t**>(&pixels)))) && pixels)
+     {
+         WriteResolvePixels(pixels, w.pitch, w.hostFormat, w.hostW, w.hostH, w.base, w.width, w.info, w.depth, w.x0, w.x1, w.y0, w.y1);
++        NoteOurWrite(w.base);
+         const D3D12_RANGE none{ 0, 0 };
+         w.buffer->Unmap(0, &none);
+     }
+@@ -8596,6 +8655,13 @@ void QueueDeferredWriteback(uint32_t base, uint32_t width, uint32_t height, uint
+     w.info = info;
+     w.depth = depth;
+     w.x0 = x0, w.x1 = x1, w.y0 = y0, w.y1 = y1;
++    {
++        const uint8_t* span = nullptr;
++        size_t spanBytes = 0;
++        w.memHash = DeferredSpan(w, span, spanBytes) ? ContentHash(span, spanBytes, 4) | 1 : 0;
++        w.queuedFrame = g_r.frame;
++        w.queuedSeq = g_writeSeq.load();
++    }
+     if (!depth)
+         r.writtenBack = true, r.writebackInfo = info;
+ }
+@@ -8692,6 +8758,7 @@ void WriteResolveToGuest(uint32_t base, uint32_t width, uint32_t height, uint32_
+     WriteResolvePixels(pixels, pitch, r.format, r.hostWidth, r.hostHeight, base, width, info, false, 0, width, 0, height);
+     buffer->Unmap(0, nullptr);
+     NoteResolvedMemory(base, r); // our own write: not a reuse of the memory
++    NoteOurWrite(base);
+     r.writtenBack = true;
+     r.writebackInfo = info;
+     Log("resolve: wrote %ux%u back to guest memory at %08X (format %u, endian %u, swap %u)", width, height, base, (info >> 7) & 0x3F, info & 7,
