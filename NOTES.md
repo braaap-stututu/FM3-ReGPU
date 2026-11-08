@@ -1,8 +1,26 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-07, session 9)
+## ▶ Current status / next step  (updated 2026-11-08, end of session 9)
 
-**Session 9:** issues A (matte paint/black chrome) and C (My Cars pictures) **fixed**, B (vinyls) partly fixed, a race-load crash fixed; new B2 (race livery noise) (k_2_10_10_10 decode, below). An on-screen timer (top-left, the log clock to 0.1 s; ReGPU patch `regpu-timer-overlay`, `REGPU_TIMER`, FM3 default on, `FM3_NO_TIMER=1` hides it) lets your screenshots point into the log. You then explored beyond the intro race (career menus, upgrade shop, paint/vinyl editors, a solo race, photo mode). Log of that run kept as `out/logs/session9-explore.log` (times below are its `[time]`/the timer). **New issue list (not fixed yet; FM2/FM4 comparison reported to you, waiting for your go):**
+### ▶ Start here next session: the two vinyl issues (B, B2)
+Everything below is committed (`565409b` and before). The other open issues (D, E, F, G and leftovers) are in **[OPEN-ISSUES.md](OPEN-ISSUES.md)**.
+
+**Test setup (you):** `play.cmd`, then Career → a car with vinyls → **paint booth → vinyl editor, RIGHT SIDE**. Your profile in `out/user` already has a Scion xD with a big green vinyl and three orange circles on the right side; keep it, it shows both bugs at once (B: the green stops at a straight line along the car in the editor; B2: the car is covered in noise in any race).
+**Guest addresses move between runs**: find this run's car texture first (below), never reuse session-9 addresses.
+
+**B: vinyls cut along a straight line in the editor.** State: vinyl regions now reach the car texture (patch `regpu-resolve-into-enclosing`). The cut is earlier, in the game's **704×267 side-view vinyl pass** (surface pitch 720, 1×, EDRAM colour base 0, depth/stencil base `099`; resolved twice per edit with rect 0,0-704,272, declared height 267): rows ≥ ≈181 of that pass come out empty. The side view is stored upside down, so the car's **upper** body is what's missing.
+1. While you move a layer: `Fm3 "capture"` (twice; not every frame rebuilds). In the log, find the resolves with `rect 0,0-704,272` and the draws before them (stencil setup on `98d34caab368b2cc`, mask `5d606c137f9a8ddc`/`cb430dd1cfd2f804` with a k_8 1024×1024 mask, vinyl layers `7061152fe7f7fc72`/`a0d8cbb7f2f8ce9a`, n 141).
+2. Look at the pass's resolved image in `out/run/out/res` (`<addr>_704x267_v0.png`, check the file time is this run's) and find the cut row exactly.
+3. Leads, in order: (a) where ReGPU puts that pass's **depth/stencil** on the host (EDRAM depth base 0x99 = tile 153, i.e. right after 17 tile rows of a 720-wide colour surface): does something else alias those host rows, or is the host depth surface shorter than the pass? Check `C().depth` sizing/offset for base 099 and `REGPU_TRACE_TILE_PHASE`; (b) the **stencil reset** draws #72/#74 go through a 4× view (surface `05820168`, pitch 360) and are scaled by `REGPU_NO_DEPTH_VIEW_SCALE`'s path — turning that off moved the line a little, so the reset area is involved: log the reset rectangles' real vertex values (the log prints only 8 dwords; dump the whole buffer in the capture instead of `peek` later, the ring is reused); (c) compare with **hl360** on the same screen (`reference/.../hl360-forza3`, it has a vinyl editor too) to see whether its side view is whole.
+4. Already ruled out (don't repeat): the mask's content (a big vinyl stops at a straight line), `REGPU_NO_FOREIGN_MSAA` 0/1, window offset (0), `REGPU_NO_STENCIL`. (The "pass everywhere" mask test I did was invalid: that shader keeps alpha == 0, so `float4(1,1,1,1)` blocked everything.)
+
+**B2: a car with vinyls is noise in races.** At race load the game resolves the vinyl regions (e.g. `rect 0,0-1416,568`, pitch 2048, declared height 1536) **into the car's 8888 2048×2048 texture in memory** (no resolved image there), then its CPU code compresses that to DXT for the race. ReGPU writes nothing to memory; the `FM3_WRITEBACK` experiment can't help because `WriteResolveToGuest` writes a whole image at its own width, not a rectangle at a tile (x, y) of a 2048-pitch tiled image.
+1. Plan: a ReGPU write-back of a **resolve rectangle into a tiled destination at its place**: from the destination address compute (x, y) as `ResolveIntoEnclosing` does (tile = 32×32 × bpp bytes, row-major tiles of pitch/32), read the rectangle back from the GPU, and write it with the Xenos 2D tiling (`TextureTiledOffset` in `texture.cpp`) at (x + i, y + j) with the image's pitch. Then a game rule in `src/gpu_host.cpp` asks for it (`Writeback::Mode::Now`) for colour resolves whose pitch is 2048 and whose declared height + y = 2048 (car textures); check the race-load resolve list with `REGPU_TRACE_RESOLVES` (session 9 trace: `out/logs/s9_raceload_resolves.txt`).
+2. Also the 1024×1024 resolves at race load (four, pitch 1024): find out what they are (another livery level? the body texture?) before deciding whether they need writing back too.
+3. Verify: the car's race texture (find the DXT bound on the car's draws in a capture) and the car on the grid; FM2's port fixed the same thing by writing its race livery back.
+
+
+**Session 9 summary:** issues A (matte paint/black chrome, k_2_10_10_10 decode) and C (My Cars pictures) **fixed**, B (vinyls) partly fixed, a race-load crash fixed, new B2 (race livery noise). An on-screen timer (top-left, the log clock to 0.1 s; ReGPU patch `regpu-timer-overlay`, `REGPU_TIMER`, FM3 default on, `FM3_NO_TIMER=1` hides it) lets your screenshots point into the log. You then explored beyond the intro race (career menus, upgrade shop, paint/vinyl editors, a solo race, photo mode). Log of that run kept as `out/logs/session9-explore.log` (times below are its `[time]`/the timer). **New issue list (not fixed yet; FM2/FM4 comparison reported to you, waiting for your go):**
 
 | # | Issue (timer) | Our log / first lead | FM2 / FM4 port |
 |---|---|---|---|
@@ -31,10 +49,8 @@ Also logged (not reported as visible bugs): `unimplemented import XamParseGamerT
 | (S9) Matte paint, black chrome out of races | Showroom reflection cube is k_2_10_10_10, unsupported in ReGPU → decoded black | ReGPU patch `regpu-cube-2101010` (+ cube face staging bug) | `REGPU_NO_2_10_10_10=1` |
 
 **Open / next (pick from here):**
-1. **Session 9 issue list A–G above** (D is the photo-mode band; also in the pre-race menu).
-2. Phase 4 items not yet checked: Disc 2 DLC cars (Q11–Q14), profile rules (Q15), language/country (Q16), career and menus beyond the intro race.
-3. Phase 5 items: car thumbnails (Q18), audio queue depth (Q26), post-race 30 fps menu check, fps over a full lap (the first seconds after a shader-cache rebuild run 30–36 fps).
-4. Leftovers: `sub_82A918F0` blrl trap and SEH policy (not hit yet); a licence for our code; delete `githubfileignorepls`?
+1. **B and B2 (vinyls):** the "Start here" block at the top.
+2. **Everything else** (D photo-mode/pre-race band, E shadow flicker, F foliage dither, G engine audio cutouts, Phase 4/5 items, leftovers): **[OPEN-ISSUES.md](OPEN-ISSUES.md)**, with evidence, sibling-port findings and a first step for each.
 
 **How we work (agreed with you):**
 - **You start the game with `play.cmd`** (project root: debug server on, saves in `out/user`, log in `out/run/fm3.log`) and drive to where a test needs to be, then report. Don't repeat the launch steps unless `play.cmd` changes; say so when it does. Temporary test lines in it get removed afterwards.
