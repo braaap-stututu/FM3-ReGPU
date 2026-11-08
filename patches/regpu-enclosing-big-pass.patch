@@ -1,0 +1,36 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index d6d790f..d6b13f9 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -6197,17 +6197,29 @@ void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+     // texture the title fetches is the one at the lowest base.
+     uint32_t encBase = 0, x = 0, y = 0;
+     ResolvedTexture* found = nullptr;
++    // A big pass's image is kept at the pass width (the resolve clamps its width to BigPassSize, pitch * 64 / 65 of
++    // the surface), not the copy's pitch: a 1400-wide 4x surface copied with pitch 1408 makes a 1378-wide image.
++    // Its later tiles name that pitch, so the image matches either. (Matching the pitch only, the tiles after the
++    // first were never drawn into it: FM3's vinyl side-view passes lost every row past 224, and the vinyls on the
++    // car's sides and hood stopped at a straight line.) REGPU_NO_ENCLOSING_PASS_WIDTH=1: the pitch only (A/B).
++    static LiveSwitch noPassWidth("REGPU_NO_ENCLOSING_PASS_WIDTH");
++    const uint32_t passWidth = noPassWidth ? pitch : std::clamp<uint32_t>(pitch, 1, std::max<uint32_t>(kWidth, BigPassSize()));
+     for (auto& [candidateBase, candidate] : g_r.resolved)
+     {
+-        if (candidateBase >= base || (found && candidateBase >= encBase) || !candidate.resource || candidate.width != pitch || candidate.format != format ||
++        if (candidateBase >= base || (found && candidateBase >= encBase) || !candidate.resource ||
++            (candidate.width != pitch && candidate.width != passWidth) || candidate.format != format ||
+             candidate.guestBpp != guestBpp || !candidate.height || !candidate.hostHeight)
+             continue;
+         const uint32_t offset = base - candidateBase;
+         if (offset % tileBytes)
+             continue;
+         const uint32_t tile = offset / tileBytes, cx = tile % tilesAcross * 32, cy = tile / tilesAcross * 32;
++        // A last tile's rectangle is rounded up to 8 rows past the image (88 rows copied, 86 declared): clipped to the
++        // image (the draw below is), not refused. (Refused, FM3's side-view passes lost their last tile: the bottom
++        // of the car's left side and a corner of the hood.) REGPU_NO_ENCLOSING_ROW_CLIP=1: refused (A/B).
++        static LiveSwitch noRowClip("REGPU_NO_ENCLOSING_ROW_CLIP");
+         if (cy >= candidate.height || cy + declaredHeight != candidate.height || cx + uint32_t(rect.right) > candidate.width ||
+-            cy + uint32_t(rect.bottom) > candidate.height)
++            cy + uint32_t(rect.bottom) > candidate.height + (noRowClip ? 0u : 31u))
+             continue;
+         encBase = candidateBase, x = cx, y = cy, found = &candidate;
+     }

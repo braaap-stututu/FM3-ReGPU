@@ -1,7 +1,7 @@
-# Open issues (other than the vinyl issue B)
+# Open issues
 
-State after session 9 (2026-11-08); B2 (races: a car with vinyls covered in noise) was fixed in session 11. The vinyl issue
-**B** (vinyls cut along a straight line, editor and races) has its own step-by-step plan at the top of [NOTES.md](NOTES.md). This file
+State after session 9 (2026-11-08). The vinyl issues B (vinyls cut along a straight line) and B2 (races: a car with vinyls
+covered in noise) were fixed in session 11; two small leftover gaps of B are at the top of [NOTES.md](NOTES.md). This file
 lists everything else that is known to be open, so it can be picked up in any order.
 
 Each entry gives: what you saw (with the on-screen timer value of your screenshot, which is the `[time]` in the log of
