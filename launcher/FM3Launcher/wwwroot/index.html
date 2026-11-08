@@ -336,6 +336,10 @@
         <div><div class="toggle-title">Performance log</div><div class="toggle-sub">Frame timings in fm3.log</div></div>
         <button class="switch" id="perfLog" role="switch"></button>
       </div>
+      <div class="toggle-row" data-tip="Splits draw translation across ReGPU's draw workers on the draw thread. For comparisons: at 720p it was slower than off (195 vs 216 fps on a paused grid). Read when the game starts.">
+        <div><div class="toggle-title">Draw workers</div><div class="toggle-sub">Performance A/B, off by default</div></div>
+        <button class="switch" id="drawWorkers" role="switch"></button>
+      </div>
     </section>
   </main>
 
