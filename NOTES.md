@@ -3,13 +3,18 @@
 ## ▶ Current status / next step  (updated 2026-11-08, session 12)
 
 ### ▶ Start here next session
-All work is committed and pushed (`main`). Session 11 fixed the vinyl issues **B** (cut along a straight line) and **B2** (race/photo-mode livery noise), my own **poster bug** (a bumper vinyl in a career poster), and **H** (a car vanishing from My Cars after painting another; the damaged save then crashed on buying a car). **Everything vinyl/livery-related, with how FM3 builds a livery, the fixes, switches, saves, test tools and the remaining leads, is in [VINYLISSUES.md](VINYLISSUES.md).**
+All work is committed and pushed (`main`). **Session 12** added the launcher (`launcher/FM3Launcher`, C# .NET 9 / Photino, ported from your FM4 fork; you tested it: works) and, from testing at 2560×1440, fixed the My Cars thumbnail ghost (11th ReGPU patch `regpu-guest-lod-short-mips`, you confirmed). Higher resolutions and 4x MSAA now run; a one-off race dip with 1440p + 4x MSAA did not reproduce. **How you test now:** `play.cmd` (unchanged) or `launcher.cmd` (same folders; profile from the Profiles tab; graphics settings in `out\user\settings.ini` apply to both). The launcher keeps the previous `fm3.log` as `fm3.prev.log`.
+
+**Pick the next topic with you** (no default chosen at the end of session 12):
+- **Launcher, next features** (Phase 6 in the work plan): game import (disc .iso / drop, the fork's `Import.cs`/`XIso.cs`/`DropTarget.cs`), DLC packs (`Stfs.cs`, the runtime already reads `user\dlc`), photos (check FM3's photo-mode save format first), an icon of our own (FM4's is game art), maybe the updater/reports later (need GitHub releases / a server). FSR 4, SMAA and the shader optimiser need a ReGPU update first (our pin lacks them; 11 patches to carry over).
+- **High-resolution parity:** play more screens at 1440p and 4x MSAA (the thumbnail bug only showed above 1×; similar "the game relies on its 720p size" cases may exist). If the race dip returns, note the timer value and keep the log.
+- **Vinyl leftovers** (below) and the **other open issues** (OPEN-ISSUES.md).
+
+Session 11 fixed the vinyl issues **B** (cut along a straight line) and **B2** (race/photo-mode livery noise), my own **poster bug** (a bumper vinyl in a career poster), and **H** (a car vanishing from My Cars after painting another; the damaged save then crashed on buying a car). **Everything vinyl/livery-related, with how FM3 builds a livery, the fixes, switches, saves, test tools and the remaining leads, is in [VINYLISSUES.md](VINYLISSUES.md).**
 
 **Next (vinyls, when you pick it up):** (1) confirm the final build in normal play: paint several cars, buy one, check My Cars keeps every car (the last part of the H fix wasn't played yet); (2) small uncovered spots at the edges of big vinyl regions (Scion right side by the rear wheel arch and rear door window; Fiat similar + a chunk of the rear wing; Supra rear bumper both sides); (3) Honda CRX vinyls invisible (seen once with the poster bug; re-check). Steps and leads in VINYLISSUES.md "Where to continue".
 
 **Profile:** `play.cmd` now starts profile **`Baseline`** (a copy of hl360's Baseline save, XUID `E0000BA5E11E0001`); the old `Player` save is damaged (buying crashes, in hl360 too). Backups of every test state are in `out/profile-backups/` (`rewardcar` = clean restart point). Only swap profiles with the game closed: it saves on exit.
-
-**Launcher (session 12):** `launcher/FM3Launcher`, ported from your FM4 fork; start it with `launcher.cmd`. You tested it: works, 1440p and 4x MSAA run. Testing at 1440p found the My Cars thumbnail ghost, now **fixed** (11th ReGPU patch `regpu-guest-lod-short-mips`, you confirmed). A one-off race dip seen with 1440p + 4x MSAA didn't reproduce. Next for the launcher: the parts left out (game import, DLC, photos, an icon; FSR 4/SMAA need a newer ReGPU). Details in the session 12 log.
 
 **Other open items:** see OPEN-ISSUES.md (D photo-mode/pre-race band, E shadow flicker, F foliage dither, G engine audio cutouts with a strong lead, Phase 4/5 items).
 
@@ -279,15 +284,21 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ✅ (session 11) Vinyls: B (straight-line cut) and B2 (race/photo livery noise) fixed; H (vanishing car / purchase crash on the damaged save) fixed, final build to confirm in play.
 - ◐ Vinyl leftovers: small edge gaps on big regions (Scion, Fiat incl. rear wing, Supra rear bumper), CRX re-check: [VINYLISSUES.md](VINYLISSUES.md).
 - ☐ Photo mode whitened top-third band (OPEN-ISSUES D).
+- ✅ (session 12) Above 1×: My Cars thumbnail ghost (picture texture = 512×256 at mip 0 + 256×128 thumbnail at mip 1; guest mip choice for short chains, ReGPU patch 11). 2560×1440 and 4x MSAA run.
+- ☐ More screens at 1440p / 4x MSAA (other "720p-sized" assumptions); the one-off race dip (1440p + 4x MSAA, not reproduced).
 - ☐ Car thumbnails (Q18 rest), audio queue depth (Q26), XMA path check.
 - ☐ ReGPU-side dump hook in the **same index.txt/tex_*.bin format**, then `dumpdecode.py diff` hl360-grid vs ReGPU-grid (would speed up finding the next parity bugs).
 - ☐ Post-race finish menu at exactly 30.0 fps? Full-lap fps measurement.
 
-**Phase 6 — Polish ☐** Frame-rate unlock only after confirming FM3's sim timing (Q24), launcher/settings, mods (Q9 re-signing, PF+3).
+**Phase 6 — Polish ▶ (launcher started, session 12)**
+- ✅ Launcher `launcher/FM3Launcher` (from your FM4 fork): Play (game folder, `default.xex` SHA-256 check, language), Profiles + backups, Graphics (resolution, aspect, fullscreen, fps cap, VSync, MSAA, FSR 1/3, anisotropy, shader box), Settings (shader cache, folders, test timer, debug server, perf log). `launcher.cmd` for the dev checkout; `FM3Launcher.exe --play` starts the game without the window.
+- ☐ Launcher: game import (ISO/folder drop; Disc 1 only is used), DLC packs, photos (FM3 format unknown), icon, then maybe updater/reports. FSR 4 / SMAA / shader optimiser after a ReGPU update.
+- ☐ Unused settings: `enhance` and `skip_intro` are read by `src/settings.cpp` but FM3 doesn't apply them (gpu_host doesn't pass `enhance`; no skip-intro hook yet).
+- ☐ Frame-rate unlock only after confirming FM3's sim timing (Q24); mods (Q9 re-signing, PF+3).
 
 ## Session log
 ### 2026-11-08 — session 12 (launcher, from the FM4 fork)
-- Ported the launcher from your FM4 fork (`braaap-stututu/Fuzzy-Rittersport-4-ReGPU-testing`, `launcher/FM4Launcher`, commit `69bdae44`; reference clone in `reference/sibling-recomps/Fuzzy-Rittersport-4-ReGPU-testing`) to `launcher/FM3Launcher`. Installed the **.NET 9 SDK 9.0.320** (winget `Microsoft.DotNet.SDK.9`). Builds with 0 warnings; page checked in the browser pane with a stand-in host (all tabs, no script errors); the real window opens. **Not yet tried by you, and Play not yet run from it.**
+- Ported the launcher from your FM4 fork (`braaap-stututu/Fuzzy-Rittersport-4-ReGPU-testing`, `launcher/FM4Launcher`, commit `69bdae44`; reference clone in `reference/sibling-recomps/Fuzzy-Rittersport-4-ReGPU-testing`) to `launcher/FM3Launcher`. Installed the **.NET 9 SDK 9.0.320** (winget `Microsoft.DotNet.SDK.9`). Builds with 0 warnings; page checked in the browser pane with a stand-in host (all tabs, no script errors); the real window opens. You then tested it (below): works.
 - Why it ports cleanly: our `src/settings.cpp` is the same file as the fork's (same 14 `settings.ini` keys), and the profile layout (`profiles\<name>\content` + `xuid`, FNV-1a name fallback in `imports_xam.cpp`) is identical, so `Profiles.cs` is the fork's minus photos.
 - Kept (your pick): Play (game folder pick + SHA-256 check of `default.xex` against `aa15372c…8742`, language from the Disc 1 string tables, Play), Graphics (only what our ReGPU has: resolution, aspect, fullscreen, frame cap, VSync, MSAA 1/2/4, FSR 1/3 + quality + sharpening, anisotropy, shader-box toggle), Settings (shader cache, folders), Profiles and backups. Added for our workflow: test timer (`FM3_NO_TIMER`), debug server (`REGPU_DEBUG`), performance log (`REGPU_PERF`) toggles.
 - Left out for now: game import (ISO/drop), DLC, photos, Reports, Updater, Linux/Proton; FSR 4, SMAA, shader optimiser, debug views and fast mode (our ReGPU pin lacks them or they're untested on FM3: `REGPU_EARLY_FENCES`). Enhance and skip_intro are read by `settings.cpp` but not used by FM3 yet, so not offered. No icon yet (FM4's is game art from its xex).
