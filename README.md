@@ -27,8 +27,10 @@ Fixed so far (all confirmed in game):
 
 Known issues and not yet checked:
 - Photo mode shows a whitened band over the top third of the image (not seen in races).
-- Disc 2 DLC, profiles, career mode and most tracks are untested.
+- Disc 2 DLC, profiles, most tracks are untested. Career mode looks to be working but i haven't done much testing in this regard.
 - The first seconds of a race after a shader-cache rebuild can run at 30–36 fps.
+- Other hardware than my own all AMD win11 build.
+- No launcher or improved graphics yet. Current focus is visual parity with console before trying to add features.
 
 Each fix can be switched off for comparison; the switches and details are in [NOTES.md](NOTES.md) and
 [patches/README.md](patches/README.md).
