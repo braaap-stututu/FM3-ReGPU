@@ -1,7 +1,8 @@
 # Open issues
 
 State after session 9 (2026-11-08). The vinyl issues B (vinyls cut along a straight line) and B2 (races: a car with vinyls
-covered in noise) were fixed in session 11; two small leftover gaps of B are at the top of [NOTES.md](NOTES.md). This file
+covered in noise) were fixed in session 11, with issue H (a vanishing car); everything vinyl-related, including the
+small leftover gaps, is in [VINYLISSUES.md](VINYLISSUES.md). This file
 lists everything else that is known to be open, so it can be picked up in any order.
 
 Each entry gives: what you saw (with the on-screen timer value of your screenshot, which is the `[time]` in the log of
