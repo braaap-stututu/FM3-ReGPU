@@ -333,3 +333,58 @@ moved per frame** matter more than shader math. Read from ReGPU at our pin (`thi
 
 Not worth it: replacing the zero-copy mapping (already ideal on UMA), finer change detection (already sampled
 and staggered), 16-bit shader math for bandwidth (section above: it saves registers, not memory traffic).
+
+## Ultrawide (21:9, 32:9) (session 18, 2026-11-09)
+**Today:** the launcher already offers Aspect ratio *Auto / 16:9 / 21:9 (experimental) / 32:9 (experimental)*
+(`Install.cs` `Aspects`), written as `aspect=` in `settings.ini`. `Settings::RenderSize` (`src/settings.cpp` ~140)
+fits that aspect inside the resolution (bars for the rest) and never goes narrower than 16:9. **Never tested on
+FM3** (no note in NOTES/OPEN-ISSUES).
+
+**What ReGPU does at wide outputs (our pin, `renderer.cpp` ~60–90, ~286–302, ~9650):**
+- Only passes at the game's full 1280-pixel pitch (`WidePass()`: the main view and its full-screen post) scale
+  horizontally to the full output width; every other pass (reflection faces, shadow maps, reduced-size post)
+  scales uniformly, so square targets stay square. FM3's scene tiles are 1280 wide, so the race view qualifies.
+- **Hor+ in the vertex shader:** perspective geometry in a wide pass is narrowed (`vwide`) so the picture is not
+  stretched; the view gains width at the sides. `REGPU_WIDE_FOV` (0–100, default 100) trades side view for a
+  vertical zoom (0 = keep the 16:9 horizontal view and crop top/bottom).
+- **2D is squeezed back into the middle 16:9** (`vwide[2]`; `REGPU_NO_HUD_SQUEEZE=1` stretches it with the view):
+  the HUD and menus keep their shape.
+- `regpu::SetGameWidescreen(true)`: a port that widens the game's own camera says so, and ReGPU then stops
+  narrowing perspective geometry itself (only the `REGPU_WIDE_FOV` zoom remains).
+
+**The missing piece in FM3: the game's frustum culling stays 16:9.** ReGPU widens the picture, but the game still
+culls everything outside its 16:9 view, so objects at the sides are missing or pop in late. FM4's port lists this
+as its ultrawide known issue (`TESTING.md`). **FM2 fixed it** (`6f2980b`, `src/hooks/camera_aspect.cpp`, ~50
+lines): it found the camera's aspect setter (`stfs f1,268(r3)`, called every frame of a race with 16/9) with a
+float scan (`FM2_SCAN_FLOAT`, the same tool FM3 already has as `FM3_SCAN_FLOAT` in `src/hooks/common/mem_scan.cpp`),
+and the hook passes the wider aspect instead. Result: the game's projection and frustum culling cover the wider
+view (3440x1440: 1,933 draws a frame with the hook against 1,852 without, same frame rate). Follow-ups:
+- `555f54d`: the setter runs every frame in races and never in menus, so a recent call means "race on screen":
+  menus stay 16:9 with black bars, races go wide.
+- `f2e98ed`: also require last frame's depth-tested scenery, so loading/saving screens stay in menu mode.
+- `f1f4b62`: the race's car diagram (a HUD element) kept whole inside the HUD's 16:9 area.
+- Remaining in FM2: some side objects still pop in through other game-side visibility (not the main frustum).
+
+**FH1R** (ReXGlue, ideas only): native ultrawide with proportional HUD placement (HUD anchored to the screen edges,
+`67a9b7b`, `docs/graphics-menu.md`), off-screen reflection and bloom passes kept out of the wide scaling, a
+correction for the cockpit instruments (`6b4c29e`), 1080-line ultrawide windows rendered at 1440 lines and
+downsampled (`8432b90`), and a note that shadow cascades fitted to the 16:9 frustum cover less of a wider view
+(`docs/graphics-detail.md`).
+
+**Plan for FM3:**
+1. **Test what works today, without an ultrawide monitor:** set Aspect 21:9 at 2560x1440 (the game draws
+   2560x1097 with bars) and 32:9. Check a race (sides: missing objects, pop-in), the HUD, menus, the pre-race
+   camera, cockpit view (instruments), rear-view mirror, sun flare position, shadows at the sides, photo mode and
+   replays. Screenshots with the timer for each.
+2. **Find FM3's camera aspect setter:** in a paused race, `set FM3_SCAN_FLOAT=3FE38E39,<frame>` (16/9 as a float)
+   logs every guest address holding it; take the one inside the camera object, then find the function that
+   stores it each frame (a breakpoint-free way: the scan at two frames, then the xex's `stfs` to that offset).
+   Our `diagnostics.cpp` already reserves `g_cameraAspectWidened` for this hook.
+3. **Hook it as FM2 did:** pass the wider aspect only in races (a recent setter call), call
+   `regpu::SetGameWidescreen(true)` while widened, keep `REGPU_WIDE_FOV` as the side-view/zoom control, and an
+   `FM3_NO_CAMERA_ASPECT=1` undo switch. Measure draws with and without (the sides now drawn).
+4. **Menus:** pillarbox (FM2's choice) vs stretched backgrounds with a centred 16:9 layer; decide after step 1.
+5. **Later:** HUD anchored to the edges (FH1R-style; needs per-element positions), shadow-cascade reach at the
+   sides, cockpit instruments if step 1 shows them distorted, and a launcher FOV slider (`REGPU_WIDE_FOV`).
+
+**Effort:** step 1 is a play test; steps 2–3 are about a session (one hook plus the scan); menus and HUD work after.
