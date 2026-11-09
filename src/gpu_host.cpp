@@ -38,6 +38,7 @@
 
 std::string CurrentHostStack(int maxFrames); // crash.cpp
 void LogAllHostThreadStacks(const char* why); // hang.cpp
+void StartGpuMemoryLog(); // gpu_memory_log.cpp
 
 namespace
 {
@@ -52,7 +53,15 @@ void ApplySettings(regpu::Config& c)
     c.vsync = s.vsync;
     c.maxFps = s.maxFps;
     c.msaa = s.msaa;
-    c.upscaler = regpu::Config::Upscaler(uint32_t(s.upscaler));
+    // Our pinned ReGPU has no FSR 4 (regpu.h: Off, Fsr1, Fsr3, Dlss): a hand-edited upscaler=fsr4 would pass an
+    // out-of-range 4. It runs as FSR 3 (same single-sample inputs; Settings already forced MSAA 1x for it).
+    if (s.upscaler == Settings::Upscaler::Fsr4)
+    {
+        Log("settings: upscaler=fsr4 is not in this ReGPU; using fsr3");
+        c.upscaler = regpu::Config::Upscaler::Fsr3;
+    }
+    else
+        c.upscaler = regpu::Config::Upscaler(uint32_t(s.upscaler));
     c.quality = s.quality;
     c.sharpness = s.sharpness;
 }
@@ -297,4 +306,5 @@ void GpuStart()
 
     Log("gpu: ReGPU at %ux%u, msaa %u, vblank %s Hz", config.width, config.height, config.msaa, getenv("REGPU_VBLANK_HZ"));
     regpu::Start();
+    StartGpuMemoryLog();
 }

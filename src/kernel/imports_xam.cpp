@@ -17,6 +17,7 @@
 #include "loader.h"
 #include "regpu/regpu.h"
 #include "settings.h"
+#include "zip.h"
 
 #include <windows.h>
 #include <Xinput.h>
@@ -993,6 +994,69 @@ GUEST_EXPORT(XamContentGetDeviceData)
     Return(ctx, X_ERROR_SUCCESS);
 }
 
+namespace
+{
+// DLC database patches (session 18; OPEN-ISSUES C1). Each car pack's zip (Media\DLCZips\<name>.zip) holds
+// media/db/patch/*.sql / *_merge.slt, the rows its cars need in the game database. The game looks for them as
+// loose files in a folder named after the zip (DLCRoot<n>:\media\dlczips\<name>\media\db\patch\<file>, checked
+// with FM3_TRACE_FILES: "attributes not found" for every one), which the packages don't have, so no DLC patch
+// ever ran. The FM2 port found the same (its eda8833) and unpacks them; so do we, once per zip (a stamp file
+// with the zip's size and time). FM3_NO_DLC_PATCHES=1 removes what we unpacked again (A/B for crash C1).
+void UnpackDlcPatches(const std::filesystem::path& package)
+{
+    static const bool off = getenv("FM3_NO_DLC_PATCHES") != nullptr;
+    std::error_code ec;
+    for (const auto& z : std::filesystem::directory_iterator(package / "Media" / "DLCZips", ec))
+    {
+        if (!z.is_regular_file(ec) || _stricmp(z.path().extension().string().c_str(), ".zip") != 0)
+            continue;
+        const std::filesystem::path folder = z.path().parent_path() / z.path().stem();
+        const std::filesystem::path stamp = folder / ".fm3-db-patches";
+        if (off)
+        {
+            std::ifstream in(stamp);
+            std::string line;
+            std::getline(in, line); // (the zip's size and time)
+            int removed = 0;
+            while (std::getline(in, line))
+                removed += std::filesystem::remove(folder / std::filesystem::path(line).make_preferred(), ec) ? 1 : 0;
+            in.close();
+            if (std::filesystem::remove(stamp, ec))
+                Log("content: %s: %d database patch file(s) removed (FM3_NO_DLC_PATCHES)", z.path().filename().string().c_str(), removed);
+            continue;
+        }
+        const std::string want =
+            std::to_string(z.file_size(ec)) + " " + std::to_string(z.last_write_time(ec).time_since_epoch().count());
+        {
+            std::ifstream in(stamp);
+            std::string have;
+            std::getline(in, have);
+            if (have == want)
+                continue;
+        }
+        std::vector<std::string> written;
+        ForEachZipMemberInFile(z.path(), "media/db/patch/", [&](const std::string& name, const std::vector<uint8_t>& data) {
+            std::string lower = name;
+            for (char& c : lower)
+                c = char(tolower(uint8_t(c)));
+            if (lower.rfind("media/db/patch/", 0) != 0 || lower.back() == '/' || lower.find("..") != std::string::npos)
+                return;
+            const std::filesystem::path out = folder / std::filesystem::path(name).make_preferred();
+            std::filesystem::create_directories(out.parent_path(), ec);
+            std::ofstream(out, std::ios::binary).write(reinterpret_cast<const char*>(data.data()), std::streamsize(data.size()));
+            written.push_back(name);
+            Log("content: %s: database patch %s (%zu bytes) unpacked", z.path().filename().string().c_str(), name.c_str(), data.size());
+        });
+        if (written.empty())
+            continue;
+        std::ofstream s(stamp);
+        s << want << "\n";
+        for (const std::string& name : written)
+            s << name << "\n";
+    }
+}
+}
+
 GUEST_EXPORT(XamContentCreateEnumerator)
 {
     // (user, deviceId, contentType, flags, itemCount, bufferSize*, handle*): lists the
@@ -1027,6 +1091,7 @@ GUEST_EXPORT(XamContentCreateEnumerator)
             // Only finished installs: the installer (launcher Disc2.cs/Stfs.cs) writes <package>.license last.
             if (!package.is_directory() || fileName.size() > 42 || !std::filesystem::exists(DlcDir() / (fileName + ".license"), ec))
                 continue;
+            UnpackDlcPatches(package.path());
             ContentItem item{ 2, {}, fileName };
             std::ifstream in(DlcDir() / (fileName + ".title"), std::ios::binary);
             std::string bytes((std::istreambuf_iterator<char>(in)), {});

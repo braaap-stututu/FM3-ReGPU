@@ -2,7 +2,10 @@
 
 #include <cstdlib>
 #include <map>
+#include <cstring>
 #include <mutex>
+#include <set>
+#include <thread>
 
 #include <windows.h>
 
@@ -29,14 +32,53 @@ void SetEnv(const std::string& name, bool on)
     _putenv_s(name.c_str(), on ? "1" : "");
     SetEnvironmentVariableA(name.c_str(), on ? "1" : nullptr);
 }
+
+// The debug server's "switch" command only takes REGPU_*/PGR4_* names (ReGPU's debug.cpp), so FM3_* switches
+// follow the environment instead: with the debug server on (REGPU_DEBUG), a thread re-reads every registered
+// switch's variable four times a second, and Fm3 "env FM3_NAME 1" (or 0, or empty) flips it live.
+void StartEnvWatch()
+{
+    if (!getenv("REGPU_DEBUG"))
+        return;
+    std::thread([] {
+        SetThreadDescription(GetCurrentThread(), L"fm3 switch env watch");
+        for (;;)
+        {
+            Sleep(250);
+            Registry& r = Get();
+            std::lock_guard lock(r.mutex);
+            std::set<std::string> changed; // (several statics can share a name: log it once)
+            for (LiveSwitch* s : r.switches)
+            {
+                char v[16] = {};
+                const DWORD n = GetEnvironmentVariableA(s->Name(), v, sizeof(v));
+                const bool on = n != 0 && !(n == 1 && v[0] == '0');
+                if (on != bool(*s))
+                {
+                    s->SetFromWatch(on);
+                    if (changed.insert(s->Name()).second)
+                        Log("switch: %s %s (environment)", s->Name(), on ? "on" : "off");
+                }
+            }
+        }
+    }).detach();
+}
+}
+
+void LiveSwitch::SetFromWatch(bool on)
+{
+    value_.store(on, std::memory_order_relaxed);
 }
 
 LiveSwitch::LiveSwitch(const char* name) : name_(name), value_(false)
 {
+    static std::once_flag watch;
+    std::call_once(watch, StartEnvWatch);
     Registry& r = Get();
     std::lock_guard lock(r.mutex);
     const char* v = getenv(name);
-    bool on = v != nullptr && *v != 0; // (an empty value is how the debug server clears one)
+    // (An empty value is how the debug server clears one; "0" is off too, as for the environment watch.)
+    bool on = v != nullptr && *v != 0 && strcmp(v, "0") != 0;
     if (auto it = r.pending.find(name); it != r.pending.end())
         on = it->second;
     value_.store(on, std::memory_order_relaxed);
