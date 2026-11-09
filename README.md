@@ -11,7 +11,7 @@ No game data is in this repository. You need your own disc dump.
 
 ## Status
 
-**"Playable."** The game boots, can run and finish the audi r8 race and do career races. Performance on my 9800X3D and 7900XTX at 1440p native with 4x MSAA currently hovers around 180-200fps in races when around ai cars and maxes out at around 300fps in time trial or if no ai cars are visible/near . Controller and keyboard work. Hweel support integrated from my FM4 fork but not yet tested. there are some unresolved random crashes on certain race loads and vinyls are iffy (not fully aligned on some, invisible on others). Always make regular backups. Running log and roadmap: [NOTES.md](NOTES.md);
+**"Playable."** The game boots, can run and finish the audi r8 race and do career races. Performance on my 9800X3D and 7900XTX at 1440p native with 4x MSAA currently hovers around 180-200fps in races when around ai cars and maxes out at around 300fps in time trial or if no ai cars are visible/near . Controller and keyboard work. Wheel support integrated from my FM4 fork but not yet tested. The random crash on some race loads (an AI driver with an empty name) has a workaround and hasn't come back; its cause is still being looked into. Vinyls cover nearly the whole car now, with small gaps at the edges of some cars. Always make regular backups. Running log and roadmap: [NOTES.md](NOTES.md);
 game-specific quirks: [FM3-QUIRKS.md](FM3-QUIRKS.md).
 
 Fixed so far (all confirmed in game):
@@ -23,13 +23,20 @@ Fixed so far (all confirmed in game):
 | Fine dashed streaks on the asphalt | road strips rendered at track load never reached memory | 32×512 resolves written back at once (`src/gpu_host.cpp`) |
 | Smooth bands on the asphalt in a turned chase camera | half of the road detail texture was resolved 256 rows too early | ReGPU patch `regpu-resolve-into-image` |
 | Square shadow around the car (as in Xenia-based ports) | 16-bit fixed shadow maps read with the wrong number format | ReGPU patch `regpu-fixed16-fetch` |
+| Vinyls noisy, cut along a straight line, or a car vanishing from My Cars after painting | livery pieces resolved into the wrong image / written back too late | ReGPU patches `regpu-resolve-into-enclosing` … `regpu-writeback-safety` ([VINYLISSUES.md](VINYLISSUES.md)) |
+| Livery broken (all but one section) on some race loads | each load builds the livery in a new image just above the old one; pieces went into the old one | ReGPU patch `regpu-livery-enclosing-recent` |
+| Other cars' shade flickering on your car | FM3 clears the car's shade map through a 4x MSAA view; only depth clears were scaled | ReGPU patch `regpu-msaa-color-clear-scale` |
+| Sun glare far too big / no sun flare with the faster renderer | occlusion query answers (raw sample count, worker command lists) | ReGPU patches `regpu-worker-queries`, `regpu-zpd-scale`, `regpu-draw-thread-pieces` |
+| Low frame rate near other cars (~70 fps at 1440p 4x MSAA) | fence waits and a busy command processor | fence/draw-thread defaults in `src/gpu_host.cpp`, ReGPU patch `regpu-early-fence-writebacks` |
 
 Known issues and not yet checked:
 - Photo mode shows a whitened band over the top third of the image (not seen in races).
 - Disc 2 DLC, profiles, most tracks are untested. Career mode looks to be working but i haven't done much testing in this regard.
+- The game can hang when alt-tabbing out during a race.
+- Small vinyl gaps at the edges of some cars (Scion, Fiat, Supra rear bumper).
 - The first seconds of a race after a shader-cache rebuild can run at 30–36 fps.
 - Other hardware than my own all AMD win11 build.
-- No launcher or improved graphics yet. Current focus is visual parity with console before trying to add features.
+- The launcher covers settings and profiles; game import, DLC packs and photos are not ported from the FM4 launcher yet. Current focus is visual parity with console before adding more features.
 
 Each fix can be switched off for comparison; the switches and details are in [NOTES.md](NOTES.md) and
 [patches/README.md](patches/README.md).
@@ -76,7 +83,7 @@ W / S = throttle / brake, A / D = steer, Q / E = LB / RB, J L I K = right stick.
 |---|---|
 | `CMakeLists.txt` | The game build (needs `out/ppc`, `thirdparty/fidelityfx`, `thirdparty/ffmpeg`) |
 | `config/` | XenonRecomp config and switch tables for `default.xex` |
-| `patches/` | 5 XenonRecomp + 12 ReGPU patches, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
+| `patches/` | 5 XenonRecomp + 18 ReGPU patches, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
 | `src/` | Runtime: kernel/XAM, loader, threads, fibers, audio, ReGPU host glue ([src/README.md](src/README.md)) |
 | `play.cmd` | Development launcher (debug server on, saves in `out/user`, log in `out/run`) |
 | `launcher/FM3Launcher`, `launcher.cmd` | The launcher (C#, .NET 9, Photino/WebView2) and its dev start script |

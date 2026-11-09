@@ -375,8 +375,10 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ✅ (session 14) Occlusion queries with draw workers (patch 13) and with the draw thread (patch 15): sun flare and speed together; sun glare sized to console footage (patch 14, `REGPU_ZPD_SCALE=0.6`).
 - ✅ (session 14) Command-processor bound found and moved: **draw thread default** (cars grid 175 → 181–184, Montserrat 225 → 240 at 1440p 4x MSAA, now GPU-bound there).
 - ✅ (session 15) Draw thread + workers: sun flare fixed with it (`seg::g_query` cleared by the CP ahead of the draw thread); but slower than the serial draw thread (720p 1x 195 vs 216), so opt-in.
-- ◐ (session 15) Crash C1: workaround in (`src/hooks/ai_drivers.cpp`: a car whose driver reads back an empty Name gets a generic driver); cause open (driver 125's Name empty at times, database page intact between loads; diagnostics logged on the next occurrence). OPEN-ISSUES C1.
-- ▶ Livery breaking on some race loads (session 15 play test; write-back safety skips in the log): next topic candidate, steps at the top.
+- ◐ (session 15) Crash C1: workaround in (`src/hooks/ai_drivers.cpp`: a car whose driver reads back an empty Name gets a generic driver; held in play, no crash, no odd names). (session 16) Row 125's `Name` is NULL in the in-memory DB when it happens. ▶ **Next:** the game's DB patch system (LicenseMasks `.sql`, overwrite/merge/exec) as the likely writer. OPEN-ISSUES C1.
+- ✅ (session 16) Livery broken on some race loads: new livery image a few KB above the previous load's, pieces went into the old one (ReGPU patch 16 `regpu-livery-enclosing-recent`; also a per-texel write-back safety check). Confirmed over several reloads.
+- ✅ (session 16) OPEN-ISSUES E, other cars' shade flickering on the player's car: a colour clear through a 4x MSAA view (ReGPU patch 17 `regpu-msaa-color-clear-scale`). Confirmed paused and in races.
+- ✅ (session 16) Debug server: shots after a capture no longer stall ~30 s (patch 18). `Fm3 "shots N dir raw"` bursts + `REGPU_FREEZE_RESOLVES` = the flicker method.
 - ☐ Alt-tab hang (session 15; thread dump in `out/logs/session15-c1-run3.log`).
 - ☐ Report the early-fence write-back bug upstream (ReGPU `gpu.cpp` `WriteBack`; also in FH1's fork and PGR4). Smaller CP ideas left: FH1R's CP tricks, PGO, `-march=x86-64-v3`.
 - ☐ LOD / render distances (OPEN-ISSUES L).
