@@ -1,0 +1,15 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index f0da496..a04ea24 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -11778,7 +11881,9 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     // REGPU_DUMP_RESOLVES=1 (with REGPU_DUMP_FRAME): also write every resolved texture to out/res.
+     static std::vector<ResolveDump> resolveDumps;
+     resolveDumps.clear();
+-    if (dump && (getenv("REGPU_DUMP_RESOLVES") || (g_hotkeyFrame.load() && g_r.frame == dumpFrame)))
++    // (Only the captured frame itself: g_hotkeyFrame keeps its value after a capture, and every later debug-server
++    // shot, which sets dumpFrame to its frame, wrote all resolves too: ~30 s per shot with thousands of them.)
++    if (dump && (getenv("REGPU_DUMP_RESOLVES") || (g_hotkeyFrame.load() && g_r.frame == dumpFrame && dumpFrame == g_hotkeyFrame.load())))
+     {
+         auto add = [&](uint32_t base, ResolvedTexture& r, int variant) {
+             if (!r.resource)

@@ -33,7 +33,10 @@ $regpuPatches = @(
     'regpu-early-fence-writebacks', # early fences still wait for a deferred resolve write-back before them
     'regpu-worker-queries', # occlusion queries with draw workers: counting spans drawn on the command processor
     'regpu-zpd-scale',      # REGPU_ZPD_SCALE: live multiplier for occlusion query answers (FM3 sun glare size)
-    'regpu-draw-thread-pieces' # draw thread runs the parallel segments; occlusion queries with the draw thread
+    'regpu-draw-thread-pieces', # draw thread runs the parallel segments; occlusion queries with the draw thread
+    'regpu-livery-enclosing-recent', # resolves skip enclosing images left from earlier loads; write-back check per texel
+    'regpu-msaa-color-clear-scale',  # colour clears through an MSAA view of a small 1x surface scaled (FM3 shade flicker)
+    'regpu-debug-shot-dump'          # debug-server shots after a capture no longer dump every resolve
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

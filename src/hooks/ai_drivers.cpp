@@ -144,11 +144,19 @@ std::string RereadName(PPCContext& ctx, uint32_t db, uint32_t id, int32_t& rows)
 // found driver 125's database page intact between loads, so this catches the moment it reads back empty).
 void LogDriverRow(PPCContext& ctx, uint32_t db, uint32_t id)
 {
-    int32_t rows = -1;
-    const auto v = ReadColumns(ctx, db, "SELECT typeof(Name) AS t, length(Name) AS n, hex(Name) AS h, LastName AS l, isUsed AS u FROM AIPlayers WHERE Id=" + std::to_string(id),
-                               { "t", "n", "h", "l", "u" }, rows);
-    Log("ai drivers: driver %u row: %d rows, typeof(Name) %s, length %s, hex %s, LastName \"%s\", isUsed %s", id, rows, v[0].c_str(), v[1].c_str(),
-        v[2].c_str(), v[3].c_str(), v[4].c_str());
+    // One query per value: session 16's single query with all of them failed (-1 rows: the game's SQLite may lack one
+    // of these functions). c: Name with a marker appended (tells an empty SQLite value from one the result object
+    // loses); rowid: the cell's key on its page.
+    const std::string where = " FROM AIPlayers WHERE Id=" + std::to_string(id);
+    const char* exprs[] = { "typeof(Name)", "length(Name)", "hex(Name)", "Name || '|'", "rowid", "LastName", "isUsed", "quote(Name)" };
+    std::string line;
+    for (const char* e : exprs)
+    {
+        int32_t rows = -1;
+        const std::string v = ReadColumns(ctx, db, std::string("SELECT ") + e + " AS v" + where, { "v" }, rows)[0];
+        line += std::string(", ") + e + (rows < 0 ? " <query failed>" : rows == 0 ? " <no row>" : " \"" + v + "\"");
+    }
+    Log("ai drivers: driver %u row%s", id, line.c_str());
 }
 // The driver sub_822A1150 is setting up on this thread (for sub_828AFD40's check).
 thread_local uint32_t t_db = 0, t_id = 0;

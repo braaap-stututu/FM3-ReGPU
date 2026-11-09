@@ -1,0 +1,140 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index f0da496..a04ea24 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -6210,9 +6210,25 @@ void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+     // bumper region) then matched any 1280-wide image below it (a menu poster showed the bumper's vinyl).
+     static LiveSwitch noPassWidth("REGPU_NO_ENCLOSING_PASS_WIDTH");
+     const uint32_t passWidth = noPassWidth || !BigPassSize() ? pitch : std::clamp<uint32_t>(pitch, 1, std::max<uint32_t>(kWidth, BigPassSize()));
++    // Every match, then the lowest base among those used lately. An image whose memory the title has since
++    // reallocated a few KB higher for a new one of the same size still matches, at a lower base: FM3 builds each
++    // car's livery in a new image on each race load, and its pieces went into the previous load's image (whose
++    // memory the title had reused: the write-back safety check then dropped them, and the new livery missed them).
++    // The image the title fetches is drawn into with every piece, so it is the most recently used match; one
++    // last used more than kStaleFrames before the newest match is left out. REGPU_ENCLOSING_LOWEST=1: the lowest
++    // base of all matches (as before, A/B).
++    static LiveSwitch lowestOfAll("REGPU_ENCLOSING_LOWEST");
++    constexpr uint64_t kStaleFrames = 120;
++    struct Match
++    {
++        uint32_t base, x, y;
++        ResolvedTexture* r;
++    };
++    Match matches[8];
++    uint32_t matchCount = 0;
+     for (auto& [candidateBase, candidate] : g_r.resolved)
+     {
+-        if (candidateBase >= base || (found && candidateBase >= encBase) || !candidate.resource ||
++        if (candidateBase >= base || !candidate.resource ||
+             (candidate.width != pitch && candidate.width != passWidth) || candidate.format != format ||
+             candidate.guestBpp != guestBpp || !candidate.height || !candidate.hostHeight)
+             continue;
+@@ -6227,7 +6243,42 @@ void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+         if (cy >= candidate.height || cy + declaredHeight != candidate.height || cx + uint32_t(rect.right) > candidate.width ||
+             cy + uint32_t(rect.bottom) > candidate.height + (noRowClip ? 0u : 31u))
+             continue;
+-        encBase = candidateBase, x = cx, y = cy, found = &candidate;
++        if (matchCount < std::size(matches))
++            matches[matchCount++] = { candidateBase, cx, cy, &candidate };
++    }
++    uint64_t newest = 0;
++    for (uint32_t i = 0; i < matchCount; i++)
++        if (matches[i].r->frame != ~0ull)
++            newest = std::max(newest, matches[i].r->frame);
++    uint32_t skippedOld = 0;
++    for (uint32_t i = 0; i < matchCount; i++)
++    {
++        const Match& m = matches[i];
++        const uint64_t used = m.r->frame == ~0ull ? 0 : m.r->frame;
++        if (!lowestOfAll && used + kStaleFrames < newest)
++        {
++            skippedOld++;
++            continue;
++        }
++        if (!found || m.base < encBase)
++            encBase = m.base, x = m.x, y = m.y, found = m.r;
++    }
++    if (matchCount > 1)
++    {
++        static std::atomic<int> logged{ 0 };
++        if (logged.fetch_add(1) < 200)
++        {
++            std::string list;
++            for (uint32_t i = 0; i < matchCount; i++)
++            {
++                char one[64];
++                snprintf(one, sizeof(one), " %08X@%u,%u(frame %lld)", matches[i].base, matches[i].x, matches[i].y,
++                    matches[i].r->frame == ~0ull ? -1ll : (long long)matches[i].r->frame);
++                list += one;
++            }
++            Log("resolve: %08X (%ldx%ld) fits %u images:%s; now frame %llu; %u left out as old; into %08X", base, rect.right - rect.left,
++                rect.bottom - rect.top, matchCount, list.c_str(), (unsigned long long)g_r.frame, skippedOld, found ? encBase : 0);
++        }
+     }
+     if (found)
+     {
+@@ -8399,6 +8450,7 @@ struct DeferredWriteback
+     uint32_t base = 0, width = 0, height = 0, info = 0, x0 = 0, x1 = 0, y0 = 0, y1 = 0;
+     bool depth = false;
+     uint64_t memHash = 0, queuedFrame = 0, queuedSeq = 0; // the guest bytes it will cover, when queued (DeferredSpan)
++    std::vector<uint8_t> snapshot;                        // those bytes, when queued (where a later change is)
+     // Fence-ordered write-back (FenceWritebacks): generation << 2 | state (0 waiting, 1 being written,
+     // 2 written); the generation changes each time the entry is reused, so a late claim cannot take
+     // the next use's entry.
+@@ -8564,12 +8616,40 @@ bool ClaimAndWrite(DeferredWriteback& w, uint64_t generation)
+     size_t spanBytes = 0;
+     if (w.memHash && DeferredSpan(w, span, spanBytes) && (ContentHash(span, spanBytes, 4) | 1) != w.memHash && !WrittenByUsSince(w.base, w.queuedSeq))
+     {
++        // The span is whole 32-row tile blocks across the whole width, but the write covers only its rectangle: a
++        // change outside it (other columns, the block's other rows) is not one this write would overwrite. Compared
++        // texel by texel with the snapshot taken at queue time; written when nothing inside changed.
++        // REGPU_WRITEBACK_REUSE_SPAN=1: any change in the span skips it (as before, A/B).
++        static LiveSwitch reuseSpan("REGPU_WRITEBACK_REUSE_SPAN");
++        uint32_t inside = 0, outside = 0, ix0 = ~0u, ix1 = 0, iy0 = ~0u, iy1 = 0, ox0 = ~0u, ox1 = 0, oy0 = ~0u, oy1 = 0;
++        uint32_t log2Bytes = 2;
++        const bool compared = w.snapshot.size() == spanBytes && (w.depth || regpu::resolve::DestLog2Bytes((w.info >> 7) & 0x3F, log2Bytes));
++        if (compared)
++        {
++            const uint32_t pitchTexels = (w.width + 31) & ~31u, bytes = 1u << log2Bytes;
++            const uint32_t by0 = w.y0 / 32 * 32, by1 = (w.y1 + 31) / 32 * 32;
++            const size_t first = size_t(by0) * (size_t(pitchTexels) << log2Bytes);
++            for (uint32_t y = by0; y < by1; y++)
++                for (uint32_t x = 0; x < pitchTexels; x++)
++                {
++                    const size_t at = size_t(TextureTiledOffset(x, y, pitchTexels, log2Bytes)) - first;
++                    if (at + bytes > spanBytes || !memcmp(span + at, w.snapshot.data() + at, bytes))
++                        continue;
++                    if (x >= w.x0 && x < w.x1 && y >= w.y0 && y < w.y1)
++                        inside++, ix0 = std::min(ix0, x), ix1 = std::max(ix1, x), iy0 = std::min(iy0, y), iy1 = std::max(iy1, y);
++                    else
++                        outside++, ox0 = std::min(ox0, x), ox1 = std::max(ox1, x), oy0 = std::min(oy0, y), oy1 = std::max(oy1, y);
++                }
++        }
++        const bool skip = !noReuseCheck && (!compared || inside || reuseSpan);
+         static std::atomic<int> logged{ 0 };
+         if (logged.fetch_add(1) < 64)
+-            Log("writeback: %08X %ux%u rows %u-%u: the memory changed since the resolve (%llu frames ago, now frame %llu): %s", w.base, w.width,
+-                w.height, w.y0, w.y1, (unsigned long long)(g_r.frame - w.queuedFrame), (unsigned long long)g_r.frame,
+-                noReuseCheck ? "written anyway" : "not written");
+-        if (!noReuseCheck)
++            Log("writeback: %08X %ux%u rect %u,%u-%u,%u: the memory changed since the resolve (%llu frames ago, now frame %llu, thread %lu): "
++                "%s; changed texels inside %u (x %u-%u, y %u-%u), outside %u (x %u-%u, y %u-%u): %s",
++                w.base, w.width, w.height, w.x0, w.y0, w.x1, w.y1, (unsigned long long)(g_r.frame - w.queuedFrame), (unsigned long long)g_r.frame,
++                GetCurrentThreadId(), compared ? "compared" : "no snapshot", inside, ix0, ix1, iy0, iy1, outside, ox0, ox1, oy0, oy1,
++                skip ? "not written" : "written");
++        if (skip)
+         {
+             w.state = (generation << 2) | 2;
+             return true;
+@@ -8663,6 +8743,11 @@ void QueueDeferredWriteback(uint32_t base, uint32_t width, uint32_t height, uint
+         const uint8_t* span = nullptr;
+         size_t spanBytes = 0;
+         w.memHash = DeferredSpan(w, span, spanBytes) ? ContentHash(span, spanBytes, 4) | 1 : 0;
++        // A copy to tell where a later change is (ClaimAndWrite); spans up to 16 MB (a 2048x2048 image).
++        if (w.memHash && spanBytes <= (16u << 20))
++            w.snapshot.assign(span, span + spanBytes);
++        else
++            w.snapshot.clear();
+         w.queuedFrame = g_r.frame;
+         w.queuedSeq = g_writeSeq.load();
+     }

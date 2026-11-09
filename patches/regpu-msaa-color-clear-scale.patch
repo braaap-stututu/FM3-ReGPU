@@ -1,0 +1,29 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index f0da496..a04ea24 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -10151,6 +10236,24 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             vc->vscale[3] = float(MsaaAcross(msaa)) / float(MsaaAcross(uint32_t(native)));
+             vc->voffset[3] = float(MsaaDown(msaa)) / float(MsaaDown(uint32_t(native)));
+         }
++        // The colour version of the shadow-map clear above: a texture-less rectangle through an MSAA view of a
++        // small surface whose textured draws are 1x (g_nativeMsaa). FM3 clears the 256x256 image it projects the
++        // track's shade around the player's car into with a 120x128 rectangle through a 4x view (pitch 160) plus a
++        // 16-pixel 1x strip; unscaled, the rectangle covered a quarter of it, and the shade drawn for another car
++        // in the pass before stayed there: other cars' shade flickered over the player's car (one frame in five,
++        // one AI car a frame). Small surfaces only, by the width the view covers at 1x: FM3 also clears its 1280-wide
++        // 2x scene through a 4x view (pitch 640), whose layout key a 1x 1280-wide pass shares; scaled, those clears
++        // whitened a quarter of the screen. REGPU_NO_MSAA_COLOR_SCALE=1: not scaled (A/B).
++        else if (static LiveSwitch noColorScale("REGPU_NO_MSAA_COLOR_SCALE");
++                 !noColorScale && msaa && (surface & 0x3FFF) * MsaaAcross(msaa) < 1000)
++        {
++            const uint32_t key = LayoutKey(surface), nativeEntry = NativeSlot(key).load(std::memory_order_relaxed);
++            if (nativeEntry >> 2 == key && (nativeEntry & 3) == 0)
++            {
++                vc->vscale[3] = float(MsaaAcross(msaa));
++                vc->voffset[3] = float(MsaaDown(msaa));
++            }
++        }
+         // A rectangle through another MSAA view of a depth surface (stencil resets): scaled from the
+         // view's layout to the depth surface's. Without it FH1's 4x stencil reset covered a quarter
+         // of the sun-shadow mask, and the far cascades never reached the rest: weak sun shadows.

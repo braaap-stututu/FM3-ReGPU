@@ -5,6 +5,7 @@ the poster bug), what fixed each one, what is still open, and how to test. State
 (2026-11-08)**. The chronology is in NOTES.md's session logs (sessions 9–11); this file is the reference.
 
 ## ▶ Where to continue
+**Session 16: livery broken on some race loads — fixed.** Each load builds the livery in a new image a few KB above the previous load's; ReGPU's enclosing search took the lowest matching base (the old image), and the write-back safety check then dropped those pieces. ReGPU patch `regpu-livery-enclosing-recent`: only images used in the last 120 frames match (`REGPU_ENCLOSING_LOWEST=1` = old); the safety check now compares per texel inside its own rectangle and logs where memory changed (`REGPU_WRITEBACK_REUSE_SPAN=1` = old). Several reloads clean (you). If a livery piece goes missing again: grep `memory changed since the resolve` and `fits N images` in the log.
 
 1. **Confirm the final build in normal play** (not yet done): the last part of the H fix (written-back mark reset)
    was built after the last test run. Play with the `Baseline` profile, paint/vinyl several cars, buy one, and
