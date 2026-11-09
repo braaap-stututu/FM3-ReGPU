@@ -7,13 +7,14 @@ let customFps = false // "Custom…" picked in the Max FPS list
 let nextId = 1
 const pending = new Map()
 const PAGES = ["play", "profiles", "graphics", "wheel", "settings", "about"]
-const SWITCHES = ["vsync", "anisotropy", "hideShaderOverlay", "timer", "debugServer", "perfLog", "drawWorkers"]
+const SWITCHES = ["vsync", "anisotropy", "hideShaderOverlay", "timer", "debugServer", "perfLog", "drawWorkers", "skipIntro", "quickRace"]
 
 // ---- host calls
 
 if (host) host.addEventListener("message", (e) => {
   const m = e.data
   if (m.event === "wheel") return typeof wheelEvent === "function" && wheelEvent(m.data) // wheel.js
+  if (m.event === "disc2") return disc2Progress(m.data)
   const p = pending.get(m.id)
   if (!p) return
   pending.delete(m.id)
@@ -232,6 +233,7 @@ function render() {
     if (s.paths.gameFromEnv) $(id).dataset.tip = "FM3_GAME_DIR is set (launcher.cmd, play.cmd): it decides the game folder."
   }
   renderTile()
+  renderDisc2()
 
   // settings page
   const st = $("shader-stats")
@@ -329,7 +331,48 @@ $("gameBrowse").onclick = () => runTile(async () => {
   if (state.paths.gameDir === before) return tileReset()
   tileDone("Game folder set: default.xex matches.", true)
 })
-$("gameReset").onclick = () => guarded(async () => { state = await call("game.reset"); render() })
+// ---- Disc 2 content (Disc2.cs): installed packages, and installing them from the image or a folder
+
+let disc2Busy = false
+function renderDisc2() {
+  if (disc2Busy || !state.disc2) return
+  const list = state.disc2
+  const n = list.filter((p) => p.installed).length
+  const e = $("tile-disc2-status")
+  e.textContent = n === list.length ? `✓ All ${n} packages installed` : n ? `${n} of ${list.length} packages installed` : "Not installed: the extra cars and tracks of Disc 2"
+  e.className = "tile-status " + (n === list.length ? "ok" : n ? "err" : "bad")
+  $("disc2-list").textContent = n ? list.filter((p) => p.installed).map((p) => p.title || p.name).join(" · ") : ""
+  $("tile-disc2").classList.remove("busy", "done", "err")
+}
+function disc2Progress(d) {
+  const e = $("tile-disc2-status")
+  if (/^\d+%$/.test(d.text)) $("disc2-bar").style.width = d.text
+  else { e.textContent = d.text; e.className = "tile-status" }
+}
+async function disc2Install(cmd) {
+  if (disc2Busy) return toast("Still installing.")
+  disc2Busy = true
+  const tile = $("tile-disc2")
+  tile.classList.add("busy")
+  $("disc2-bar").style.width = "0%"
+  try {
+    const r = await call(cmd)
+    disc2Busy = false
+    if (r === null) return renderDisc2()
+    state = r
+    render()
+    toast("Disc 2 content installed.", true)
+  } catch (err) {
+    disc2Busy = false
+    renderDisc2()
+    tile.classList.add("err")
+    toast(err.message)
+  }
+}
+$("disc2Iso").onclick = () => disc2Install("disc2.iso")
+$("disc2Folder").onclick = () => disc2Install("disc2.folder")
+
+$("gameReset").onclick =() => guarded(async () => { state = await call("game.reset"); render() })
 $("gameCheck").onclick = () => runTile(async () => {
   state = await call("xex.check")
   render()

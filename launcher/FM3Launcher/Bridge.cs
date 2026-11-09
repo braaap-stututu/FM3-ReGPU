@@ -43,6 +43,7 @@ public sealed class Bridge
     void PushWheel(string json) => _window.SendWebMessage("{\"event\":\"wheel\",\"data\":" + json + "}");
 
     static readonly (string, string[])[] ZipFilter = [("Profile zip", ["*.zip"])];
+    static readonly (string, string[])[] IsoFilter = [("Disc image", ["*.iso"]), ("All files", ["*.*"])];
 
     async Task<object?> Run(string cmd, JsonNode? a)
     {
@@ -77,6 +78,25 @@ public sealed class Bridge
             case "xex.check":
                 await Task.Run(() => Xex.CheckNow(Paths.GameDir));
                 return State();
+            // Disc 2's content packages (Disc2.cs): from the disc image, or a folder; progress as "disc2" events.
+            case "disc2.iso":
+            case "disc2.folder":
+                {
+                    string? source;
+                    if (cmd == "disc2.iso")
+                    {
+                        var files = await _window.ShowOpenFileAsync("Choose the Disc 2 image (Content Install Disc)", null, false, IsoFilter);
+                        source = files is { Length: > 0 } ? files[0] : null;
+                    }
+                    else
+                    {
+                        var dirs = await _window.ShowOpenFolderAsync("Choose the extracted Disc 2 folder, or a folder with the content packages", null, false);
+                        source = dirs is { Length: > 0 } ? dirs[0] : null;
+                    }
+                    if (source is null) return null;
+                    await Task.Run(() => Disc2.Install(source, line => Post(new { @event = "disc2", data = new { text = line } })));
+                    return State();
+                }
             case "launch":
                 if (a?["settings"].Deserialize<GameSettings>(Json) is { } toSave) SaveFromPage(toSave);
                 Game.Launch();
@@ -96,6 +116,7 @@ public sealed class Bridge
                         "user" => Directory.CreateDirectory(Paths.User).FullName,
                         "install" => Paths.Root,
                         "game" => Paths.GameDir,
+                        "dlc" => Directory.CreateDirectory(Disc2.Dir).FullName,
                         "log" => Directory.CreateDirectory(Path.GetDirectoryName(Paths.Log)!).FullName,
                         _ => throw new ArgumentException("Unknown folder."),
                     };
@@ -218,6 +239,7 @@ public sealed class Bridge
                     ? new[] { "CZ", "HU", "MX" }.Where(c => File.Exists(Path.Combine(stringTables, c + ".zip"))).ToArray() : [],
             },
             shaders = ShaderCache.Get(),
+            disc2 = Disc2.Status(),
         };
     }
 }

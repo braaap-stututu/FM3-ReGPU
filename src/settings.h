@@ -5,7 +5,7 @@
 
 // Player settings: Documents\fm3\settings.ini (FM3_USER_DIR overrides the folder). Environment
 // variables (FM3_RESOLUTION, FM3_RENDER_SCALE, FM3_MAX_FPS, FM3_VSYNC, FM3_FULLSCREEN,
-// FM3_PROFILE, FM3_SKIP_INTRO) override the file for testing.
+// FM3_PROFILE, FM3_SKIP_INTRO, FM3_QUICK_RACE) override the file for testing.
 struct Settings
 {
     std::string profile = "Player";     // the gamer profile name the game sees
@@ -16,6 +16,7 @@ struct Settings
     uint32_t maxFps = 60;                // frame cap, 30-360 (the physics tick rate)
     bool enhance = false;                // enhanced lighting post pass (experimental)
     bool skipIntro = false;              // straight to the title screen (no legal text or splash videos)
+    bool quickRace = false;              // Free Play > Quick Race by itself after boot (FM3_TOUR route; implies skipIntro)
     uint32_t language = 1;               // the console language the game sees (XGetLanguage: 1 English, 3 German, ...)
     uint32_t msaa = 1;                   // anti-aliasing samples per pixel: 1 (off), 2, 4 or 8
     uint32_t smaa = 0;                   // SMAA 1x on the frame as it is shown: 0 off, 1 low, 2 medium, 3 high, 4 ultra

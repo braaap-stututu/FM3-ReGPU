@@ -573,7 +573,12 @@ bool ReadPad(uint32_t user, PadState& s, bool gameRead = true)
         // running; at least 2 s), "RT:<seconds>" (hold the right trigger), "QUIT" (save
         // caches and exit). Each button press lasts 150 ms followed by a 600 ms gap.
         {
-            static const char* tourEnv = getenv("FM3_TOUR");
+            // quick_race=1 (settings.ini, launcher "Start in a quick race", FM3_QUICK_RACE=1) without FM3_TOUR: the route
+            // title > Free Play > Quick Race > manufacturer, car, track, assists & difficulty > race (session 17: reached
+            // the race ~55 s after launch with the intro skipped; generous gaps, as the presses are timed).
+            static const char* tourEnv = getenv("FM3_TOUR") ? getenv("FM3_TOUR")
+                : GetSettings().quickRace ? "WAIT:10,START,WAIT:8,DOWN,WAIT:1,A,WAIT:3,A,WAIT:4,A,WAIT:4,A,WAIT:4,A,WAIT:4,A,WAIT:4,A,WAIT:4,A"
+                : nullptr;
             struct Tour
             {
                 std::vector<std::string> steps;
@@ -859,13 +864,27 @@ GUEST_EXPORT(XamInputSetState)
 
 // Content packages (saves) --------------------------------------------------------------
 
+// XCONTENT_DATA's fileName (at +264, 42 bytes), cut at the first unprintable byte too (FM3-QUIRKS Q14: a name may be
+// followed by garbage).
+static std::string ContentFileName(uint32_t data)
+{
+    std::string name(GuestPtr<char>(data + 8 + 256), strnlen(GuestPtr<char>(data + 8 + 256), 42));
+    for (size_t i = 0; i < name.size(); i++)
+        if (name[i] < 0x20 || name[i] > 0x7E)
+        {
+            name.resize(i);
+            break;
+        }
+    return name;
+}
+
 GUEST_EXPORT(XamContentCreateEx)
 {
     // (user, rootName, XCONTENT_DATA*, flags, disposition*, license*, cacheSize, contentSize (u64), overlapped)
     const std::string root = GuestString(ctx.r4.u32);
     const uint32_t data = ctx.r5.u32;
     // XCONTENT_DATA: deviceId, contentType, displayName[128] (wide), fileName[42].
-    const std::string fileName(GuestPtr<char>(data + 8 + 256), strnlen(GuestPtr<char>(data + 8 + 256), 42));
+    const std::string fileName = ContentFileName(data);
     const uint32_t contentType = LoadBE32(data + 4);
     std::filesystem::path dir = ContentTypeDir(contentType) / fileName;
     std::error_code ec;
@@ -906,6 +925,9 @@ GUEST_EXPORT(XamContentCreateEx)
     if (shared)
         if (std::ifstream in(DlcDir() / (fileName + ".license")); in)
             in >> std::hex >> licenseMask;
+    // FM3_DLC_LICENSE_MASK=<hex> (e.g. FFFFFFFF, as hl360 grants): overrides the packages' own masks (Disc 2's are 0).
+    if (const char* v = getenv("FM3_DLC_LICENSE_MASK"); shared && v)
+        licenseMask = uint32_t(strtoul(v, nullptr, 16));
     StoreIfNonNull(ctx.r8.u32, licenseMask);
     FinishUi(ctx, StackArg(ctx, 8));
 }
@@ -933,7 +955,7 @@ GUEST_EXPORT(XamContentDelete)
 {
     // (user, XCONTENT_DATA*, overlapped)
     const uint32_t data = ctx.r4.u32;
-    const std::string fileName(GuestPtr<char>(data + 8 + 256), strnlen(GuestPtr<char>(data + 8 + 256), 42));
+    const std::string fileName = ContentFileName(data);
     std::error_code ec;
     if (!fileName.empty())
     {
@@ -1002,7 +1024,8 @@ GUEST_EXPORT(XamContentCreateEnumerator)
         for (const auto& package : std::filesystem::directory_iterator(DlcDir(), ec))
         {
             const std::string fileName = package.path().filename().string();
-            if (!package.is_directory() || fileName.size() > 42)
+            // Only finished installs: the installer (launcher Disc2.cs/Stfs.cs) writes <package>.license last.
+            if (!package.is_directory() || fileName.size() > 42 || !std::filesystem::exists(DlcDir() / (fileName + ".license"), ec))
                 continue;
             ContentItem item{ 2, {}, fileName };
             std::ifstream in(DlcDir() / (fileName + ".title"), std::ios::binary);
