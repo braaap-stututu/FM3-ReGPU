@@ -104,3 +104,98 @@ so player 2's input reaches the game, but only one user is ever signed in (`IsSi
 **First step:** start split screen with two pads and `FM3_TRACE_XAM=1`, to see whether FM3 accepts a signed-out
 player 2 or needs a second signed-in profile (not known). Then the rendering side: two viewports per frame, a path
 no ReGPU port has tested.
+
+## Frame rate with AI cars: ~200 fps in races vs ~300 in time trial (session 18, 2026-11-09)
+**Seen (user):** races with AI cars ~200 fps, time trial without AI ~300 fps (RX 7900 XTX, 1440p 4x MSAA, cap 360).
+That is 5.0 vs 3.3 ms a frame: AI cars add ~1.7 ms. Sources: FH1R (`FH1-ReImagined/ForzaHorizon1-ReImagined`,
+`docs/perf.md`, GPL-3: ideas only), PGR4-ReGPU, upstream ReGPU, the FM2/FM4 ports. Read only; nothing measured on FM3.
+
+**What we already know (OPEN-ISSUES P):** FM3's frame rate near cars follows the draw count: ~1,900 draws alone,
+3,200–3,600 with AI cars close (session 13); the game's render thread waits on ReGPU's command processor; at 1440p
+4x MSAA the GPU was ~90% busy after the draw thread (session 14). 1.7 ms over ~1,500 extra draws is ~1.1 µs a draw.
+
+**What the other ports found:**
+- **FH1R: cars cost draws and nothing else** ("Steam Deck frame collapses", `cbb26d4`). Free roam 2,865–3,144
+  draws; 8-car race pack 5,802 draws (+70–80%); each draw costs the same 1.7–1.8 µs whatever the scene; no
+  per-car textures, pipelines, render targets or evictions. "There is no per-car overhead of its own to remove."
+- **FH1R: the EDRAM tiles are the biggest cost.** FH1 draws its 4x MSAA scene in 3 tiles and the command
+  processor replays the scene once per tile: tile passes were 56–60% of its busy time. Their one-pass scene
+  (`scene_msaa=off`, a game hook) cut command-processor time 21%, GPU 13%, benchmark 119.5 → 137.4 fps (+15%).
+- **PGR4: ReGPU's tile merge** (`d0204cd`): 3,270 of 8,100 draws a frame were the second tile's copies; dropping
+  them took races ~63 → ~75 fps (+19%).
+- Other cars also caused hitches in FH1R (new pipelines waited for at the frame end, `664d33a`; first readbacks of
+  each car's 64x64 render targets, `bbddfee`); FH1R's AI/traffic cost on the CPU side is "the command processor
+  (more draws) and the audio mixer (more cars)".
+
+**The FM3 lead: our scene draws are recorded twice, AI cars included.** FM3 draws its 720p scene in two EDRAM
+tiles (rows 0–511, 512–719). ReGPU has the tile merge (`renderer.cpp` `TileMerge`, on by default,
+`REGPU_NO_TILE_MERGE=1` off), **but not with the draw thread** (`gpu.cpp` ~983: "Not with the draw thread yet:
+merged there, the second tile's area came out unrendered"), and the draw thread is FM3's default since session 14.
+PGR4's vendored ReGPU has the same restriction. So every scene draw of every AI car goes through the command
+processor and draw thread twice. Never measured on FM3.
+
+**Steps (ranked):**
+1. **Find the bound** in a paused race with AI cars: 1440p 4x vs 1280x720 1x (`out/user/settings.ini`, back up
+   first), `Fm3 "status"` fps and draws. If 720p is much faster, the GPU is the limit at 1440p, not draws.
+2. **Does the tile merge engage without the draw thread?** `set FM3_NO_DRAW_THREAD=1` (temporary `play.cmd`
+   line), grep the log for `tile merge: surface` (logged when a surface's tiles are learnt), compare race fps and
+   draws with the default. Then live `Fm3 "switch REGPU_NO_TILE_MERGE 1"` for its share.
+3. **Make the tile merge work with the draw thread** (a game-neutral ReGPU patch; PGR4 and upstream would
+   gain too: report it). Likely the biggest single lever near AI cars (PGR4 +19%, FH1R's equivalent +15%).
+4. **Per-draw cost cuts** from FH1R, as ReGPU patches (ideas, not code): reuse the previous draw's render-target
+   setup when unchanged (−7.3–7.5% command-processor time per 1,000 draws, 158 → 165 fps); check an atomic flag
+   before exchanging it (a locked `xchg` per draw was 3.6–3.9% of the command processor, `c1ad9cc`); descriptor
+   and binding reuse (−7.4% per draw, 133.4 → 147.3 fps); skipping unchanged constant writes measured **worse**.
+5. **Unmeasured switches already in our pin:** `REGPU_SUBMIT_DRAWS=512` (PGR4 FX 35.7 → 43.9 fps; FM2,
+   GPU-bound, lost 4–17%; skipped on workers, unknown with the draw thread), `REGPU_CONSTANTS_IN_RING` /
+   `Config::lowPerformance` (constants are FM3's biggest command-processor bucket; ~20% on an FX-8350, slower on
+   fast CPUs), `REGPU_UPLOAD_STABLE_REUSE` (FH1 +1–5%; risk: a buffer one frame stale).
+6. **Fewer AI-car draws** as a low-end option: FH1 gives only the two nearest other cars LOD0 (`f95b52c`). Find
+   FM3's car LOD selection (OPEN-ISSUES L) and offer a lower-detail setting for AI cars. Costs detail, not accuracy.
+
+Caveat: time trial differs from a race in more than AI cars (ghost car, field of cars at the start); compare the
+same track and camera, paused, as in session 14.
+
+## Performance on integrated GPUs and APUs (session 18, 2026-11-09)
+Low-end machines are limited on both sides: a GPU with shared memory bandwidth, and a 4-core laptop CPU sharing
+its power budget with that GPU. FH1R's per-draw command-processor cost on players' PCs: 1.5–1.6 µs (recent
+desktops), 2.2–2.9 (Zen 3 / Comet Lake), 3.6–3.8 (4-core Zen 1/2), ~6 (Ryzen 7 7730U laptop).
+
+**GPU side (ranked by expected gain):**
+1. **Render scale + upscaler** (in ReGPU already: `Config::upscaler` FSR1/FSR3/DLSS, quality 1.5/1.7/2/3x per
+   side, HUD at full resolution; FM3 wires it, launcher says "not yet tested on FM3"). FH1R's 540p scene: +44%
+   GPU-bound (35 → 50 fps). Test FM3's menus (PGR4 dropped FSR1: menu panels drawn twice at two scales, `dd2f4dd`);
+   FM4 forces MSAA off under FSR3/4 (`a09fc86`). Any upscaler turns the draw workers off (not the draw thread).
+2. **MSAA 1x** (launcher). FH1R: no gain when CPU-bound, real gain when GPU-bound.
+3. **iGPU defaults at first launch** (FM2 `0623b1f`: D3D12 UMA → 77% render scale + FSR1, sharpening 25; an
+   Iris Xe report: 42 fps at 720p). Port the detection into our launcher.
+4. **Texture budget:** PGR4's vendored ReGPU evicts unused textures past 1 GB (`REGPU_TEXTURE_BUDGET_MB`; without
+   it PGR4 reached 280,000 textures and ran out of heap). Our pin has no limit; on shared-memory iGPUs this matters
+   more. Unmeasured on FM3: log the texture count over a long session first.
+5. **Small GPU-side items:** `REGPU_LEAN_FETCH` (FH1 GTX 970 20.2 → 21.7 fps, PGR4 +1 fps); 16-bit pixel shaders
+   (section above, low priority).
+6. **Submission size on UMA GPUs:** FH1R ends a submission every 1,000 draws on shared-memory GPUs (device lost
+   6 of 46 starts without, 0 of 10 with: "a hint, not proof").
+
+**CPU side:**
+1. **Frame cap on iGPU machines:** an uncapped main loop takes the power budget the iGPU shares (FH1R #263:
+   164 loops a second on 2.9 cores). Default the cap to 60 (or the display rate) when a UMA GPU is detected.
+2. **Thread gating:** FM3 sets 3 draw workers and the draw thread with no core check (`src/gpu_host.cpp` ~165–186).
+   PGR4 enables workers only with ≥6 hardware threads and measured the draw thread at −7 fps on an FX; FH1R's
+   decoder/recorder split is on only with ≥6 cores (−11.4% on 4 cores in free roam). Measure on 4 cores; gate.
+3. **Sleeping GPU waits:** the render thread spins in D3D's ring/fence wait (`sub_824B5048`). FM2 `480e94a`:
+   render thread 100 → 36% of a core; FH1R: 86 → 45% and **+10% fps on a 4-core laptop** (no change on 8 cores).
+   Needs ReGPU to `WakeByAddressAll` after its guest writes (never done in our pin) plus an FM3 hook.
+4. **Present without waiting for the frame's replay** (FH1R `0414`): +15.3% uncapped on 4 cores, 0% when GPU-bound.
+   Check whether ReGPU's present has an equivalent wait.
+5. **Per-draw cuts** (previous section, step 4) help weak CPUs most.
+6. **Shader/pipeline warm-up:** FM3 uses neither ReGPU's pipeline seed (`Host::pipelineSeed`) nor
+   `REGPU_OPTIMIZE_SHADERS`; first-run hitches are worse on weak CPUs (PGR4 seeds 4,681 of 5,873 pipelines).
+7. **Code generation:** x86-64-v3 for the recompiled code (FH1R: CPU −5%, fps unchanged); low priority.
+
+**Memory (8 GB laptops):** FH1R found its XMA decoder pre-allocating 183 MB of codec contexts it mostly never used
+(race RSS 1,204 → 1,037 MB after the fix); our decoder keeps a codec pool too (FM2 `c830cbc`: up to ~120 MB): check.
+
+**Found in our code:** `src/settings.h` says its `Upscaler` numbers match ReGPU's, but our pinned ReGPU has no FSR 4
+(`regpu.h`: Off, Fsr1, Fsr3, Dlss), so `upscaler=fsr4` in `settings.ini` passes an out-of-range value 4
+(`gpu_host.cpp` ~55). The launcher doesn't offer FSR 4; only a hand edit hits it. Map it to Off or FSR3.
