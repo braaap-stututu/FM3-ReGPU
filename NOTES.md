@@ -404,6 +404,8 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-09 — session 18 (cloud: GitHub issues + sibling-port check, no code change)
+- GitHub: no issues filed on `braaap-stututu/FM3-ReGPU` (0 open, 0 closed). Checked the FM2 and FM4 ports' commits/notes against our open list; leads in OPEN-ISSUES.md "Sibling-port check". Best lead: **C1**: FM2 found the game reads DLC DB patches from a folder named after each DLC zip (`dlczips\<zip>\media\db\patch\`), which never existed, so no DLC patch ever ran (FM2 `eda8833`). Check with `FM3_TRACE_FILES=1` whether FM3 has the same gap with Disc 2. Also: D might be FM2's photo-mode composite clipped to one 4x MSAA tile (256 rows at 720p 4x); G: FM2 decodes engine streams per stream with no seek guard.
 ### 2026-11-09 — session 17 (intro skip, dev command line, Disc 2 install)
 - FM2 sibling checked: intro skip shortens the timed splash sequence; "into a race" there is only a pad script (`FM2_TOUR`, ported earlier as `FM3_TOUR`). FM3: same sequencer design (hooked, `boot_options.cpp`), and Turn 10's developer command line is still parsed in retail (string table at `82008400`–`82009400`), only fed an empty string: hooked to take `FM3_CMDLINE`.
 - Disc 2: subagent research (runtime mostly ready; installer missing), then launcher installer + runtime fixes; installed from the user's ISO, identical to hl360's copy; the game mounts all 8 packages.
