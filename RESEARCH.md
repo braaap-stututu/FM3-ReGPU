@@ -254,3 +254,82 @@ changes which adapter is the default.
 **Effort:** small and contained: ~60 lines in ReGPU (adapter choice, log, per-adapter library name) as patch 19,
 two exports in FM3, and a launcher setting with ~80 lines of DXGI P/Invoke. Testable on the user's PC
 (7900 XTX + the Ryzen iGPU if the CPU has one enabled).
+
+## Less RAM, VRAM and memory traffic for iGPUs/APUs (session 18, 2026-11-09)
+**Why it matters:** an iGPU has no VRAM of its own. "VRAM" is a carve-out of system RAM (often 512 MB–2 GB) plus
+shared system memory, and every texture read, render-target write and copy competes with the CPU for the same
+dual-channel DDR4/DDR5 bandwidth (~50–100 GB/s, against ~960 GB/s on the user's 7900 XTX). So on an iGPU, **bytes
+moved per frame** matter more than shader math. Read from ReGPU at our pin (`thirdparty/ReGPU/src/gpu/renderer.cpp`,
+`texture.cpp`) plus the other ports; nothing measured on an iGPU.
+
+### Where ReGPU spends memory and bandwidth today
+- **Render targets at twice the console's size per pixel.** Every EDRAM colour surface is `R16G16B16A16_FLOAT`
+  (`kColorFormat`, `renderer.cpp` ~319: 8 bytes a pixel, chosen so the 7e3 HDR format fits), and every depth surface
+  `D32_FLOAT_S8X24_UINT` (8 bytes). The console's are 4 bytes each (8888 / 2_10_10_10 / 7e3 colour, D24S8 depth).
+  Multiplied by host resolution² and host MSAA samples: at 1440p 4x MSAA one colour + depth pair is
+  2560×1440×4×16 B ≈ 236 MB, and every write, blend and resolve moves those bytes. At 720p 1x it is ~15 MB.
+- **Texture uploads go through four memory passes.** The CPU reads guest memory, untiles and writes the blocks into
+  the frame's upload ring (`CopyTextureBlocks`), then the GPU reads the ring and writes a texture in a default heap
+  (`CopyTextureRegion`, ~5240–5290). On a dedicated GPU the last write lands in VRAM; on an iGPU all four passes hit
+  the same system RAM. DXT1/3/5, DXT5A and DXN stay block-compressed (BC1–BC5), which is good. **Small uncompressed
+  formats are expanded to 4 bytes a texel on the CPU** (`DecodeTexel`: k_8, k_8_8, k_5_6_5, k_1_5_5_5, k_4_4_4_4 →
+  RGBA8: 2–4x their size).
+- **Upload rings: 3 × 128 MB** of upload heap (system memory), one per frame in flight (`kFrames = 3`), or
+  **3 × 384 MB = 1.15 GB** when guest memory can't be mapped for the GPU (the copy path; ~2010). They grow on
+  demand to 2 GB (`kRingMax`). `REGPU_RING_MB` / `Config::uploadRingMB` set the start size.
+- **Guest memory mapped for the GPU** (zero-copy, `OpenExistingHeapFromFileMapping` / `...FromAddress`, ~1753–1791):
+  vertex and index data are read in place. **On an iGPU this is the ideal path** (no copies). On a dedicated GPU the
+  GPU reads them over PCIe each frame; FM2 still measured it faster than copying (211 vs 150 fps).
+- **Change detection** samples guest textures with `ContentHash` (a 256-byte stride, not every byte), staggered over
+  frames (`REGPU_TEXTURE_CHECK_STAGGER`, an FM3 default): already light.
+- **No texture budget:** the texture cache (`textures`, `cubes`, `volumes`, `mipChains` maps) never evicts unused
+  textures; PGR4's vendored ReGPU added a 1 GB budget after reaching 280,000 textures.
+- **ReGPU never asks the OS for its memory budget** (`IDXGIAdapter3::QueryVideoMemoryInfo`), so nobody sees an iGPU
+  running past its carve-out into shared memory (slower again, and the cause of FH1R's black textures and driver
+  timeouts on small carve-outs, `bccb7fd`, `11496a5`).
+
+### What the other ports did
+- **FH1R** (`docs/perf.md` "Memory ... for 8 GB PCs", #640): XMA decoder pre-allocated 183 MB of codec contexts it
+  mostly never used (race RSS 1,204 → 1,037 MB after the fix); no NVIDIA driver pipeline file (private bytes
+  3.29 → 2.72 GB); render targets sized to the rows actually drawn (est. 250 MB) and a 192 MB texture cache
+  (both unmeasured); on small carve-outs new textures go to system memory when the carve-out is nearly full
+  (`bccb7fd`), and submissions end every 1,000 draws on UMA GPUs against driver timeouts (`11496a5`).
+- **PGR4:** texture eviction past a budget (`REGPU_TEXTURE_BUDGET_MB`, default 1 GB, `REGPU_NO_TEXTURE_EVICT`).
+- **FM2:** the vertex arena keeps large vertex buffers on the GPU when guest memory can't be mapped (GPU
+  3.34–3.55 → 2.59–2.97 ms, `a6edeb7`), and detects changes by write-watching pages instead of hashing
+  (`0c9a747`); the launcher's first-run iGPU defaults (77% scale + FSR1).
+
+### Options, ranked (gain for iGPUs vs effort)
+1. **Measure first (small, ReGPU):** log `QueryVideoMemoryInfo` (local and non-local: budget and usage) every
+   ~10 s and at loads, the upload ring's peak (`g_ringPeak`) and the texture count. One run on an iGPU then shows
+   whether FM3 overruns the carve-out and how big the ring really needs to be.
+2. **Settings (no code, biggest effect):** render scale + FSR and MSAA 1x cut render-target bytes with the pixel
+   and sample count (1440p 4x → 720p 1x is 16x fewer). These are the iGPU defaults to ship (section
+   "Performance on integrated GPUs and APUs").
+3. **Smaller upload rings on iGPUs (small):** the launcher sets `REGPU_RING_MB` (e.g. 32–64) when the GPU is UMA,
+   once step 1 shows the real peak; the ring still grows if a frame needs more. Saves ~200–300 MB of RAM (more on
+   the copy path).
+4. **Texture budget with eviction (medium, port from PGR4):** keeps the carve-out from overflowing over long
+   sessions. On UMA, set the budget from `QueryVideoMemoryInfo` instead of a fixed 1 GB.
+5. **Native small formats (small–medium):** upload k_8 as `R8_UNORM`, k_8_8 as `R8G8_UNORM`, 565/1555/4444 as
+   `B5G6R5`/`B5G5R5A1`/`B4G4R4A4_UNORM` with the component mapping done in the SRV (`Shader4ComponentMapping`)
+   instead of expanding to RGBA8 on the CPU. 2–4x smaller and faster to upload for those textures. First count
+   how many FM3 uses (a capture's texture list).
+6. **Untile on the GPU (medium–large):** a compute shader reads the tiled texture straight from the mapped guest heap
+   and writes the texture: two memory passes instead of four, and no CPU time per upload. Helps loads and streaming
+   (hitches when new cars or track sections appear) more than steady fps. Xenia does it this way.
+7. **Write textures in place on UMA (medium):** on `CacheCoherentUMA` GPUs (`D3D12_FEATURE_ARCHITECTURE`), place
+   textures in a CPU-writable custom heap and write them directly (`WriteToSubresource`), skipping the ring copy.
+   Driver support varies; keep the ring path as fallback.
+8. **Half-size render targets where the console format allows (large, risky):** choose the host format per surface
+   from the guest's (8888 → `R8G8B8A8_UNORM`, 2_10_10_10 → `R10G10B10A2_UNORM`; 7e3 → `R11G11B10_FLOAT` when
+   alpha is unused, else 16F; D24S8 → `D24_UNORM_S8_UINT` on NVIDIA/Intel). Halves render-target bandwidth, but
+   ReGPU uses one format everywhere because EDRAM is aliased (the same bytes read as another format by a later
+   pass, depth read as 8888, resolves): every alias needs a conversion. Only after a GPU profile shows render
+   targets as the bound.
+9. **RAM (8 GB laptops):** check our XMA codec pool against FH1R's 183 MB finding (FM2's pool grew to ~120 MB,
+   `c830cbc`); keep the pipeline library compacted (ReGPU does already); size render targets to the rows drawn
+   (FH1R's idea).
+
+Not worth it: replacing the zero-copy mapping (already ideal on UMA), finer change detection (already sampled
+and staggered), 16-bit shader math for bandwidth (section above: it saves registers, not memory traffic).
