@@ -388,3 +388,83 @@ downsampled (`8432b90`), and a note that shadow cascades fitted to the 16:9 frus
    sides, cockpit instruments if step 1 shows them distorted, and a launcher FOV slider (`REGPU_WIDE_FOV`).
 
 **Effort:** step 1 is a play test; steps 2–3 are about a session (one hook plus the scan); menus and HUD work after.
+
+## Shaders: precompilation, decompilation, discovery tools and building (session 18, 2026-11-09)
+
+### How ReGPU builds shaders today (our pin)
+1. **Find the microcode:** from the command stream when a draw binds it; ahead of use by scanning guest memory for
+   the shader objects a level load creates (`src/gpu/shader_scan.cpp`: the IM_LOAD_IMMEDIATE packets, header
+   `0xC0nn2B00`, embedded in each object); and optionally from a list of every shader in the game's files
+   (`Host::staticShaders`, compiled on first boot behind a boot screen).
+2. **Translate** Xenos microcode to HLSL (`hlsl.cpp`; vertex shaders are keyed with their vertex-fetch fields
+   masked, since the title patches fetch fields into copies at load).
+3. **Compile** with FXC (`d3dcompiler_47`) to DXBC shader model 5.1, first with `D3DCOMPILE_SKIP_OPTIMIZATION`
+   (fast; `renderer.cpp` ~3516) so the draw isn't held long, cached per shader in `Config::userDir`.
+   `REGPU_OPTIMIZE_SHADERS` (+ `REGPU_OPTIMIZE_THREADS`) rebuilds them with `OPTIMIZATION_LEVEL1` in the
+   background (~3311–3380). **FM3 has never measured it.** GPU drivers optimise DXBC again when they turn it into
+   GPU code, so the gain is unknown (larger on weaker driver compilers, possibly Intel's).
+4. **Pipelines** (shader pair + render state) through `CreateGraphicsPipelineState`, stored in the pipeline
+   library (`pipelines.bin`, compacted, keyed by driver) and listed in `pipelines.manifest` (hashes and render
+   state only, no game data). **Lookahead** (`gpu.cpp`, `REGPU_NO_LOOKAHEAD=1` off) walks the commands queued
+   behind a draw that needs a new pipeline and builds the whole set together. FH1R adopted the idea and measured
+   worst frames 518 → 134 ms on a cold cache (`docs/perf.md` "Pipelines built ahead of their draws").
+5. Draws wait for their shaders by default (`REGPU_ASYNC_SHADERS`, `REGPU_ASYNC_PIPELINES` opt-in: skip instead).
+   FM3-QUIRKS Q-shader notes hl360 needed `async_shader_compilation = false` for the same reason (skipped draws
+   show as missing objects).
+6. `Host::pipelineSeed`: a shipped pipeline list built once on first boot (those needing a run-time shader are
+   built once it exists).
+
+**FM3 uses neither `staticShaders` nor `pipelineSeed`** (`src/gpu_host.cpp`; session 7: "Not copied: boot screen,
+static shader scan (`.fxobj`), pipeline seed"). So every shader and pipeline is first met in play: the
+"first-time shader compile" stalls in the session-7 race load (up to 1.37 s) and spikes in the first race.
+
+### What the other ports ship
+- **FM4** (`src/static_shaders.cpp`, 247 lines): its shaders are in `.fxobj` effect files, loose under
+  `Media/Shaders` and inside each track's `bin.zip` (LZX, zip method 21), 4-byte aligned without a packet header,
+  plus a few dozen in the executable. A candidate counts as a shader when its control flow decodes cleanly (valid
+  opcodes to an end flag, first exec address = control-flow length, exec ranges tiling the instruction slots).
+  The list is saved so later boots skip the search. **FM3 already has the pieces it needs** (`src/zip.cpp`,
+  `src/lzx.cpp`); FM3 is the same Turn 10 engine generation, so its data very likely uses `.fxobj` too (check).
+- **PGR4** (`src/gpu/static_shaders.cpp`, `pipeline_seed.h`, `boot_screen.cpp`): static shaders plus a pipeline
+  seed generated from **players' uploaded manifests** (`tools/pipeline_seed.py`: 6,529 pipelines from 658
+  manifests, 220 vertex-shader variants); first-boot seed coverage 4,681 of 5,873 pipelines once vertex-shader
+  variants were precompiled too (`58e81a2`).
+- **FM2** (`da37c3c`): the 33 vertex shaders every player compiled during play come precompiled.
+- **FH1R** (`docs/rendering.md`): first start compiles all 1,688 game shaders behind a boot screen, then the
+  1,183 seed pipelines; later starts load them in ~20 s. On a 4-core i5-10300H: 488 s for shaders + 70 s for
+  pipelines (~10 minutes), so show progress and make it a one-time cost.
+
+**Don't ship compiled shaders.** DXBC/DXIL translated from the game's microcode is derived game data. The ports
+compile on the player's machine and ship only manifests (hashes and render state).
+
+### Discovery and decompilation tools
+| Tool | What it does for us | Where |
+|---|---|---|
+| `tools/scanshaders.py` (ReGPU) | Finds shader objects in the game data offline (loose files and zips; IM_LOAD packets), writes JSON. Python's `zipfile` can't read LZX (method 21) zips: for those, FM4's C++ scanner. | `thirdparty/ReGPU/tools/` |
+| `tools/xenos_dis.cpp` (ReGPU) | Xenos microcode disassembler | same |
+| Debug server (`tools/fm3ctl.ps1`) | `capture` (each draw's vs/ps hashes, textures), `hlsl <hash> <file>` (the translated HLSL), live `ps`/`vs` edits | ours |
+| `pipelines.manifest` | Every pipeline a session built (hashes + state): the raw material for a seed | `out/user` (ReGPU user dir) |
+| **XenosRecomp** (hedge-dev, MIT) | Converts Xbox 360 shader binaries to HLSL offline, using the XDK shader container's **reflection data** (named constant registers), compiled with DXC to DXIL/SPIR-V. Built for Unleashed Recompiled's translation-layer renderer, "do not expect it to work out of the box". For us: **readable HLSL with named constants** to understand FM3's effects (if `.fxobj` holds those containers); not a runtime path for ReGPU (no EDRAM model, game-specific vertex fetch). | `github.com/hedge-dev/XenosRecomp` |
+| Xenia (`--dump_shaders`, `xenia-gpu-shader-compiler`) | Dumps each shader's microcode, disassembly and its own translation; the standalone compiler turns a microcode file into disassembly/DXBC/SPIR-V. A second opinion when our translation looks wrong. | Xenia source (BSD) |
+| RenderDoc 1.47 (installed) | D3D12 frame capture: pipeline state, DXBC disassembly, shader debugging of our translated shaders | local |
+| PIX on Windows | Per-draw GPU timing and occupancy: which translated shaders cost the most | Microsoft |
+| Radeon GPU Analyzer / Profiler | Compiles DXBC/HLSL offline to RDNA3 ISA with VGPR count and occupancy; RGP times a frame on the user's 7900 XTX | AMD GPUOpen |
+| Intel GPA, NVIDIA Nsight Graphics | The same for Intel iGPUs and GeForce cards | vendors |
+| `fxc /dumpbin`, `dxc -dumpbin` | Disassemble a cached DXBC/DXIL file | Windows SDK |
+
+### Options for building shaders, ranked
+1. **Port FM4's static shader scan** (`Host::staticShaders`) with a boot screen: first boot compiles every
+   shader in the game files; no first-play compile stalls. First check FM3's data for `.fxobj` (or run
+   `scanshaders.py` on the extracted game; LZX zips need the C++ path). Effort: about a session (FM4's 247 lines
+   plus FM3 paths; the zip/LZX readers are already ported).
+2. **Pipeline seed** (`Host::pipelineSeed`): collect `pipelines.manifest` from the user's play sessions (and any
+   testers'), merge with a small script as PGR4's `tools/pipeline_seed.py` does, embed as a header. Precompile the
+   vertex-shader variants the manifests name (PGR4 `58e81a2`). Effort: small once step 1 exists.
+3. **Measure `REGPU_OPTIMIZE_SHADERS`** (GPU time on the 7900 XTX and, later, an iGPU): a free A/B.
+4. **Profile translated shaders** with RGA/RGP: the heaviest pixel shaders by VGPRs and time point at translator
+   improvements (and tell whether the 16-bit idea above would pay at all).
+5. **DXC / shader model 6** instead of FXC (large): often faster compiles on big shaders, DXIL, 16-bit types and
+   wave ops, but a new cache format and shipping `dxcompiler.dll` + `dxil.dll`. Not in any ReGPU branch yet
+   (upstream `engine-optimisation` only adds `REGPU_OPTIMIZE_LEVEL` for FXC, untested).
+6. **Emit DXBC/DXIL directly** from microcode, as Xenia's D3D12 backend does (no compiler, near-instant
+   shaders): the fastest possible first boot, but a rewrite of the translator. Not recommended for this project.
