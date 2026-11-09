@@ -10,6 +10,8 @@ set "REGPU_DEBUG=1"
 rem Profile: "Baseline" (out\user\profiles\Baseline), a copy of hl360's Baseline save with its XUID, used since
 rem session 11; the old "Player" profile has a damaged save (issue H). Set FM3_PROFILE before running to pick another.
 if not defined FM3_PROFILE set "FM3_PROFILE=Baseline"
+rem Test runs skip the intro movie (session 18). Set FM3_SKIP_INTRO=0 before running to see it.
+if not defined FM3_SKIP_INTRO set "FM3_SKIP_INTRO=1"
 if not exist "%ROOT%build\rel\fm3.exe" (
     echo build\rel\fm3.exe is missing: build it first ^(README.md^).
     pause
