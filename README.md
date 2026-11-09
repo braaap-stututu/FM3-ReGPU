@@ -11,7 +11,7 @@ No game data is in this repository. You need your own disc dump.
 
 ## Status
 
-**"Playable."** The game boots, can run and finish the audi r8 race and do career races. Performance on my 9800X3D and 7900XTX at 1440p native with 4x MSAA currently hovers around 180-200fps in races when around ai cars and maxes out at around 300fps in time trial or if no ai cars are visible/near . Controller and keyboard work. Wheel support integrated from my FM4 fork but not yet tested. The random crash on some race loads (an AI driver with an empty name) has a workaround and hasn't come back; its cause is still being looked into. Vinyls cover nearly the whole car now, with small gaps at the edges of some cars. Always make regular backups. Running log and roadmap: [NOTES.md](NOTES.md);
+**"Playable."** The game boots, can run and finish the audi r8 race and do career races. Performance on my 9800X3D and 7900XTX at 1440p native with 4x MSAA currently hovers around 180-200fps in races when around ai cars and maxes out at around 300fps in time trial or if no ai cars are visible/near . Controller and keyboard work. Wheel support integrated from my FM4 fork but not yet tested. The random crash on some race loads (an AI driver with an empty name) has a workaround and hasn't come back; its cause is still being looked into. Vinyls cover nearly the whole car now, with small gaps at the edges of some cars. Disc 2 (the Content Install Disc: 6 car packs, 2 track packs) installs from its disc image and works in game. Optional: skip the intro, or start straight into a quick race. Always make regular backups. Running log and roadmap: [NOTES.md](NOTES.md);
 game-specific quirks: [FM3-QUIRKS.md](FM3-QUIRKS.md).
 
 Fixed so far (all confirmed in game):
@@ -30,13 +30,13 @@ Fixed so far (all confirmed in game):
 | Low frame rate near other cars (~70 fps at 1440p 4x MSAA) | fence waits and a busy command processor | fence/draw-thread defaults in `src/gpu_host.cpp`, ReGPU patch `regpu-early-fence-writebacks` |
 
 Known issues and not yet checked:
-- Photo mode shows a whitened band over the top third of the image (not seen in races).
-- Disc 2 DLC, profiles, most tracks are untested. Career mode looks to be working but i haven't done much testing in this regard.
+- Photo mode and the pre-race camera show a whitened band over the top third of the image (not seen while driving).
+- Disc 2: tested with Fujimi Kaido and the Pagani Zonda R; its decals may look lower resolution than expected (not compared with console yet). Profiles and most tracks are untested. Career mode looks to be working but i haven't done much testing in this regard.
 - The game can hang when alt-tabbing out during a race.
 - Small vinyl gaps at the edges of some cars (Scion, Fiat, Supra rear bumper).
 - The first seconds of a race after a shader-cache rebuild can run at 30–36 fps.
 - Other hardware than my own all AMD win11 build.
-- The launcher covers settings and profiles; game import, DLC packs and photos are not ported from the FM4 launcher yet. Current focus is visual parity with console before adding more features.
+- The launcher covers settings, profiles and the Disc 2 install; game import and photos are not ported from the FM4 launcher yet. Current focus is visual parity with console before adding more features.
 
 Each fix can be switched off for comparison; the switches and details are in [NOTES.md](NOTES.md) and
 [patches/README.md](patches/README.md).
@@ -48,6 +48,7 @@ Each fix can be switched off for comparison; the switches and details are in [NO
 - An FFmpeg win64 **LGPL shared** build in `thirdparty/ffmpeg` (`include/`, `lib/`, `bin/`), e.g.
   `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases)
 - The Disc 1 files of your own copy (the folder with `default.xex` and `Media`)
+- Optional: your Disc 2 image (`.iso`) for the extra cars and tracks (about 3.4 GB once installed)
 
 ## Build
 ```powershell
@@ -69,11 +70,23 @@ The first boot compiles shaders, so expect stutter until the cache is built.
 
 **Launcher** (`launcher/FM3Launcher`, ported from the FM4 ReGPU launcher; needs the .NET 9 SDK to build):
 `dotnet build launcher\FM3Launcher -c Release`, or double-click `launcher.cmd`, which builds it if needed and
-uses the same folders as `play.cmd`. Tabs: **Play** (game folder, `default.xex` check, language, Play),
+uses the same folders as `play.cmd`. Tabs: **Play** (game folder, `default.xex` check, Disc 2 content install,
+language, skip intro, start in a quick race, Play),
 **Profiles** (switch, create, duplicate, rename, back up, restore, export, import, delete), **Graphics**
 (resolution, aspect, fullscreen, frame cap, VSync, MSAA, FSR 1/3, anisotropy) and **Settings** (shader cache,
 folders, test timer, debug server, performance log). It edits `settings.ini` in the user folder and starts
 `fm3.exe` from `out\run`. `FM3Launcher.exe --play` starts the game with the saved settings, without the window.
+
+**Disc 2:** on the launcher's Play tab, "Disc 2 content" > "Install from .iso…" (or "From folder…" for an
+extracted disc or the package files), or run `install-disc2.cmd <Disc 2 .iso>` (without an argument it takes the
+`*Disc 2*.iso` next to it). The 8 content packages are unpacked into `dlc\` in the user folder; the game mounts
+them after you press Start at the title screen. Close the game first.
+
+**Intro and quick start:** `skip_intro=1` in `settings.ini` (launcher: "Skip intro") goes straight to the title
+screen. `quick_race=1` ("Start in a quick race") also goes through Free Play > Quick Race by itself and starts a
+race about a minute after launch; don't press anything until it loads. For developers: `FM3_CMDLINE` passes
+Turn 10's developer command-line options to the game (see `src/hooks/boot_options.cpp`; its `launch` option
+doesn't work in the retail game).
 
 Keyboard: Return = A, Backspace = B, Space = X, Y = Y, Escape = Start, Tab = Back, arrow keys = D-pad,
 W / S = throttle / brake, A / D = steer, Q / E = LB / RB, J L I K = right stick. Controllers work through XInput.
@@ -85,6 +98,7 @@ W / S = throttle / brake, A / D = steer, Q / E = LB / RB, J L I K = right stick.
 | `config/` | XenonRecomp config and switch tables for `default.xex` |
 | `patches/` | 5 XenonRecomp + 18 ReGPU patches, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
 | `src/` | Runtime: kernel/XAM, loader, threads, fibers, audio, ReGPU host glue ([src/README.md](src/README.md)) |
+| `install-disc2.cmd` | Installs Disc 2's content packages from the disc image (same as the launcher's Disc 2 tile) |
 | `play.cmd` | Development launcher (debug server on, saves in `out/user`, log in `out/run`) |
 | `launcher/FM3Launcher`, `launcher.cmd` | The launcher (C#, .NET 9, Photino/WebView2) and its dev start script |
 | `boot hl360.cmd` | Starts the hl360 (ReXGlue) baseline build used for comparisons, if you have it under `reference/` |

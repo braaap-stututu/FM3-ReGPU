@@ -12,7 +12,7 @@
 5. **Tools:** `Fm3 "env FM3_DUMP_THREADS <n>"` logs every thread's host stack (any new value = one dump; `LogAllHostThreadStacks`). `FM3_TRACE_FILES=1` + `FM3_TRACE_XAM=1` show file opens / XAM calls (the XAM trace hits its 300-line limit within ~2 s on the per-frame polls).
 6. **Seen again, not new:** OPEN-ISSUES D (lighter band over the top of the 3D view) on the pre-race camera at Amalfi and Catalunya.
 
-**First thing next session:** ask the user how quick_race behaves on their PC and whether Disc 2 cars work, then the ranked list below (C1, alt-tab hang, ...).
+**First thing next session:** ask the user which topic. Open from session 17: the Zonda R decal-resolution lead (same car/view in hl360 vs ours), quick_race on the user's normal settings, the Nordschleife. Then the ranked list: (a) C1 (now with and without Disc 2: pack 0045's `4069_merge.slt`), (b) alt-tab hang, (c) early-fence write-back bug upstream, (d) wheel test, (e) LOD distances (L); launcher game import/photos, vinyl leftovers, OPEN-ISSUES D/F/G. README.md was updated for session 17 (Disc 2, skip intro, quick race).
 
 ### Session 16 start-here (kept for reference)
 All work is committed and pushed (`main`). **Session 16 fixed three bugs, all confirmed in your play test ("no issues so far")**, with 3 new ReGPU patches (18 now):
