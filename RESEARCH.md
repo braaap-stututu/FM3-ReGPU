@@ -199,3 +199,58 @@ desktops), 2.2–2.9 (Zen 3 / Comet Lake), 3.6–3.8 (4-core Zen 1/2), ~6 (Ryzen
 **Found in our code:** `src/settings.h` says its `Upscaler` numbers match ReGPU's, but our pinned ReGPU has no FSR 4
 (`regpu.h`: Off, Fsr1, Fsr3, Dlss), so `upscaler=fsr4` in `settings.ini` passes an out-of-range value 4
 (`gpu_host.cpp` ~55). The launcher doesn't offer FSR 4; only a hand edit hits it. Map it to Off or FSR3.
+
+## Choosing the GPU in the launcher (session 18, 2026-11-09)
+**Goal:** pick which GPU (dedicated card or integrated GPU/APU) the game renders on, from the launcher.
+
+**Today:** ReGPU creates its device with `D3D12CreateDevice(nullptr, ...)` (`thirdparty/ReGPU/src/render/presenter.cpp`
+~129): the default adapter, adapter 0 in DXGI's list. Neither FM3 nor ReGPU enumerates adapters or exports the
+hybrid-laptop hints, and the launcher has no GPU code. On a laptop with Optimus or AMD switchable graphics the game
+can end up on the integrated GPU. Windows' own per-app choice (Settings → Display → Graphics, stored under
+`HKCU\Software\Microsoft\DirectX\UserGpuPreferences` as `GpuPreference=1;` power saving / `2;` high performance)
+changes which adapter is the default.
+
+**What the other ports did:**
+- **FH1R** (`docs/rendering.md`, commit `3cf09e1`): a GTX 1050 + UHD 630 laptop rendered on the Intel GPU and lost
+  the device at the intro. Their ReGPU plugin now takes the first adapter in DXGI's **high-performance order**,
+  `REGPU_ADAPTER=<n>` picks another, and the log names the adapter in use. Their launcher lists the GPUs
+  (`launcher/forza_launcher/gpu.py`: `Win32_VideoController` through PowerShell, `lspci`/sysfs on Linux) and passes
+  the card chosen in Settings (`--gpu_vendor`: nvidia/amd/intel or a PCI id; fallback: most dedicated memory).
+  They note a plugin DLL can't export `NvOptimusEnablement` for the exe; **we own `fm3.exe`, so we can.**
+- **FM2** (`launcher/FM2Launcher/SystemCheck.cs`): the launcher calls `D3D12CreateDevice` itself through P/Invoke and
+  asks `D3D12_FEATURE_ARCHITECTURE` whether the default GPU is UMA (integrated), to choose first-run iGPU defaults.
+  The same approach lists every adapter (DXGI `EnumAdapters1` + `GetDesc1`) without a helper exe.
+
+**Design (four parts):**
+1. **ReGPU (game-neutral patch):** before `D3D12CreateDevice`, enumerate with `IDXGIFactory6::EnumAdapterByGpuPreference(
+   DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE)` (falls back to `EnumAdapters1`), skip software adapters
+   (`DXGI_ADAPTER_FLAG_SOFTWARE`, WARP), and choose by `REGPU_ADAPTER`: empty = first in high-performance order;
+   `<n>` = index in that order; `vendor:device` (hex PCI ids) or a name substring = that card. Fall back to the first
+   on no match, and log every adapter (name, vendor/device id, dedicated and shared memory, UMA) and the chosen one.
+   Store the pipeline library per adapter (`pipelines-<vendor>-<device>.bin`): today one `pipelines.bin` is
+   rejected by the other GPU's driver and rebuilt, so switching back and forth rebuilds every time. The DXBC shader
+   cache (FXC output) is GPU-independent and can stay shared.
+2. **fm3.exe:** export `NvOptimusEnablement = 1` and `AmdPowerXpressRequestHighPerformance = 1` (two
+   `extern "C" __declspec(dllexport)` globals), so "Automatic" means the dedicated GPU on hybrid laptops even when
+   the driver profile would pick the integrated one. An explicit `REGPU_ADAPTER` still overrides.
+3. **Launcher:** a Graphics setting "GPU": *Automatic (fastest)* plus one entry per adapter, e.g.
+   "AMD Radeon RX 7900 XTX (24 GB)", "AMD Radeon Graphics (integrated, shared memory)". Listed in C# with DXGI
+   P/Invoke as FM2's `SystemCheck.cs` does (factory → `EnumAdapters1` → `GetDesc1`; UMA via
+   `D3D12_FEATURE_ARCHITECTURE` on a device made on that adapter). Save it in `settings.ini` as
+   `gpu=<vendor>:<device>` plus the name; **not the LUID, which changes at every boot**. Pass it as `REGPU_ADAPTER`
+   (as `Install.cs` already passes `REGPU_NO_ANISO`). Grey out DLSS unless the chosen GPU is NVIDIA; choosing an
+   integrated GPU can offer the iGPU defaults (RESEARCH "Performance on integrated GPUs and APUs").
+4. **The log line** `gpu: ReGPU at WxH, msaa N` gains the adapter name, so A/B runs show which GPU ran.
+
+**Caveats:**
+- **Monitor on one GPU, game on the other:** on a desktop with the monitor on the card, rendering on the iGPU
+  makes Windows copy each frame across to the display GPU (and the reverse). It works (flip-model swap chains are
+  cross-adapter capable) but costs latency and bandwidth: show a note in the launcher. On hybrid laptops this is the
+  normal path.
+- **A GPU that disappears** (eGPU unplugged, driver reset) falls back to Automatic with a log line, not a crash.
+- Windows' per-app setting stays as a fallback the user can also use; the launcher doesn't need to write that
+  registry key.
+
+**Effort:** small and contained: ~60 lines in ReGPU (adapter choice, log, per-adapter library name) as patch 19,
+two exports in FM3, and a launcher setting with ~80 lines of DXGI P/Invoke. Testable on the user's PC
+(7900 XTX + the Ryzen iGPU if the CPU has one enabled).
