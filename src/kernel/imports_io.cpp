@@ -14,6 +14,7 @@
 #include "kernel/vfs.h"
 
 namespace fs = std::filesystem;
+std::string CurrentHostStack(int maxFrames); // crash.cpp
 
 void AudioNoteMusicRead(const std::filesystem::path& file, uint64_t offset, const uint8_t* data, uint32_t bytes); // audio/xma.cpp
 
@@ -391,8 +392,9 @@ GUEST_EXPORT(NtReadFile)
     }
     static const char* traceReads = getenv("FM3_TRACE_READS");
     if (traceReads && strstr(file->path.string().c_str(), traceReads))
-        Log("io: read %s offset %llu length %u -> %08X (handle %08X, offset ptr %08X, sync %d, thread %u)", file->path.filename().string().c_str(),
-            (unsigned long long)offset, length, buffer, ctx.r3.u32, offsetPtr, int(file->synchronous), CurrentGuestThreadId());
+        Log("io: read %s offset %llu length %u -> %08X (handle %08X, offset ptr %08X, sync %d, event %08X, thread %u): %s",
+            file->path.filename().string().c_str(), (unsigned long long)offset, length, buffer, ctx.r3.u32, offsetPtr, int(file->synchronous),
+            ctx.r4.u32, CurrentGuestThreadId(), CurrentHostStack(8).c_str());
     static const uint32_t watchIo = getenv("FM3_WATCH_IO") ? uint32_t(strtoul(getenv("FM3_WATCH_IO"), nullptr, 16)) : 0;
     if (watchIo && (watchIo & 0x1FFFFFFF) - (buffer & 0x1FFFFFFF) < length)
         Log("io: read into watched %08X: %s offset %llu length %u buffer %08X (lr %08llX)", watchIo, file->path.string().c_str(),
@@ -553,6 +555,9 @@ GUEST_EXPORT(NtSetInformationFile)
     {
     case 14: // FilePositionInformation
         file->position = LoadBE64(info);
+        if (static const char* traceReads = getenv("FM3_TRACE_READS"); traceReads && strstr(file->path.string().c_str(), traceReads))
+            Log("io: seek %s to %llu (handle %08X, thread %u): %s", file->path.filename().string().c_str(),
+                (unsigned long long)file->position, ctx.r3.u32, CurrentGuestThreadId(), CurrentHostStack(8).c_str());
         break;
     case 19: // FileAllocationInformation
     case 20: // FileEndOfFileInformation

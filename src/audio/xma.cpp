@@ -223,13 +223,34 @@ bool NoCodecPool()
 
 // Whether a codec for ch/hz can be taken now for context ctx. If not, the decoder thread opens one before its next
 // pass (one per waiting context: the title polls a waiting one thousands of times).
+// FM3's music (session 18): the streamer starts a track by enabling and disabling its context in a tight loop on its
+// own thread (XMAEnableContext steps it each time), expecting the hardware to decode at once, and gives up after
+// ~2.4 ms (386 tries) when the read offset doesn't move: no music for the whole session, since each try only
+// waited for the pool. A context stepped kStepsBeforeInPlace times in a row while waiting gets its codec opened in
+// place (TakeCodec's fallback) instead; an engine sound starting is stepped once or twice before the next pass, so
+// the race start keeps the pool. FM3_XMA_POOL_WAIT_ALWAYS=1: always wait (the old behaviour, A/B).
+constexpr uint32_t kStepsBeforeInPlace = 8;
+std::map<uint32_t, uint32_t> g_waitSteps; // context -> steps that found no codec in a row
+
 bool CodecReady(uint32_t ctx, uint32_t ch, uint32_t hz)
 {
     if (NoCodecPool())
         return true;
     std::lock_guard lock(g_poolMutex);
     if (!g_codecPool[{ ch, hz }].empty())
+    {
+        g_waitSteps.erase(ctx);
         return true;
+    }
+    static LiveSwitch waitAlways("FM3_XMA_POOL_WAIT_ALWAYS");
+    if (++g_waitSteps[ctx] >= kStepsBeforeInPlace && !waitAlways)
+    {
+        static std::atomic<int> budget{ 20 };
+        if (budget.fetch_sub(1) > 0)
+            Log("xma: %08X stepped %u times waiting for a %u-channel codec: opened in place", ctx, g_waitSteps[ctx], ch);
+        g_waitSteps.erase(ctx);
+        return true;
+    }
     g_codecsWanted[{ ch, hz }].insert(ctx);
     g_poolWaits++;
     return false;
@@ -821,7 +842,12 @@ bool Step(uint32_t ctx)
         // after the last packet of the previous one. Anything else (a loop, a restart elsewhere in the stream)
         // must not inherit the old tail: it would be joined to the new packet's start and decode as garbage.
         // Reads that do follow (the pair restarts the title makes) keep the codec state. FM3_NO_XMA_SEEK_GUARD=1: off.
-        static LiveSwitch noGuard("FM3_NO_XMA_SEEK_GUARD");
+        // Not for music (session 18): FM3's music streamer feeds one packet per input buffer, alternating 0 and 1, in
+        // file order; the guard judged most of those switches a jump and flushed the codec, the next packet then
+        // decoded to 0 frames (its frame began in the flushed one), and the title gave up on the track: no music for the
+        // session. With the guard off for music it played (user, menus and races). FM3_XMA_GUARD_MUSIC=1: guard it too.
+        static LiveSwitch noGuardSwitch("FM3_NO_XMA_SEEK_GUARD"), guardMusic("FM3_XMA_GUARD_MUSIC");
+        const bool noGuard = noGuardSwitch || (d.music && !guardMusic);
         if (!noGuard && d.lastBuffer >= 0 && d.holdsTail && !d.flush)
         {
             // The packets themselves decide when they can be read: the title restarts a context with another sound's

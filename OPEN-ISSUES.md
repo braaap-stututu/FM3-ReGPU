@@ -70,6 +70,7 @@ Twice on Camino Viejo de Montserrat (the sun-flare test track; once before and o
 ## Audio
 
 ### G. Engine sound cuts out while holding RPM
+**Session 18 lead:** the XMA seek guard flushed FM3's music codec between packets that did follow (music now exempt, NOTES session 18). It may misjudge engine streams the same way: in a race, hold RPM and A/B live `Fm3 "env FM3_NO_XMA_SEEK_GUARD 1"` / `0` (FM3_* switches are live now).
 - **Seen:** 1027.1, holding revs in a solo race. You mentioned it's known across the 360 recomps.
 - **Known (strong lead):** our XMA stats (`xma: 5 s:` log lines) show **0 "discontinuity flushes" in menus,
   110–200 per 5 s in a solo race, 500–730 in the 6-car intro race**. Each one comes with codec reopens and 4–11k

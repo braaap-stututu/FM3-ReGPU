@@ -69,6 +69,8 @@ depth, `a0`/`aL`, predicates or kills as 32-bit, and declare the rest `min16floa
 **Seen (user):** music plays for a very short while, if at all, and is not heard again for the rest of the session.
 hl360 plays music normally, so the cause is in our build.
 
+**Solved (session 18, 2026-11-10; user-confirmed in menus and races):** lead 2 was right, plus a second cause: the codec pool made the streamer's start loop give up, and the seek guard flushed the music codec between its one-packet buffers. Details: NOTES.md session log "music fixed". Lead 1 (APC) was not it. The rest of this section is the original study.
+
 **Ruled out (code read):** the music-player stub (`XMPGetPlaybackController` in `src/kernel/imports_xam.cpp`
 answers "title controls playback, not taken over": FM4's fix for menu music cutting in and out); the FM2 easter-egg
 music mute (`DealerMutesMusic()` returns false in `src/hooks/common/diagnostics.cpp`); category volume
