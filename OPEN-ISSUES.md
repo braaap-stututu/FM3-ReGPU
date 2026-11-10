@@ -232,7 +232,19 @@ Sources: upstream ReGPU (`reference/framework/ReGPU`: `main` = our pin; `engine-
   the crowd add little. With `fastcarrender` (lowest car models) giving only +1.3% fps, the cost is pixel shading of the
   car materials at 1440p 4x, not vertices: lower LODs don't help; fewer pixels (resolution/MSAA/FSR) or cheaper car
   shaders (the speed presets' fetch/multiply changes) would. Logs `out/logs/s20_gpu_{race8,tt8}.log`,
-  `s20_capture2_{race8,tt8}.log`, `s20_perf_{race,tt}.log`; scripts in the session scratchpad (gpudiff/where/shaderdiff).
+  `s20_capture2_{race8,tt8}.log`, `s20_perf_{race,tt}.log`; `tools/analysis/gpudiff.py` (two `REGPU_GPU_SHADERS` logs compared).
+- **Duplicate/excessive draws? No (session 20, user asked).** Race-grid capture with vertex constants (`Fm3 "env
+  REGPU_TRACE_VC 1"` live before `capture`; the full frame overflows the log, 2,099 of 3,600 draws kept, incl. the main
+  scene's top tile with the cars; `out/logs/s20_capture_vc_race.log`), checked with `tools/analysis/dupdraws.py`: 2 exact
+  duplicates (tiny full-screen quads), and 4 car meshes drawn twice on the same spot with the same shader, which differ
+  in winding (`mode 218002` -> `218006`) and constants: two-sided transparent parts (back faces, then front faces), as
+  intended. 1,338 meshes drawn once, the rest reused across passes (shadow/main/second pass) or instanced. The AI cars'
+  cost is honest work: ~8 draws per car per material, alpha-blended (`blend 07060706`) and alpha-tested.
+- **Lead from it: every translated pixel shader contains `discard`.** ReGPU applies the alpha test at run time
+  (`switch (pinfo.x)` in `hlsl.cpp` ~1526, plus the dithered alpha-to-mask line), so all pixel shaders carry `discard`
+  even when the test is "always" (pinfo.x 7: ~1,600 of 3,600 draws this frame). With depth writes on, a shader that may
+  discard can lose early depth rejection on the GPU, so hidden pixels run the full shader. Idea: compile the alpha test
+  only into a variant used when pinfo.x != 7 (or a/2m on), keyed in the pipeline/shader cache; A/B race fps.
 - Grass: no grass on the usual start grid (CrownJewel): test grass settings on another track later (user).
 **Suggested order:** (a) a race with `cmdline=keepLOD0Car` (AI cars stay detailed? draws in `Fm3 "status"`); (b) a race
 with `trackfardistance` watched, then set; (c) a lodsettings mod (crowd x2, sprite x2) on one track against stock, same
