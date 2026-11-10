@@ -19,6 +19,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Triple screen, three instances](#triple-screen-over-a-virtual-lan-three-instances-like-three-consoles-session-22-2026-11-10) | FM3's multi-screen ran over a LAN (3 consoles); our networking is stubbed; FH1R's virtual System Link (per-instance UDP ports, virtual secure IPs) is the design; 3 user folders + 3 monitors; ~3x CPU/RAM/GPU |
 | [Triple screen, one instance](#single-instance-triple-screen-session-22-2026-11-10) | 48:9 flat (needs the aspect hook) → per-screen homography warp → three projections via one clip-space matrix per view (P·R·P⁻¹), ~3x main-scene GPU |
 | [Engine sound](#engine-sound-smoothing-the-cuts-session-22-2026-11-10) | FM2's fix is universal (12,541 of 18,292 engine sounds): exact trims + an offline seamless-loop table. We apply no XMA trims at all: prime suspect for the sweep; port trims first, then compare hl360 |
+| [VR](#vr-after-fh1rs-design-session-22-2026-11-10) | FH1R: virtual screen → head pose into the camera director's view matrix (two readers hooked: renderer camera + frustum) → HUD panel → true stereo by replaying the scene segment per eye with clip.x −= P00·d (+2–3 ms GPU). For FM3: OpenXR on ReGPU's D3D12 first, then find FM3's view matrix (shared RE with telemetry/ultrawide). Splash addendum: legal/ESRB likely cover the startup load |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -340,6 +341,74 @@ the offsets and addresses will differ and must be found again.
 seconds: watch for that); the countdown may hold the cars anyway until "GO"; FM3's AI may ignore the clutch with an
 automatic gearbox (the physics probably still applies the float: check). Whatever we set, write it after the AI runs
 each substep, or the AI simply overwrites it.
+
+## VR, after FH1R's design (session 22, 2026-11-10)
+Read only: FH1R `docs/vr.md` (#333, versions 1–8, ~2,300 lines; GPL-3, so design only, our own code). FH1 runs on the
+FM4 engine, FM3's successor, so its camera structure is the likeliest match for FM3's. Nothing checked in FM3 yet.
+
+### What FH1R built, in order (each step playable on its own)
+1. **OpenXR session + virtual screen** (`vr_mode=screen`): the game's newest picture on a quad layer 2.2 m wide,
+   2.5 m ahead, redrawn at the headset's rate whatever the game's frame rate; the desktop window stays as a mirror.
+   Menus always use this screen.
+2. **Head-tracked mono cockpit** (`cockpit`). Each player view has a *camera director* holding the finished view
+   matrix (director + 0xF0). **Exactly two functions read it**: the one handing it to the renderer's camera and the
+   one building the game-side frustum. Putting the head pose into that matrix for those two calls turns the view
+   **with shadows, mirrors and culling following**, and leaves the camera's own state alone. The in-car camera
+   (`CCamDriver`) gives the eye point; FOV fitted to the headset's (+5° margin); the HUD drawn into its own target
+   (the frame's scene/UI split found from the front buffer's formats) and shown on a panel in front of the seat;
+   camera shake/G-force lean/speed FOV off by default; recentre key; seat height; the eye's movement limited to a
+   box round the seat.
+3. **Depth stereo** (v3, then off by default): one picture shifted per eye by its depth, holes filled: smeared edges,
+   glass and particles wrong.
+4. **True stereo** (v5, default): the GPU emulation keeps the frame's commands from the scene's start to the first HUD
+   draw, restores the register state and **runs that segment again for the second eye**; the game's CPU side, its
+   render thread and the shadow cascades run once. The eye offset is one constant in the translated vertex shaders:
+   **clip.x −= P00 × d** (d = half the eye distance; P00 read from the frame's constants; the sign from the main view
+   being mirrored). Depth pre-pass, shadow mask, occlusion and the mirror stay the middle's (offsetting the shadow
+   mask's lookups put shadows 30 px off). Uploads of guest memory made during the first pass are repeated in order in
+   the second (per-object data rings are refilled within the frame); fences, interrupts and queries are not.
+   Each eye drawn only across the columns it sees. **Cost** (RX 9060 XT, render scale 2): the second eye +2.2 ms GPU
+   with the scene's MSAA off, +3.4 ms at 2x MSAA (two EDRAM tiles); +2–3 ms command processor. 72 fps held with MSAA off.
+5. **Headset pacing** (v6): don't hold the GPU queue while `xrEndFrame` waits (56 → 71 fps, latency 134–153 →
+   71–90 ms); ask for a refresh rate that's a whole multiple of the game's (72 fps → 72 Hz); let a headset frame wait
+   up to 4 ms for a due game frame (frames shown 56–62 → 68–71 a second).
+6. **The cabin** (v7–8): the game draws your own car's interior in its own pass from the in-car camera's point, and
+   snaps the eye to it within 10 cm, so the whole cabin and its lighting moved with the head (nausea). Fixed by feeding
+   that pass the real eye offset (`vr_cockpit_parallax`).
+
+### How it maps to FM3 + ReGPU
+| Piece | FM3/ReGPU work | Effort |
+|---|---|---|
+| OpenXR (D3D12) | `XR_KHR_D3D12_enable` on ReGPU's device and queue (loader is Apache-2.0); OpenXR swapchains next to `presenter.cpp`'s; a quad layer for the screen. Keep the desktop window as the mirror | Medium |
+| Virtual screen | Copy the presented picture into the quad's swapchain image each headset frame | Small, after OpenXR |
+| Head pose into the camera | Find FM3's equivalent of the director's view matrix and its readers: start from the in-car camera's settings (FM3's camera files/`CameraSettings`-like strings via `xref.py strings`), a float scan of the view matrix while turning the in-race camera, then `xref.py refs` for its readers. Hook those as FH1R does (pose in, restore after) | Medium–large (RE) |
+| HUD on a panel | ReGPU already tells 2D/HUD draws apart (`vwide`, the HUD squeeze); render them into their own target instead of the scene's | Medium |
+| FOV, shake off, recentre, seat | Hooks on the camera settings once found; FM3's camera physics options may exist in its options object (`xref.py options`) | Small–medium |
+| True stereo | ReGPU records draws on its draw thread (`recorded_list.h`); replay the main view's pass range (`WidePass()` already identifies the 1280-pitch main view) for the second eye with a per-eye root constant applied to the vertex shader output (clip.x −= P00·d), as ReGPU already does for jitter and Hor+. Guest memory repeat: ReGPU translates from guest memory at draw time, so the second replay must use the first's uploads (the vertex arena and upload ring help). FM3's scene is two EDRAM tiles: each eye pays both | Large |
+| Pacing | Our `frame_time.cpp` cap at the headset's rate (72/90), the FH1R lessons above | Small–medium |
+| The cabin pass | Look for the same 10 cm snap in FM3's in-car view once the pose hook exists | Unknown |
+**Cost on the user's PC:** today ~4.8 ms GPU a frame at 1440p 4x on a race grid. A Quest 3 wants ~2064x2208 per eye
+(about 2.5x the pixels of 1440p for both eyes). Mono head tracking at 72–90 Hz is clearly in reach on a 7900 XTX with
+MSAA 2x or off; true stereo roughly doubles the main scene's GPU time (FH1R: +20–30%, its scene a smaller share),
+probably still fine at 72 Hz.
+**Recommended order:** (1) OpenXR + virtual screen (useful alone, proves the D3D12 plumbing); (2) find FM3's view
+matrix and its readers (the same RE helps telemetry, the AI benchmark and ultrawide: RESEARCH "Telemetry" and
+"Ultrawide"); (3) mono head-tracked cockpit + HUD panel + comfort; (4) true stereo in ReGPU; (5) the cabin pass. Needs
+a headset to test from step 1; nothing can be checked without one.
+
+### Addendum: the ESRB and legal screens (user, session 22)
+The two screens left are the **legal text and the ESRB** screen, the first two boot entries. `SetSequenceHook`
+already sets their durations (6 s, 4 s) to 0.05 s with the rest, and the title screen comes ~8 s after start, so they
+are on screen for longer than their entries say. Two explanations:
+1. **They cover the startup load**: the sequencer can't move past an entry until the game's startup data is loaded,
+   so the legal/ESRB textures stay up for the load's ~8 s whatever their duration (a console title shows its legal
+   screens over loading on purpose). Then skipping them doesn't save time: the choice is legal text vs a black
+   screen (or our own "Loading" panel) for those seconds, and the real fix is a faster startup load.
+2. **Their entries have other timing fields** (fade-in/out or a minimum time) that we don't shorten.
+**Next (local, needs a build):** log every boot entry's 240 bytes as doubles/words in `SetSequenceHook` and the log
+time of the hook vs the first title frame; check `imports_io` file reads during those seconds (if the game is
+reading the whole time, it's case 1). Then: case 2 → zero the extra fields; case 1 → replace the two textures with
+black (or skip the entries so a black screen shows) and look at what the startup load reads.
 
 ## Upscalers and frame generation: FSR 1/3/4, DLSS, DLAA, XeSS, frame generation (session 22, 2026-11-10)
 Read only (our pin `57143cb`, upstream branches, vendor docs). Nothing built or run on FM3.

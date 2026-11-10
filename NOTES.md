@@ -612,6 +612,9 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   cut), triple screen over a virtual LAN (FH1R's design; networking is stubbed today), single-instance triple screen
   (flat 48:9 → homography warp → three projections), engine sound (**we apply no XMA trims: port FM2's trim
   handling first**, then hl360 comparison, then a loop table).
+- User: the two screens left are the **legal text and ESRB**; our skip already shortens their entries, so they likely
+  cover the startup load (RESEARCH VR section, addendum: log the entries + file reads to tell). VR study after FH1R
+  (RESEARCH "VR"): virtual screen → head-tracked cockpit → true stereo in ReGPU; first step OpenXR on D3D12.
 
 ### 2026-11-10 — session 21 (cloud: PERF-PLAN.md, installer study, AI-driver benchmark / frozen grid study)
 - PERF-PLAN.md: every unbuilt/unmeasured performance item by picture effect, target machine, live/start-time A/B.
