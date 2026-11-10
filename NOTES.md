@@ -615,6 +615,21 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - User: the two screens left are the **legal text and ESRB**; our skip already shortens their entries, so they likely
   cover the startup load (RESEARCH VR section, addendum: log the entries + file reads to tell). VR study after FH1R
   (RESEARCH "VR"): virtual screen → head-tracked cockpit → true stereo in ReGPU; first step OpenXR on D3D12.
+- **Queued (user request): start and pause on the CrownJewel career race grid by itself** (`grid_test=1` /
+  `FM3_GRID_TEST=1`, launcher "Start on the test grid"). The user gets there by pressing A repeatedly from the
+  title/main menu until the countdown. Plan (local, needs building and a game run; nothing written yet):
+  1. New tour steps in `imports_xam.cpp` (the `quick_race` machinery): `A_UNTIL:<signal>` (A every ~1 s until the
+     signal), `UNTIL:<signal>`, then `START` (pause). Timed presses alone can't do it: an A after the pause would
+     pick the pause menu's first item and resume.
+  2. Signals, from hooks we already have: **race load started** = the AI driver setup `sub_822A1150` called
+     (`ai_drivers.cpp`); **load finished** = `frame_time.cpp` saw the main loop's >4 s load frame and then ~2 s of
+     normal frames. **Countdown started**: not known yet. Lead: the code that reads the developer option
+     `ShowPreRaceAnd321InCmdlineLaunch` (+1083; `xref.py readers`) decides whether the pre-race show and the 3-2-1
+     run, so it sits next to the countdown's start; alternatively a call trace while the user presses A into the
+     countdown. Fallback: after "load finished", A every 1 s for N presses (measured once), then START.
+  3. The save: CrownJewel stays the next career race only while the profile isn't advanced. Run on a copy of the
+     Baseline save restored before each run (`out/profile-backups/`), or check the route still lands on CrownJewel.
+  4. Log each step (`tour: ...`) with the time, so a missed press shows in the log.
 
 ### 2026-11-10 — session 21 (cloud: PERF-PLAN.md, installer study, AI-driver benchmark / frozen grid study)
 - PERF-PLAN.md: every unbuilt/unmeasured performance item by picture effect, target machine, live/start-time A/B.
