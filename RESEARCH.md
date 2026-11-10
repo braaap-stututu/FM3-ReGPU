@@ -155,6 +155,41 @@ profile (as FH1R: never the user's save), settle 15 s, measure 60 s from guest s
 **Recommended order:** (2.1) first (small, our own code, immediately useful for every perf/visual A/B); then the
 dev-option search (1.2/2.4, one local run); then (1.1) for the real AI benchmark, which also gives (2.3).
 
+### Controlling the AI cars' throttle, brake or clutch (session 21, user asked)
+**Not checked in FM3 yet** (no `out/ppc`, game image or ReGPU source in the cloud container; our own `src/` has no FM3
+car or physics address yet: the wheel code only feeds the pad). **Likely possible**, from FH1-ReImagined (FM4 engine,
+FM3's successor):
+- **Every car's processed controls are five floats in its car-dynamics object**: gas, brake, steer (−1..1), clutch,
+  handbrake at **+3904** (`forza-recomp/src/platform/car_physics.h`, `ICarDynamics`, vtables `82003EEC`/`8223759C` on
+  FH1's disc build; engine speed +324, gear byte +2240, speed +3128, wheels from +3936). FH1R's telemetry reads the
+  player's; "remote-car exclusion" in their tests means the other cars have the same object.
+- **Who writes them:** each vehicle has a controller (vehicle +0x3B80) and a control mode (+0x3B88: 1 = human
+  override, 0 = AI). The human path fills the floats from the pad, the AI path from its driver; the physics substep
+  (`sub_82D4DE30`, run by its substep loop) reads them. So **one set of fields serves human and AI cars alike**, which is
+  the lever: overwrite an AI car's gas/brake/clutch after its AI wrote them and before physics reads them.
+FM3's car physics is the direct ancestor of FM4's, so the same shape (a float controls block per car) is very likely;
+the offsets and addresses will differ and must be found again.
+**How to find it in FM3 (one local session; the game running, the user on a race grid or in free roam):**
+1. **The player's controls block:** hold the throttle at known values with the virtual pad (`Fm3 "trigger R 0.25"`,
+   then `0.45`, `0.55`; the session-18 engine-sound recipe) and scan guest memory for the big-endian float each time,
+   keeping the addresses that follow (processed throttle may be curved: also scan for "changed in the same direction").
+   Clutch the same way (`Fm3 "hold LB"` is the clutch in FM3's layout: 0 → 1). Our debug server's `find` searches text;
+   a float/byte scan is a small addition (e.g. an `FM3_SCAN_F32=<value>` live switch in our code that logs matching
+   addresses in the guest heaps, with a "keep only these" second pass).
+2. **Neighbours:** `Fm3 "peek <block> 64"` should show gas, brake, steer, clutch, handbrake side by side (check with the
+   pad: steer the stick, pull LT, press the handbrake).
+3. **Writer and reader:** `FM3_WATCHW=<gas address>` + `FM3_WATCHRW=1` gives the guest call stacks of the pad path that
+   writes it and the physics that reads it. An AI car's block (same offset in its own object: find the objects from
+   the reader, which runs once per car) shows the AI's writer.
+4. **The hook** (a `PPC_FUNC` override like `src/hooks/ai_drivers.cpp`): wrap the AI writer (or the physics step) and,
+   for every car that is not the player, set gas 0 / brake 1 (cars hold still on the grid), or clutch 1 (engines rev,
+   cars stay: a lively frozen grid), or scale gas (slower AI). Live switch, e.g. `FM3_AI_CONTROLS=hold|clutch|scale:0.5`.
+   Tell the player's car apart by its control mode (FH1R: +0x3B88) or by the pointer found in step 1.
+**Caveats:** the AI may fight a held brake (its driver logic can count a stuck car and reset or respawn it after some
+seconds: watch for that); the countdown may hold the cars anyway until "GO"; FM3's AI may ignore the clutch with an
+automatic gearbox (the physics probably still applies the float: check). Whatever we set, write it after the AI runs
+each substep, or the AI simply overwrites it.
+
 ## ReGPU speed work in other projects (session 19, 2026-11-10)
 Survey of every branch of the reference clones (framework/ReGPU, ReGPU-fh1, FM2, PGR4, FM4, FH1R), read only. Our pin
 (57143cb, a squash) already has rexglue-driver and most of engine-optimisation (draw workers + early fences, pipeline seed,
