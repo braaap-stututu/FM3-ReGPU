@@ -3,6 +3,14 @@
 Investigations that are not bugs yet: options, feasibility studies and leads with no code behind them. Open bugs
 live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](VINYLISSUES.md).
 
+**Session 21 studies (2026-11-10, cloud, no code; first local steps in each):**
+| Study | One-line result |
+|---|---|
+| [Installer](#installer-for-a-public-release-how-the-sibling-ports-do-it-session-21-2026-11-10) | FM2/FM4: Inno Setup per user, own-disc hash check, bundled Python, GitHub patch-zip updater. FH1R: builds the game on the player's PC, SignPath signing. FM3: Inno + the launcher's C# XISO/STFS, self-contained launcher; **decide: ship the exe or build locally, and signing** |
+| [Half-rate shading (VRS)](#half-rate-shading-variable-rate-shading-for-weak-gpus-and-igpus-session-21-2026-11-10) | Feasible without shader changes (tier 1 per draw, live A/B); scene draws only, never liveries/pictures/HUD/alpha-tested; no VRS on Vega APUs, Polaris, RDNA1, Pascal, old Intel; render scale + FSR stays the bigger iGPU lever; measure the pixel-shader share first |
+| [Telemetry to SimHub](#telemetry-out-to-simhub-forza-data-out-udp-session-21-2026-11-10) | Send FM7's 311-byte Forza "Data Out" Dash packet over UDP; SimHub's Forza profile reads it; needs FM3's car-physics object (the telemetry pages' getters are the shortcut) |
+| [Benchmark tools](#benchmark-tools-the-players-car-driven-by-the-games-ai-and-a-frozen-grid-session-21-2026-11-10) | Frozen world while rendering: dt 0 in `frame_time.cpp` (small, our code). AI on the player car: FH1R's native-AI takeover (opponent factory + releasing the human override). AI throttle/brake/clutch: one float controls block per car in FH1 (+3904), very likely in FM3 too; same RE as telemetry |
+
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
 user's `Fuzzy-Rittersport-4-ReGPU-testing`, `FH1-ReImagined/ForzaHorizon1-ReImagined`; shallow clones, read only).
