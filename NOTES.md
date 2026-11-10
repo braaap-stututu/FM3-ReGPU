@@ -36,7 +36,8 @@ temporary lines); test mods in `out/user/mods` are all switched off (`_lodx2`, `
    **New default (session 20): alpha-test-free pixel shaders** (patch `regpu-split-alpha-test`, 21 ReGPU patches):
    race grid 203 -> 213.6 fps (+5%), picture byte-identical. Off: `FM3_ALPHA_KILL_ALWAYS=1`; live A/B
    `Fm3 "switch REGPU_SPLIT_ALPHA_TEST 0|1"`. User drove ~3 laps of CrownJewel with it: nothing wrong seen (first run
-   compiles the variants once, then they load from `out/user/shadercache`; their pipelines are not in the manifest).
+   compiles the variants once, then they load from `out/user/shadercache`; since a follow-up their pipelines are in the pipeline manifest too and
+   are prebuilt at boot: title/menu check 1517 -> 1555 stored pipelines, all started at boot).
 **Open, for the user to pick (ask first):**
 - (a) **Stop the attract video** on "Press A to start" (user request; leads in the note below: `ForzaUI::CAttract`,
   `Forza_Intro.bik`, UI flow idle timer).

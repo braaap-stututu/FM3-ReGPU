@@ -1,5 +1,5 @@
 diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
-index 2682cd9..d38b686 100644
+index 2682cd9..6eb9b57 100644
 --- a/src/gpu/renderer.cpp
 +++ b/src/gpu/renderer.cpp
 @@ -403,6 +403,7 @@ struct CompiledShader
@@ -10,7 +10,7 @@ index 2682cd9..d38b686 100644
      uint32_t tag = 0; // the game's mark for this shader (Host::rewriteShader), passed to Host::onDraw
      bool IsReady() const { return state.load(std::memory_order_acquire) == Ready; }
  };
-@@ -4289,6 +4290,68 @@ const CompiledShader* MotionShaderLookup(const CompiledShader& base)
+@@ -4289,6 +4290,85 @@ const CompiledShader* MotionShaderLookup(const CompiledShader& base)
      return &cs;
  }
  
@@ -33,14 +33,15 @@ index 2682cd9..d38b686 100644
 +}
 +
 +std::unordered_map<uint64_t, std::unique_ptr<CompiledShader>> g_noKillShaders;
-+// nullptr until the variant is compiled (the draw uses the base shader meanwhile) or if it can't be made.
-+const CompiledShader* NoKillShader(const CompiledShader& base)
++// The variant, made (and its compile queued, unless the shader cache has it) on first use; it may still be
++// pending, or failed. The base shader must be ready (its HLSL).
++const CompiledShader* NoKillVariantOf(const CompiledShader& base)
 +{
 +    if (const CompiledShader* k = base.noKill)
-+        return k->IsReady() ? k : nullptr;
++        return k;
 +    std::lock_guard lock(g_shaderMutex);
 +    if (base.noKill)
-+        return base.noKill->IsReady() ? base.noKill : nullptr;
++        return base.noKill;
 +    auto [it, inserted] = g_noKillShaders.try_emplace(base.cacheKey);
 +    if (inserted)
 +    {
@@ -48,6 +49,7 @@ index 2682cd9..d38b686 100644
 +        CompiledShader& cs = *it->second;
 +        cs.hash = base.hash;
 +        cs.pixel = true;
++        cs.ucodeBE = base.ucodeBE; // the pipeline manifest stores the base microcode
 +        cs.info = base.info;
 +        cs.info.hlsl = NoKillVariant(base.info.hlsl);
 +        if (cs.info.hlsl.empty())
@@ -73,22 +75,39 @@ index 2682cd9..d38b686 100644
 +        }
 +    }
 +    base.noKill = it->second.get();
-+    return base.noKill->IsReady() ? base.noKill : nullptr;
++    return base.noKill;
++}
++// nullptr until the variant is compiled (the draw uses the base shader meanwhile) or if it can't be made.
++const CompiledShader* NoKillShader(const CompiledShader& base)
++{
++    const CompiledShader* k = NoKillVariantOf(base);
++    return k && k->IsReady() ? k : nullptr;
++}
++// A stored pipeline's pixel shader: its alpha-test-free variant for flag 0x400 (nullptr if that can't be
++// made), else the shader itself. `ps` must be ready.
++const CompiledShader* ManifestPixelShader(const PipelineKey& key, const CompiledShader& ps)
++{
++    if (!(key.flags & 0x400))
++        return &ps;
++    const CompiledShader* k = NoKillVariantOf(ps);
++    return k && k->state.load(std::memory_order_acquire) != CompiledShader::Failed ? k : nullptr;
 +}
 +
  D3D12_BLEND Blend(uint32_t f)
  {
      switch (f)
-@@ -4682,7 +4745,7 @@ std::shared_ptr<PipelineEntry> EnsurePipeline(const CompiledShader& vs, const Co
+@@ -4682,7 +4762,9 @@ std::shared_ptr<PipelineEntry> EnsurePipeline(const CompiledShader& vs, const Co
      }
      auto entry = std::make_shared<PipelineEntry>();
      g_r.pipelines[key] = entry;
 -    if (!motion && !IsPsEditAlias(key.ps) && !IsPsEditAlias(key.vs)) // the manifest rebuilds pipelines from the base shaders (not live edits)
-+    if (!motion && !(key.flags & 0x400) && !IsPsEditAlias(key.ps) && !IsPsEditAlias(key.vs)) // the manifest rebuilds pipelines from the base shaders (not live edits or variants)
++    // The manifest rebuilds pipelines from the base shaders (not live edits or motion variants; the alpha-test-free
++    // variant, flag 0x400, is made again from its base: ManifestPixelShader).
++    if (!motion && !IsPsEditAlias(key.ps) && !IsPsEditAlias(key.vs))
      {
          g_manifest.RecordShader(false, key.vs, vs.ucodeBE);
          g_manifest.RecordShader(true, key.ps, ps.ucodeBE);
-@@ -4834,9 +4897,11 @@ bool SkippableDraw(bool depthOnly, uint32_t blend)
+@@ -4834,9 +4916,11 @@ bool SkippableDraw(bool depthOnly, uint32_t blend)
  }
  
  ID3D12PipelineState* GetPipeline(const CompiledShader& vs, const CompiledShader& ps, bool depthOnly, bool cullable, bool motion = false, bool stripCut = false,
@@ -101,7 +120,42 @@ index 2682cd9..d38b686 100644
      if (coverage)
      {
          // An occlusion query's coverage draw: the depth test always passes, nothing is written.
-@@ -10573,7 +10638,18 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+@@ -7903,8 +7987,14 @@ void SeedStep()
+         const auto vs = g_r.shaders.find(key.vs), ps = g_r.shaders.find(key.ps);
+         if (vs == g_r.shaders.end() || ps == g_r.shaders.end() || !vs->second->IsReady() || !ps->second->IsReady())
+             return false;
+-        EnsurePipeline(*vs->second, *ps->second, key);
+-        started++;
++        const CompiledShader* psUse = ManifestPixelShader(key, *ps->second); // (flag 0x400: its variant)
++        if (psUse && !psUse->IsReady() && psUse->state.load() == CompiledShader::Pending)
++            return false;
++        if (psUse && psUse->IsReady())
++        {
++            EnsurePipeline(*vs->second, *psUse, key);
++            started++;
++        }
+         return true;
+     });
+     if (started)
+@@ -7941,7 +8031,16 @@ void WarmupStep()
+             continue;
+         }
+         const CompiledShader& vs = GetShader(key.vs, vsCode, false);
+-        const CompiledShader& ps = GetShader(key.ps, psCode, true);
++        const CompiledShader& psBase = GetShader(key.ps, psCode, true);
++        // (flag 0x400: the base shader's alpha-test-free variant, made once the base is ready)
++        const CompiledShader* psUse = psBase.IsReady() ? ManifestPixelShader(key, psBase) : &psBase;
++        if (!psUse)
++        {
++            g_manifest.next++;
++            g_stats.warmDone++;
++            continue;
++        }
++        const CompiledShader& ps = *psUse;
+         if (vs.state.load() == CompiledShader::Pending || ps.state.load() == CompiledShader::Pending)
+         {
+             // Still compiling: look further ahead instead of waiting on it.
+@@ -10573,7 +10672,18 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
      if (!pso)
      {
          motion = false;
@@ -121,3 +175,22 @@ index 2682cd9..d38b686 100644
      }
      if (!pso)
      {
+@@ -12252,6 +12362,18 @@ void PrecompileAll()
+             }
+             // A shader not stored (a static one from Host::staticShaders, installed after this): skip the
+             // pipeline. Waiting for it, as before, waited for good (FH1 on the FX: a black screen).
++            // Flag 0x400: the pixel shader's alpha-test-free variant (made from the ready base; its compile, if the
++            // shader cache doesn't have it, is waited for like any other). Can't be made: the pipeline is skipped.
++            if (vs && ps && ps->IsReady() && (key.flags & 0x400))
++            {
++                ps = ManifestPixelShader(key, *ps);
++                if (!ps)
++                {
++                    nextKey++;
++                    g_stats.warmDone++;
++                    continue;
++                }
++            }
+             if (vs && ps && (vs->state.load() == CompiledShader::Pending || ps->state.load() == CompiledShader::Pending))
+                 break; // wait for this one to finish compiling before going on
+             if (vs && ps && vs->state.load() == CompiledShader::Ready && ps->state.load() == CompiledShader::Ready)
