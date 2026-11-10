@@ -77,6 +77,81 @@ user's `Fuzzy-Rittersport-4-ReGPU-testing`, `FH1-ReImagined/ForzaHorizon1-ReImag
 6. Before release: the user dir is `Documents\fm3` and the game runs in `{app}\out\run` (logs, captures): fine under
    `{localappdata}`, but the debug server must default off in a release build.
 
+## Half-rate shading (variable-rate shading) for weak GPUs and iGPUs (session 21, 2026-11-10)
+**Asked (user):** an option that shades at half rate on weak GPUs. The tool for it is D3D12 **variable-rate shading
+(VRS)**: the pixel shader runs once per 2x1, 1x2 or 2x2 block of pixels instead of per pixel, while rasterisation,
+depth and coverage stay per pixel (edges of triangles stay sharp; surfaces get softer). Nothing checked in ReGPU's
+source here (the submodule isn't checked out in the cloud container); this is the design and its limits.
+
+### What it can and can't save
+- It cuts **pixel-shader work only**: 2x1/1x2 up to half, 2x2 up to a quarter, on draws where it is applied. It does
+  not cut render-target writes, blending, depth traffic, resolves or texture uploads. ReGPU's render targets are
+  RGBA16F + D32S8 (8 bytes a pixel each), so on a bandwidth-starved iGPU much of the frame isn't pixel-shader work.
+  Games report ~5–15% overall for 2x2 on the parts of the scene they apply it to; nothing measured on FM3.
+- **Our own evidence that the shader part is big:** on the 7900 XTX at 1440p 4x the main scene is 3.08 of 4.72 ms and
+  the AI cars' cost is pixel shading of their materials (session 20). Whether that holds on an iGPU at 720p 1x is
+  unknown: measure first (`REGPU_GPU_PASSES=1` / `REGPU_GPU_SHADERS=1` on an iGPU, or RGP/PIX).
+- **Lower render scale + FSR (already in the launcher) is the stronger lever** for iGPUs: it cuts every per-pixel
+  cost, bandwidth included. VRS is a finer tool on top: full resolution for edges and the HUD, cheaper shading inside
+  surfaces.
+
+### Which GPUs have it (`CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS6).VariableShadingRateTier`)
+- **Tier 1** (one rate per draw): Intel from Gen11 (Ice Lake) on; NVIDIA Turing and later; AMD RDNA2 and later.
+- **Tier 2** (also a screen-space rate image and a per-primitive rate): NVIDIA Turing and later, AMD RDNA2 and later,
+  Intel Arc. Intel Iris Xe (Tiger Lake and later laptops): at least tier 1, check the reported tier.
+- **None:** AMD Vega-based APUs (Ryzen 2000–5000G/U, the common older iGPUs), Polaris (RX 400/500), RDNA1 (RX 5000),
+  NVIDIA Pascal (GTX 10xx), Intel UHD before Gen11. **Many of the weakest machines can't use it**; the newer iGPUs
+  can (Radeon 680M/780M/890M, Steam Deck through vkd3d-proton's `VK_KHR_fragment_shading_rate`, Iris Xe, Arc).
+- So the option must hide itself when the tier is 0 (the launcher can't know: fm3.exe logs the tier and ignores the
+  setting on such GPUs; or the launcher asks DXGI/D3D12 itself, like the GPU-choice study).
+
+### How it fits ReGPU (game-neutral, behind a `REGPU_*` switch)
+- **No shader changes:** per-draw rates (`RSSetShadingRate`) and the rate image (`RSSetShadingRateImage`) need only
+  `ID3D12GraphicsCommandList5`, and work with ReGPU's FXC/SM 5.1 shaders (only the per-primitive `SV_ShadingRate`
+  output needs SM 6.4). No pipeline (PSO) change, so no new shader or pipeline cache.
+- **Recording:** set the rate before each draw it applies to, with state tracking (only on change). The draw thread
+  and worker lists record through `RecordedList`: add an op for the rate, as `regpu-turbo-hyper` did for predication.
+- **Which draws (the hard part: VRS must never touch what is copied out or read as data):**
+  - **Never:** passes whose results the game reads back or reuses as images: livery building (2048²/1024² write-backs;
+    VRS would bake soft blocks into the paint), car pictures, the 32x512 strips, the 256x256 shade map, shadow maps
+    (depth-only: no pixel shader cost anyway), cube/reflection faces (maybe later: cheap and blurred already), the HUD,
+    UI and text, the final composite.
+  - **Yes:** the main 3D scene (FM3's 1280-pitch scene surface, both EDRAM tiles), possibly full-screen post passes
+    (bloom/blur passes are low-frequency already).
+  - ReGPU knows each draw's surface (EDRAM base, pitch, format, MSAA) and pass size; a host callback in
+    `src/gpu_host.cpp` (FM3 rule: the scene surface, depth-tested draws) decides, as the other FM3 rules there do.
+- **Modes, simplest first:**
+  1. **Per draw, tier 1:** every scene draw at 2x1 or 2x2 (an "Off / Light (2x1) / Strong (2x2)" setting). Works on all
+     VRS GPUs.
+  2. **Rate image, tier 2:** coarse only where it shows least. Options: by depth from the previous frame (distant
+     scenery and distant cars at 2x2, near the camera 1x1: PERF-PLAN V2); by screen region (the edges, where a racing
+     game's motion is fastest); by the previous frame's local contrast (AMD's FidelityFX Variable Shading idea: flat
+     sky, tarmac and shadow at 2x2, detail at 1x1; check whether our FidelityFX SDK 2.1 still ships it). The per-draw
+     rate combines with the image (`D3D12_SHADING_RATE_COMBINER_MAX`/`PASSTHROUGH`), so excluded draws force 1x1.
+- **MSAA:** weak-GPU settings run 1x MSAA, the simple case. With 4x MSAA a 2x2 coarse pixel covers 16 samples; larger
+  rates with MSAA need `AdditionalShadingRatesSupported`. Allow 2x1/2x2 only, and test with MSAA on.
+
+### FM3 risks to check
+- **Alpha-tested foliage and fences** (FM3's dithered alpha to mask, OPEN-ISSUES F): `discard` is decided once per
+  coarse pixel, so cut-outs get blockier. Exclude alpha-tested draws (ReGPU knows them since `regpu-split-alpha-test`).
+- **Car paint and specular highlights** shimmer more when coarse; distant-only (depth image) avoids most of it.
+- **Text and markings in the world** (track signs, numbers on cars): softer at 2x2; 2x1 is the safer default.
+- **Texture detail:** a coarse pixel picks its mip from coarse derivatives, so textures look one mip softer there
+  (expected; that is part of the saving).
+- Sun-flare occlusion queries count covered samples: rasterisation is unchanged by VRS, so they should be unaffected
+  (check at the Montserrat sun spot).
+
+### Plan
+1. **Measure the share** on a weak GPU (or the 7900 XTX at 720p 1x as a stand-in): GPU time of the main scene pass vs
+   the rest. If pixel shading is a small share there, stop: render scale + FSR is the answer.
+2. **ReGPU patch `regpu-vrs`:** `REGPU_VRS=2x1|2x2` (tier 1, per draw), **live** switch (the rate is set at record time,
+   so an A/B on a paused grid is instant), a host callback choosing draws, log line with the GPU's tier.
+3. **Numbers and pictures:** fps per mode on the race grid (`tools/fm3_ab.ps1`), `pngdiff.py` against off, user check
+   in motion (shimmer). Then FM3's settings: `vrs=off|light|strong` in settings.ini, launcher Graphics option (hidden or
+   greyed when the tier is 0), included in the Mild/Low/Extreme speed presets if it pays.
+4. **Later:** the tier-2 depth image (distant = coarse), which is also PERF-PLAN V2 for the 7900 XTX.
+Effort: tier 1 per draw ~1 session (patch + FM3 rule + tests); the tier-2 image another session or two.
+
 ## Telemetry out to SimHub (Forza "Data Out" UDP) (session 21, 2026-11-10)
 **Asked (user):** can we send FM3's car physics/telemetry to a UDP port SimHub understands? **Yes, feasible**: SimHub
 already reads Forza's own "Data Out" UDP packets (FM7, FH4/5, FM 2023), so if fm3.exe sends packets in that format,
