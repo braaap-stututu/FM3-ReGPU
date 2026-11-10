@@ -606,6 +606,12 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   simulates every frame with a real dt; a blended frame costs the GPU the same; ITC needed it because its game has
   a fixed 30 Hz step). Leads kept: untile by runs + SIMD swaps (L34), texture change checks (L35), a per-frame-state
   finder as a correctness check of our frame unlock.
+- Six feature studies (RESEARCH.md, session 22 rows in the index): upscalers/frame generation (FSR 4 INT8 on the
+  user's RX 7000 via FSR SDK 2.4; DLSS/DLAA code exists; XeSS; frame generation large), FPS counter + graph (a ReGPU
+  patch beside the timer), the two splash screens (**need the user's screenshots**: the boot sequence is already
+  cut), triple screen over a virtual LAN (FH1R's design; networking is stubbed today), single-instance triple screen
+  (flat 48:9 → homography warp → three projections), engine sound (**we apply no XMA trims: port FM2's trim
+  handling first**, then hl360 comparison, then a loop table).
 
 ### 2026-11-10 — session 21 (cloud: PERF-PLAN.md, installer study, AI-driver benchmark / frozen grid study)
 - PERF-PLAN.md: every unbuilt/unmeasured performance item by picture effect, target machine, live/start-time A/B.

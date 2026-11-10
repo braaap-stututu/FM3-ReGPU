@@ -98,7 +98,7 @@ adopted or dropped.
 | V4 | **iGPU first-run defaults** (UMA detected → 77% scale + FSR 1, sharpen 25; cap 60) | Not built (launcher) | iGPU | n/a (launcher defaults) | Lower resolution. Cap also saves the shared power budget |
 | V5 | **SMAA 1x** (FM2 9b6b512) as a cheap AA for low presets | Not built | iGPU, low-end GPUs | **Planned live** | Softer than 4x MSAA, better than none |
 | V6 | **Crowd half data mod** (`lodsettings.py mod … crowd=x0.5 sprite=x0.5`; kept as `out/user/mods/_crowdhalf`) | Built as a mod, off | Draw-bound low-end CPUs (0 fps here: −3% draws) | Race restart (data read at track load) | 3D spectators halved; near ones keep detail |
-| V7 | **Render scale + FSR 1/3 and MSAA 1x** (already in the launcher) | Built; "not yet tested on FM3" in the launcher for FSR | iGPU, any GPU-bound | **Start-time** | The biggest lever there is; settings only |
+| V7 | **Render scale + FSR 1/3 and MSAA 1x** (already in the launcher) | Built; "not yet tested on FM3" in the launcher for FSR | iGPU, any GPU-bound | **Start-time** | The biggest lever there is; settings only; S22: FSR 4 (INT8 on RX 6000/7000) via FSR SDK 2.4 + upstream `Fsr4Evaluate`; DLSS/DLAA need only the SDK + build switch; XeSS SR is one new file (RESEARCH "Upscalers") |
 | V8 | **Car reflection cubes updated less often** (Pinyon: FH1 `EnvMapFrequencyScale` 0.25, Odin −2.2 ms, "looks the same"; 0 left them dark) + reload only changed faces (lossless, 0.20 → 0.04 ms) | Not built; find FM3's update rate (`xref.py options`, TrackSettings) | GPU-bound, iGPU | Live if it is a live option | Reflections lag on fast-moving cars |
 
 ## Already tried and dropped (don't repeat without a new reason)

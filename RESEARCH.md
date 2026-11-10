@@ -13,6 +13,12 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [FH1R latest + Sonic Unleashed](#fh1-reimagineds-latest-performance-work-and-sonic-unleashed-recompiled-session-22-2026-11-10) (session 22) | FH1R: CP on two threads (+13%/≥6 cores, −11% on 4), only changed register writes recorded, descriptor reuse −7%/draw, **GPU time by work kind: RT transfers were 37% of the GPU frame**; their ReGPU plugin uses `REGPU_ANISO_FROM_FETCH` (never tried on FM3), tile merge 0 gain, PGO +6%. Upstream ReGPU: 15 commits past our pin (vertex reach, view submit, one-copy queries). Unleashed: hardware MSAA resolve, pipelines built at asset load (`non_volatile_as_local` later measured as a loss by Pinyon Shift) |
 | [Pinyon Shift](#pinyon-shift-fh1-recomp-performance-leads-session-22-2026-11-10) (session 22) | GPU: fetch state as shader variants (our `TFetch` branches on gamma/exp/swizzle per fetch; ~5% there), per-shader price list first, per-hash 0×Inf rule with a NaN scrub (car paint is the risky one), depth-alias copies −1.1 ms, specialised resolves. CPU: inline register save/restore, fewer MXCSR toggles, `SetPWLGamma` every frame (30% of FH1's render thread); **`non_volatile_as_local` 20–27% slower**. Stutter: wait for pipelines at submit, long-frame sampler, slow SQLite views after a race |
 | [ITC-Recomp](#import-tuner-challenge-recomp-itc-recomp-its-frame-interpolation-and-other-leads-session-22-2026-11-10) (session 22) | Its frame interpolation (30 Hz logic, blended render-only frames) has **no performance merit for FM3**: FM3 already simulates every frame with a real dt, and a blended frame costs the GPU the same. Frame generation (FSR 3 FG / AMD AFMF) is the GPU-saving kind. Leads: untile by runs + SIMD swaps (33 → 10 ms texture loads), texture changes from writes (741 of 748 hash "changes" were false, row padding) |
+| [Upscalers and frame generation](#upscalers-and-frame-generation-fsr-134-dlss-dlaa-xess-frame-generation-session-22-2026-11-10) | Motion vectors/jitter/scene-only upscale already in ReGPU; FSR 4 INT8 for RX 7000 via FSR SDK 2.4 + upstream's `Fsr4Evaluate`; DLSS/DLAA code exists (build switch + SDK); XeSS one new file; frame generation large (HUD-less image, mirror, pacing): use AFMF/Smooth Motion |
+| [FPS counter and graph](#fps-counter-and-frame-time-graph-session-22-2026-11-10) | A ReGPU patch beside the timer panel: present intervals, 240-sample graph, redrawn ≤20/s, `REGPU_FPS` 0/1/2 + launcher |
+| [Splash screens](#skipping-the-two-splash-screens-before-press-a-to-start-session-22-2026-11-10) | The boot sequence is already cut to 0.05 s each; which two screens remain needs the user's screenshots; likely the legal screens' fades or a startup/notice screen |
+| [Triple screen, three instances](#triple-screen-over-a-virtual-lan-three-instances-like-three-consoles-session-22-2026-11-10) | FM3's multi-screen ran over a LAN (3 consoles); our networking is stubbed; FH1R's virtual System Link (per-instance UDP ports, virtual secure IPs) is the design; 3 user folders + 3 monitors; ~3x CPU/RAM/GPU |
+| [Triple screen, one instance](#single-instance-triple-screen-session-22-2026-11-10) | 48:9 flat (needs the aspect hook) → per-screen homography warp → three projections via one clip-space matrix per view (P·R·P⁻¹), ~3x main-scene GPU |
+| [Engine sound](#engine-sound-smoothing-the-cuts-session-22-2026-11-10) | FM2's fix is universal (12,541 of 18,292 engine sounds): exact trims + an offline seamless-loop table. We apply no XMA trims at all: prime suspect for the sweep; port trims first, then compare hl360 |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -334,6 +340,236 @@ the offsets and addresses will differ and must be found again.
 seconds: watch for that); the countdown may hold the cars anyway until "GO"; FM3's AI may ignore the clutch with an
 automatic gearbox (the physics probably still applies the float: check). Whatever we set, write it after the AI runs
 each substep, or the AI simply overwrites it.
+
+## Upscalers and frame generation: FSR 1/3/4, DLSS, DLAA, XeSS, frame generation (session 22, 2026-11-10)
+Read only (our pin `57143cb`, upstream branches, vendor docs). Nothing built or run on FM3.
+
+### What our ReGPU already does (the hard part is done)
+- **Temporal input for any upscaler:** with a temporal upscaler on, the main view's scene draws also write **motion
+  vectors** (each draw's vertex shader run a second time with last frame's constants `vcPrev`, `renderer.cpp`
+  ~3859–3927, ~9412) into an `R16G16_FLOAT` target, with a **Halton jitter** (`REGPU_NO_JITTER` off), the scene's depth
+  and colour at render size; the upscale runs on the scene image only, and **post-processing and the HUD are drawn
+  after it at full size** (~6395, ~6737). Liveries, car pictures and reflection passes are not upscaled. A generic
+  `DlssSetup`/`DlssFrame` pair feeds every temporal upscaler (`TemporalEvaluate`).
+- **Built in our pin:** FSR 1 (spatial, any GPU), **FSR 3.1** upscaling (FidelityFX API, `REGPU_FSR3`, on in our build
+  because `thirdparty/fidelityfx/signedbin` has the DLLs), **DLSS** Super Resolution and **DLAA** (DLSS at native
+  scale; `dlss.cpp`, NGX) behind `REGPU_DLSS`, which **our CMakeLists doesn't turn on** (needs NVIDIA's DLSS SDK:
+  headers, `nvsdk_ngx_s.lib`, and `nvngx_dlss.dll` shipped beside `fm3.exe`; FM2 ships that DLL, so the licence
+  allows redistribution).
+- **Temporal upscalers turn MSAA off** (`src/settings.cpp`; the launcher greys it out). FSR is "not yet tested on FM3"
+  in the launcher.
+
+### FSR 4 (and the "lite" INT8 model)
+- FSR 4 is AMD's ML upscaler, reached through the same FidelityFX API as FSR 3.1: the upscaler DLL picks the newest
+  version the GPU runs. Upstream ReGPU's `engine-optimisation` branch (`5587e46`) adds it: `Fsr4Evaluate` asks the
+  API for its version list and picks an "FSR 4" one (`REGPU_FSR_VERSION` to override), falling back to 3.1.
+- **AMD's FSR SDK 2.4 (October 2026) ships FSR Upscaling 4.1.2 with an INT8 model for RX 7000 (RDNA 3, the user's
+  7900 XTX) and RX 6000**, plus Vulkan. Our `thirdparty/fidelityfx` is SDK 2.1.0 (DLLs 2025-12-09: FSR 4 on RDNA 4
+  only). The INT8 model reportedly costs ~10–20% more than FSR 3.1 (community builds; AMD's own not measured here).
+- **Steps:** (1) update `thirdparty/fidelityfx` to SDK 2.4 (headers + `signedbin` DLLs; check the API version, we link
+  `amd_fidelityfx_loader_dx12.lib`); (2) port `Fsr4Evaluate` + the version pick from `engine-optimisation` as a patch
+  (or the L27 rebase); (3) `src/gpu_host.cpp` stops mapping `fsr4` to FSR 3, the launcher offers "FSR 4 (RX 6000 and
+  newer)"; (4) test on the user's PC: picture (ghosting on cars at speed, fences, the HUD), fps vs FSR 3. Small to
+  medium. The log line names the version the SDK chose.
+
+### DLSS and DLAA
+Code exists. **Steps:** NVIDIA DLSS SDK (GitHub `NVIDIA/DLSS`) into `thirdparty/dlss`, `REGPU_DLSS=ON` +
+`REGPU_DLSS_DIR` in our CMakeLists, copy `nvngx_dlss.dll` post-build (as FM2/FM4 do), a launcher entry shown only for
+an NVIDIA GPU (DXGI vendor `10DE`; RESEARCH "Choosing the GPU" already plans the vendor check), DLAA as quality
+"native". Our project id in `dlss.cpp` is made up (fine for NGX's custom engine path). **Can't be tested on the user's
+PC** (AMD): needs an RTX tester. Small.
+
+### XeSS (Intel)
+Not in ReGPU. XeSS Super Resolution runs on any GPU with Shader Model 6.4 (DP4a path; XMX on Arc): same inputs as
+DLSS (colour, depth, motion vectors, jitter, render/output size). A new `xess.cpp` beside `dlss.cpp` behind the same
+`DlssSetup`/`DlssFrame` and a new `Upscaler::Xess` value. Intel's XeSS SDK (GitHub `intel/xess`) ships `libxess.dll`;
+the licence allows redistributing the binaries but not modifying them. Medium (one integration, the plumbing exists).
+Value for us: a second ML-ish upscaler for NVIDIA GTX/AMD users without FSR 4; the user's PC would get FSR 4 instead.
+
+### Frame generation
+Frame generation renders fewer real frames and builds the in-between ones on the GPU: a real gain only when the GPU
+is the limit and the frame rate is below the display's refresh rate, at the cost of latency. **At the user's
+200–300 fps it adds latency for nothing** (FG targets 40–80 → 80–160 fps). Options:
+| Option | Runs on | What we'd add | Effort |
+|---|---|---|---|
+| **AMD Fluid Motion Frames 2 / NVIDIA Smooth Motion** (driver level) | AFMF: Radeon RX 6000+ (DX11/12, fullscreen or borderless); Smooth Motion: RTX 40/50 | Nothing: a driver toggle. Try first; the HUD can wobble (no HUD-less input) | None |
+| **FSR 3.1 / FSR 4 frame generation** (FidelityFX "frame generation swapchain") | Any DX12 GPU (FSR FG 4.0 ML model on newer AMD) | Replace ReGPU's swap chain (`presenter.cpp`, flip-discard, tearing) with the FidelityFX FG swap chain; per frame: depth, motion vectors, a **HUD-less** image (or the UI on its own surface), camera near/far/FOV, frame time; pacing with our vblank/cap scheme; latency (Anti-Lag 2 SDK) | Large |
+| **DLSS Frame Generation** (Streamline, DLSS-G; Multi Frame Gen on RTX 50) | RTX 40/50 only | Streamline SDK + Reflex (required); same inputs as above | Large |
+| **XeSS Frame Generation** (XeSS SDK 2.1+) | Any SM 6.4 GPU (compute path off Arc) | XeSS-FG + XeLL; same inputs | Large |
+**The FM3-specific difficulties:**
+- **A HUD-less image.** ReGPU knows where the scene ends (the upscale point), but FM3's post-processing (bloom, motion
+  blur, the tonemap) is drawn after it and the HUD after that, into the same target. We'd snapshot the frame at the
+  first HUD draw (ReGPU already tells HUD/2D draws apart for its widescreen squeeze, `vwide`), or composite the HUD
+  separately. Wrong guesses mean a smeared speedometer or a ghosting rear-view mirror.
+- **Motion vectors cover only the main view.** The rear-view mirror, the game's own motion blur and screen-space
+  effects have none; FG interpolates them by optical flow alone (FSR FG) or from the vectors we give (wrong for the
+  mirror). The menus have no motion vectors at all: FG should be off outside races.
+- **Pacing.** Our frame-rate scheme (`frame_time.cpp`: vblank at twice the cap, `mainthread30fps`) would have to
+  target half the output rate, with FG presenting the other half. The FG swap chain does its own pacing; the two must
+  not fight.
+- **Camera values:** FSR FG wants near/far planes and FOV (for depth-based interpolation); they'd come from the
+  projection constants ReGPU already reads for the widescreen fix.
+
+### Ranked
+1. **FSR 4 via SDK 2.4** (the user's GPU gets the INT8 model; code exists upstream): the next upscaler step.
+2. **Test FSR 3 on FM3 at all** (never tested): ghosting on cars, the sun flare (occlusion queries at render size),
+   liveries untouched, HUD sharp. Prerequisite for 1.
+3. **DLSS/DLAA build switch** (code exists; needs an NVIDIA tester).
+4. **XeSS SR** (one new file; for non-RDNA users).
+5. **Frame generation:** recommend the driver-level options for players who want it; build FSR FG only if low-end
+   GPUs at 30–60 fps become a target (the HUD-less image is the risky part).
+Sources: GamingOnLinux "AMD FSR SDK 2.4 is out with FSR Upscaling 4.1.2 for older hardware" (2026-10), AMD GPUOpen
+FSR SDK page and FSR 3.1 / frame interpolation swap chain manuals, Tom's Hardware / OverClock3D on XeSS SDK 2.1 (FG on
+SM 6.4 GPUs).
+
+## FPS counter and frame-time graph (session 22, 2026-11-10)
+**What exists:** ReGPU already draws two panels onto the back buffer, built with GDI on the CPU and uploaded as a
+small texture: the shader-compile panel (`PrepareOverlayOn`, 520x140, `renderer.cpp` ~7398–7590) and our timer
+(patch `regpu-timer-overlay`: 136x34, `PrepareTimerOn`, redrawn only when its text changes, also during
+`HoldPresent`). Frame times exist twice: the debug server's `frametimes` command (`debug.cpp`: swap intervals,
+average/percentiles/worst) and `Fm3 "status"` fps. FH1R's version (`54d5177`, `docs/graphics-menu.md`): Off / FPS /
+FPS + graph, from guest swap intervals, a rolling second for FPS, the last 240 intervals in the graph, the range
+growing to fit hitches, stale samples dropped when frames stop, white text top-right.
+
+**Design for FM3 (a new ReGPU patch beside the timer, `regpu-perf-overlay`; small, ~200 lines):**
+1. **Samples:** the interval between successive presents (`PresenterPresent`, what the player sees), in a 240-entry
+   ring (lock-free: one writer). FPS = samples in the last second; also the average frame time and the 1% low.
+2. **Panel:** ~300x110 at 1080p, scaled with the output height (4K would make a fixed 300 px panel tiny). Line 1
+   `213 fps  4.7 ms  1% low 171`; below it the graph as a GDI polyline of the 240 intervals, with reference lines
+   at the cap's period and at 16.7/33.3 ms; the scale is max(2x the median, the worst sample) so a hitch shows as a
+   spike without flattening the rest. Top-right (the timer is top-left).
+3. **Cost:** redraw and upload **at most 20 times a second**, not every frame (GDI + a 130 KB upload; at 360 fps
+   per-frame redraws would cost real time). The copy onto the back buffer is per frame, as for the timer.
+4. **Switches:** `REGPU_FPS` = 0 off / 1 FPS / 2 FPS + graph, a LiveSwitch (`Fm3 "switch REGPU_FPS 2"`);
+   `settings.ini perf_overlay=off|fps|graph` → `src/gpu_host.cpp` sets it; launcher Graphics dropdown (as FH1R);
+   later a hotkey (F12 is the capture key; e.g. Ctrl+F).
+5. **Optional second line** with `REGPU_PERF` on: GPU ms a frame from the existing timestamps (`g_timestamps`),
+   which tells GPU-bound from CPU-bound at a glance. Off by default (the perf log costs ~14%).
+**Caveats:** the panel is opaque (the existing path is `CopyTextureRegion`); a see-through graph needs a small
+alpha-blended draw instead (a later step). Screenshots and `Save-Fm3Shot` would include it (the timer has the same
+property, which we use). Measures the host's presents, so it also counts frames the game repeated, which is what the
+player sees. Zero-effort alternatives that work today: RTSS/Afterburner, AMD's Adrenalin overlay, PresentMon.
+
+## Skipping the two splash screens before "Press A to start" (session 22, 2026-11-10)
+**What we skip today** (`src/hooks/boot_options.cpp`, `skip_intro`): the boot sequence `sub_8225A870` hands the
+sequencer 6 timed entries (disclaimer 6 s, ESRB 4 s when `sub_8232E0D0()` says so, Turn 10 10 s, MSGS 10 s, Dolby
+5 s, the Forza intro 70 s); our hook sets every one of them to 0.05 s (FM2's method; FM2 has the same table:
+3/10/10/5/79 s). The title screen comes ~8 s after start instead of ~100 s.
+**So what are the two screens left?** Not known from here. The candidates, in order of likelihood:
+1. **The two legal screens still flash** (disclaimer, ESRB): an entry shortened to 0.05 s still fades in and out,
+   and a texture entry must load first. If so: drop the entries instead of shortening them (move the entry count
+   down / make the setter see only the title entry), or set their fades to 0 if the 240-byte entry has fade fields
+   (dump one entry: `Fm3 "peek <r4> 1440"` from the hook's log line).
+2. **Screens outside the boot sequence:** the game's startup loading screen (shown while data loads; it can only be
+   made shorter by loading faster) or a storage/profile/autosave notice (a UI flow screen: skippable with a
+   pad-script press or a flow hook, as `quick_race` does with presses).
+3. **The attract video** (session 19's open request) is after the title screen, not before it.
+**First step (needs the user, 2 minutes):** start with `play.cmd`, screenshot each of the two screens (the timer is in
+the corner) and send them; the log's `intro: skipped` line and the screenshots' times say which are inside the
+sequence. Then the fix is small either way (entry removal in `SetSequenceHook`, or a UI-flow hook found with
+`xref.py strings` on the screen's text).
+
+## Triple screen over a virtual LAN: three instances like three consoles (session 22, 2026-11-10)
+**How FM3 did it:** three Xbox 360s, three copies of the game, three TVs, connected over a LAN through a switch; one
+console hosts (centre view), the others are clients drawing the side views (4Gamer write-up; forum posts). It is
+its own multi-screen mode over the network, not the "System Link" race mode (sources disagree whether FM3 kept the
+latter). FM2 had the same (centre/right views).
+**Our kernel today:** networking is stubbed so the game sees no network: `NetDll_socket` fails,
+`XNetGetEthernetLinkStatus` = 0 (no link), `XNetGetTitleXnAddr` = none, connect status "lost"
+(`src/kernel/imports_xam.cpp` ~1226–1240). With no link the game hides LAN features, so the multi-screen option is
+probably unreachable now.
+**Precedent: FH1R's virtual System Link** (`forza-recomp/src/kernel/net.cpp`, FM4 engine, GPL-3: design only, our own
+code). `FORZA_NET=1`: the link is reported up; the game's UDP sockets (its VDP port 1000 and broadcast port 1001) are
+emulated: each instance owns one host UDP port (first free in 21300–21307) and every datagram carries a small header
+with the guest source/destination ports, so three instances on **one PC** don't clash; a broadcast goes to every
+port of the range on 127.0.0.1 (and to 255.255.255.255 with `FORZA_NET_LAN=1`, for other PCs);
+`XNetGetTitleXnAddr` describes the instance by host IP + port; `XNetXnAddrToInAddr` maps a peer to a virtual secure
+address 0.77.0.N (the game only connects to addresses starting with 0) that `sendto`/`recvfrom` translate back;
+`XNetRandom` must return real random bytes (instances otherwise pick the same session nonces); key registration,
+connect and QoS listen succeed; VDP is sent unencrypted. FH1R built online races and lobbies on top of it, so FM4-era
+netcode runs recompiled.
+**Plan for FM3:**
+1. **Find FM3's multi-screen option** (local: `xref.py strings` for "monitor", "screen", "left", "right", "center";
+   the options/flow strings) and which network calls it makes: a first boot with the link reported up and a call
+   trace of every `NetDll_*`/`XNet*`/`XSession*` import with arguments (FH1R's `FORZA_NETTRACE` idea). Our import
+   list (genstubs) shows which ones FM3 links.
+2. **A virtual LAN in our kernel** (`src/kernel/net.cpp`, MIT, our own): the FH1R design above, cut to what FM3 calls
+   (UDP sockets, bind, sendto/recvfrom, select/ioctl non-blocking, setsockopt broadcast, XNet address/key calls).
+   Off by default (`FM3_NET=1`), so nothing changes for single-player.
+3. **Three instances on one PC:** each needs its **own user folder** (saves are written on exit; three processes
+   on one `out\user` would overwrite each other) and its **own window on its own monitor** (a launcher "instance"
+   setting: monitor index, borderless fullscreen there; `settings.ini` per instance), the same game folder (read
+   only). Launcher: a "Triple screen" button that starts three `fm3.exe` with `--user out\user1..3 --monitor 1..3`.
+4. **Cost:** three full games: ~3x CPU (each has its own main loop, render thread, ReGPU CP and draw thread: ~4-5
+   busy threads each → a 12+ core CPU), ~3x RAM (~7 GB private bytes each today: ~21 GB), and the GPU draws three
+   scenes (each side at full resolution: roughly 3x today's GPU time; at 1440p 4x that's ~70 fps from ~210 if it
+   scales linearly; 1080p sides or MSAA 2x on the sides help). Three PCs over a real LAN also work with step 2's
+   broadcast option.
+5. **Sync risk:** on consoles each instance ran its own simulation of the host's race at 60 Hz; our instances run at
+   our unlocked rates. Cap all three at the same rate (60 first) until the side views are seen to stay in step.
+**Effort:** large (networking layer + launcher), but the networking also unlocks System Link races between PCs if FM3
+has them, and maybe online later (FH1R's server route).
+
+## Single-instance triple screen (session 22, 2026-11-10)
+One process, one game, three screens. Three ways, by fidelity:
+1. **One very wide flat view (works mostly today):** the launcher's 32:9 aspect taken to 48:9 (5760x1080 or
+   7680x1440 across three monitors as one Eyefinity/Surround display), ReGPU's Hor+ widening (`vwide`,
+   `REGPU_WIDE_FOV`), plus RESEARCH "Ultrawide" step 2–3 (the game's camera aspect setter hooked so its culling
+   covers the sides, FM2's `camera_aspect.cpp` method). **Limit:** a flat projection over ~150° of side-angled
+   monitors stretches the sides badly and wastes pixels there; fine for flat-ish monitor setups. Cost: one scene at
+   the full width (≈ the pixel count of three screens).
+2. **Wide render + per-screen warp (cheap "true" triple):** render the flat wide view with a total FOV matching the
+   three monitors, then re-project each side third onto its angled monitor's plane. From one eye point, re-projecting
+   a planar image onto a rotated plane is an exact **homography** (no depth needed), so it's one full-screen pass per
+   side screen at present time. Geometry is then correct for the angled sides; the cost is resolution: flat
+   projection gives the far edges more pixels than they need and the centre fewer, and it can't reach 180°
+   (practical up to ~120–130° total). Effort: medium (a presenter pass, monitor angle/bezel settings), on top of 1.
+3. **Three projections, one simulation (true triple):** the main view's passes drawn three times per frame with the
+   view rotated ±θ. In clip space this is cheap to express: a draw's clip position is P·V·W·x; the rotated view is
+   P·R·V·W·x = (P·R·P⁻¹)·(P·V·W·x), so **every perspective draw can be turned with one 4x4 matrix applied to its
+   output position in the vertex shader** (ReGPU already rewrites the output position for Hor+ and jitter), given P
+   (from the projection constants). Precedent: FH1R's VR true stereo (ReIGlue 0396) runs the scene's commands once
+   per eye. ReGPU would replay the main view's passes (its `WidePass()` already identifies the 1280-pitch main-view
+   and post passes) into two more targets, the HUD only on the centre. Culling must cover all three views (the
+   aspect-setter hook from 1 with the total FOV). View-dependent passes (motion blur, sun flare queries, screen-space
+   effects) run per view; shadows and reflections once. Cost: ~3x the main scene's GPU time, ~3x its draw-thread
+   work. Effort: large (ReGPU replay of a pass range with a per-replay transform), but no networking and one game.
+**Recommendation:** 1 now (test 48:9 once the aspect hook exists), 2 if angled monitors look wrong, 3 only if 2's
+resolution loss is unacceptable. The three-instance LAN route reproduces the console exactly but costs three games.
+
+## Engine sound: smoothing the cuts (session 22, 2026-11-10)
+**State (OPEN-ISSUES G):** at steady revs the user hears a slow tone sweep ("AAAAEEEEOOOO"), like two near-identical
+layers beating; FM3's engine streams **restart every packet or few** (36 of 41 restarts after a single packet),
+unlike FM2's long loops. Our decoder already: replaces the codec at a real restart (`Reset`, FFmpeg's XMA decoder
+has no flush; `FM3_XMA_FLUSH_ONLY=1` = old), the seek guard, drop-ahead, an optional crossfade of every restart
+(launcher "Engine sound crossfade": tried, worse).
+**What FM2 did (`src/audio/xma.cpp` 81–111, 405–470; `seamless_loops.h`; `tools/mkloops.py`), and it is already
+universal, not per car:** the RX-7/Supra/Evo rev hitches were the reports, but the fix covers every engine sound:
+1. **Decode an engine sound as the hardware does:** at each sound start a fresh codec, and the stream's
+   `trim_start` honoured: the hardware drops the packet's pre-roll; FFmpeg drops all but 128 samples, so FM2 skips
+   `min(128, trim_start)` more (`PacketTrims`, `skipStart`). End trims are read from later packets.
+2. **A seamless-loop table** made offline from the sound banks: each bank decoded bit-exactly
+   (`tools/xmadecode.cpp`), FMOD's loop x[S:L] with S = trim_start − 128 simulated, blends of 60–800 ms tried at the
+   best-matching points (FFT cross-correlation, level included), the join scored (spectral change, 20 ms loudness
+   step) and kept only if clearly better than the sound's own: 12,541 of FM2's 18,292 engine sounds got one, keyed
+   by a hash of the stream's first packet, applied while decoding (`PatchLoop`), with a level-keeping gain for the
+   blend (`BlendGain`: correlated signals don't dip).
+3. Unlisted engine sounds: the last 384 samples crossfade into the 384 FMOD skips after a restart.
+**For FM3 (ranked):**
+1. **Trim handling (lead, likely relevant to the sweep):** `grep trim src/audio/xma.cpp` finds nothing: we don't
+   apply `trim_start`/`trim_end` at all. If FFmpeg leaves up to 128 samples of pre-roll per stream start and FM3's
+   engine restarts 30+ times a second, every restart inserts ~3 ms of audio the console never plays: a periodic
+   phase jump, which at a steady rate sounds like a moving comb filter: a vowel-like sweep. Port FM2's
+   `PacketTrims` + `skipStart` (our own code from the description; FM2 is MIT) behind `FM3_NO_XMA_TRIM`, live A/B at
+   steady revs (the session 18 setup: RSX-S, `hold LB` + `trigger R 0.45`). Small. **Do first.**
+2. **Compare with hl360** at the same car and revs (open since session 18): if hl360 sweeps too, it's the game's
+   granular engine and nothing to fix; if not, 1 is the prime suspect.
+3. **A seamless-loop table for FM3's banks**, only if FM3's engine sounds are looped streams with audible joins
+   (FM3's restart-every-packet pattern suggests the engine plays short segments instead; check `FM3_TRACE_XMA_RESTARTS`
+   for restarts on one of a stream's first packets). Needs a bit-exact XMA decoder tool and numpy (ask the user), and
+   FM3's engine banks' path/format (FSB version) checked. Medium.
+4. **Turbo/blow-off loudness** (FM2 `car_sound.cpp`, `CarSoundStreamGain`: samples louder as decoded, with Exhaust and
+   Turbo sliders added to the game's Audio options through its Lua): a mix feature, not a fix; later.
 
 ## FH1-ReImagined's latest performance work, and Sonic Unleashed Recompiled (session 22, 2026-11-10)
 Read only, cloud session, no code. FH1R = `FH1-ReImagined/ForzaHorizon1-ReImagined` main `8afc41e` (2026-11-09), its
