@@ -12,6 +12,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Benchmark tools](#benchmark-tools-the-players-car-driven-by-the-games-ai-and-a-frozen-grid-session-21-2026-11-10) | Frozen world while rendering: dt 0 in `frame_time.cpp` (small, our code). AI on the player car: FH1R's native-AI takeover (opponent factory + releasing the human override). AI throttle/brake/clutch: one float controls block per car in FH1 (+3904), very likely in FM3 too; same RE as telemetry |
 | [FH1R latest + Sonic Unleashed](#fh1-reimagineds-latest-performance-work-and-sonic-unleashed-recompiled-session-22-2026-11-10) (session 22) | FH1R: CP on two threads (+13%/≥6 cores, −11% on 4), only changed register writes recorded, descriptor reuse −7%/draw, **GPU time by work kind: RT transfers were 37% of the GPU frame**; their ReGPU plugin uses `REGPU_ANISO_FROM_FETCH` (never tried on FM3), tile merge 0 gain, PGO +6%. Upstream ReGPU: 15 commits past our pin (vertex reach, view submit, one-copy queries). Unleashed: hardware MSAA resolve, pipelines built at asset load (`non_volatile_as_local` later measured as a loss by Pinyon Shift) |
 | [Pinyon Shift](#pinyon-shift-fh1-recomp-performance-leads-session-22-2026-11-10) (session 22) | GPU: fetch state as shader variants (our `TFetch` branches on gamma/exp/swizzle per fetch; ~5% there), per-shader price list first, per-hash 0×Inf rule with a NaN scrub (car paint is the risky one), depth-alias copies −1.1 ms, specialised resolves. CPU: inline register save/restore, fewer MXCSR toggles, `SetPWLGamma` every frame (30% of FH1's render thread); **`non_volatile_as_local` 20–27% slower**. Stutter: wait for pipelines at submit, long-frame sampler, slow SQLite views after a race |
+| [ITC-Recomp](#import-tuner-challenge-recomp-itc-recomp-its-frame-interpolation-and-other-leads-session-22-2026-11-10) (session 22) | Its frame interpolation (30 Hz logic, blended render-only frames) has **no performance merit for FM3**: FM3 already simulates every frame with a real dt, and a blended frame costs the GPU the same. Frame generation (FSR 3 FG / AMD AFMF) is the GPU-saving kind. Leads: untile by runs + SIMD swaps (33 → 10 ms texture loads), texture changes from writes (741 of 748 hash "changes" were false, row padding) |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -554,6 +555,64 @@ t-interval (adjacent pairs understated the error ~1.45x); frames banded by draw 
 reported, slow frames never filtered; warm-cache runs count "draws that waited for a pipeline" instead of fps; every
 run saved as JSON with commit, machine and effective settings. Our `tools/fm3_ab.ps1` does interleaved rounds: adding
 the block t-interval and the tail metrics is cheap.
+
+## Import Tuner Challenge recomp (ITC-Recomp): its frame interpolation, and other leads (session 22, 2026-11-10)
+Read only. `Spooky098529/ITC-Recomp` main `b322c1d6` (2026-10-25), ReXGlue plus its own native Vulkan renderer (the
+game's D3D command list replayed directly, Xenia's GPU backend not used). Docs: `docs/frame-interpolation.md`,
+`tick-replay.md`, `native-renderer.md` "Performance: the render thread", `texture-handling-optimization.md`.
+
+### How its interpolation works
+Import Tuner Challenge never measures elapsed time: every main-loop pass is 1/30 s, so it can't simply run faster.
+ITC keeps logic at a fixed 30 Hz and adds **render-only passes** in races: Update messages are swallowed, input is
+skipped, and the game's Draw step records a fresh command list from the same tick. Every 3D transform goes through
+one guest matrix multiply (`sub_8209BD50`, world × view-projection written into a constant-upload command), so a hook
+there notes both inputs on each tick, pairs them with the previous tick's (keyed by operand, a stable per-projection
+camera id and order; car parts by position), and the replay blends them (one tick of latency by design). Then a long
+tail of fixes: per-frame counters that ran ~5x fast (blink timers, texture flipbooks, minimap blink, play time, UI
+movies, cockpit dials), world-space sprites blended separately, race overlays redrawn, a rival logo. Menus stay at
+30 fps (render-only passes made them flicker and repeat button presses). About 600 lines of findings.
+
+### Does it have merit for FM3? For performance, no. Three reasons:
+1. **FM3 already has what it buys.** FM3's main loop takes a real frame time (`dt` from the clock; physics sub-steps
+   it), and our `src/hooks/frame_time.cpp` feeds it exact per-frame times at any cap up to 360. Every FM3 frame is a
+   real simulation step, so motion is already smooth without blending. ITC needed interpolation only because its game
+   has no time step to change.
+2. **It doesn't make a frame cheaper.** Each in-between frame still records, translates and draws the whole scene
+   (ITC's `tick-replay.md`: at ~450 fps, 14 of 15 frames are render-only, the main thread at ~88% of a core re-recording,
+   the render thread redoing every draw). On the user's PC FM3 is GPU-bound (~96%), so a blended frame costs the GPU
+   exactly what a simulated one does: 0 fps. On a weak CPU the limit is ReGPU's per-draw work, which every frame pays
+   too. The only CPU saved is the guest simulation, which isn't FM3's limit anywhere we've measured.
+3. **It costs accuracy and a lot of work.** The picture lags a tick (latency up, not down), and every frame-counted
+   behaviour needs its own fix. On a ReGPU (low-level) renderer we'd also have to find FM3's matrix multiplies in
+   guest code. That's a lot of risk for a game that doesn't need it.
+
+**Where interpolation would pay** is the opposite case: a GPU-bound machine making **fewer** real frames and
+generating the in-between ones. That's frame generation (FSR 3 frame generation, or AMD Fluid Motion Frames in the
+driver, which needs no code from us), not ITC's method. For low-end PCs it's a possible later option (FSR 3 FG needs
+motion vectors, which ReGPU's FSR 3 path already asks for); for the user's 200+ fps it adds latency for nothing.
+
+**Ideas from it worth keeping:**
+- **Per-frame-state finder** (`--find_per_frame_state` / `--find_any_steps`: values that step by ±1 a frame). It
+  finds game logic that counts frames instead of time. FM3 at 360 fps could have some (UI blinks, timers, movies
+  that run fast): a cheap correctness check of our frame unlock, not a speed item.
+- **Refresh shadows and reflections once per simulation tick** (ITC "Ideas for lightening the render load", item 1):
+  for FM3 that's V8 (reflection cube rate). Pinyon found shadows every other frame trailed visibly; reflections were fine.
+
+### Other performance leads from ITC
+- **Untile by runs, SIMD byte swaps** (`71fb4f0`): the tiled layout keeps 16 bytes contiguous (8 for 1-byte formats),
+  so copy a run per computed address and byte-swap 16 bytes at a time with SSSE3 shuffles instead of an address
+  computation and a `memcpy` per block. Race start, 44 textures (11 MB), one CPU: **33.2 → 9.8 ms**, checked equal on
+  180,224 rows. **Applies to ReGPU:** our `texture.cpp` untile (~394–399, ~555–558) computes `TiledOffset2DInner` per
+  block. A cheap CPU version of L20 (GPU untile) against streaming hitches. PERF-PLAN L34.
+- **Texture changes from recorded writes, not hashing** (`texture-handling-optimization.md` "Who writes textures'
+  memory"): ITC wraps the game library's memcpy (`sub_825A7410`), marks textures its writes overlap, and hashes only
+  in a verify mode. Of 748 "changes" found by hashing, 741 were **false**: bytes in the row padding past an untiled
+  texture's last row, which the game reused for other data, so a 200 KB texture reloaded every recheck. For ReGPU:
+  check that our texture hash covers only the rows an untiled texture uses, and count reloads per frame. Our vertex
+  arena already marks buffers from write faults; the same could serve textures. PERF-PLAN L35.
+- **Skipping repeated state calls** (+6.5% uncapped, CPU side) and constants uploaded only where changed: same ideas
+  as FH1R's descriptor reuse (L8).
+- **Rejected there:** a per-frame texture time budget (visible pop-in from deferred first loads).
 
 ## ReGPU speed work in other projects (session 19, 2026-11-10)
 Survey of every branch of the reference clones (framework/ReGPU, ReGPU-fh1, FM2, PGR4, FM4, FH1R), read only. Our pin

@@ -602,6 +602,10 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   per-hash 0×Inf rule (I3 note), depth-alias copies, reflection cube rate (V8), inline register save/restore + fewer
   MXCSR toggles (L25 rewritten: **`non_volatile_as_local` measured 20–27% slower there, so not that**), pacing (L31),
   pipelines waited at submit (L32), long-frame sampler + `SetPWLGamma`/SQLite hitches (L33).
+- ITC-Recomp (Import Tuner Challenge): its frame interpolation has no performance merit for FM3 (FM3 already
+  simulates every frame with a real dt; a blended frame costs the GPU the same; ITC needed it because its game has
+  a fixed 30 Hz step). Leads kept: untile by runs + SIMD swaps (L34), texture change checks (L35), a per-frame-state
+  finder as a correctness check of our frame unlock.
 
 ### 2026-11-10 — session 21 (cloud: PERF-PLAN.md, installer study, AI-driver benchmark / frozen grid study)
 - PERF-PLAN.md: every unbuilt/unmeasured performance item by picture effect, target machine, live/start-time A/B.
