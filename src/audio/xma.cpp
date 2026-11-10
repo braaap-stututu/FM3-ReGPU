@@ -23,6 +23,7 @@
 #include <deque>
 #include <filesystem>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -43,6 +44,7 @@ extern "C"
 #include "audio/capture.h"
 #include "live_switch.h"
 #include "log.h"
+#include "settings.h"
 
 bool DealerMutesMusic(); // hooks/dealer.cpp: the easter egg is playing
 
@@ -148,6 +150,15 @@ uint64_t PacketHash(const uint8_t* p)
         h = (h ^ p[i]) * 0x100000001B3ull;
     return h;
 }
+// A whole packet's hash (FNV-1a over 2 KB): which packet a stream started with (engine loop crossfade).
+uint64_t FullPacketHash(const uint8_t* p)
+{
+    uint64_t h = 0xCBF29CE484222325ull;
+    for (int i = 0; i < 2048; i++)
+        h = (h ^ p[i]) * 0x100000001B3ull;
+    return h;
+}
+std::atomic<uint64_t> g_loopFades{ 0 }; // (counted in the 5 s lines)
 bool MusicPacket(const uint8_t* p)
 {
     std::lock_guard lock(g_musicMutex);
@@ -463,6 +474,79 @@ struct Decoder
     int pendingBits = -1;
     // (capture) what the context showed at the last step: the output ring read index and the input buffers valid bits
     int capRead = -1, capValid = -1;
+    // Engine loop crossfade (FM3_XMA_LOOP_CROSSFADE, see LoopFade): the hash of the packet this stream started with,
+    // and the end of the previous pass, still to be blended into the first frames of the next.
+    uint64_t firstHash = 0;
+    std::vector<int16_t> fadeTail;
+    size_t fadePos = 0;
+    uint32_t fadeChannels = 0;
+
+    // Appends what the codec has decoded.
+    void Receive()
+    {
+        while (avcodec_receive_frame(av, frame) == 0)
+        {
+            const int n = frame->nb_samples, ch = std::min<int>(frame->ch_layout.nb_channels, int(channels));
+            const size_t base = pcm.size();
+            pcm.resize(base + size_t(n) * channels);
+            for (int c = 0; c < int(channels); c++)
+            {
+                const float* in = reinterpret_cast<const float*>(frame->extended_data[std::min(c, ch - 1)]);
+                for (int i = 0; i < n; i++)
+                    pcm[base + size_t(i) * channels + c] = int16_t(std::clamp(in[i], -1.0f, 1.0f) * 32767.0f);
+            }
+            av_frame_unref(frame);
+        }
+    }
+
+    // An engine sound loops by the title feeding the stream's first packet again. The seek guard then replaces the
+    // codec, which threw away the audio FFmpeg still held back from the pass that ended (about a packet), and the
+    // new pass started on a step. Instead: the old pass is drained, its last kLoopFadeFrames (or what is left
+    // unplayed, at least 8) are kept back and blended into the first frames of the new pass (BlendFade), a
+    // raised-cosine crossfade of about 9 ms, after the FM2 port's engine-loop crossfade
+    // (zer0ducksgiven/Forza-Motorsport-2-ReGPU, src/audio/xma.cpp Drain; FM2 crossfades at the stream end of its
+    // listed engine sounds). Session 18, a launcher toggle while it is tested.
+    static constexpr size_t kLoopFadeFrames = 384;
+    size_t LoopFade()
+    {
+        fadeTail.clear();
+        fadePos = 0;
+        if (!av || !used || !channels)
+            return 0;
+        avcodec_send_packet(av, nullptr); // (the codec is replaced right after: Reset)
+        Receive();
+        const size_t unread = (pcm.size() - pcmRead) / channels, n = std::min(kLoopFadeFrames, unread);
+        if (n < 8)
+            return 0;
+        fadeTail.assign(pcm.end() - ptrdiff_t(n * channels), pcm.end());
+        pcm.resize(pcm.size() - n * channels);
+        fadeChannels = channels;
+        return n;
+    }
+
+    // Blends the kept end of the last pass into the frames from pcm[from] on (the new pass's first ones).
+    void BlendFade(size_t from)
+    {
+        if (fadeTail.empty())
+            return;
+        if (fadeChannels != channels)
+        {
+            fadeTail.clear();
+            return;
+        }
+        const size_t n = fadeTail.size() / channels;
+        for (size_t at = from; at + channels <= pcm.size() && fadePos < n; at += channels, fadePos++)
+        {
+            const double w = 0.5 - 0.5 * std::cos(3.14159265358979 * double(fadePos + 1) / double(n + 1)); // the new pass's share
+            for (uint32_t c = 0; c < channels; c++)
+            {
+                const double v = fadeTail[fadePos * channels + c] * (1.0 - w) + pcm[at + c] * w;
+                pcm[at + c] = int16_t(std::clamp(std::round(v), -32768.0, 32767.0));
+            }
+        }
+        if (fadePos >= n)
+            fadeTail.clear();
+    }
 
     void Close()
     {
@@ -523,19 +607,7 @@ struct Decoder
             return;
         const size_t pcmBefore = pcm.size();
         avcodec_send_packet(av, nullptr);
-        while (avcodec_receive_frame(av, frame) == 0)
-        {
-            const int n = frame->nb_samples, ch = std::min<int>(frame->ch_layout.nb_channels, int(channels));
-            const size_t base = pcm.size();
-            pcm.resize(base + size_t(n) * channels);
-            for (int c = 0; c < int(channels); c++)
-            {
-                const float* in = reinterpret_cast<const float*>(frame->extended_data[std::min(c, ch - 1)]);
-                for (int i = 0; i < n; i++)
-                    pcm[base + size_t(i) * channels + c] = int16_t(std::clamp(in[i], -1.0f, 1.0f) * 32767.0f);
-            }
-            av_frame_unref(frame);
-        }
+        Receive();
         framesDecoded += (pcm.size() - pcmBefore) / channels;
         if (const size_t rest = (pcm.size() - pcmRead) % block)
             pcm.resize(pcm.size() + (block - rest), 0);
@@ -589,6 +661,8 @@ struct Decoder
                 avcodec_flush_buffers(av); // (Reset replaces the codec before this unless FM3_XMA_FLUSH_ONLY)
             flush = false;
         }
+        if (!used || wasFlush)
+            firstHash = FullPacketHash(data); // a new stream (or pass) starts here
         used = true;
         const size_t pcmBefore = pcm.size();
         packetsDecoded++;
@@ -621,6 +695,7 @@ struct Decoder
             }
             av_frame_unref(frame);
         }
+        BlendFade(pcmBefore);
         const bool hadMessage = t_errorSeen;
         noteErrors();
         const bool failed = received != AVERROR(EAGAIN) && received != AVERROR_EOF;
@@ -721,6 +796,7 @@ bool Step(uint32_t ctx)
             d.consumed[0] = d.consumed[1] = false;
             d.holdsTail = false;
             d.flush = true;
+            d.fadeTail.clear();
         }
     }
     if (audiocap::On())
@@ -860,14 +936,23 @@ bool Step(uint32_t ctx)
                 contiguous = false; // nothing to say the frame it carries began in the packets before
             if (!contiguous)
             {
+                // The same sound again from its first packet: a loop (engine sounds). FM3_XMA_LOOP_CROSSFADE=1 (launcher
+                // "Engine loop crossfade", settings.ini engine_crossfade=1; live: Fm3 "env FM3_XMA_LOOP_CROSSFADE 1"):
+                // the end of the pass is kept and crossfaded into the restart (Decoder::LoopFade) instead of dropped.
+                static LiveSwitch loopCrossfade("FM3_XMA_LOOP_CROSSFADE"), flushOnly("FM3_XMA_FLUSH_ONLY");
+                const bool loopRestart = loopCrossfade && !flushOnly && d.firstHash && FullPacketHash(thisPacket) == d.firstHash;
+                if (loopRestart && d.LoopFade())
+                    g_loopFades++;
+                else if (!loopRestart)
+                    d.fadeTail.clear(); // (another sound: nothing of the old one to blend into it)
                 d.flush = true;
                 d.guardFlushes++, g_guardFlushes++;
                 // The title restarted the context with another sound. The console's decoder never runs further ahead than
                 // its output ring, so nothing of the old sound is left to play once the new one begins; what this decoder
                 // still holds beyond the ring would sound after the restart, through the new sound's voice.
-                // FM3_NO_XMA_DROP_AHEAD=1: keep it.
+                // FM3_NO_XMA_DROP_AHEAD=1: keep it. (Not for a loop restart with the crossfade on: the same sound goes on.)
                 static LiveSwitch noDrop("FM3_NO_XMA_DROP_AHEAD");
-                if (const size_t ahead = d.pcm.size() - d.pcmRead; !noDrop && ahead)
+                if (const size_t ahead = d.pcm.size() - d.pcmRead; !noDrop && !loopRestart && ahead)
                 {
                     d.pcm.resize(d.pcmRead);
                     g_aheadDropped += ahead;
@@ -958,6 +1043,9 @@ void ReportStats()
             (unsigned long long)(cl - clears));
     if (const uint64_t ad = g_aheadDropped; ad != aheadSeen)
         Log("xma: 5 s: %llu decoded samples dropped unplayed at stream restarts", (unsigned long long)(ad - aheadSeen)), aheadSeen = ad;
+    static uint64_t fadesSeen = 0;
+    if (const uint64_t lf = g_loopFades; lf != fadesSeen)
+        Log("xma: 5 s: %llu engine loop restarts crossfaded", (unsigned long long)(lf - fadesSeen)), fadesSeen = lf;
     errors = e, flushes = f, packets = p, reopens = r, waits = w, errorPkts = ep, dumps = dm, bufs = bc, rates = rc, offs = ow, kicks = kk, locks = lk, clears = cl;
 }
 
@@ -1028,6 +1116,11 @@ void XmaInit()
     memset(GuestPtr(g_contextArray), 0, kContextCount * kContextSize);
     SetRegister(kRegContextArrayAddress, g_contextArray & 0x1FFFFFFF);
     SetRegister(kRegNextContextIndex, 1);
+    // The launcher's "Engine loop crossfade" (settings.ini engine_crossfade=1, so play.cmd runs follow it too) turns on
+    // the live switch FM3_XMA_LOOP_CROSSFADE, unless that is set already.
+    if (GetSettings().Extra("engine_crossfade") == "1" && !getenv("FM3_XMA_LOOP_CROSSFADE"))
+        _putenv_s("FM3_XMA_LOOP_CROSSFADE", "1");
+    Log("xma: engine loop crossfade %s", getenv("FM3_XMA_LOOP_CROSSFADE") && strcmp(getenv("FM3_XMA_LOOP_CROSSFADE"), "0") ? "on" : "off");
 }
 
 // A store to an APU register (PPCMmioStore32): value as the register takes it.

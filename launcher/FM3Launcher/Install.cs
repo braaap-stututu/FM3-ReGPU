@@ -70,12 +70,13 @@ public sealed class GameSettings
     public bool Timer { get; set; } = true;        // the test timer, top left (off: FM3_NO_TIMER)
     public bool PerfLog { get; set; }              // REGPU_PERF: frame timings in fm3.log
     public bool DrawWorkers { get; set; }          // FM3_DRAW_THREAD_PIECES: draw workers on the draw thread (A/B; off = faster at 720p)
+    public bool EngineCrossfade { get; set; }      // engine_crossfade: engine sound loops crossfaded at the restart (src/audio/xma.cpp; read by the game, so play.cmd too)
     public bool DebugServer { get; set; } = true;  // REGPU_DEBUG: tools\fm3ctl.ps1 can attach (127.0.0.1 only)
     // Launcher only: where the disc's files are; empty = Paths.GameDirDefault.
     public string GameFolder { get; set; } = "";
 
     // The racing wheel's wheel_* keys are the Wheel stuff tab's (Wheel.cs); Save keeps them like any other key it doesn't know.
-    static readonly string[] Known = ["profile", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "hide_shader_overlay", "timer", "perf_log", "draw_workers", "debug_server", "game_folder"];
+    static readonly string[] Known = ["profile", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "hide_shader_overlay", "timer", "perf_log", "draw_workers", "engine_crossfade", "debug_server", "game_folder"];
 
     public static GameSettings Load()
     {
@@ -104,6 +105,7 @@ public sealed class GameSettings
                 case "timer": s.Timer = v != "0"; break;
                 case "perf_log": s.PerfLog = v == "1"; break;
                 case "draw_workers": s.DrawWorkers = v == "1"; break;
+                case "engine_crossfade": s.EngineCrossfade = v == "1"; break;
                 case "debug_server": s.DebugServer = v != "0"; break;
                 case "game_folder": s.GameFolder = v; break;
             }
@@ -121,7 +123,7 @@ public sealed class GameSettings
         sb.Append($"msaa={(Options.Msaa.Any(x => x.Value == Msaa) ? Msaa : 1)}\n");
         sb.Append($"upscaler={(Options.Upscalers.Any(u => u.Value == Upscaler) ? Upscaler : "off")}\nupscale_quality={Math.Clamp(Upscale, 1, 4)}\nsharpness={sharp}\n");
         sb.Append($"language={Language}\n");
-        sb.Append($"anisotropy={B(Anisotropy)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nperf_log={B(PerfLog)}\ndraw_workers={B(DrawWorkers)}\ndebug_server={B(DebugServer)}\n");
+        sb.Append($"anisotropy={B(Anisotropy)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nperf_log={B(PerfLog)}\ndraw_workers={B(DrawWorkers)}\nengine_crossfade={B(EngineCrossfade)}\ndebug_server={B(DebugServer)}\n");
         sb.Append($"game_folder={Clean(GameFolder)}\n");
         foreach (var (k, v) in keep) sb.Append($"{k}={v}\n");
         Directory.CreateDirectory(Paths.User);
