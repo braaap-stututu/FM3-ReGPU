@@ -1,6 +1,17 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-10, session 20)
+## ▶ Current status / next step  (updated 2026-11-10, session 22)
+
+### ▶ Session 22 (2026-11-10, cloud, research only; branch `ccr-acb8fc05-rpzqri`)
+No code changed; the game state is as at the end of session 20/21. All findings are in RESEARCH.md (index rows marked
+session 22 at the top) and PERF-PLAN.md (new L24–L35, I8, V8; L25 rewritten). Studies: FH1R's latest perf work and its
+ReGPU plugin, upstream ReGPU past our pin, Sonic Unleashed Recompiled, Pinyon Shift, ITC-Recomp (its interpolation:
+no perf merit for FM3), upscalers/frame generation (FSR 4 INT8 for the user's RX 7000 via FSR SDK 2.4), an FPS
+counter + graph, the legal/ESRB screens, triple screen (three instances over a virtual LAN; one instance), engine
+sound (we apply no XMA trims: port FM2's trim handling first), VR after FH1R. Session log entry "session 22".
+**Next (ask the user):** on the user's PC, best first steps: L26 GPU time by kind on the race grid, I8
+`REGPU_ANISO_FROM_FETCH` A/B, the XMA trim port for the engine sweep, the legal/ESRB entry dump, the CrownJewel
+test-grid route (plan in the session 22 log; needs the "countdown started" signal), the FPS overlay patch.
 
 ### ▶ Start here next session (state at the end of session 20, 2026-11-10)
 All work is committed and pushed (`main`, last commit "Session 20 wrap-up"). `play.cmd` is back to normal (no temporary
@@ -586,7 +597,7 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
-### 2026-11-10 — session 22 (cloud: FH1R's latest performance work, Sonic Unleashed Recompiled)
+### 2026-11-10 — session 22 (cloud: research: FH1R, upstream ReGPU, Sonic Unleashed, Pinyon Shift, ITC, features, VR)
 - Research only, no code (RESEARCH.md "FH1-ReImagined's latest performance work, and Sonic Unleashed Recompiled";
   new PERF-PLAN items L24–L29, I8; L10/L23 notes).
 - FH1R since 11-05: command processor on two threads by default with ≥6 cores (+13%; −11% on 4 cores), descriptor
