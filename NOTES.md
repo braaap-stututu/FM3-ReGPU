@@ -49,7 +49,16 @@ shared its 4-page report; its code is not public, so every piece here is our own
   x2 mod costs +7% draws / -10% fps on the grid, all of it crowd (3D spectators doubled; `tools/analysis/passes.py`
   compares captures pass by pass); grass/cubemap/shadow distance: no change from the grid. Next: those while
   driving (OPEN-ISSUES L). Developer overlays: cut from retail (never read). `perfmode`: fallback UI font and
-  car bodies missing in the menu: unusable as a whole; single `fast*` flags untested.
+  car bodies missing in the menu: unusable as a whole. Single flags: `fastcrowdrender` -7% draws, 0 fps, flatter crowd;
+  `fastcarrender` lowest models for every car, +1.3% fps: no. Crowd x0.5 data mod: 3D spectators halved, -3% draws,
+  fps unchanged (GPU-bound): the clean lever for a draw-bound low-end preset. Grass: test on another track.
+- **To do (user, session 19): no attract video on the title screen.** Left on "Press A to start" for a while, the game
+  plays its attract video, which gets in the way of tests (and of the virtual pad). Leads: Turn 10's `noattractvideo`
+  option (+2403) is only ever written, never read (cut, like the overlays); the UI class `ForzaUI::CAttract` (RTTI
+  string `82BA0551`) runs it; the video is probably `Media/UI/Videos/Splash_Intros/Forza_Intro.bik` again (the only
+  intro-style video on the disc). Options: hook CAttract's start (find it from the RTTI/vtable), or a `boot_options.cpp`
+  switch that refuses that .bik after boot (check the game then skips cleanly), or the title screen's idle timer in
+  the UI flow XML (ui.zip, zip-overlay mod). FM2's port has nothing for it.
 - **Other ReGPU speed work found in other branches** (survey, RESEARCH.md "ReGPU speed work in other projects"): the
   biggest is FM2's vertex arena (large vertex buffers in VRAM, recopied on guest writes; FM3 reads them over PCIe).
 

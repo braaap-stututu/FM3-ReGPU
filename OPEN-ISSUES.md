@@ -195,6 +195,16 @@ Sources: upstream ReGPU (`reference/framework/ReGPU`: `main` = our pin; `engine-
   a restart without it: car and font normal. The `fast*` flags are read by `sub_822B9AC0`; if any is worth having
   (crowd, grass), test it alone with a restart (`cmdline=fastcrowdrender`, etc.). Options object field addresses:
   `0x82C21C60 + offset` (`xref.py options`); `Fm3 "peek/poke"` reads and writes them live.
+- **Single flags and the crowd mod (same CrownJewel grid, paused, 1440p 4x MSAA; stock 206.0 fps / 3,611 draws):**
+  `fastcrowdrender`: 3D spectators (ps b32f44c5) 228 -> 0 and the next level (d44a5b5a) 30 -> 0, 3,360 draws (-7%),
+  205.9 fps (no gain: GPU-bound here); standing spectators flatter and darker. `fastcarrender`: every car (the
+  player's too) on its lowest model (black polygonal wheels, faceted body, livery colours off; user's photo-mode
+  shots), 3,422 draws (-5%), 208.6 fps (+1.3%): not worth it, and it is the flag that broke the menu car. Crowd
+  `lod0-3` + SpriteDistance x0.5 (mod `crowdhalf`): 3D spectators exactly halved (228 -> 114), 3,501 draws (-3%),
+  204.1 fps (noise); near spectators keep their detail. So on this PC crowd LOD costs draws, not frame time; for a
+  draw-bound low-end preset the data mod is the clean lever (no flag looks broken). No "lower LOD for AI cars only"
+  switch exists (keepLOD0Car only raises it). Mods kept off as `_lodx2`, `_crowdhalf`; captures in `out/logs/s19_capture_*.log`.
+- Grass: no grass on the usual start grid (CrownJewel): test grass settings on another track later (user).
 **Suggested order:** (a) a race with `cmdline=keepLOD0Car` (AI cars stay detailed? draws in `Fm3 "status"`); (b) a race
 with `trackfardistance` watched, then set; (c) a lodsettings mod (crowd x2, sprite x2) on one track against stock, same
 spot, shots + draws; (d) the dev overlays (`showframerate`, `PVSOverlay`) in case retail kept them.
