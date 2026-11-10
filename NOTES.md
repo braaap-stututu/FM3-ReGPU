@@ -1,8 +1,49 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-10, session 19)
+## ▶ Current status / next step  (updated 2026-11-10, session 20)
 
-### ▶ Start here next session (state at the end of session 19, 2026-11-10)
+### ▶ Start here next session (state at the end of session 20, 2026-11-10)
+All work is committed and pushed (`main`, last commit "Session 20 wrap-up"). `play.cmd` is back to normal (no temporary
+lines). **21 ReGPU patches** (new: `regpu-split-alpha-test`). Session 19's open list (attract video, vertex arena A/B,
+presets in a race, grass, older items) is unchanged: it is in the session 19 block below.
+**What session 20 found and changed (session log "session 20"; numbers in OPEN-ISSUES L):**
+1. **The game's render thread t7 is not the frame's limit.** Its 96-98% "CPU" is mostly spinning: profiled on the paused
+   CrownJewel race grid, ~65% in D3D's ring-space wait (`sub_824B4F78` -> `sub_824AAA68`, waiting for ReGPU to consume
+   the ring), ~2% asleep, ~33% game work. GetThreadTimes counts spinning as busy: never read a thread's % as work
+   without a profile (`FM3_SAMPLE_THREAD=<id>` at launch, callers live with `Fm3 "env FM3_SAMPLE_CALLERS 1"`).
+2. **The ~100 fps gap between a race and a time trial** (198 vs 311 fps, 1440p 4x, CrownJewel, same view from the 8th
+   grid spot) is GPU time: 4.80 vs 3.33 ms per frame, ~1.3 ms of the 1.47 being the seven AI cars' material shaders in
+   the main scene (car paint `a102319a5aef757b/e41e183a423e6f1b` 63 vs 8 draws +0.32 ms, then a few at 0.1-0.23 ms):
+   ~0.19 ms per car, pixel shading cost, not vertices (so lower car LODs don't help; `fastcarrender` was +1.3%).
+3. **No duplicate or wasted draws** (`tools/analysis/dupdraws.py` on a capture with `REGPU_TRACE_VC`): 2 exact duplicates
+   (tiny quads), 4 two-sided transparent car parts drawn back then front (intended).
+4. **New default: alpha-test-free pixel shaders** (patch `regpu-split-alpha-test`, `REGPU_SPLIT_ALPHA_TEST`, on in
+   `src/gpu_host.cpp`; `FM3_ALPHA_KILL_ALWAYS=1` off). Every translated pixel shader carried the run-time alpha test's
+   `discard`, which can cost early depth rejection; draws with the alpha test and alpha-to-mask off now use a variant
+   without it. Race grid, paused, 4 interleaved rounds: **203.0 -> 213.6 fps (+5.2%)**, screenshots byte-identical. User
+   drove ~3 laps: nothing wrong. Variants are cached (`out/user/shadercache`) and their pipelines are in the pipeline
+   manifest (prebuilt at boot; race ones get recorded on the next race).
+5. Tools: `tools/fm3_ab.ps1` (interleaved live A/B of a switch), `tools/analysis/gpudiff.py` (two `REGPU_GPU_SHADERS`
+   logs compared), `dupdraws.py`, `pngdiff.py` (pixel diff of two shots). `REGPU_GPU_PASSES`/`REGPU_GPU_SHADERS` are
+   read at start only (temporary `play.cmd` line).
+**Next (the user asked how to make AI cars cheaper without visible change; pick with the user):**
+- (1) **Re-measure the AI-car cost** with the new default (race grid vs time trial from the 8th spot, `REGPU_GPU_SHADERS=1`
+  at launch, `gpudiff.py`): how much of the 1.3 ms is left.
+- (2) **Hidden-part cull on the race grid** (live): `Fm3 "env REGPU_DRAW_CULL 1"` (occlusion-predicated draws; 1 px, the
+  64 px threshold flickered in session 19), `tools/fm3_ab.ps1`-style A/B plus `pngdiff.py` and a shot burst for flicker.
+- (3) **Speed-preset shader shortcuts in a race** (`REGPU_LEAN_FETCH=2`, `REGPU_PLAIN_MUL_PS`, start-time): cheaper car
+  shaders; compare pictures numerically.
+- (4) **Overdraw count**: D3D12 pipeline statistics (PS invocations) per draw or pass: if car pixels are shaded several
+  times, a depth pre-pass or ordering for car draws could pay.
+- (5) **Variable-rate shading for distant cars** (RX 7900 XTX: tier 2): biggest possible saving, most work (no VRS in
+  ReGPU yet; choosing "far" draws needs care).
+- Also: check the alpha-test-free shaders on other tracks, menus, photo mode, showroom; the next race records its
+  variant pipelines (one-time builds), the one after should have none.
+**How the session-20 tests ran:** user drove to the CrownJewel race (8th, Scion xD) or a time trial and paused; Claude
+restarted the game itself for start-time switches (`Get-Process fm3 | % CloseMainWindow`, then `play.cmd`, env via a
+temporary `play.cmd` line) and kept the same game session between the two sides of a comparison.
+
+### Session 19 start-here (kept for reference; its open list is still open)
 All work is committed and pushed (`main`, last commit "Session 19 wrap-up"). `play.cmd` is back to its normal state (no
 temporary lines); test mods in `out/user/mods` are all switched off (`_lodx2`, `_crowdhalf`). 20 ReGPU patches.
 **What session 19 added (details in the block below and the session log "session 19" parts 1-4):**
@@ -524,7 +565,13 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ✅ (session 16) Debug server: shots after a capture no longer stall ~30 s (patch 18). `Fm3 "shots N dir raw"` bursts + `REGPU_FREEZE_RESOLVES` = the flicker method.
 - ☐ Alt-tab hang (session 15; thread dump in `out/logs/session15-c1-run3.log`).
 - ☐ Report the early-fence write-back bug upstream (ReGPU `gpu.cpp` `WriteBack`; also in FH1's fork and PGR4). Smaller CP ideas left: FH1R's CP tricks, PGO, `-march=x86-64-v3`.
-- ☐ LOD / render distances (OPEN-ISSUES L).
+- ◐ LOD / render distances (OPEN-ISSUES L): session 19 toolkit and results (LOD cuts don't move fps on this PC).
+- ✅ (session 20) Frame limit understood: the render thread t7 mostly spin-waits on ReGPU; at 1440p 4x the GPU is the
+  limit, and the race vs time-trial gap is the AI cars' material shaders (~0.19 ms per car).
+- ✅ (session 20) Alpha-test-free pixel shaders (ReGPU patch 21 `regpu-split-alpha-test`, default on): race grid +5%,
+  picture identical; their pipelines prebuilt at boot.
+- ▶ AI-car cost without visual change: re-measure, hidden-part cull, preset shader shortcuts, overdraw count, VRS for
+  distant cars (NOTES top, "Next").
 
 **Phase 6 — Polish ▶ (launcher started, session 12)**
 - ✅ Launcher `launcher/FM3Launcher` (from your FM4 fork): Play (game folder, `default.xex` SHA-256 check, language), Profiles + backups, Graphics (resolution, aspect, fullscreen, fps cap, VSync, MSAA, FSR 1/3, anisotropy, shader box), Settings (shader cache, folders, test timer, debug server, perf log). `launcher.cmd` for the dev checkout; `FM3Launcher.exe --play` starts the game without the window.
@@ -535,7 +582,7 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
-### 2026-11-10 — session 20 (render thread profile)
+### 2026-11-10 — session 20 (render thread profile, race vs time trial, alpha-test-free shaders)
 - User asked what "the render thread runs flat out" meant. Rechecked: the 96-98% is GetThreadTimes CPU time, which counts
   spinning. Profiled t7 (`FM3_SAMPLE_THREAD=7`, temporary `play.cmd` line, removed; callers on live with
   `Fm3 "env FM3_SAMPLE_CALLERS 1"`) on the paused CrownJewel grid, stock, 203 fps: ~65% in D3D's ring-space spin
