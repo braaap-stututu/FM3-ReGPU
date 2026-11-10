@@ -52,7 +52,9 @@ shared its 4-page report; its code is not public, so every piece here is our own
   car bodies missing in the menu: unusable as a whole. Single flags: `fastcrowdrender` -7% draws, 0 fps, flatter crowd;
   `fastcarrender` lowest models for every car, +1.3% fps: no. Crowd x0.5 data mod: 3D spectators halved, -3% draws,
   fps unchanged (GPU-bound): the clean lever for a draw-bound low-end preset. Grass: test on another track.
-  `perfmode` in a race: -12% draws but -5% fps (196 vs 206), low-LOD cars, no 3D crowd, font without `.'-ë`: no use.
+  `perfmode` in a race: -12% draws, 196 fps, low-LOD cars, no 3D crowd, font without `.'-ë`: no use. Its "slower" is
+  mostly run-to-run spread (stock 198.8-206.0 today); the grid frame is bound by the game's render thread t7 (96%)
+  with GPU 4.7-4.8 ms of 5.0, so fewer cheap draws save nothing (why no LOD change moved fps here).
 - **To do (user, session 19): no attract video on the title screen.** Left on "Press A to start" for a while, the game
   plays its attract video, which gets in the way of tests (and of the virtual pad). Leads: Turn 10's `noattractvideo`
   option (+2403) is only ever written, never read (cut, like the overlays); the UI class `ForzaUI::CAttract` (RTTI
