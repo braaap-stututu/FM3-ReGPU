@@ -30,6 +30,15 @@ shared its 4-page report; its code is not public, so every piece here is our own
   `REGPU_INDEX_HASH_ONCE`, `REGPU_NO_FREEZE_HELPERS`; the start-time ones (lean fetch v2, lean vfetch, plain multiply,
   helper scale) need a restart with the env var set to 0 (`set REGPU_LEAN_FETCH=0` etc. before `play.cmd`).
 - Not done: mesh decimation (the study's own result was inside noise and it bends geometry).
+- **Vertex arena (later in session 19, from the FM2 port; on by default):** large vertex buffers live in a 512 MB VRAM
+  arena (ReGPU patch `regpu-vertex-arena`), copied again only when the game writes their pages: `src/memory.cpp` write
+  watch (pages read-only in the three physical views; the first write faults and frees its 64 KB block; NtReadFile
+  releases its buffer first). Over the guest's 0xA0000000 view the GPU heap made VirtualProtect fail (error 87, as on
+  FM2's PCs) and the arena switched off: ReGPU now opens the heap over a view of its own (`HeapViewAddress`), so zero-copy
+  stays and the guest views can be watched. Boot test: watch arms, `REGPU_VERTEX_VERIFY=1` found no missed write on the
+  title screen. **Not yet measured in a race:** live A/B `Fm3 "switch REGPU_NO_VERTEX_ARENA 1"` (from the next frame)
+  on a paused grid; watch for stale geometry (tyre marks, damage) with `Fm3 "switch REGPU_VERTEX_VERIFY 1"` (logs
+  `changed with no write seen`). Off: settings.ini `vertex_arena=0` or `FM3_NO_VERTEX_ARENA=1`.
 - **Other ReGPU speed work found in other branches** (survey, RESEARCH.md "ReGPU speed work in other projects"): the
   biggest is FM2's vertex arena (large vertex buffers in VRAM, recopied on guest writes; FM3 reads them over PCIe).
 
@@ -451,6 +460,13 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-10 — session 19, part 2 (vertex arena from FM2, on by default)
+- Ported FM2's vertex arena (commits a6edeb7..f893212 read for the design): ReGPU patch `regpu-vertex-arena` + `Host::watchArm/
+  watchClean/watchSeq`; FM3 `src/memory.cpp` write watch (FM2's, MIT), `GuestWillWrite` before NtReadFile's ReadFile.
+- First boot: "guest memory can't be made read-only (error 87)": the heap opened over the 0xA0000000 view locks its protection.
+  Fix: the heap over a separate MapViewOfFile view of the same section (ReGPU `HeapViewAddress`, `REGPU_GUEST_VIEW_HEAP=1` = old).
+  Second boot: arena on, zero-copy kept, verify clean on the title screen. Race test pending (user).
+
 ### 2026-11-10 — session 19 (speed presets: Turbo/Hyper pieces in ReGPU, launcher slider; ReGPU branch survey)
 - The user shared a 4-page ReGPU study of FM2 at 720p on a Ryzen 3 5300U (Turbo +21.8% with the same picture; Mild, Potato,
   Low, Extreme +44 to +71% trading picture). Code not public: implemented each piece ourselves (patch `regpu-turbo-hyper`,

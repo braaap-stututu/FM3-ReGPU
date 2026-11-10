@@ -1,0 +1,425 @@
+diff --git a/include/regpu/regpu.h b/include/regpu/regpu.h
+index a6f52b1..7f1e2ed 100644
+--- a/include/regpu/regpu.h
++++ b/include/regpu/regpu.h
+@@ -139,6 +139,13 @@ struct Host
+     void (*logThreadStacks)(const char* why) = nullptr;
+     std::string (*currentStack)(int maxFrames) = nullptr;
+     void (*slowFrame)(double ms) = nullptr;
++    // Optional: write tracking of guest physical memory, for the vertex arena (REGPU_VERTEX_ARENA). watchArm makes the
++    // pages of [offset, offset + bytes) (physical offsets) report their next write, false if they can't be watched;
++    // watchClean: no page of the range written since it was armed, nor since sequence `since`; watchSeq: the current
++    // write sequence number. Without them the arena hashes each buffer once a frame.
++    bool (*watchArm)(uint32_t offset, uint32_t bytes) = nullptr;
++    bool (*watchClean)(uint32_t offset, uint32_t bytes, uint64_t since) = nullptr;
++    uint64_t (*watchSeq)() = nullptr;
+ };
+ 
+ Config& GetConfig();
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index b1fd053..2682cd9 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -1764,6 +1764,30 @@ void InitPipelineLibrary(ID3D12Device* device);
+ // init and, when that fails, again at a few frames after (FrameBegin): under ReXGlue the heap calls
+ // can fail with E_INVALIDARG at init and succeed later (FH1 TU4 on one PC: about half its runs on
+ // the copy path, 7 ms a frame of vertex copies). REGPU_NO_MAP_RETRY=1: init only.
++// With the vertex arena (REGPU_VERTEX_ARENA) the GPU's heap is opened over a view of guest physical memory of its own,
++// not the guest's 0xA0000000 view: Windows refuses to change the protection of a view a D3D12 heap was opened on
++// (VirtualProtect: error 87), and the arena's write watch makes the guest's views read-only. The same memory, so
++// zero-copy fetches still see every write. REGPU_GUEST_VIEW_HEAP=1: the guest's view as before.
++bool VertexArenaWanted()
++{
++    static const bool on = getenv("REGPU_VERTEX_ARENA") && strcmp(getenv("REGPU_VERTEX_ARENA"), "0") != 0;
++    return on;
++}
++
++void* HeapViewAddress()
++{
++    static void* const view = [] {
++        void* v = nullptr;
++        if (VertexArenaWanted() && !getenv("REGPU_GUEST_VIEW_HEAP") && RegpuPhysicalSection())
++        {
++            v = MapViewOfFile(static_cast<HANDLE>(RegpuPhysicalSection()), FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0x20000000);
++            Log("renderer: guest memory heap over a view of its own: %s", v ? "mapped" : "failed, the guest's view instead");
++        }
++        return v ? v : static_cast<void*>(GuestPtr(0xA0000000));
++    }();
++    return view;
++}
++
+ void MapGuestMemory(ID3D12Device* d)
+ {
+     // A title can make a page of physical memory no-access (FH1 TU4 guards the page after its
+@@ -1802,12 +1826,15 @@ void MapGuestMemory(ID3D12Device* d)
+     } restore{ guarded };
+     ComPtr<ID3D12Device13> d13;
+     HRESULT hr = getenv("REGPU_FORCE_DEVICE3") ? E_NOINTERFACE : d->QueryInterface(IID_PPV_ARGS(&d13)); // (REGPU_FORCE_DEVICE3: test the fallback)
++    // (A heap over the file mapping would lock every view: not with the vertex arena's own view.)
++    const bool ownView = HeapViewAddress() != GuestPtr(0xA0000000);
+     if (SUCCEEDED(hr))
+-        hr = d13->OpenExistingHeapFromFileMapping(RegpuPhysicalSection(), IID_PPV_ARGS(&g_r.physicalHeap));
++        hr = ownView ? E_INVALIDARG : d13->OpenExistingHeapFromFileMapping(RegpuPhysicalSection(), IID_PPV_ARGS(&g_r.physicalHeap));
+     if (FAILED(hr) && d13)
+     {
+-        Log("renderer: OpenExistingHeapFromFileMapping failed %08X; trying the view address", unsigned(hr));
+-        hr = d13->OpenExistingHeapFromAddress1(GuestPtr(0xA0000000), 0x20000000, IID_PPV_ARGS(&g_r.physicalHeap));
++        if (!ownView)
++            Log("renderer: OpenExistingHeapFromFileMapping failed %08X; trying the view address", unsigned(hr));
++        hr = d13->OpenExistingHeapFromAddress1(HeapViewAddress(), 0x20000000, IID_PPV_ARGS(&g_r.physicalHeap));
+ }
+ // Older runtimes (Windows 10, older drivers) have no ID3D12Device13, but ID3D12Device3 (Windows 10
+ // 1709+) opens a heap over the whole allocation an address is in: the 512 MB view of guest
+@@ -1821,7 +1848,7 @@ if (FAILED(hr))
+         Log("renderer: mapping guest memory: OpenExistingHeapFromAddress1 failed %08X; trying ID3D12Device3", unsigned(hr));
+     ComPtr<ID3D12Device3> d3;
+     if (SUCCEEDED(hr = d->QueryInterface(IID_PPV_ARGS(&d3))))
+-        hr = d3->OpenExistingHeapFromAddress(GuestPtr(0xA0000000), IID_PPV_ARGS(&g_r.physicalHeap));
++        hr = d3->OpenExistingHeapFromAddress(HeapViewAddress(), IID_PPV_ARGS(&g_r.physicalHeap));
+     if (SUCCEEDED(hr))
+         Log("renderer: guest memory opened through ID3D12Device3, %llu MB", (unsigned long long)(g_r.physicalHeap->GetDesc().SizeInBytes >> 20));
+     else
+@@ -2189,6 +2216,9 @@ Renderer::Surface& GetSurface(bool depth, uint32_t base)
+ 
+ // Binds the surfaces for the current RB_COLOR_INFO / RB_DEPTH_INFO bases
+ // (the list must be open).
++ID3D12Resource* VertexCacheBeginFrame(); // the vertex arena for t1 this frame, or none (VertexArena)
++void FlushVertexCopies();
++extern bool g_vertexCacheThisFrame;
+ FrameResources& Frame();
+ 
+ void PassMark(const char* fmt, uint32_t a, uint32_t b)
+@@ -2562,7 +2592,12 @@ void BeginFrameIfNeeded()
+         raw.Buffer.NumElements = UINT(f.ringSize / 4);
+         raw.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+         g_r.device->CreateShaderResourceView(f.ring.Get(), &raw, Cpu(g_r.srvHeap.Get(), f.descriptorBase, g_r.srvStride));
+-        if (g_r.physical)
++        if (ID3D12Resource* arena = VertexCacheBeginFrame())
++        {
++            raw.Buffer.NumElements = UINT(arena->GetDesc().Width / 4);
++            g_r.device->CreateShaderResourceView(arena, &raw, Cpu(g_r.srvHeap.Get(), f.descriptorBase + 1, g_r.srvStride));
++        }
++        else if (g_r.physical)
+         {
+             raw.Buffer.NumElements = UINT(g_r.physical->GetDesc().Width / 4);
+             g_r.device->CreateShaderResourceView(g_r.physical.Get(), &raw, Cpu(g_r.srvHeap.Get(), f.descriptorBase + 1, g_r.srvStride));
+@@ -2931,6 +2966,7 @@ struct IndexArena
+     std::vector<Copy> pending;
+ } g_indexArena;
+ 
++// (The vertex arena, VertexArena, follows FlushIndexCopies.)
+ // This frame's index uploads, copied into the arena once its draws are recorded.
+ void FlushIndexCopies()
+ {
+@@ -2950,6 +2986,231 @@ void FlushIndexCopies()
+     arena.pending.clear();
+ }
+ 
++// REGPU_VERTEX_ARENA=1 (start-time): large vertex buffers kept in a 512 MB arena in video memory, bound as t1 in
++// place of the mapped guest memory, and copied again only when one of their pages was written (Host::watchArm /
++// watchClean: the port makes their pages read-only and catches the write; without them, or where memory can't be
++// made read-only, each is hashed once a frame). Read in place, the GPU fetches vertices from system memory over
++// PCIe in every draw (the FM2 port: 152.7 -> 192.5 fps at 1440p 8x MSAA on an RTX 4070). With the arena bound,
++// indices aren't read in place either: triangle lists and strips are real indexed draws (the index arena), the
++// other primitives are expanded on the CPU. Where guest memory is mapped and the watch fails, the arena turns
++// itself off from the next frame (hashing everything each frame was slower than reading in place in FM2).
++// From the FM2 port (MIT), fitted to this renderer. REGPU_NO_VERTEX_ARENA=1 (live, from the next frame): off.
++struct VertexArena
++{
++    static constexpr uint64_t kBytes = 512ull << 20;
++    ComPtr<ID3D12Resource> buffer;
++    uint64_t used = 0;
++    std::unordered_map<uint32_t, std::vector<uint64_t>> free; // offsets by size class (log2)
++    struct Entry
++    {
++        uint64_t offset = 0, hash = 0, checkedFrame = ~0ull;
++        uint32_t sizeClass = 0;
++        uint64_t staged = ~0ull, stagedFrame = ~0ull; // this frame's copy in the upload ring
++        bool watched = false;      // its pages were armed when it was last copied
++        uint64_t copiedSeq = 0;    // the watch's sequence then: a page written after it is a change
++        bool hashed = false;       // can't be watched: hashed each frame
++        uint32_t changes = 0;      // checks in a row that found it changed
++        uint64_t dynamicUntil = 0; // changing every frame: copied each frame, unwatched, until then
++    };
++    std::unordered_map<uint64_t, Entry> entries;
++    bool full = false;
++    std::vector<IndexArena::Copy> pending;
++    uint64_t hashed = 0, uploaded = 0, hits = 0, frames = 0; // for the log line
++    bool watchFailed = false;
++} g_vertexArena;
++
++// Decided at each frame's start (t1 is bound then).
++bool g_vertexCacheThisFrame = false;
++
++ID3D12Resource* VertexCacheBeginFrame()
++{
++    VertexArena& arena = g_vertexArena;
++    g_vertexCacheThisFrame = false;
++    static const bool on = getenv("REGPU_VERTEX_ARENA") && strcmp(getenv("REGPU_VERTEX_ARENA"), "0") != 0;
++    static LiveSwitch off("REGPU_NO_VERTEX_ARENA");
++    if (!on || off)
++        return nullptr;
++    const regpu::Host& host = regpu::GetHost();
++    const bool watch = host.watchArm && host.watchClean && host.watchSeq;
++    if (g_r.physical && (arena.watchFailed || !watch))
++    {
++        static bool logged = false;
++        if (!logged)
++            Log("vertex arena: off, vertex data is read in place (guest memory can't be write-watched)");
++        logged = true;
++        return nullptr;
++    }
++    if (!arena.buffer)
++    {
++        arena.buffer = CreateBuffer(VertexArena::kBytes, D3D12_HEAP_TYPE_DEFAULT,
++            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
++        Log("vertex arena: %s", arena.buffer ? "512 MB on the GPU for large vertex buffers" : "couldn't be created");
++    }
++    g_vertexCacheThisFrame = arena.buffer != nullptr;
++    // Every 3600 frames: how much it hashed and copied.
++    if (arena.buffer && ++arena.frames == 3600)
++    {
++        Log("vertex arena: %.1f MB hashed, %.2f MB copied, %.0f hits a frame; %llu MB of %llu used, %zu buffers%s",
++            double(arena.hashed) / 3600.0 / 1048576.0, double(arena.uploaded) / 3600.0 / 1048576.0, double(arena.hits) / 3600.0,
++            (unsigned long long)(arena.used >> 20), (unsigned long long)(VertexArena::kBytes >> 20), arena.entries.size(),
++            watch ? "" : " (no write watch: hashed)");
++        arena.hashed = arena.uploaded = arena.hits = arena.frames = 0;
++    }
++    return arena.buffer.Get();
++}
++
++void FlushVertexCopies()
++{
++    VertexArena& arena = g_vertexArena;
++    if (arena.pending.empty())
++        return;
++    D3D12_RESOURCE_BARRIER b{};
++    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++    b.Transition.pResource = arena.buffer.Get();
++    b.Transition.StateBefore = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
++    b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
++    C().list->ResourceBarrier(1, &b);
++    for (const auto& c : arena.pending)
++        C().list->CopyBufferRegion(arena.buffer.Get(), c.to, c.ring, c.from, c.bytes);
++    std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
++    C().list->ResourceBarrier(1, &b);
++    arena.pending.clear();
++}
++
++// Where a large vertex buffer is this frame: its offset in the arena (arenaHit, read through t1) or in the
++// upload ring (new or changed: copied into the arena at the frame's end). ~0 when neither has room.
++uint64_t VertexCacheLocked(uint32_t address, uint32_t bytes, bool& arenaHit)
++{
++    VertexArena& arena = g_vertexArena;
++    const regpu::Host& host = regpu::GetHost();
++    const bool watch = host.watchArm && host.watchClean && host.watchSeq;
++    arenaHit = false;
++    if (bytes > (64u << 20))
++        return ~0ull;
++    if (arena.full && arena.entries.size())
++    {
++        Log("vertex arena: full, starting over (%zu buffers)", arena.entries.size());
++        arena.entries.clear();
++        arena.free.clear();
++        arena.used = 0;
++        arena.full = false;
++    }
++    const uint64_t key = uint64_t(address) << 32 ^ bytes;
++    auto [it, inserted] = arena.entries.try_emplace(key);
++    VertexArena::Entry& e = it->second;
++    if (inserted)
++    {
++        uint32_t sizeClass = 12; // 4 KB
++        while ((1ull << sizeClass) < bytes)
++            sizeClass++;
++        auto& list = arena.free[sizeClass];
++        if (!list.empty())
++        {
++            e.offset = list.back();
++            list.pop_back();
++        }
++        else if (arena.used + (1ull << sizeClass) <= VertexArena::kBytes)
++        {
++            e.offset = arena.used;
++            arena.used += 1ull << sizeClass;
++        }
++        else
++        {
++            arena.entries.erase(it);
++            arena.full = true;
++            return ~0ull;
++        }
++        e.sizeClass = sizeClass;
++    }
++    if (e.checkedFrame == g_r.frame)
++    {
++        if (e.stagedFrame == g_r.frame)
++            return e.staged;
++        arenaHit = true;
++        arena.hits++;
++        return e.offset;
++    }
++    e.checkedFrame = g_r.frame;
++    const uint8_t* src = GuestPtr<uint8_t>(GpuPhysToGuest(address));
++    const uint32_t physical = address & 0x1FFFFFFF;
++    // Changed? Watched: unchanged while none of its pages was written since the copy. REGPU_VERTEX_HASH=1 hashes
++    // every byte each frame instead (A/B).
++    static LiveSwitch hashOnly("REGPU_VERTEX_HASH");
++    const bool hashing = hashOnly || e.hashed || !watch;
++    uint64_t hash = 0;
++    bool unchanged;
++    if (hashing)
++    {
++        hash = FullHash(src, bytes);
++        arena.hashed += bytes;
++        unchanged = !inserted && hash == e.hash;
++    }
++    else
++        unchanged = !inserted && e.watched && host.watchClean(physical, bytes, e.copiedSeq);
++    // REGPU_VERTEX_VERIFY=1 (diagnostic): a buffer the watch calls unchanged is hashed anyway; one that changed
++    // without a write seen is logged (the first 20) and copied.
++    static LiveSwitch verify("REGPU_VERTEX_VERIFY");
++    if (verify && !hashing)
++    {
++        const uint64_t now = FullHash(src, bytes);
++        if (unchanged && e.hash && now != e.hash)
++        {
++            static int logged = 0;
++            if (logged++ < 20)
++                Log("vertex arena: %08X (%u bytes, frame %llu) changed with no write seen", address, bytes, (unsigned long long)g_r.frame);
++            unchanged = false;
++        }
++        hash = now;
++    }
++    if (unchanged)
++    {
++        e.changes = 0;
++        arenaHit = true;
++        arena.hits++;
++        return e.offset;
++    }
++    const UINT64 offset = RingAlloc((bytes + 15) & ~15u, 16);
++    if (offset == ~0ull)
++    {
++        e.checkedFrame = ~0ull; // not staged: checked again next time
++        return ~0ull;
++    }
++    // Rewritten frame after frame (or sharing pages with data that is): watching it would fault on every write,
++    // so it is copied each frame for a while, then watched again.
++    if (!inserted && ++e.changes >= 4)
++    {
++        e.dynamicUntil = g_r.frame + 120;
++        e.changes = 0;
++    }
++    e.watched = !hashing && g_r.frame >= e.dynamicUntil;
++    e.copiedSeq = watch ? host.watchSeq() + 1 : 0; // (a write between now and the copy counts as after it)
++    if (e.watched && !host.watchArm(physical, bytes)) // before the copy: a write after it faults and is seen
++    {
++        e.watched = false;
++        e.hashed = true;
++        if (!arena.watchFailed)
++            Log("vertex arena: guest memory can't be write-watched (%08X)%s", address,
++                g_r.physical ? ": off from the next frame, read in place" : ": buffers are hashed");
++        arena.watchFailed = true;
++    }
++    if (e.hashed && !hash)
++        hash = FullHash(src, bytes);
++    memcpy(Frame().ringCpu + offset, src, bytes);
++    arena.uploaded += bytes;
++    e.staged = offset;
++    e.stagedFrame = g_r.frame;
++    arena.pending.push_back({ Frame().ring.Get(), offset, e.offset, bytes });
++    e.hash = hash;
++    return offset;
++}
++
++uint64_t VertexCache(uint32_t address, uint32_t bytes, bool& arenaHit)
++{
++    std::lock_guard textureLock(g_textureMutex);
++    return VertexCacheLocked(address, bytes, arenaHit);
++}
++
++
+ // The view of the guest index buffer at physical address `base` (count indices), swapped
+ // into the arena; false when it cannot be cached (the draw fetches indices itself).
+ bool GetIndexBufferLocked(uint32_t base, uint32_t count, bool is32, uint32_t endian, D3D12_INDEX_BUFFER_VIEW& view, uint64_t hash);
+@@ -10222,8 +10483,28 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+     // REGPU_NO_STRIP_CUT=1: expanded as before (A/B).
+     const bool stripCut = prim == 6 && restartOn && indexSource == 0 && !((initiator >> 11) & 1) &&
+         (gpureg::Get(VGT_MULTI_PRIM_IB_RESET_INDX) & 0xFFFF) == 0xFFFF && !g_sw_REGPU_NO_STRIP_CUT && !g_sw_REGPU_NO_INDEXED;
+-    const bool directIndex = g_r.physical && !noDirectIndex && !indexOverrun && !indexRewritten && (indexSource == 0 || indexSource == 2) &&
+-        (prim == 4 || prim == 13 || (prim == 6 && (!restartOn || stripCut)));
++    // With the vertex arena bound as t1 (VertexArena), indices can't be read in place: triangle lists and strips become
++    // real indexed draws (the index arena, which never reads t1), auto-generated indices stay on the GPU, the rest is
++    // expanded on the CPU.
++    bool directIndex = (g_r.physical || g_vertexCacheThisFrame) && !noDirectIndex && !indexOverrun && !indexRewritten &&
++        (indexSource == 0 || indexSource == 2) && (prim == 4 || prim == 13 || (prim == 6 && (!restartOn || stripCut)));
++    LiveSwitch &noIndexed = g_sw_REGPU_NO_INDEXED;
++    D3D12_INDEX_BUFFER_VIEW indexView{};
++    uint32_t indexedCount = 0;
++    bool indexedTried = false;
++    if (directIndex && g_vertexCacheThisFrame && indexSource == 0)
++    {
++        if (!noIndexed && (prim == 4 || prim == 6))
++        {
++            const bool is32 = (initiator >> 11) & 1;
++            const uint32_t count = std::min(indexCount, dmaSize & 0xFFFFFF);
++            indexedCount = prim == 4 ? count / 3 * 3 : count;
++            if (indexedCount < 3 || !GetIndexBuffer(dmaBase & 0x1FFFFFFF & ~(is32 ? 3u : 1u), count, is32, dmaSize >> 30, indexView))
++                indexedCount = 0;
++            indexedTried = true;
++        }
++        directIndex = indexedCount != 0;
++    }
+     const uint32_t directVertices = prim == 4 ? indexCount / 3 * 3 : prim == 13 ? indexCount / 4 * 6 : (indexCount >= 3 ? (indexCount - 2) * 3 : 0);
+     IndexListEntry* indexEntry = directIndex ? nullptr : CachedIndexList(initiator, dmaBase, dmaSize);
+     static const std::vector<uint32_t> noList;
+@@ -10481,7 +10762,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         LiveSwitch &noDirect = g_sw_REGPU_NO_DIRECT_FETCH;
+         static const uint32_t directBytes = getenv("REGPU_DIRECT_FETCH_KB") ? uint32_t(atoi(getenv("REGPU_DIRECT_FETCH_KB"))) * 1024u
+                                           : RendererEarlyFences() ? kEarlyFenceDirectFetchBytes : kDirectFetchBytes;
+-        if (g_r.physical && !noDirect && bytes >= directBytes && !DynamicBuffer(address, bytes))
++        if (g_r.physical && !g_vertexCacheThisFrame && !noDirect && bytes >= directBytes && !DynamicBuffer(address, bytes))
+         {
+             vc->vf[k][0] = address & 0x1FFFFFFF;
+             vc->vf[k][1] = d1 & 3;
+@@ -10489,6 +10770,19 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             vc->vf[k][3] = noBounds ? ~0u : bytes / 4;
+             continue;
+         }
++        // The vertex arena (VertexArena): large buffers from video memory, read through t1.
++        if (g_vertexCacheThisFrame && !noDirect && bytes >= directBytes)
++        {
++            bool arenaHit = false;
++            if (const uint64_t at = VertexCache(address, bytes, arenaHit); at != ~0ull)
++            {
++                vc->vf[k][0] = uint32_t(at);
++                vc->vf[k][1] = d1 & 3;
++                vc->vf[k][2] = arenaHit ? 1 : 0;
++                vc->vf[k][3] = noBounds ? ~0u : bytes / 4;
++                continue;
++            }
++        }
+         // REGPU_TRACE_MIDSIZE=1: log copied buffers of 16-64 KB that change within a frame (they must stay copied)
+         LiveSwitch &traceMid = g_sw_REGPU_TRACE_MIDSIZE;
+         static const uint32_t traceMinBytes = traceMid ? uint32_t(atoi(getenv("REGPU_TRACE_MIDSIZE"))) * 1024u : 0;
+@@ -10651,10 +10945,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         vc->vte[0] |= 1u << 28;
+     Sub(3); // viewport, MSAA scale
+     // Triangle lists and restart-free strips from an index buffer: a real indexed draw.
+-    LiveSwitch &noIndexed = g_sw_REGPU_NO_INDEXED;
+-    D3D12_INDEX_BUFFER_VIEW indexView{};
+-    uint32_t indexedCount = 0;
+-    if (directIndex && !noIndexed && indexSource == 0 && (prim == 4 || prim == 6))
++    if (!indexedTried && directIndex && !noIndexed && indexSource == 0 && (prim == 4 || prim == 6))
+     {
+         const bool is32 = (initiator >> 11) & 1;
+         const uint32_t available = dmaSize & 0xFFFFFF;
+@@ -12324,6 +12615,7 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     }
+ 
+     FlushIndexCopies(); // this frame's index uploads into the arena, after its draws
++    FlushVertexCopies(); // and the vertex arena's
+     DrawCull::EndFrame(); // this frame's culling counts into next frame's predicates
+     if (g_gpuPasses && g_passQueries && !g_passMarks[UINT(&Frame() - g_r.frames)].empty())
+     {

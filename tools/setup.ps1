@@ -38,6 +38,7 @@ $regpuPatches = @(
     'regpu-msaa-color-clear-scale',  # colour clears through an MSAA view of a small 1x surface scaled (FM3 shade flicker)
     'regpu-debug-shot-dump'          # debug-server shots after a capture no longer dump every resolve
     'regpu-turbo-hyper'              # speed pieces for the launcher's presets (lean fetch v2, cull, helper scale, ...)
+    'regpu-vertex-arena'             # large vertex buffers in VRAM, changes seen by the port's write watch (from FM2)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

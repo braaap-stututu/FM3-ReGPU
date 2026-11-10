@@ -215,6 +215,10 @@ void GpuStart()
     host.cpuUsage = [](double wallSeconds) { return GuestThreadCpuUsage(wallSeconds); };
     host.logThreadStacks = [](const char* why) { LogAllHostThreadStacks(why); };
     host.currentStack = [](int maxFrames) { return CurrentHostStack(maxFrames); };
+    // The vertex arena's write watch (src/memory.cpp; ReGPU REGPU_VERTEX_ARENA).
+    host.watchArm = [](uint32_t offset, uint32_t bytes) { return WriteWatchArm(offset, bytes); };
+    host.watchClean = [](uint32_t offset, uint32_t bytes, uint64_t since) { return WriteWatchClean(offset, bytes, since); };
+    host.watchSeq = [] { return WriteWatchSeq(); };
 
     // The bar across the 3D view (rows ~360-511, ending at the EDRAM tile seam: FM3 draws its 2x MSAA 720p
     // scene in two tiles, 1280x512 and 1280x208): ReGPU's "foreign MSAA" path, which reinterprets a surface's
@@ -257,6 +261,16 @@ void GpuStart()
     // FM3_LATE_FENCES=1 keeps fences after the host GPU. Read at start (not live).
     if (!getenv("FM3_LATE_FENCES"))
         DefaultEnv("REGPU_EARLY_FENCES", "1");
+
+    // Vertex arena (session 19, from the FM2 port): large vertex buffers kept in video memory, copied again only
+    // when the game writes their pages (src/memory.cpp write watch); read in place, the GPU fetched them over PCIe
+    // in every draw. ReGPU opens the GPU's heap over a view of guest memory of its own so the guest's views can be
+    // made read-only (over the guest's view: VirtualProtect error 87, the arena switched itself off).
+    // settings.ini vertex_arena=0 or FM3_NO_VERTEX_ARENA=1: off (read in place, as before); live A/B from the next
+    // frame: Fm3 "switch REGPU_NO_VERTEX_ARENA 1". REGPU_VERTEX_VERIFY=1 (live) hashes "unchanged" buffers and
+    // logs any the watch missed.
+    if (!getenv("FM3_NO_VERTEX_ARENA") && GetSettings().Extra("vertex_arena") != "0")
+        DefaultEnv("REGPU_VERTEX_ARENA", "1");
 
     // Parallel draw workers (OPEN-ISSUES.md P): draw translation on 3 threads, which helps where the
     // command processor is the bound (near other cars). Occlusion queries (the sun flare and glare) work

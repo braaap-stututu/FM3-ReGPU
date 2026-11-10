@@ -8,7 +8,7 @@ Survey of every branch of the reference clones (framework/ReGPU, ReGPU-fh1, FM2,
 (57143cb, a squash) already has rexglue-driver and most of engine-optimisation (draw workers + early fences, pipeline seed,
 VS precompile, lean fetch v1, SIMD hashing, sampled upload reuse, lean ALU, ...). None of the FM2 "Turbo/Hyper" code is
 public (session 19 implemented our own: patch regpu-turbo-hyper). Candidates, best first for FM3:
-1. **FM2 vertex arena** (`release-0.9.10`: a6edeb7, 0c9a747, 620a77c, 816898e, d430385, f893212; `origin/main:src/gpu/renderer.cpp`
+1. **FM2 vertex arena** (PORTED in session 19: patch regpu-vertex-arena) (`release-0.9.10`: a6edeb7, 0c9a747, 620a77c, 816898e, d430385, f893212; `origin/main:src/gpu/renderer.cpp`
    `struct VertexArena` ~2466): large vertex buffers kept in a 512 MB VRAM arena, recopied only after a guest write (write-watch:
    read-only pages, first write faults). FM3 logs "zero-copy vertex fetch": the GPU reads vertices over PCIe every draw. FM2:
    1.5 ms a frame on a 4070 at 1440p. Needs WriteWatch in our `src/memory.cpp` and an `NtReadFile` tweak; FM2 hit a tyre-mark

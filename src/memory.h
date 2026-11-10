@@ -91,3 +91,13 @@ uint32_t GuestAllocationSize(uint32_t address, uint32_t* start = nullptr);
 
 // File-mapping handle of the 512 MB physical memory section (for GPU access).
 void* PhysicalSection();
+// Write tracking of physical memory for the GPU's vertex arena (memory.cpp): WriteWatchArm makes the pages of a
+// range (physical offsets) read-only in every view, false if they can't be; the first write to one faults and
+// makes its 64 KB block writable, counted as written. WriteWatchClean: no page of the range written since it was
+// armed, nor since sequence `since`. GuestWillWrite: before a write the kernel makes for us (ReadFile into guest
+// memory fails on a read-only page instead of faulting). WriteWatchFaults: write faults since the last call.
+bool WriteWatchArm(uint32_t offset, uint32_t bytes);
+bool WriteWatchClean(uint32_t offset, uint32_t bytes, uint64_t since);
+uint64_t WriteWatchSeq();
+uint32_t WriteWatchFaults();
+void GuestWillWrite(uint32_t address, uint32_t bytes);
