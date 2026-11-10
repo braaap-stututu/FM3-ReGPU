@@ -586,6 +586,7 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 ## Session log
 ### 2026-11-10 — session 21 (cloud: PERF-PLAN.md, installer study, AI-driver benchmark / frozen grid study)
 - PERF-PLAN.md: every unbuilt/unmeasured performance item by picture effect, target machine, live/start-time A/B.
+- RESEARCH.md: telemetry out to SimHub (Forza Data Out, FM7 311-byte Dash over UDP; needs the car-physics RE shared with the AI-control study; FM3's telemetry-page getters are the shortcut).
 - RESEARCH.md: two new studies (installer for a public release; benchmark tools: AI on the player car, frozen grid). No code change; nothing checked against FM3's code (no `out/ppc` in the cloud container): first local steps are listed in each study.
 
 ### 2026-11-10 — session 20 (render thread profile, race vs time trial, alpha-test-free shaders)

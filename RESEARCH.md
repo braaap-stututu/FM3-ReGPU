@@ -77,6 +77,65 @@ user's `Fuzzy-Rittersport-4-ReGPU-testing`, `FH1-ReImagined/ForzaHorizon1-ReImag
 6. Before release: the user dir is `Documents\fm3` and the game runs in `{app}\out\run` (logs, captures): fine under
    `{localappdata}`, but the debug server must default off in a release build.
 
+## Telemetry out to SimHub (Forza "Data Out" UDP) (session 21, 2026-11-10)
+**Asked (user):** can we send FM3's car physics/telemetry to a UDP port SimHub understands? **Yes, feasible**: SimHub
+already reads Forza's own "Data Out" UDP packets (FM7, FH4/5, FM 2023), so if fm3.exe sends packets in that format,
+SimHub (dashboards, bass shakers, motion, wheel LEDs) works with its existing Forza game profile. Nothing checked
+against FM3's code yet (no `out/ppc` in the cloud container); the format and the plan below are from public sources.
+
+### The format (Turn 10's documentation, as laid out in `geeooff/forza-data-web` `Core/*.cs`)
+Little-endian, one datagram per update, no header:
+- **Sled, bytes 0–231** (232 bytes): `s32 IsRaceOn` (1 driving, 0 menus/paused), `u32 TimestampMS`, `f32` engine max /
+  idle / current RPM, acceleration XYZ and velocity XYZ (car space: X right, Y up, Z forward; m/s², m/s), angular
+  velocity XYZ, yaw/pitch/roll, then per wheel (FL, FR, RL, RR): normalized suspension travel (0 stretched, 1
+  compressed), tyre slip ratio, wheel rotation speed (rad/s), `s32` on rumble strip, puddle depth, surface rumble,
+  slip angle, combined slip, suspension travel (m); then `s32` CarOrdinal, CarClass (0 D … 7 X), PerformanceIndex,
+  DrivetrainType (0 FWD, 1 RWD, 2 AWD), NumCylinders.
+- **Car Dash, bytes 232–310** (FM7's packet = **311 bytes**): `f32` position XYZ, speed (m/s), power (W), torque (N·m),
+  tyre temps ×4, boost, fuel, distance travelled, best / last / current lap, current race time; `u16` lap number,
+  `u8` race position, accel, brake, clutch, handbrake, gear; `s8` steer, normalized driving line, AI brake difference.
+- Variants: FH4/5 insert 12 bytes after the sled (324 bytes); FM 2023 appends tyre wear ×4 and a track ordinal (331).
+  **Send FM7's 311-byte Dash**: the oldest, simplest one, which SimHub's Forza Motorsport 7 profile reads.
+- SimHub setup (third-party guides): the game sends to `127.0.0.1:<port>`, SimHub's Forza game settings listen on the
+  same port (avoid 20127; FM7 guides use e.g. 10001). Only one listener can own a UDP port: SimHub can forward to a
+  second app. FM7/FH4 needed a Windows loopback exemption because they are UWP apps; **fm3.exe is a plain Win32 exe, so
+  no loopback exemption is needed.**
+
+### What FM3 must give us, and where it probably is
+- **The player's car-physics object.** FH1-ReImagined (FM4 engine, FM3's successor) reads FH1's `ICarDynamics`
+  (`forza-recomp/src/platform/car_physics.h`): engine angular velocity +324 (rad/s → RPM × 60/2π), redline +452, idle
+  +1228, gear byte +2240, ABS +3020, speed +3128, the processed controls (gas, brake, steer, clutch, handbrake) +3904,
+  wheels from +3936 (stride 1024 on disc: rotation speed +12, normalized slip +496, slip angle +520, contact +796,
+  suspension). FM3's object is very likely the same kind of thing with other offsets (the same block the AI-control
+  study above needs: one piece of RE serves both).
+- **The in-game telemetry pages are the shortcut.** FM3's own telemetry screen (d-pad in a race) shows RPM, gear,
+  speed, G-forces, tyre temperatures, suspension travel, slip. Its HUD code reads those values through getters: find
+  them (`xref.py strings` for the page's labels, `refs` to their users) and we have the field meanings and offsets
+  without guessing. FH1R did the same with FH1's HUD getters.
+- Fields that are easy: RPM, max/idle RPM, gear, speed, controls (accel/brake/clutch/handbrake/steer scaled to bytes),
+  position, wheel speeds; velocity and acceleration can be derived from position over time if not stored, yaw/pitch/
+  roll from the car's orientation matrix. Harder: tyre temps, slip values, suspension (from the telemetry-page
+  getters), lap times / lap number / race position (the race's timing object), CarOrdinal (send FM3's `Data_Car` id:
+  SimHub won't know FM3's car names, it only labels the car), PerformanceIndex/class (FM3 has PI and classes: from the
+  car's DB row), fuel/boost/power/torque (may need more digging; 0 is acceptable to SimHub).
+- `IsRaceOn`: 1 only while driving (not paused, not in menus or replays); FH1R's "driving gate" (pause, rewind,
+  loading, menu) is the model.
+
+### Plan (our own code, after the RE)
+1. **RE (one local session, the user in a race):** scan memory for RPM / speed while holding revs with the virtual pad
+   (session-18 recipe; compare with the telemetry page), `peek` around the hit, `FM3_WATCHW`/`FM3_WATCHRW` to find the
+   physics code and the object's vtable; then the telemetry page's getters for the rest. A float scan in our debug
+   tools is needed (the debug server's `find` searches text).
+2. **`src/hooks/telemetry.cpp`:** a hook after FM3's physics step (or once per main-loop frame) fills the 311-byte
+   packet from the player's car and sends it with a non-blocking Winsock UDP socket (`sendto`, never waits). Rate:
+   FM7 sends 60 Hz; send at most 60–120 Hz even at a 360 fps cap. Off by default.
+3. **Settings:** `settings.ini telemetry_udp=127.0.0.1:<port>` (+ `FM3_TELEMETRY_UDP`), launcher Settings toggle and
+   port field. Loopback by default; another host allowed for a second PC running SimHub.
+4. **Test without SimHub:** a small Python receiver in `tools/` that decodes the packet and prints fields (also catches
+   wrong units); then SimHub's Forza Motorsport 7 profile with its dashboard.
+5. Licences: the format is Turn 10's public documentation; write our own code (FH1R is GPL-3, ideas only;
+   `forza-data-web` used only as a format reference).
+
 ## Benchmark tools: the player's car driven by the game's AI, and a frozen grid (session 21, 2026-11-10)
 **Asked (user):** (1) let FM3's own AI ("drivatar") drive the player's car, for a benchmark with no input that is the
 same every run; (2) stop the other cars on the grid from moving, for performance and visual tests without the pause
