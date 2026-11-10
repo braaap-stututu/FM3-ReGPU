@@ -1,0 +1,808 @@
+diff --git a/src/gpu/hlsl.cpp b/src/gpu/hlsl.cpp
+index 465956b..aee7a69 100644
+--- a/src/gpu/hlsl.cpp
++++ b/src/gpu/hlsl.cpp
+@@ -5,6 +5,7 @@
+ #include "live_switch.h"
+ 
+ #include <cstdio>
++#include <cstring>
+ 
+ namespace
+ {
+@@ -786,7 +787,12 @@ struct Emitter
+                 : "float3(" + reg + comp[f.srcSwizzle & 3] + ", " + reg + comp[(f.srcSwizzle >> 2) & 3] + ", " + reg +
+                 comp[(f.srcSwizzle >> 4) & 3] + ")";
+             char call[320];
+-            if (LeanFetch() && pixel && f.dimension == 1)
++            static const bool noOverrideLean = getenv("REGPU_NO_FETCH_FILTER_OVERRIDE") != nullptr;
++            if (LeanFetchLevel() >= 2 && pixel && f.dimension == 1)
++                snprintf(call, sizeof(call), "TFetch2DV2(%u, %s, %s, %.4f + tbias[%u].x, float2(%.1f, %.1f), %d)", f.constIndex, uv.c_str(),
++                    f.denormalized ? "true" : "false", f.lodBias, f.constIndex, f.offsetX, f.offsetY,
++                    !noOverrideLean && (f.magFilter == 0 || f.magFilter == 1) ? int(f.magFilter) : -1);
++            else if (LeanFetch() && pixel && f.dimension == 1)
+                 snprintf(call, sizeof(call), "TFetch2D(%u, %s, %s, %.4f + tbias[%u].x, float2(%.1f, %.1f))", f.constIndex, uv.c_str(),
+                     f.denormalized ? "true" : "false", f.lodBias, f.constIndex, f.offsetX, f.offsetY);
+             else
+@@ -1131,11 +1137,88 @@ float4 TFetch2D(uint slot, float3 coord, bool denorm, float bias, float2 texel)
+     }
+     return r;
+ }
++
++// REGPU_LEAN_FETCH=2: what the fetch constant asks for is worked out on the CPU (renderer.cpp, tinfo.x bit 7:
++// a plain texture: no mirror, border, single-axis clamp, 16-bit fixed conversion, gamma, exponent, shader
++// swizzle or declared sub-image), and such a fetch is one sample. The instruction's own filter (filt: 0
++// point, 1 linear, -1 the constant's) is a literal, as the full path applies it. The same results.
++float4 TFetch2DV2(uint slot, float3 coord, bool denorm, float bias, float2 texel, int filt)
++{
++    const uint info = tinfo[slot].x;
++    if (info & 128u)
++    {
++        uint mode = info & 3u;
++        if (filt >= 0)
++        {
++            const bool wrap = mode == 0u || mode == 3u;
++            mode = filt == 0 ? (wrap ? 3u : 2u) : (wrap ? 0u : 1u);
++        }
++        const uint aniso = (info >> 20) & 7u;
++        const uint s = mode != 0u ? mode : (aniso >= 1u && aniso <= 4u ? aniso + 3u : 0u);
++        float2 uv = coord.xy;
++        if (denorm || any(texel != 0.0))
++        {
++            const float2 texelSize = float2(max(tinfo[slot].yz & 0xFFFFu, uint2(1, 1)));
++            uv = denorm ? (uv + texel) / texelSize : uv + texel / texelSize;
++        }
++        return gtex[asuint(tbias[slot].y)].SampleBias(gsamp[s], uv, bias);
++    }
++    return TFetch2D(slot, coord, denorm, bias, texel);
++}
+ )";
+ 
++// Variants swapped into the preamble only when their switch is on, so shaders cached without them stay valid.
++// REGPU_LEAN_VFETCH (LeanVertexFetch): only the dwords the format holds are loaded (each load bounds-checked and
++// byte-swapped); the others are 0, which Unpack never reads. The same values.
++const char kOrigVFetch[] = R"(float4 VFetch(uint fetch, float index, uint stride, uint offset, uint format, bool isSigned, bool norm)
++{
++    uint d = uint(max(index, 0.0)) * stride + offset; // index already rounded or floored
++    return Unpack(LoadGuest(fetch, d), LoadGuest(fetch, d + 1), LoadGuest(fetch, d + 2), LoadGuest(fetch, d + 3), format, isSigned, norm);
++})";
++const char kLeanVFetch[] = R"(uint VDwords(uint format)
++{
++    return (format == 26u || format == 32u || format == 34u || format == 37u) ? 2u : (format == 57u ? 3u : ((format == 35u || format == 38u) ? 4u : 1u));
++}
++float4 VFetch(uint fetch, float index, uint stride, uint offset, uint format, bool isSigned, bool norm)
++{
++    uint d = uint(max(index, 0.0)) * stride + offset; // index already rounded or floored
++    const uint n = VDwords(format);
++    const uint w0 = LoadGuest(fetch, d);
++    const uint w1 = n > 1u ? LoadGuest(fetch, d + 1) : 0u;
++    const uint w2 = n > 2u ? LoadGuest(fetch, d + 2) : 0u;
++    const uint w3 = n > 3u ? LoadGuest(fetch, d + 3) : 0u;
++    return Unpack(w0, w1, w2, w3, format, isSigned, norm);
++})";
++// REGPU_PLAIN_MUL_PS (PlainMulPixel): pixel shaders multiply as IEEE does (0 x inf = NaN), one instruction instead
++// of two compares and a select. Vertex shaders keep D3D9's rule: there an infinite or NaN term switched off by a
++// zero weight lands in positions (a HUD garbled when both stages did it).
++const char kOrigMul[] = R"(float4 Mul9(float4 a, float4 b) { return (a == 0 || b == 0) ? 0 : a * b; }
++float Mul9(float a, float b) { return (a == 0 || b == 0) ? 0 : a * b; }
++float Dot9(float4 a, float4 b) { float4 m = Mul9(a, b); return m.x + m.y + m.z + m.w; })";
++const char kPlainMul[] = R"(#ifndef REGPU_VERTEX_STAGE
++float4 Mul9(float4 a, float4 b) { return a * b; }
++float Mul9(float a, float b) { return a * b; }
++float Dot9(float4 a, float4 b) { return dot(a, b); }
++#else
++float4 Mul9(float4 a, float4 b) { return (a == 0 || b == 0) ? 0 : a * b; }
++float Mul9(float a, float b) { return (a == 0 || b == 0) ? 0 : a * b; }
++float Dot9(float4 a, float4 b) { float4 m = Mul9(a, b); return m.x + m.y + m.z + m.w; }
++#endif)";
++
++void ReplaceOnce(std::string& h, const char* from, const char* to)
++{
++    const size_t at = h.find(from);
++    if (at != std::string::npos)
++        h.replace(at, strlen(from), to);
++}
++
+ std::string Preamble()
+ {
+     std::string h = kPreamble;
++    if (LeanVertexFetch())
++        ReplaceOnce(h, kOrigVFetch, kLeanVFetch);
++    if (PlainMulPixel())
++        ReplaceOnce(h, kOrigMul, kPlainMul);
+     return LeanFetch() ? h + kLeanFetch : h;
+ }
+ } // namespace
+@@ -1143,10 +1226,43 @@ std::string Preamble()
+ // Read at first use (the renderer's root signature), not at load: a port may set it before Start.
+ bool LeanFetch()
+ {
+-    static const bool lean = getenv("REGPU_LEAN_FETCH") != nullptr;
++    return LeanFetchLevel() >= 1;
++}
++
++// REGPU_LEAN_FETCH=<n>: 1 the lean 2D fetch, 2 also its plain-texture fast path (TFetch2DV2); empty or
++// any other value: 1, "0": off. Read once, at the first translation.
++int LeanFetchLevel()
++{
++    static const int level = [] {
++        const char* v = getenv("REGPU_LEAN_FETCH");
++        if (!v || strcmp(v, "0") == 0)
++            return 0;
++        return atoi(v) >= 2 ? 2 : 1;
++    }();
++    return level;
++}
++
++namespace
++{
++bool EnvOn(const char* name)
++{
++    const char* v = getenv(name);
++    return v && *v && strcmp(v, "0") != 0;
++}
++} // namespace
++
++bool LeanVertexFetch()
++{
++    static const bool lean = EnvOn("REGPU_LEAN_VFETCH");
+     return lean;
+ }
+ 
++bool PlainMulPixel()
++{
++    static const bool plain = EnvOn("REGPU_PLAIN_MUL_PS");
++    return plain;
++}
++
+ bool BakedVertexFetch()
+ {
+     static const bool baked = getenv("REGPU_DYNAMIC_VFETCH") == nullptr;
+diff --git a/src/gpu/hlsl.h b/src/gpu/hlsl.h
+index e0b30c6..09b96f4 100644
+--- a/src/gpu/hlsl.h
++++ b/src/gpu/hlsl.h
+@@ -54,3 +54,9 @@ bool BakedVertexFetch();
+ const char* HlslPreamble();
+ // REGPU_LEAN_FETCH=1: lean 2D pixel fetches through a sampler table (root parameter 4, space1).
+ bool LeanFetch();
++// REGPU_LEAN_FETCH=2: also the plain-texture fast path (tinfo.x bit 7, set by the renderer).
++int LeanFetchLevel();
++// REGPU_LEAN_VFETCH=1: vertex fetches load only the dwords their format holds.
++bool LeanVertexFetch();
++// REGPU_PLAIN_MUL_PS=1: pixel shaders multiply as IEEE (vertex shaders keep D3D9's 0 x anything = 0).
++bool PlainMulPixel();
+diff --git a/src/gpu/recorded_list.h b/src/gpu/recorded_list.h
+index 716eace..389bfbf 100644
+--- a/src/gpu/recorded_list.h
++++ b/src/gpu/recorded_list.h
+@@ -21,7 +21,7 @@
+ 
+ // REGPU_PERF: calls recorded, by op (RecordedList::Op), and resource barriers in them (counted only then:
+ // an atomic increment per recorded call was ~1% of the command processor).
+-inline std::atomic<uint64_t> g_recordedOps[32];
++inline std::atomic<uint64_t> g_recordedOps[40];
+ inline std::atomic<uint64_t> g_recordedBarriers{ 0 };
+ inline const bool g_countRecorded = getenv("REGPU_PERF") != nullptr;
+ 
+@@ -105,6 +105,9 @@ public:
+         Put(kComputeRoot32, &a, sizeof(a), data, n * 4);
+     }
+     void Dispatch(UINT x, UINT y, UINT z) { UINT a[3] = { x, y, z }; Put(kDispatch, a, sizeof(a)); }
++    void SetComputeRootShaderResourceView(UINT i, D3D12_GPU_VIRTUAL_ADDRESS v) { struct A { UINT i; D3D12_GPU_VIRTUAL_ADDRESS v; } a{ i, v }; Put(kComputeSrv, &a, sizeof(a)); }
++    void SetComputeRootUnorderedAccessView(UINT i, D3D12_GPU_VIRTUAL_ADDRESS v) { struct A { UINT i; D3D12_GPU_VIRTUAL_ADDRESS v; } a{ i, v }; Put(kComputeUav, &a, sizeof(a)); }
++    void SetPredication(ID3D12Resource* r, UINT64 offset, D3D12_PREDICATION_OP op) { struct A { ID3D12Resource* r; UINT64 offset; D3D12_PREDICATION_OP op; } a{ r, offset, op }; Put(kPredication, &a, sizeof(a)); }
+     void SetGraphicsRootDescriptorTable(UINT i, D3D12_GPU_DESCRIPTOR_HANDLE h) { struct A { UINT i; D3D12_GPU_DESCRIPTOR_HANDLE h; } a{ i, h }; Put(kTable, &a, sizeof(a)); }
+     void SetGraphicsRootConstantBufferView(UINT i, D3D12_GPU_VIRTUAL_ADDRESS v) { struct A { UINT i; D3D12_GPU_VIRTUAL_ADDRESS v; } a{ i, v }; Put(kCbv, &a, sizeof(a)); }
+     void SetGraphicsRoot32BitConstants(UINT i, UINT n, const void* data, UINT offset)
+@@ -173,7 +176,7 @@ private:
+     {
+         kBarrier, kCopyTexture, kRootSignature, kTable, kCbv, kRoot32, kTargets, kPipeline, kViewports, kScissors, kStencilRef, kBlendFactor,
+         kTopology, kHeaps, kDraw, kEndQuery, kResolveQuery, kClearRtv, kClearDsv, kCreateRtv, kCreateDsv, kDrawIndexed, kIndexBuffer, kCopyBuffer,
+-        kComputeRootSignature, kComputeTable, kComputeRoot32, kDispatch, kBeginQuery, kHandOff
++        kComputeRootSignature, kComputeTable, kComputeRoot32, kDispatch, kBeginQuery, kHandOff, kComputeSrv, kComputeUav, kPredication
+     };
+     static constexpr size_t kChunk = 64 << 10;
+ 
+@@ -331,6 +334,24 @@ private:
+                     l = m_real = h.next;
+                 break;
+             }
++            case kComputeSrv:
++            {
++                struct A { UINT i; D3D12_GPU_VIRTUAL_ADDRESS v; };
++                l->SetComputeRootShaderResourceView(At<A>(a).i, At<A>(a).v);
++                break;
++            }
++            case kComputeUav:
++            {
++                struct A { UINT i; D3D12_GPU_VIRTUAL_ADDRESS v; };
++                l->SetComputeRootUnorderedAccessView(At<A>(a).i, At<A>(a).v);
++                break;
++            }
++            case kPredication:
++            {
++                struct A { ID3D12Resource* r; UINT64 offset; D3D12_PREDICATION_OP op; };
++                l->SetPredication(At<A>(a).r, At<A>(a).offset, At<A>(a).op);
++                break;
++            }
+             case kBeginQuery:
+             {
+                 struct A { ID3D12QueryHeap* h; D3D12_QUERY_TYPE t; UINT i; };
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index a04ea24..b1fd053 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -265,6 +265,27 @@ float IntegerTallScale(float passScale)
+     return passScale * (fits ? up : std::floor(total + 1e-3f)) / total;
+ }
+ 
++// REGPU_HELPER_SCALE=<0.1-1> (start-time): passes narrower than the screen (reflection and environment maps,
++// a title's other small off-screen images) are drawn at that share of the output's scale, below the console's
++// own resolution if need be: their images come out softer. Not big passes (wider than the screen, squeezed
++// already) or tall ones (shadow atlases). 1 (default): as before.
++float HelperScale()
++{
++    static const float scale = getenv("REGPU_HELPER_SCALE") ? std::clamp(float(atof(getenv("REGPU_HELPER_SCALE"))), 0.1f, 1.0f) : 1.0f;
++    return scale;
++}
++
++bool HelperPass()
++{
++    const uint32_t surface = gpureg::Get(0x2000 /* RB_SURFACE_INFO */);
++    return (surface & 0x3FFF) < kWidth && !BigPassSize() && !(g_tallHeight && (surface == g_tallInfo || TallView()));
++}
++
++float HelperPassScale(float passScale)
++{
++    return HelperScale() < 1.0f && HelperPass() ? passScale * HelperScale() : passScale;
++}
++
+ float PassScale()
+ {
+     // (Asked for every scaled coordinate: memoised on what it depends on.)
+@@ -274,7 +295,7 @@ float PassScale()
+     if (surface != memo.surface || color != memo.color || generation != memo.generation || g_tallInfo != memo.tallInfo || g_tallHeight != memo.tallHeight ||
+         OutputHeight() != memo.output || g_sceneScale != memo.scene)
+         memo = { surface, color, generation, g_tallInfo, g_tallHeight, OutputHeight(), g_sceneScale,
+-            IntegerTallScale(std::min(float(kWidth) / float(PassWidth()), float(SurfaceRows()) / float(PassHeight()))) };
++            HelperPassScale(IntegerTallScale(std::min(float(kWidth) / float(PassWidth()), float(SurfaceRows()) / float(PassHeight())))) };
+     return memo.result;
+ }
+ float ScaleY() { return float(OutputHeight()) / float(kHeight) * g_sceneScale * PassScale(); }
+@@ -321,6 +342,18 @@ constexpr UINT kMaxSurfaces = 64; // EDRAM bases with host surfaces
+ // Samples per pixel of the scene surfaces (anti-aliasing, Settings::msaa). The blits that
+ // read them use multisampled shaders when this is above 1.
+ uint32_t g_msaa = 1;
++// REGPU_A2M_AS_TEST=1 (live): alpha to mask is a plain alpha test (alpha >= 0.5) at one sample: no
++// dither, the cut-out as D3D's single-sample coverage makes it; =2 also replaces the coverage of a
++// multisampled target (soft cut-out edges become hard). Off: as the console.
++bool A2mAsTest()
++{
++    static LiveSwitch a2m("REGPU_A2M_AS_TEST");
++    if (!a2m)
++        return false;
++    static const bool always = getenv("REGPU_A2M_AS_TEST") && atoi(getenv("REGPU_A2M_AS_TEST")) >= 2;
++    return g_msaa == 1 || always;
++}
++
+ constexpr uint32_t RB_SURFACE_INFO = 0x2000, RB_COLOR_INFO = 0x2001, RB_DEPTH_INFO = 0x2002;
+ // Buffers that change (UI quads, particles) are all under 3 KB (REGPU_TRACE_MIDSIZE); REGPU_DIRECT_FETCH_KB
+ // overrides. (16 KB while fences were written at record time; since they wait for the host GPU, 4 KB.)
+@@ -578,6 +611,7 @@ struct Renderer
+     ComPtr<ID3D12PipelineState> depthPackBlit;            // depth and stencil -> the guest's D24S8 words as RGBA8
+     ComPtr<ID3D12PipelineState> colorBlit8, colorBlit16;  // colour -> 8888 / RGBA16F, scaled
+     ComPtr<ID3D12PipelineState> depthBlitMs, colorBlitMs8, colorBlitMs16; // the same from multisampled surfaces
++    ComPtr<ID3D12PipelineState> colorBlit10, colorBlitMs10; // colour -> R10G10B10A2 (REGPU_COPIES_1010102)
+     // EDRAM surfaces: one host colour and one host depth target per EDRAM base
+     // (RB_COLOR_INFO / RB_DEPTH_INFO bits 0-11), so passes that the title
+     // places at different EDRAM offsets do not overwrite each other.
+@@ -1658,6 +1692,8 @@ float4 psColor(float4 pos : SV_Position) : SV_Target
+     Check(d->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&g_r.colorBlit8)), "CreateGraphicsPipelineState(colour blit 8)");
+     pd.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
+     Check(d->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&g_r.colorBlit16)), "CreateGraphicsPipelineState(colour blit 16)");
++    pd.RTVFormats[0] = DXGI_FORMAT_R10G10B10A2_UNORM;
++    Check(d->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&g_r.colorBlit10)), "CreateGraphicsPipelineState(colour blit 10)");
+     if (g_msaa > 1)
+     {
+         // The same passes reading a multisampled surface: depth takes sample 0, colour averages all samples.
+@@ -1717,6 +1753,8 @@ float4 psColor(float4 pos : SV_Position) : SV_Target
+         Check(d->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&g_r.colorBlitMs8)), "CreateGraphicsPipelineState(colour blit ms 8)");
+         pd.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
+         Check(d->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&g_r.colorBlitMs16)), "CreateGraphicsPipelineState(colour blit ms 16)");
++        pd.RTVFormats[0] = DXGI_FORMAT_R10G10B10A2_UNORM;
++        Check(d->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&g_r.colorBlitMs10)), "CreateGraphicsPipelineState(colour blit ms 10)");
+     }
+ }
+ 
+@@ -4450,8 +4488,8 @@ PipelineKey MakePipelineKey(uint64_t vsHash, uint64_t psHash, bool depthOnly, bo
+     const uint32_t mask = depthOnly ? 0 : gpureg::Get(RB_COLOR_MASK) & 0xF;
+     // Stencil masks (not the reference, which is dynamic) and culling are pipeline state.
+     const uint32_t stencil = gpureg::Get(RB_STENCILREFMASK) & 0xFFFF00, mode = gpureg::Get(PA_SU_SC_MODE_CNTL) & 7;
+-    // Alpha-to-mask (RB_COLORCONTROL bit 4): cut-out foliage and fences.
+-    const bool alphaToMask = (gpureg::Get(RB_COLORCONTROL) >> 4) & 1;
++    // Alpha-to-mask (RB_COLORCONTROL bit 4): cut-out foliage and fences. (As a plain test, A2mAsTest: no coverage.)
++    const bool alphaToMask = ((gpureg::Get(RB_COLORCONTROL) >> 4) & 1) && !A2mAsTest();
+     // CLIP_DISABLE (PA_CL_CLIP_CNTL bit 16): no near/far clipping, the depth clamped instead, as
+     // Xenia does. FH1's sky dome lies on the far plane: with depth clipping, fragments a little
+     // past it were dropped as the camera moved, and the holes showed the clear colour (grey shapes
+@@ -5622,6 +5660,9 @@ struct IndexListEntry
+     std::vector<uint32_t> list;
+     uint64_t frame = ~0ull; // the frame `offset` belongs to
+     UINT64 offset = 0;
++    uint64_t hashedFrame = ~0ull; // REGPU_INDEX_HASH_ONCE: the frame `sample` was last taken in
++    bool changing = false;        // its indices changed between two draws of a frame once: hashed at every draw
++    uint64_t probe = 0;           // a sampled hash (every 256 bytes) taken with `sample`
+ };
+ 
+ IndexListEntry* CachedIndexList(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+@@ -5633,6 +5674,23 @@ IndexListEntry* CachedIndexList(uint32_t initiator, uint32_t dmaBase, uint32_t d
+              gpureg::Get(VGT_MULTI_PRIM_IB_RESET_INDX) })
+         key = (key ^ v) * 0x100000001B3ull;
+     uint64_t sample = 0;
++    thread_local std::unordered_map<uint64_t, IndexListEntry> cache;
++    if (cache.size() > 8192)
++        cache.clear();
++    // REGPU_INDEX_HASH_ONCE=1 (live): a list already hashed this frame isn't hashed again at its later draws,
++    // unless it was once seen changing within a frame (those are hashed at every draw, as before). Every
++    // index of every draw was hashed (FullHash), a few hundred KB a frame for a track's static meshes.
++    static LiveSwitch hashOnce("REGPU_INDEX_HASH_ONCE");
++    // (A sampled hash still runs: a list first rewritten between two draws is caught and marked changing.)
++    const uint8_t* indexData = source == 0 ? GuestPtr<uint8_t>(GpuPhysToGuest(dmaBase & ~(is32 ? 3u : 1u))) : nullptr;
++    const uint32_t indexBytes = source == 0 ? std::min(count, dmaSize & 0xFFFFFF) * (is32 ? 4 : 2) : 0;
++    if (hashOnce && source == 0)
++        if (auto it = cache.find(key); it != cache.end() && it->second.valid && it->second.hashedFrame == g_r.frame && !it->second.changing)
++        {
++            if (ContentHash(indexData, indexBytes) == it->second.probe)
++                return it->second.ok ? &it->second : nullptr;
++            it->second.changing = true;
++        }
+     if (source == 0)
+     {
+         const uint32_t available = (dmaSize & 0xFFFFFF) /* in indices, as Xenia (num_words) */;
+@@ -5643,10 +5701,12 @@ IndexListEntry* CachedIndexList(uint32_t initiator, uint32_t dmaBase, uint32_t d
+         const uint8_t* p = GuestPtr<uint8_t>(GpuPhysToGuest(dmaBase & ~(is32 ? 3u : 1u)));
+         sample = sampledIndexHash ? ContentHash(p, bytes) : FullHash(p, bytes);
+     }
+-    thread_local std::unordered_map<uint64_t, IndexListEntry> cache;
+-    if (cache.size() > 8192)
+-        cache.clear();
+     IndexListEntry& e = cache[key];
++    if (e.valid && e.sample != sample && e.hashedFrame == g_r.frame)
++        e.changing = true;
++    e.hashedFrame = g_r.frame;
++    if (hashOnce && source == 0 && !e.changing)
++        e.probe = ContentHash(indexData, indexBytes);
+     if (!e.valid || e.sample != sample)
+     {
+         e.valid = true;
+@@ -6096,6 +6156,7 @@ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXG
+     const bool ms = g_msaa > 1;
+     ID3D12PipelineState* pso = depth ? (ms ? g_r.depthBlitMs.Get() : g_r.depthBlit.Get())
+         : format == DXGI_FORMAT_R8G8B8A8_UNORM ? (ms ? g_r.colorBlitMs8.Get() : g_r.colorBlit8.Get())
++        : format == DXGI_FORMAT_R10G10B10A2_UNORM ? (ms ? g_r.colorBlitMs10.Get() : g_r.colorBlit10.Get())
+         : (ms ? g_r.colorBlitMs16.Get() : g_r.colorBlit16.Get());
+     C().list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+     C().list->SetGraphicsRootSignature(g_r.blitRootSignature.Get());
+@@ -6309,6 +6370,7 @@ void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+         C().list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+         C().list->SetGraphicsRootSignature(g_r.blitRootSignature.Get());
+         C().list->SetPipelineState(format == DXGI_FORMAT_R8G8B8A8_UNORM ? (ms ? g_r.colorBlitMs8.Get() : g_r.colorBlit8.Get())
++                : format == DXGI_FORMAT_R10G10B10A2_UNORM                 ? (ms ? g_r.colorBlitMs10.Get() : g_r.colorBlit10.Get())
+                                                                        : (ms ? g_r.colorBlitMs16.Get() : g_r.colorBlit16.Get()));
+         C().list->SetGraphicsRootDescriptorTable(0, Gpu(g_r.srvHeap.Get(), slot, g_r.srvStride));
+         // Image pixel p (host) is game pixel p / encScale, which came from EDRAM game pixel (p / encScale - (x, y)),
+@@ -7154,7 +7216,15 @@ void Resolve()
+         // the HDR range. REGPU_NO_1010102_AS_8888 keeps every one HDR.
+         static LiveSwitch no1010102("REGPU_NO_1010102_AS_8888");
+         const int bias = int32_t(info << 10) >> 26; // bits 16-21, signed
++        // REGPU_COPIES_1010102=1 (live): a k_2_10_10_10 destination is copied into R10G10B10A2, as the console
++        // stores it (10 bits a colour, saturated), not into half floats (the HDR scene copied down with an
++        // exponent bias: half the bytes to write and to read back). The image differs by a level or two of
++        // the 10-bit colours where half floats held more. Not the main view's image while the scene is
++        // upscaled: the upscalers take 8888 and half floats only.
++        static LiveSwitch copies1010102("REGPU_COPIES_1010102");
++        const bool as1010102 = copies1010102 && !depth && destFormat == 7 && !(g_scenePhase && width >= kWidth);
+         const DXGI_FORMAT format = depth ? DXGI_FORMAT_R32_FLOAT
++            : as1010102 ? DXGI_FORMAT_R10G10B10A2_UNORM
+             : destFormat == 6 || (destFormat == 7 && bias == 0 && !no1010102) ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_R16G16B16A16_FLOAT;
+         // Bit 24 (copy swap): the destination stores red and blue exchanged; the
+         // fetch swizzle swaps them back when the title samples it.
+@@ -7174,7 +7244,7 @@ void Resolve()
+         static constexpr float kUnorm[2] = { 0.0f, 1.0f };
+         const float* destRange = !depth && !noFixed16Clamp && destFormat >= 24 && destFormat <= 26
+             ? (numberFormat == 1 || numberFormat == 3 ? kSigned16 : kUnsigned16)
+-            : !depth && destFormat == 7 && format == DXGI_FORMAT_R16G16B16A16_FLOAT ? kUnorm : nullptr;
++            : !depth && destFormat == 7 && format != DXGI_FORMAT_R8G8B8A8_UNORM ? kUnorm : nullptr;
+         // A 7e3 surface (colour formats 3, 12) holds 0..31.875: additive blends past that saturate in
+         // the EDRAM, but sum on in our half-float target, so the copy is held to it (scaled with the
+         // exponent bias). Unclamped, PGR4's menu crowd flashes (a pile of additive sprites) fed its
+@@ -8554,6 +8624,12 @@ void WriteResolvePixels(const uint8_t* pixels, UINT pitch, DXGI_FORMAT hostForma
+                                 memcpy(&h, px + k * 2, 2);
+                                 c[k] += regpu::resolve::HalfToFloat(h);
+                             }
++                            else if (hostFormat == DXGI_FORMAT_R10G10B10A2_UNORM)
++                            {
++                                uint32_t w;
++                                memcpy(&w, px, 4);
++                                c[k] += k < 3 ? float((w >> (10 * k)) & 0x3FF) / 1023.0f : float(w >> 30) / 3.0f;
++                            }
+                             else
+                                 c[k] += float(px[k]) / 255.0f;
+                         }
+@@ -8696,7 +8772,8 @@ void QueueDeferredWriteback(uint32_t base, uint32_t width, uint32_t height, uint
+     const auto it = g_r.resolved.find(base);
+     if (it == g_r.resolved.end() || !it->second.resource ||
+         (depth ? it->second.format != DXGI_FORMAT_R32_FLOAT
+-               : it->second.format != DXGI_FORMAT_R8G8B8A8_UNORM && it->second.format != DXGI_FORMAT_R16G16B16A16_FLOAT))
++               : it->second.format != DXGI_FORMAT_R8G8B8A8_UNORM && it->second.format != DXGI_FORMAT_R16G16B16A16_FLOAT &&
++                     it->second.format != DXGI_FORMAT_R10G10B10A2_UNORM))
+         return;
+     const uint32_t x0 = std::min(request.x0, width), x1 = std::min(request.x1, width);
+     const uint32_t y0 = std::max<uint32_t>(std::min(request.y0, height), uint32_t(std::max<LONG>(rect.top, 0)));
+@@ -8810,7 +8887,8 @@ void WriteResolveToGuest(uint32_t base, uint32_t width, uint32_t height, uint32_
+ {
+     const auto it = g_r.resolved.find(base);
+     if (it == g_r.resolved.end() || !it->second.resource || !width || !height ||
+-        (it->second.format != DXGI_FORMAT_R8G8B8A8_UNORM && it->second.format != DXGI_FORMAT_R16G16B16A16_FLOAT))
++        (it->second.format != DXGI_FORMAT_R8G8B8A8_UNORM && it->second.format != DXGI_FORMAT_R16G16B16A16_FLOAT &&
++            it->second.format != DXGI_FORMAT_R10G10B10A2_UNORM))
+         return;
+     ResolvedTexture& r = it->second;
+     // Run what has been recorded (the resolve's copy included) and let the GPU finish it.
+@@ -9711,6 +9789,273 @@ bool DebugSkipDraw(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+     return false;
+ }
+ 
++// REGPU_FREEZE_HELPERS=<n> (start-time, 2-8): passes narrower than the screen (HelperPass) that draw a colour
++// image with depth-tested geometry (reflection and environment maps: 8888 and 2_10_10_10 colour formats; not
++// shadow or data maps) are drawn, and resolved, only every n-th frame; between, their draws and resolves are
++// skipped and the images keep their content (reflections update n times less often). Only a pass the title
++// has drawn in each of the last n + 2 frames: a picture made once (a car's photo, a livery) is always drawn.
++// REGPU_NO_FREEZE_HELPERS=1 (live): every pass drawn.
++namespace FreezeHelpers
++{
++struct Pass
++{
++    uint64_t last = ~0ull;
++    uint32_t streak = 0;
++    bool geometryNow = false, geometryBefore = false; // depth-tested colour draws this and last frame
++};
++std::mutex g_mutex;
++std::unordered_map<uint64_t, Pass> g_passes;
++
++uint32_t Every()
++{
++    static const uint32_t n = getenv("REGPU_FREEZE_HELPERS") ? std::clamp<uint32_t>(uint32_t(atoi(getenv("REGPU_FREEZE_HELPERS"))), 0, 8) : 0;
++    return n >= 2 ? n : 0;
++}
++
++// For a draw or resolve of the current pass: true when it is skipped this frame.
++bool Skip(bool resolve)
++{
++    const uint32_t every = Every();
++    static LiveSwitch off("REGPU_NO_FREEZE_HELPERS");
++    if (!every || off || !HelperPass())
++        return false;
++    const uint32_t colorFormat = (gpureg::Get(RB_COLOR_INFO) >> 16) & 0xF;
++    if (!(colorFormat <= 3 || colorFormat == 10 || colorFormat == 12))
++        return false;
++    uint64_t key = 0xCBF29CE484222325ull;
++    for (uint32_t v : { gpureg::Get(RB_SURFACE_INFO), gpureg::Get(RB_COLOR_INFO), gpureg::Get(RB_DEPTH_INFO), gpureg::Get(PA_SC_WINDOW_OFFSET) })
++        key = (key ^ v) * 0x100000001B3ull;
++    std::lock_guard lock(g_mutex);
++    if (g_passes.size() > 4096)
++        g_passes.clear();
++    Pass& p = g_passes[key];
++    const uint64_t frame = g_r.frame;
++    if (p.last != frame)
++    {
++        p.streak = p.last + 1 == frame ? p.streak + 1 : 1;
++        p.geometryBefore = p.last + 1 == frame && p.geometryNow;
++        p.geometryNow = false;
++        p.last = frame;
++    }
++    if (!resolve && (gpureg::Get(RB_MODECONTROL) & 7) == 4 && (gpureg::Get(RB_DEPTHCONTROL) >> 1) & 1)
++        p.geometryNow = true;
++    return p.streak > every + 2 && p.geometryBefore && frame % every != 0;
++}
++} // namespace FreezeHelpers
++
++// REGPU_DRAW_CULL=<pixels> (start-time): draws that covered fewer than that many guest pixels the last time
++// they were drawn are skipped by GPU predication. 1 skips only draws that drew nothing at all (hidden behind
++// nearer geometry, outside the view): the picture is unchanged. Larger values also drop small objects, but as
++// each draw is retested every other frame those flicker rather than vanish (FM3's menu letters at 64).
++// Each draw (a key of its shaders, buffers, target and order in the frame) alternates: one frame it is drawn
++// inside an occlusion query, the next it is predicated on that count, so something that comes into view
++// shows at most one frame late. At the frame's end one resolve and a small compute pass turn the counts
++// into predicate values (no CPU readback). Only depth-tested draws that write depth (a 3D scene's meshes): a
++// draw is known by its order among draws alike, and menus, HUDs and particles redraw shared buffers with other
++// contents every frame (FM3's menu glyphs took one another's counts: letters vanished every other frame). Not
++// for draws inside the title's own occlusion queries, stencil draws, draw workers' draws or rectangle lists. REGPU_NO_DRAW_CULL=1 (live):
++// every draw drawn.
++namespace DrawCull
++{
++constexpr UINT kSlots = 16384;   // predicate values, one per draw key seen
++constexpr UINT kQueries = 8192;  // tested draws a frame
++struct Entry
++{
++    UINT slot = 0;
++    uint64_t lastTested = ~0ull, lastSeen = ~0ull;
++};
++std::unordered_map<uint64_t, Entry> g_entries;
++std::unordered_map<uint64_t, uint32_t> g_occurrence; // this frame's draws of each key so far
++std::vector<UINT> g_freeSlots;
++std::vector<uint32_t> g_pending; // this frame's tested draws: slot, threshold (samples), in query order
++uint64_t g_frame = ~0ull;
++ComPtr<ID3D12QueryHeap> g_heap;
++ComPtr<ID3D12Resource> g_results, g_predicates;
++ComPtr<ID3D12RootSignature> g_root;
++ComPtr<ID3D12PipelineState> g_pso;
++bool g_failed = false;
++
++// (Read again each frame: Fm3 "env REGPU_DRAW_CULL <n>" changes it live; 0 or unset: off.)
++uint32_t Threshold()
++{
++    thread_local uint64_t frame = ~0ull;
++    thread_local uint32_t px = 0;
++    if (frame != g_r.frame)
++    {
++        frame = g_r.frame;
++        const char* v = getenv("REGPU_DRAW_CULL");
++        px = v ? uint32_t(std::max(0, atoi(v))) : 0u;
++    }
++    return px;
++}
++
++bool Init()
++{
++    if (g_pso)
++        return true;
++    if (g_failed)
++        return false;
++    g_failed = true;
++    ID3D12Device* d = g_r.device;
++    D3D12_QUERY_HEAP_DESC qd{};
++    qd.Type = D3D12_QUERY_HEAP_TYPE_OCCLUSION;
++    qd.Count = kQueries;
++    if (FAILED(d->CreateQueryHeap(&qd, IID_PPV_ARGS(&g_heap))))
++        return false;
++    g_results = CreateBuffer(UINT64(kQueries) * 8, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COPY_DEST);
++    {
++        D3D12_HEAP_PROPERTIES hp{};
++        hp.Type = D3D12_HEAP_TYPE_DEFAULT;
++        D3D12_RESOURCE_DESC bd{};
++        bd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
++        bd.Width = UINT64(kSlots) * 8;
++        bd.Height = bd.DepthOrArraySize = bd.MipLevels = 1;
++        bd.SampleDesc.Count = 1;
++        bd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
++        bd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
++        if (FAILED(d->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &bd, D3D12_RESOURCE_STATE_PREDICATION, nullptr, IID_PPV_ARGS(&g_predicates))))
++            return false;
++    }
++    if (!g_results)
++        return false;
++    D3D12_ROOT_PARAMETER params[4]{};
++    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
++    params[0].Constants.Num32BitValues = 1;
++    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
++    params[1].Descriptor.ShaderRegister = 0;
++    params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
++    params[2].Descriptor.ShaderRegister = 1;
++    params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
++    params[3].Descriptor.ShaderRegister = 0;
++    D3D12_ROOT_SIGNATURE_DESC rs{};
++    rs.NumParameters = 4;
++    rs.pParameters = params;
++    ComPtr<ID3DBlob> blob, error;
++    if (FAILED(D3D12SerializeRootSignature(&rs, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error)) ||
++        FAILED(d->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&g_root))))
++        return false;
++    static const char kSource[] = R"(
++cbuffer C : register(b0) { uint count; };
++ByteAddressBuffer results : register(t0); // one 64-bit sample count per tested draw
++ByteAddressBuffer pending : register(t1);  // per tested draw: predicate slot, threshold in samples
++RWByteAddressBuffer predicates : register(u0);
++[numthreads(64, 1, 1)]
++void main(uint id : SV_DispatchThreadID)
++{
++    if (id >= count)
++        return;
++    const uint2 st = pending.Load2(id * 8);
++    const uint2 c = results.Load2(id * 8);
++    predicates.Store2(st.x * 8, uint2((c.y != 0u || c.x >= st.y) ? 1u : 0u, 0u));
++}
++)";
++    ComPtr<ID3DBlob> cs;
++    if (FAILED(D3DCompile(kSource, sizeof(kSource) - 1, nullptr, nullptr, nullptr, "main", "cs_5_0", 0, 0, &cs, &error)))
++        return false;
++    D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};
++    pd.pRootSignature = g_root.Get();
++    pd.CS = { cs->GetBufferPointer(), cs->GetBufferSize() };
++    if (FAILED(d->CreateComputePipelineState(&pd, IID_PPV_ARGS(&g_pso))))
++        return false;
++    g_freeSlots.reserve(kSlots);
++    for (UINT s = kSlots; s-- > 0;)
++        g_freeSlots.push_back(s);
++    g_failed = false;
++    Log("draw cull: on, draws under %u guest pixels skipped (%u predicate slots, %u queries a frame)", Threshold(), kSlots, kQueries);
++    return true;
++}
++
++// What to do with this draw: 0 draw as usual, 1 draw inside query `query`, 2 draw predicated on `slot`.
++struct Decision
++{
++    int mode = 0;
++    UINT query = 0, slot = 0;
++};
++
++Decision Decide(uint64_t key, uint32_t thresholdSamples)
++{
++    if (g_frame != g_r.frame)
++    {
++        g_frame = g_r.frame;
++        g_occurrence.clear();
++        // Keys gone for a while give their slots back.
++        if (g_entries.size() > kSlots / 2)
++        {
++            for (auto it = g_entries.begin(); it != g_entries.end();)
++            {
++                if (it->second.lastSeen + 8 < g_r.frame)
++                {
++                    g_freeSlots.push_back(it->second.slot);
++                    it = g_entries.erase(it);
++                }
++                else
++                    ++it;
++            }
++        }
++    }
++    key = (key ^ g_occurrence[key]++) * 0x100000001B3ull;
++    auto it = g_entries.find(key);
++    if (it == g_entries.end())
++    {
++        if (g_freeSlots.empty())
++            return {};
++        it = g_entries.emplace(key, Entry{ g_freeSlots.back() }).first;
++        g_freeSlots.pop_back();
++    }
++    Entry& e = it->second;
++    e.lastSeen = g_r.frame;
++    // Tested last frame: its count is in the predicate now.
++    if (e.lastTested + 1 == g_r.frame)
++        return { 2, 0, e.slot };
++    if (g_pending.size() / 2 >= kQueries)
++        return {};
++    e.lastTested = g_r.frame;
++    const UINT query = UINT(g_pending.size() / 2);
++    g_pending.push_back(e.slot);
++    g_pending.push_back(std::max<uint32_t>(thresholdSamples, 1));
++    return { 1, query, e.slot };
++}
++
++// At the frame's end, on the frame's list: this frame's counts into the predicates.
++void EndFrame()
++{
++    if (g_pending.empty() || !g_pso)
++        return;
++    const UINT n = UINT(g_pending.size() / 2);
++    const UINT64 offset = RingAlloc(UINT64(n) * 8, 16);
++    if (offset == ~0ull)
++    {
++        g_pending.clear();
++        return;
++    }
++    memcpy(Frame().ringCpu + offset, g_pending.data(), size_t(n) * 8);
++    g_pending.clear();
++    C().list->ResolveQueryData(g_heap.Get(), D3D12_QUERY_TYPE_OCCLUSION, 0, n, g_results.Get(), 0);
++    D3D12_RESOURCE_BARRIER b[2]{};
++    b[0].Type = b[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++    b[0].Transition.pResource = g_results.Get();
++    b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
++    b[0].Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
++    b[1].Transition.pResource = g_predicates.Get();
++    b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_PREDICATION;
++    b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++    b[0].Transition.Subresource = b[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
++    C().list->ResourceBarrier(2, b);
++    C().list->SetComputeRootSignature(g_root.Get());
++    C().list->SetPipelineState(g_pso.Get());
++    C().list->SetComputeRoot32BitConstants(0, 1, &n, 0);
++    C().list->SetComputeRootShaderResourceView(1, g_results->GetGPUVirtualAddress());
++    C().list->SetComputeRootShaderResourceView(2, Frame().ring->GetGPUVirtualAddress() + offset);
++    C().list->SetComputeRootUnorderedAccessView(3, g_predicates->GetGPUVirtualAddress());
++    C().list->Dispatch((n + 63) / 64, 1, 1);
++    std::swap(b[0].Transition.StateBefore, b[0].Transition.StateAfter);
++    std::swap(b[1].Transition.StateBefore, b[1].Transition.StateAfter);
++    C().list->ResourceBarrier(2, b);
++    // The graphics state the next draw sets again (the pipeline is cached per draw).
++    g_drawState.Invalidate();
++}
++} // namespace DrawCull
++
+ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+ {
+     Section(0);
+@@ -9735,6 +10080,11 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+     if (!g_r.ok)
+         Init();
+     const uint32_t edramMode = gpureg::Get(RB_MODECONTROL) & 7;
++    if (FreezeHelpers::Every() && FreezeHelpers::Skip(edramMode == 6))
++    {
++        g_r.skippedThisFrame++;
++        return;
++    }
+     if (edramMode == 6)
+     {
+         Resolve();
+@@ -10581,6 +10931,12 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         }
+         ti[1] = fetch.Width();
+         ti[2] = fetch.Height();
++        // REGPU_LEAN_FETCH=2 (hlsl.cpp TFetch2DV2): bit 7 marks a plain 2D texture, whose fetch is one sample: no
++        // 16-bit fixed conversion (bit 6), exponent (8-13), border (16-17), single-axis clamp (18-19), gamma
++        // (24-27) or mirror (28-31), no shader swizzle other than the identity, the whole image.
++        if (LeanFetchLevel() >= 2 && (ti[3] & 0xFFu) == 1 && !(ti[0] & 0xFF0F3F40u) && tb[2] == 1.0f && tb[3] == 1.0f &&
++            (!(ti[3] >> 31) || ((ti[3] >> 8) & 0xFFFu) == 0x688u))
++            ti[0] |= 1u << 7;
+         memcpy(memo.fetch, fetch.dwords, sizeof(memo.fetch));
+         memo.frame = g_r.frame;
+         memo.epoch = g_resolveEpoch;
+@@ -10627,7 +10983,10 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+     // pixel keeping its colour where alpha >= 1 - offset/4, the offsets RB_COLORCONTROL bits 24-31
+     // (pinfo.z bit 6, offsets in bits 8-15). D3D's coverage cut everything at alpha 0.5: PGR4's menu
+     // tyre smoke came out as hard-edged grey shapes. REGPU_NO_ALPHA_DITHER=1: D3D's coverage.
+-    if (static LiveSwitch noAlphaDither("REGPU_NO_ALPHA_DITHER"); !noAlphaDither && g_msaa == 1 && edramMode != 5 && (colorControl >> 4) & 1)
++    // REGPU_A2M_AS_TEST (A2mAsTest): a plain alpha test at 0.5 instead (the dither with every offset 2).
++    if (A2mAsTest() && edramMode != 5 && (colorControl >> 4) & 1)
++        pc->info[2] |= 64u | 0xAAu << 8;
++    else if (static LiveSwitch noAlphaDither("REGPU_NO_ALPHA_DITHER"); !noAlphaDither && g_msaa == 1 && edramMode != 5 && (colorControl >> 4) & 1)
+         pc->info[2] |= 64u | (colorControl >> 24) << 8;
+     // The pixel position register (PsParamGen) holds the pixel's integer position, D3D9's convention
+     // (Xenia: the host pixel rounded down, then the render scale undone); the host pixel's centre was
+@@ -11114,6 +11473,25 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             else
+                 C().list->DrawInstanced(directIndex ? directVertices : UINT(list.size()), 1, 0, 0);
+         };
++        // REGPU_DRAW_CULL (DrawCull above): drawn inside a query of its own, or predicated on last frame's.
++        DrawCull::Decision cull;
++        if (static LiveSwitch noCull("REGPU_NO_DRAW_CULL"); DrawCull::Threshold() && !noCull && !coveragePso && !g_occlusionOpen && !C().worker &&
++                                                            !motion && prim != 8 && (edramMode == 4 || edramMode == 5) &&
++                                                            (gpureg::Get(RB_DEPTHCONTROL) & 7) == 6 && DrawCull::Init())
++        {
++            uint64_t key = 0xCBF29CE484222325ull;
++            for (uint64_t v : { C().vsHash, C().psHash, uint64_t(initiator), uint64_t(dmaBase), uint64_t(dmaSize), uint64_t(gpureg::Get(gpureg::FetchConstants)),
++                     uint64_t(gpureg::Get(gpureg::FetchConstants + 2)), uint64_t(gpureg::Get(RB_SURFACE_INFO)), uint64_t(gpureg::Get(RB_COLOR_INFO)),
++                     uint64_t(gpureg::Get(RB_DEPTH_INFO)), uint64_t(gpureg::Get(PA_SC_WINDOW_OFFSET)), uint64_t(gpureg::Get(PA_SC_WINDOW_SCISSOR_TL)),
++                     uint64_t(gpureg::Get(PA_SC_WINDOW_SCISSOR_BR)) })
++                key = (key ^ v) * 0x100000001B3ull;
++            const double samples = double(DrawCull::Threshold()) * g_msaa * ScaleX() * ScaleY();
++            cull = DrawCull::Decide(key, uint32_t(std::min(samples, 4.0e9)));
++        }
++        if (cull.mode == 1)
++            C().list->BeginQuery(DrawCull::g_heap.Get(), D3D12_QUERY_TYPE_OCCLUSION, cull.query);
++        else if (cull.mode == 2)
++            C().list->SetPredication(DrawCull::g_predicates.Get(), UINT64(cull.slot) * 8, D3D12_PREDICATION_OP_EQUAL_ZERO);
+         if (coveragePso)
+         {
+             // The open query's part so far ends; the coverage draw gets a query of its own; the query
+@@ -11132,6 +11510,10 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             C().list->BeginQuery(g_occlusionHeap.Get(), D3D12_QUERY_TYPE_OCCLUSION, g_occlusionIndex);
+         }
+         issue();
++        if (cull.mode == 1)
++            C().list->EndQuery(DrawCull::g_heap.Get(), D3D12_QUERY_TYPE_OCCLUSION, cull.query);
++        else if (cull.mode == 2)
++            C().list->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+         if (g_perfTiming)
+         {
+             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+@@ -11942,6 +12324,7 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     }
+ 
+     FlushIndexCopies(); // this frame's index uploads into the arena, after its draws
++    DrawCull::EndFrame(); // this frame's culling counts into next frame's predicates
+     if (g_gpuPasses && g_passQueries && !g_passMarks[UINT(&Frame() - g_r.frames)].empty())
+     {
+         const UINT frameIndex = UINT(&Frame() - g_r.frames);

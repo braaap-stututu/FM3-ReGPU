@@ -7,6 +7,15 @@ let customFps = false // "Custom…" picked in the Max FPS list
 let nextId = 1
 const pending = new Map()
 const PAGES = ["play", "profiles", "graphics", "wheel", "settings", "about"]
+// The speed presets (settings.ini perf_preset; src/gpu_host.cpp ApplyPerfPreset), sharpest first.
+const PRESETS = [
+  { value: "off", name: "Off", note: "Everything drawn as the console does." },
+  { value: "turbo", name: "Turbo", note: "Faster shaders and fewer wasted draws. The picture stays the same." },
+  { value: "mild", name: "Mild", note: "Turbo, with the 3D scene drawn at 67% (upscaled), softer reflections and 4x texture filtering." },
+  { value: "potato", name: "Potato", note: "Turbo at full resolution, with soft reflections updated every 3rd frame and 2x texture filtering." },
+  { value: "low", name: "Low", note: "Potato with the 3D scene drawn at 59% (upscaled)." },
+  { value: "extreme", name: "Extreme", note: "Potato with the 3D scene drawn at half size and no texture filtering boost. The fastest." },
+]
 const SWITCHES = ["vsync", "anisotropy", "hideShaderOverlay", "timer", "debugServer", "perfLog", "drawWorkers", "engineCrossfade", "skipIntro", "quickRace"]
 
 // ---- host calls
@@ -196,6 +205,10 @@ function render() {
   $("sharpeningField").hidden = set.upscaler === "off"
   for (const b of $("display").children) b.classList.toggle("on", (b.dataset.full === "1") === set.fullscreen)
   for (const k of SWITCHES) $(k).classList.toggle("on", !!set[k])
+  const preset = Math.max(0, PRESETS.findIndex((p) => p.value === set.perfPreset))
+  if (document.activeElement !== $("perfPreset")) $("perfPreset").value = preset
+  $("perfPreset-v").textContent = PRESETS[preset].name
+  $("perfPreset-note").textContent = PRESETS[preset].note
 
   // play page
   fill($("language"), o.languages.map((l) => ({ value: l.id, name: l.name })), set.language)
@@ -212,6 +225,7 @@ function render() {
   line("Frame rate", `${set.maxFps} fps cap, VSync ${set.vsync ? "on" : "off"}`)
   line("Anti-aliasing", fsrAa ? "FSR 3" : `MSAA ${named(o.msaa, set.msaa)}`)
   if (set.upscaler !== "off") line("Upscaling", `${named(o.upscalers, set.upscaler)}, ${named(o.upscale, set.upscale)}`)
+  if (preset) line("Speed preset", PRESETS[preset].name)
   const testing = [set.timer ? "timer" : "", set.debugServer ? "debug server" : "", set.perfLog ? "performance log" : ""].filter(Boolean)
   if (testing.length) line("Testing", testing.join(", "))
   line("Language", lang ? lang.name : "English")
@@ -317,6 +331,8 @@ $("customFps").onchange = (e) => {
   change({ maxFps: f })
 }
 $("msaa").onchange = (e) => change({ msaa: +e.target.value })
+$("perfPreset").oninput = (e) => { const p = PRESETS[+e.target.value]; $("perfPreset-v").textContent = p.name; $("perfPreset-note").textContent = p.note }
+$("perfPreset").onchange = (e) => change({ perfPreset: PRESETS[+e.target.value].value })
 $("upscaler").onchange = (e) => change({ upscaler: e.target.value })
 $("upscale").onchange = (e) => change({ upscale: +e.target.value })
 $("sharpening").onchange = (e) => change({ sharpening: +e.target.value })

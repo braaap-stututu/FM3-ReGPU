@@ -3,6 +3,31 @@
 Investigations that are not bugs yet: options, feasibility studies and leads with no code behind them. Open bugs
 live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](VINYLISSUES.md).
 
+## ReGPU speed work in other projects (session 19, 2026-11-10)
+Survey of every branch of the reference clones (framework/ReGPU, ReGPU-fh1, FM2, PGR4, FM4, FH1R), read only. Our pin
+(57143cb, a squash) already has rexglue-driver and most of engine-optimisation (draw workers + early fences, pipeline seed,
+VS precompile, lean fetch v1, SIMD hashing, sampled upload reuse, lean ALU, ...). None of the FM2 "Turbo/Hyper" code is
+public (session 19 implemented our own: patch regpu-turbo-hyper). Candidates, best first for FM3:
+1. **FM2 vertex arena** (`release-0.9.10`: a6edeb7, 0c9a747, 620a77c, 816898e, d430385, f893212; `origin/main:src/gpu/renderer.cpp`
+   `struct VertexArena` ~2466): large vertex buffers kept in a 512 MB VRAM arena, recopied only after a guest write (write-watch:
+   read-only pages, first write faults). FM3 logs "zero-copy vertex fetch": the GPU reads vertices over PCIe every draw. FM2:
+   1.5 ms a frame on a 4070 at 1440p. Needs WriteWatch in our `src/memory.cpp` and an `NtReadFile` tweak; FM2 hit a tyre-mark
+   bug with it (d430385). Less gain on iGPUs.
+2. **Occlusion results resolved once a frame** (PGR4 vendored ReGPU, `REGPU_RESOLVE_EACH_QUERY` = old): ~3% on PGR4's grid.
+   Touches our zpd-tile-spans and worker-queries patches.
+3. **All samplers as a 4-entry table** (FM2 ce5bf5a): every fetch path 2 sample instructions instead of ~8; 4070 1440p
+   213.8 -> 225.2 fps. Root signature change.
+4. **Texture eviction budget** (PGR4 `EvictTextures`, `REGPU_TEXTURE_BUDGET_MB`, FM2 `FM2_TEXTURE_CACHE_MB`): for low-VRAM presets
+   and long sessions.
+5. **SMAA 1x** (FM2 9b6b512; ReGPU form in FM4's vendored copy, `smaa_passes.hlsl`): cheap AA for low-end presets.
+6. **Laptop GPU pick** (`REGPU_ADAPTER`, ReGPU-fh1 4ead774) or exporting `NvOptimusEnablement` /
+   `AmdPowerXpressRequestHighPerformance` from fm3.exe.
+7. **Ring wait sleeps instead of spinning** (FM2 480e94a, `FM2_SPIN_RING_WAIT`): render-thread CPU 100% -> 36%, same fps; for
+   APUs. FM3's equivalent is t7's `sub_824B5048` -> `sub_824AAA68` wait (needs FM3 addresses).
+8. `REGPU_OPTIMIZE_LEVEL` (engine-optimisation afb4495, untested upstream), `REGPU_FRAMES_AHEAD` (FM4, latency only).
+Don't port: `SplitMainListAsync(false)` (rexglue-driver 0bc61d1; our pin reverted it: the AMD hang), FM4's RGBA32F surfaces,
+FH1R's perf branches (ReIGlue/Xenia, not ReGPU; ideas only: a 540p scene under a 720p HUD for an iGPU preset).
+
 ## 16-bit (half-precision) shaders for lower-end GPUs (session 18, 2026-11-09)
 
 **Question:** could an optional shader translation that does vertex shaders (and others) in 16-bit instead of

@@ -1,8 +1,39 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-10, end of session 18)
+## ▶ Current status / next step  (updated 2026-11-10, session 19)
 
-### ▶ Start here next session (state at the end of session 18)
+### ▶ Start here next session (state at the end of session 19)
+**Session 19: speed presets (launcher slider, 6 stops), modelled on a ReGPU study of FM2's "Turbo/Hyper" modes** (the user
+shared its 4-page report; its code is not public, so every piece here is our own implementation from the descriptions).
+- ReGPU patch `regpu-turbo-hyper` (switches, all off by default): `REGPU_LEAN_FETCH=2` (a plain 2D texture, flagged on the
+  CPU as tinfo.x bit 7, is one sample; the lean path now honours the instruction's filter), `REGPU_LEAN_VFETCH`,
+  `REGPU_INDEX_HASH_ONCE` (live), `REGPU_DRAW_CULL=<px>` (live via `Fm3 "env REGPU_DRAW_CULL n"`; per-draw occlusion
+  queries + GPU predication, retested every other frame; only depth-writing, depth-tested, non-stencil draws;
+  `REGPU_NO_DRAW_CULL` live off), `REGPU_COPIES_1010102` (live), `REGPU_A2M_AS_TEST` (live, 1x MSAA only; =2 always),
+  `REGPU_PLAIN_MUL_PS` (pixel shaders only), `REGPU_HELPER_SCALE=<f>` (passes narrower than 1280, not big/tall),
+  `REGPU_FREEZE_HELPERS=<n>` (steady narrow 8888/2_10_10_10 colour passes with depth-tested draws; live off
+  `REGPU_NO_FREEZE_HELPERS`). The base shader preamble is unchanged: preset Off keeps its shader cache; each preset's
+  shaders compile once (~40 s at first boot).
+- FM3 side: `settings.ini perf_preset=off|turbo|mild|potato|low|extreme` (`FM3_PERF_PRESET` overrides; log line
+  `gpu: performance preset X`), table in `src/gpu_host.cpp` `ApplyPerfPreset`; an env var set by hand wins over the preset.
+  Mild/Low/Extreme lower the scene with FSR 1 (quality 1/2/3) when no upscaler is chosen. Launcher: Graphics >
+  Performance > "Speed preset" slider.
+- **Tested so far (by me, menus only, Extreme at 1440p 4x):** boots, no shader compile errors, FSR 1 at 50%, filtering 0,
+  draw cull on. **Found and fixed:** (1) the 64-px cull made FM3's menu letters (I, L, T, Y, whole grey rows) vanish every
+  other frame: a draw is retested on alternate frames, so small things flicker; presets use the 0-px cull only (bursts of 6
+  shots: text steady at 0 px, lost on 1 in 4 at 64). (2) First cull build keyed menu glyphs (shared buffers) and lost letters
+  too: cull now only for depth-writing draws.
+- **Not tested yet (needs the user in a race):** fps per preset (paused start grid, `Fm3 "status"` averages; compare with
+  Off), the picture per preset (reflections at 25% scale and frozen 2 of 3 frames; liveries; car pictures; the sun flare
+  with the cull: draws inside the game's own queries are never culled), FSR 1 + 4x MSAA together, lean fetch v2 / plain
+  multiply on track shaders. If a race shows a fault, A/B live: `REGPU_NO_DRAW_CULL`, `REGPU_COPIES_1010102`,
+  `REGPU_INDEX_HASH_ONCE`, `REGPU_NO_FREEZE_HELPERS`; the start-time ones (lean fetch v2, lean vfetch, plain multiply,
+  helper scale) need a restart with the env var set to 0 (`set REGPU_LEAN_FETCH=0` etc. before `play.cmd`).
+- Not done: mesh decimation (the study's own result was inside noise and it bends geometry).
+- **Other ReGPU speed work found in other branches** (survey, RESEARCH.md "ReGPU speed work in other projects"): the
+  biggest is FM2's vertex arena (large vertex buffers in VRAM, recopied on guest writes; FM3 reads them over PCIe).
+
+### Session 18 start-here (kept for reference)
 All work is committed and pushed (`main`). Details of everything below: session log "session 18" entries (three of them, 2026-11-09/10) and OPEN-ISSUES.
 **Session 18 in short:**
 1. **Music fixed (confirmed by the user, menus and races).** Two XMA decoder causes: the codec pool made the music streamer's start loop give up (a context stepped 8x while waiting now opens its codec in place), and the seek guard reset the music codec between its one-packet buffers (music now skips the guard). Switches: `FM3_XMA_POOL_WAIT_ALWAYS=1`, `FM3_XMA_GUARD_MUSIC=1` restore the old behaviour.
@@ -420,6 +451,20 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-10 — session 19 (speed presets: Turbo/Hyper pieces in ReGPU, launcher slider; ReGPU branch survey)
+- The user shared a 4-page ReGPU study of FM2 at 720p on a Ryzen 3 5300U (Turbo +21.8% with the same picture; Mild, Potato,
+  Low, Extreme +44 to +71% trading picture). Code not public: implemented each piece ourselves (patch `regpu-turbo-hyper`,
+  table in patches/README.md) and a 6-stop launcher slider (`perf_preset`). Details at the top.
+- Our interpretations: "lean fetch v2, constants baked" = per-slot plain-texture flag computed on the CPU, one sample in the
+  shader; "v3 plain multiply" = IEEE multiply in pixel shaders (the study's global version garbled a HUD); "10:10:10:2
+  copies" = FM3's 7e3 scene/reflection copies (destination 2_10_10_10 with bias -2/-3, most of FM3's resolves) as
+  R10G10B10A2 instead of RGBA16F; "helper surfaces" = passes narrower than the screen; "frozen helper passes" = those drawn
+  every n-th frame; "A2M as test" = the 2x2 dither with a 0.5 threshold.
+- Boot test (Extreme, menus): see the top. Two cull faults found and fixed with shot bursts measured by a small text-pixel
+  counter (scratch script). Game closed with CloseMainWindow each time (saves on exit as normal).
+- Survey (subagent, read-only git): none of the Turbo/Hyper code is in any public branch; our pin already has the
+  rexglue-driver and most engine-optimisation work. Candidates: RESEARCH.md.
+
 ### 2026-11-09 — session 18 (cloud: GitHub issues + sibling-port check, no code change)
 - GitHub: no issues filed on `braaap-stututu/FM3-ReGPU` (0 open, 0 closed). Checked the FM2 and FM4 ports' commits/notes against our open list; leads in OPEN-ISSUES.md "Sibling-port check". Best lead: **C1**: FM2 found the game reads DLC DB patches from a folder named after each DLC zip (`dlczips\<zip>\media\db\patch\`), which never existed, so no DLC patch ever ran (FM2 `eda8833`). Check with `FM3_TRACE_FILES=1` whether FM3 has the same gap with Disc 2. Also: D might be FM2's photo-mode composite clipped to one 4x MSAA tile (256 rows at 720p 4x); G: FM2 decodes engine streams per stream with no seek guard.
 - New `RESEARCH.md`: 16-bit shaders for low-end GPUs (pixel shaders only, opt-in; vertex index and positions need 32-bit), music stopping for the session (hl360 fine; lead: no APC support in `NtReadFile`/`NtSetTimerEx`; check the log for `with an APC routine`), local multiplayer (untested; one signed-in user).

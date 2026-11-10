@@ -106,12 +106,98 @@ void DefaultEnv(const char* name, const char* value)
     if (!getenv(name))
         _putenv_s(name, value);
 }
+
+// Performance presets (settings.ini perf_preset, the launcher's slider; FM3_PERF_PRESET overrides), modelled
+// on a ReGPU study of FM2 at 720p on a Ryzen 3 5300U ("Turbo" keeps the picture, the others trade it).
+// Each piece is a ReGPU switch (our patch regpu-turbo-hyper); one set in the environment wins over the preset.
+//   off      as before
+//   turbo    lean texture fetch v2 (plain textures: one sample), vertex fetches load only their dwords, index
+//            lists hashed once a frame, draws that drew nothing last time predicated off (every other frame
+//            retested), 2_10_10_10 copies kept in 10 bits, alpha-to-mask as a plain test at 1x MSAA, pixel
+//            shaders multiply as IEEE (FM2: 42.7 -> 52.0 fps, no visible change)
+//   mild     turbo + scene at 67% (FSR 1 unless an upscaler is chosen), small off-screen passes at half scale,
+//            4x anisotropy
+//   potato   turbo + small passes at a quarter scale, reflections drawn every 3rd frame, 2x anisotropy;
+//            native resolution
+//   low      potato at 59%
+//   extreme  potato at 50%, no anisotropy
+// Mesh decimation (in the study's Hyper set) is not done: inside its run-to-run noise there, and it bends geometry.
+// Skipping draws under 64 px (REGPU_DRAW_CULL=64) is in ReGPU but in no preset: a draw is retested every other
+// frame, so small things flicker instead of vanishing (session 19: FM3's menu letters I, L, T, Y at 1440p 4x).
+struct PerfPreset
+{
+    const char* name;
+    bool turbo;
+    float helperScale; // REGPU_HELPER_SCALE (1 = off)
+    int drawCull;      // REGPU_DRAW_CULL guest pixels (0 = off)
+    int freeze;        // REGPU_FREEZE_HELPERS (0 = off)
+    int anisotropy;    // regpu::SetAnisotropy (-1 = the fetch's own)
+    uint32_t quality;  // upscale_quality at least this (0 = native)
+};
+constexpr PerfPreset kPresets[] = {
+    { "off", false, 1.0f, 0, 0, -1, 0 },
+    { "turbo", true, 1.0f, 1, 0, -1, 0 },
+    { "mild", true, 0.5f, 1, 0, 4, 1 },
+    { "potato", true, 0.25f, 1, 3, 2, 0 },
+    { "low", true, 0.25f, 1, 3, 2, 2 },
+    { "extreme", true, 0.25f, 1, 3, 0, 3 },
+};
+
+const PerfPreset& CurrentPreset()
+{
+    static const PerfPreset* preset = [] {
+        std::string name = getenv("FM3_PERF_PRESET") ? getenv("FM3_PERF_PRESET") : GetSettings().Extra("perf_preset");
+        for (char& c : name)
+            c = char(tolower(uint8_t(c)));
+        for (const PerfPreset& p : kPresets)
+            if (name == p.name)
+                return &p;
+        if (!name.empty())
+            Log("settings: perf_preset=%s unknown, using off", name.c_str());
+        return &kPresets[0];
+    }();
+    return *preset;
+}
+
+void ApplyPerfPreset(regpu::Config& c)
+{
+    const PerfPreset& p = CurrentPreset();
+    if (p.turbo)
+    {
+        DefaultEnv("REGPU_LEAN_FETCH", "2");
+        DefaultEnv("REGPU_LEAN_VFETCH", "1");
+        DefaultEnv("REGPU_INDEX_HASH_ONCE", "1");
+        DefaultEnv("REGPU_COPIES_1010102", "1");
+        DefaultEnv("REGPU_A2M_AS_TEST", "1");
+        DefaultEnv("REGPU_PLAIN_MUL_PS", "1");
+    }
+    if (p.drawCull)
+        DefaultEnv("REGPU_DRAW_CULL", std::to_string(p.drawCull).c_str());
+    if (p.helperScale < 1.0f)
+        DefaultEnv("REGPU_HELPER_SCALE", std::to_string(p.helperScale).c_str());
+    if (p.freeze)
+        DefaultEnv("REGPU_FREEZE_HELPERS", std::to_string(p.freeze).c_str());
+    if (p.anisotropy >= 0 && !getenv("REGPU_NO_ANISO"))
+        regpu::SetAnisotropy(p.anisotropy);
+    if (p.quality)
+    {
+        if (c.upscaler == regpu::Config::Upscaler::Off)
+        {
+            c.upscaler = regpu::Config::Upscaler::Fsr1;
+            c.quality = p.quality;
+        }
+        else
+            c.quality = std::max(c.quality, p.quality);
+    }
+    Log("gpu: performance preset %s", p.name);
+}
 } // namespace
 
 void GpuStart()
 {
     regpu::Config& config = regpu::GetConfig();
     ApplySettings(config);
+    ApplyPerfPreset(config);
     config.userDir = UserDir(); // shader and pipeline caches
     config.windowTitle = L"Forza Motorsport 3";
 

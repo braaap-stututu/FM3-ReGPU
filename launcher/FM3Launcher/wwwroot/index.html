@@ -177,6 +177,11 @@
         <div><div class="toggle-title">VSync</div><div class="toggle-sub">Sync frames to the display</div></div>
         <button class="switch" id="vsync" role="switch"></button>
       </div>
+      <label class="field" data-tip="Trades picture for speed. Turbo keeps the picture as it is. Mild, Potato, Low and Extreme soften reflections, update them less often, lower texture filtering and (Mild, Low, Extreme) draw the 3D scene smaller. Applies at the next start.">
+        <span>Speed preset <b id="perfPreset-v"></b></span>
+        <input type="range" id="perfPreset" min="0" max="5" step="1">
+      </label>
+      <div class="hint" id="perfPreset-note"></div>
     </section>
   </main>
 
