@@ -175,6 +175,16 @@ Sources: upstream ReGPU (`reference/framework/ReGPU`: `main` = our pin; `engine-
   LOD for that adjacent car. Cost: 3,611 -> 3,634 draws (+0.6%), 206.0 -> 203.3 fps (-1.3%), 7 samples each.
   Shots `out/shots/s19_lod_keep0.png` / `s19_lod_stock.png`, crops `s19_crop_*.png`. A candidate player option.
 - `trackfardistance` (+2364) is never read in retail (watchpoint over a whole race load and grid): dead option.
+- **TrackSettings x2 mod (`lodx2`: crowd lod0-3, SpriteDistance, grass dist/fade, cubemap far/limit, MeshSizeThreshold
+  x0.5, InGameShadowEnd; CrownJewel, same grid):** 3,611 -> ~3,860 draws (+7%), 206 -> ~185 fps (-10%), the picture
+  barely changes from the grid (mean pixel diff 0.17). Captures compared pass by pass (`tools/analysis/passes.py`,
+  `out/logs/s19_capture_stock.log` / `s19_capture_lodx2.log`): shadow map and reflection faces unchanged (the faces
+  rotate per frame), **the main scene +122 draws in each EDRAM tile, all crowd**: the 3D spectators (vs 6ee601730a7f9f87 /
+  ps b32f44c528968ecc, tinted magenta in `out/shots/s19_lod_tint.png`) 114 -> 228 draws, and the next crowd level
+  (ps d44a5b5aed142674 13 -> 34; ps d4974c1309afb2bb, blue, 36 -> 25). So the crowd's `lod0-3` drive how many spectators
+  are drawn at each detail level (the spectator popping of session 13); grass, cubemap and shadow distance changed
+  nothing measurable from the grid (try them driving, where grass and far shadows show). The mod is kept off as
+  `out/user/mods/_lodx2`.
 **Suggested order:** (a) a race with `cmdline=keepLOD0Car` (AI cars stay detailed? draws in `Fm3 "status"`); (b) a race
 with `trackfardistance` watched, then set; (c) a lodsettings mod (crowd x2, sprite x2) on one track against stock, same
 spot, shots + draws; (d) the dev overlays (`showframerate`, `PVSOverlay`) in case retail kept them.
