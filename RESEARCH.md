@@ -3,6 +3,158 @@
 Investigations that are not bugs yet: options, feasibility studies and leads with no code behind them. Open bugs
 live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](VINYLISSUES.md).
 
+## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
+Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
+user's `Fuzzy-Rittersport-4-ReGPU-testing`, `FH1-ReImagined/ForzaHorizon1-ReImagined`; shallow clones, read only).
+
+### FM2 (and FM4, which copied it: same `installer/fm2.iss`, minus FM2's later space check and error log)
+- **Inno Setup 6** script `installer/fm2.iss`, built by `installer/build-installer.ps1 -Version x.y.z` →
+  `installer/dist/FM2-Setup-<version>.exe`. **Per user, no admin rights** (`PrivilegesRequired=lowest`,
+  default folder `{localappdata}\FM2`), lzma2 solid, modern wizard, start-menu and optional desktop shortcut,
+  "Open the launcher" at the end. A fixed `AppId` GUID so later versions upgrade the same install.
+- **No game files in the installer.** Wizard pages ask for the player's own disc image (.iso), the title update
+  and an optional DLC folder. Each is **checked against the build on the page's Next button** (the disc's
+  `default.xex` SHA-256 and the title update's SHA-256 are hard-coded in `setup_game.py`); a wrong disc stops there.
+- The disc and title-update work runs in a **bundled Python** (the embeddable 3.12 package in the payload, with
+  their `xiso.py`/`stfs.py` + `setup_game.py`: `check-iso`, `check-tu`, `install`, `space`). After the files are
+  copied, the installer runs `install`: unpacks the title update to `Documents\fm2\update`, copies DLC to
+  `Documents\fm2\dlc`, extracts the disc into `{app}\game`. Output goes to `{app}\out\setup.log`; a failure shows the
+  log's last line. FM2 added a **6 GB free-space check** on the folder page after installs failed half-way.
+- **.NET runtime:** the launcher is framework-dependent; if the .NET 10 Desktop Runtime is missing, the installer
+  downloads it from `aka.ms` on the Ready page and runs it quietly (Windows asks for admin rights for that step only;
+  a failed download still installs the game).
+- **What ships:** `build\tu\*` (fm2.exe, its DLLs, minus `nvngx_dlss.dll` and `xenos_dis.exe`), the published
+  launcher, scripts (`play.cmd`, `benchmark.cmd`, perf tests, `TESTING.md`) and `changelog.txt`. The recompiled
+  exe is shipped, built by the maintainer.
+- **Updates:** `tools/make_patch.py <version>` builds `FM2-<version>-patch.zip` (fm2.exe, d3dcompiler, the launcher,
+  the changelog; names checked on read-back: no control characters, nothing outside the install). The launcher's
+  `Updater.cs` reads `api.github.com/repos/<repo>/releases/latest`, downloads the `*-patch.zip` asset and unpacks it
+  over the install; running launcher files are **renamed to `*.old`** first (Windows lets a running exe be renamed,
+  not overwritten) and deleted at the next start. `--apply <zip>` applies one by hand. The exe also does a
+  background update check (`src/update_check.cpp`, WinHTTP, 4 s timeouts, any failure silent). The version comes
+  from fm2.exe's version resource (`ProductVersion`), else `version.txt`. A GitHub workflow posts each release to
+  Discord. Lesson in `make_patch.py`: a DLL the old launcher holds open (SDL3) can't be replaced: leave unchanged
+  DLLs out of the patch.
+- **Linux:** `tools/make_linux.py` → `FM2-Linux-<version>.tar.gz`: the Windows exe and DLLs (no DLSS: no NGX under
+  vkd3d-proton), `play.sh`/`setup.sh` for Proton, the same Python helpers, the launcher published self-contained
+  for `linux-x64` (WebKitGTK).
+
+### FH1-ReImagined (a different model)
+- Also Inno Setup, per user (`{localappdata}\Programs\...`), but it ships **no game code at all, not even the
+  recompiled exe**: the release holds the launcher (PyInstaller), the project's sources and a patched SDK overlay;
+  **the player's machine runs the recompiler and builds the game** (~4.6 min at 4 jobs on 8 cores), resumable,
+  rebuilt only when something changed. A legal choice: the shipped bytes contain nothing derived from the game.
+- Built in **GitHub Actions** (`release.yml`: tests, Linux/Windows/macOS packages, Flatpak), `SHA256SUMS` over the
+  release assets (`release_checksums.py`), the updater checks each download's SHA-256 (GitHub's asset digest).
+- **Code signing through SignPath Foundation** (free for open-source projects): the launcher, the Inno uninstaller
+  and the installer are signed in CI (`launcher/packaging/signpath/*.xml`, off until the repo variables exist;
+  release signing needs a maintainer's approval per request). They also build PyInstaller's bootloader from
+  source because antivirus flagged the stock one: unsigned recompiled exes get SmartScreen warnings and false
+  positives.
+- Installer extras: version resource on the installer (antivirus reports name it), licence page, privacy policy
+  page + "Online features" opt-out, VC++ redistributable installed only when missing.
+
+### What FM3 would need (recommendation)
+1. **Inno Setup, per user, FM2's layout**, with a fixed AppId. Wizard: Disc 1 .iso (required: check `default.xex`
+   SHA-256 `aa15372c…8742`, the hash in CLAUDE.md), Disc 2 .iso (optional), a free-space check (Disc 1 is 6.8 GB:
+   ask for ~8 GB). **No bundled Python needed:** our launcher already reads XISO and STFS in C# (`XIso.cs`, `Stfs.cs`,
+   `Disc2.cs`, `--install-disc2`); add `--check-disc1 <iso>` and `--install-disc1 <iso> <dir>` and have the installer
+   call the launcher (log to `{app}\out\setup.log`, show its last line on failure, as FM2 does).
+2. **Runtimes:** fm3.exe links the CRT statically (`CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded`), so no VC++
+   redistributable. The launcher is framework-dependent .NET 9 (Photino needs the plain .NET runtime, not the Desktop
+   one): either download it like FM2 (admin prompt) or **publish the launcher self-contained** (~70 MB more, no
+   runtime step: simpler for players). WebView2 is in Windows 11; Windows 10 may need the Evergreen bootstrapper.
+3. **Payload:** `fm3.exe`, `d3dcompiler_47.dll`, the FFmpeg LGPL DLLs (avcodec/avutil/swresample: ship the LGPL
+   notice and a link to the exact source build), FidelityFX's signed DLLs, the launcher, `changelog.txt`, licences
+   (`LICENSE`, `NOTICE.md`, `NOTICE-wheel.md`, FFmpeg, FidelityFX). Never `reference/`, `dumps/`, ISOs, `out/user`.
+   Leave out debug-only scripts or keep `play.cmd` as "start without the launcher".
+4. **Updates:** port the FM4 fork's `Updater.cs` (CLAUDE.md lists it as not yet ported) + a `make_patch.py`
+   equivalent; give fm3.exe a version resource; a release workflow attaching the installer, the patch zip and
+   `SHA256SUMS`.
+5. **Decide first (user):** ship the recompiled exe (FM2/FM4) or build on the player's machine (FH1R: legally
+   cleanest, but needs the LLVM/MSVC toolchain on the player's PC, and our recompile + build takes much longer
+   than FH1R's). And whether to sign (SignPath Foundation application) before the first public release.
+6. Before release: the user dir is `Documents\fm3` and the game runs in `{app}\out\run` (logs, captures): fine under
+   `{localappdata}`, but the debug server must default off in a release build.
+
+## Benchmark tools: the player's car driven by the game's AI, and a frozen grid (session 21, 2026-11-10)
+**Asked (user):** (1) let FM3's own AI ("drivatar") drive the player's car, for a benchmark with no input that is the
+same every run; (2) stop the other cars on the grid from moving, for performance and visual tests without the pause
+menu. This cloud session has no `out/ppc` or game image, so nothing below is checked against FM3's code yet: these are
+the approaches, the evidence from other ports and our own code, and the first local steps.
+
+### What the other ports do
+- **FH1-ReImagined (FM4 engine, TU4): the native race AI drives the player car** (`forza-recomp/src/platform/
+  benchmark.cpp`, `FORZA_BENCHMARK_AI=1`, docs/benchmark.md). Two hooks: (a) when the race creates the player's
+  race container, they create it through **the opponent factory** instead (`sub_82A5D748`), so the player car also
+  gets a native race driver (AI state machine + behaviour object), keeping the container's category 0 (player)
+  because changing it broke the car's script bindings; (b) each tick they find the player vehicle in the race's
+  car list (container +0x18 → AI, +0x28 behaviour vtable check; vehicle +0x3B80 controller) and, while the vehicle's
+  control mode (+0x3B88) is 1 (human override), call **`sub_8250B050(vehicle, 1)`, which releases the human override**:
+  the game's normal update then runs the AI and physics for that car. They measure 15 s settling + 60 s from guest
+  VdSwap intervals (average, 1% low, P99, `frames.csv`, `result.json`), on a copied profile so the real save is
+  untouched. Their own caveat: native AI and collisions vary, so it is a fixed event, not a deterministic replay.
+- **FH1R also has a line-following autopilot** (`src/debug/autopilot.cpp`, `FORZA_AUTOPILOT=<line file>`): host code
+  steers the virtual stick at a point ahead on a recorded line (pure pursuit) and holds the line's speed with the
+  triggers, from the car's position (telemetry). Game-independent, but needs the car's position and a line per track.
+- **FM2: a scripted benchmark** (`benchmark.cmd`): a pad-script menu tour (`FM2_TOUR=...,RACE:34,QUIT`) into a race,
+  holds the throttle for 25 s, writes average fps, lows, CPU/GPU to `out\benchmark.txt`, with its own Benchmark profile.
+  Also `FM2_RECORD_INPUT` / `FM2_REPLAY_INPUT` (pad input recorded and played back) and `quickrace.py` (FM2's
+  `launch=true` dev command line straight into a race, with `numaicars`, `aiskill`; FM3's `launch` stalls in retail).
+
+### (1) The player's car driven by FM3's AI: options, best first
+1. **Find FM3's "hand the player car to the AI" call (FH1R's method).** Forza games let the AI drive the player's car
+   after the finish line (the cool-down while results show): if FM3 does too (the user can check: finish a race and
+   let go of the pad), that code path is the takeover, already built into the game. Find it locally: a write
+   watch (`FM3_WATCHW`) on the player car's control-mode field, or by finding the finish handler, then call it at the
+   start of the race. Does the player car have an AI driver object? In FM3 the opponents get theirs in
+   `sub_822A1150` (our `ai_drivers.cpp`: driver row from `AIPlayers`); if the player has none, create one the same
+   way (FH1R needed the opponent factory for that). **Effort:** 1–2 sessions of reverse engineering. **Result:** the real
+   race AI on the player car, with every AI car racing too: the full race load.
+2. **Developer command line options.** Turn 10's 270 options (`xref.py options`) may include one for an AI player car
+   or an autopilot (FM2's parser had `aiskill`, `numaicars`). First local step: `python -I tools/analysis/xref.py
+   options ai`, `... options auto`, `... options drive`, `... strings Drivatar AutoDrive Autopilot AIControl Hire`,
+   then test candidates with `FM3_CMDLINE` (many are cut from retail, as `launch` and the overlays were).
+3. **Host autopilot (FH1R's line follower).** Needs the player car's position and heading (a pointer chain, found
+   with `find`/`peek` and watchpoints) and a line per track: record one lap of the user's driving (position + speed
+   every frame) on the benchmark track, then follow it. FM3's own driving line (the assist) could be the line
+   source if its data is readable. Independent of the AI's internals; ~1–2 sessions; less "real" (no racecraft).
+4. **Recorded pad input** (FM2's record/replay, through our existing `FM3_TOUR` pad-script path in
+   `imports_xam.cpp`). Simple, but not repeatable over a lap: the frame time varies, AI cars react, the car drifts
+   off the recording within seconds. Fine for "hold the throttle down the first straight", which is what FM2's
+   benchmark does.
+5. **The post-race replay.** A replay plays the race back exactly, with every car, so it is the most repeatable
+   moving scene the game has. Check whether FM3 can save a replay and load it later (the replay stream goes to
+   `cache:\replay_stream`, FM3-QUIRKS Q8); if only the last race's replay is kept, a benchmark could drive one
+   race and then measure its replay.
+**Consistency:** the AI varies run to run (FH1R saw it). For A/B numbers, interleave runs and use the median, or
+measure the replay (5) instead. A fixed seed for the game's `rand()` (used to pick AI drivers, `sub_8229F848`) may
+make the AI more repeatable: worth a try once (1) works.
+**Benchmark shell (any option):** start with our `quick_race` route (`FM3_TOUR`) or a fixed career event, a copied
+profile (as FH1R: never the user's save), settle 15 s, measure 60 s from guest swap times, write a result file
+(average fps, 1% low, P99), launcher button later.
+
+### (2) Freeze the grid without pausing: options, best first
+1. **Stop game time in our frame-time hook (all cars, and the world, stand still; rendering continues).**
+   `src/hooks/frame_time.cpp` already sets the main loop's frame time (`f31` after `sub_821F6AF8`, at frame rates other
+   than 60). A live switch (e.g. `FM3_FREEZE_TIME=1`, `Fm3 "env FM3_FREEZE_TIME 1"`) would hand the game dt = 0 (or a
+   tiny value): physics, AI, the countdown, animations and particles stop, but the render thread keeps drawing
+   full frames: no pause menu, no blur, the HUD as in a race, constant draws. Evidence it is safe: the comment in
+   that file says the game's own millisecond dt is sometimes 0 above 60 fps, so the game already copes with dt 0
+   (check that a frozen car's sounds and the camera stay sane; use 1e-6 s if 0 misbehaves). **Effort: small (an
+   hour).** Also gives a free slow-motion switch (dt scale) for visual debugging. It freezes the player too, so it
+   suits fps and picture A/Bs (same frame every time) more than a driving benchmark.
+2. **Hold the race at the countdown.** Before "GO", every car sits on the grid with engines running, crowd and
+   flags animated. Find the countdown (its timer, or the race-state change to "racing": a watchpoint on the race
+   state while the countdown runs, strings like `Countdown`/`RaceStart` with `xref.py`) and keep it from finishing.
+   A lifelike scene (moving crowd, engine sound), but not frame-identical. ~1 session.
+3. **Only the AI cars stop, the player drives on.** Zero the AI drivers' throttle and hold their brakes (their control
+   outputs, found from the AI driver object of option (1)), or give the AI cars zero speed each frame. Needs the
+   same RE as (1). Useful for "drive past parked cars" visual tests.
+4. Dev options (`xref.py options` for `freeze`, `noai`, `pause`, `numai`): check first, cheapest if one survives in retail.
+**Recommended order:** (2.1) first (small, our own code, immediately useful for every perf/visual A/B); then the
+dev-option search (1.2/2.4, one local run); then (1.1) for the real AI benchmark, which also gives (2.3).
+
 ## ReGPU speed work in other projects (session 19, 2026-11-10)
 Survey of every branch of the reference clones (framework/ReGPU, ReGPU-fh1, FM2, PGR4, FM4, FH1R), read only. Our pin
 (57143cb, a squash) already has rexglue-driver and most of engine-optimisation (draw workers + early fences, pipeline seed,

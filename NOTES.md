@@ -27,6 +27,7 @@ presets in a race, grass, older items) is unchanged: it is in the session 19 blo
    logs compared), `dupdraws.py`, `pngdiff.py` (pixel diff of two shots). `REGPU_GPU_PASSES`/`REGPU_GPU_SHADERS` are
    read at start only (temporary `play.cmd` line).
 **Session 21 (cloud):** [PERF-PLAN.md](PERF-PLAN.md) collects every performance item not yet built or measured (from this file, RESEARCH.md, OPEN-ISSUES.md), grouped by picture effect, target machine and live/start-time A/B, with a suggested order. Pick the next perf test from there.
+**Session 21 (cloud, research only):** RESEARCH.md "Installer for a public release" (FM2/FM4 Inno Setup + bundled Python + GitHub patch-zip updater; FH1R builds the game on the player's PC, SignPath signing; FM3 recommendation: Inno per user, the launcher's C# XISO/STFS instead of Python, self-contained launcher; decide: ship the exe or build locally) and "Benchmark tools" (FH1R hands the player car to the native race AI via the opponent factory + releasing the human override; FM3 options; **cheapest win: a live `FM3_FREEZE_TIME` in `frame_time.cpp` (dt 0) freezes the world while rendering continues**; then a dev-option search with `xref.py options`).
 **Next (the user asked how to make AI cars cheaper without visible change; pick with the user):**
 - (1) **Re-measure the AI-car cost** with the new default (race grid vs time trial from the 8th spot, `REGPU_GPU_SHADERS=1`
   at launch, `gpudiff.py`): how much of the 1.3 ms is left.
@@ -583,6 +584,10 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-10 — session 21 (cloud: PERF-PLAN.md, installer study, AI-driver benchmark / frozen grid study)
+- PERF-PLAN.md: every unbuilt/unmeasured performance item by picture effect, target machine, live/start-time A/B.
+- RESEARCH.md: two new studies (installer for a public release; benchmark tools: AI on the player car, frozen grid). No code change; nothing checked against FM3's code (no `out/ppc` in the cloud container): first local steps are listed in each study.
+
 ### 2026-11-10 — session 20 (render thread profile, race vs time trial, alpha-test-free shaders)
 - User asked what "the render thread runs flat out" meant. Rechecked: the 96-98% is GetThreadTimes CPU time, which counts
   spinning. Profiled t7 (`FM3_SAMPLE_THREAD=7`, temporary `play.cmd` line, removed; callers on live with
