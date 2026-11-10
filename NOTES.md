@@ -35,7 +35,8 @@ temporary lines); test mods in `out/user/mods` are all switched off (`_lodx2`, `
    material shaders in the main scene (~0.19 ms per car, pixel cost at 1440p 4x, not vertices): OPEN-ISSUES L.
    **New default (session 20): alpha-test-free pixel shaders** (patch `regpu-split-alpha-test`, 21 ReGPU patches):
    race grid 203 -> 213.6 fps (+5%), picture byte-identical. Off: `FM3_ALPHA_KILL_ALWAYS=1`; live A/B
-   `Fm3 "switch REGPU_SPLIT_ALPHA_TEST 0|1"`. Only checked paused on the CrownJewel grid: watch for anything odd in play.
+   `Fm3 "switch REGPU_SPLIT_ALPHA_TEST 0|1"`. User drove ~3 laps of CrownJewel with it: nothing wrong seen (first run
+   compiles the variants once, then they load from `out/user/shadercache`; their pipelines are not in the manifest).
 **Open, for the user to pick (ask first):**
 - (a) **Stop the attract video** on "Press A to start" (user request; leads in the note below: `ForzaUI::CAttract`,
   `Forza_Intro.bik`, UI flow idle timer).
@@ -552,7 +553,8 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   alpha-to-mask off (`NoKillShader` in `renderer.cpp`, like the motion variant; pipeline flag 0x400). Race grid, paused,
   4 interleaved rounds: off 199.4-205.1 (avg 203.0), on 211.4-216.0 (avg 213.6), +5.2%; on/off screenshots
   byte-identical (`tools/analysis/pngdiff.py`). On by default in `src/gpu_host.cpp` (`FM3_ALPHA_KILL_ALWAYS=1` off).
-  Not yet seen in motion, other tracks, menus/photo mode.
+  User drove ~3 laps with it: no visual problems; the variants compiled on that first run (saved to the shader cache).
+  Not yet seen on other tracks or in menus/photo mode.
 
 ### 2026-11-10 — session 19, part 4 (LOD tests in races, perfmode sanity check, wrap-up)
 - With the user driving to the CrownJewel grid each time: keepLOD0Car (works), trackfardistance (dead), TrackSettings x2
