@@ -245,6 +245,7 @@ Sources: upstream ReGPU (`reference/framework/ReGPU`: `main` = our pin; `engine-
   even when the test is "always" (pinfo.x 7: ~1,600 of 3,600 draws this frame). With depth writes on, a shader that may
   discard can lose early depth rejection on the GPU, so hidden pixels run the full shader. Idea: compile the alpha test
   only into a variant used when pinfo.x != 7 (or a/2m on), keyed in the pipeline/shader cache; A/B race fps.
+  **Done (session 20):** patch `regpu-split-alpha-test`, default on: race grid 203.0 -> 213.6 fps, picture identical.
 - Grass: no grass on the usual start grid (CrownJewel): test grass settings on another track later (user).
 **Suggested order:** (a) a race with `cmdline=keepLOD0Car` (AI cars stay detailed? draws in `Fm3 "status"`); (b) a race
 with `trackfardistance` watched, then set; (c) a lodsettings mod (crowd x2, sprite x2) on one track against stock, same

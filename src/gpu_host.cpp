@@ -272,6 +272,14 @@ void GpuStart()
     if (!getenv("FM3_NO_VERTEX_ARENA") && GetSettings().Extra("vertex_arena") != "0")
         DefaultEnv("REGPU_VERTEX_ARENA", "1");
 
+    // Alpha-test-free pixel shaders (session 20, our ReGPU patch regpu-split-alpha-test): draws with the alpha test
+    // and alpha-to-mask off use a variant of their pixel shader without the run-time alpha test's `discard`, so the
+    // GPU keeps early depth rejection. CrownJewel race grid, paused, 1440p 4x: 203 -> 213.6 fps (4 interleaved
+    // rounds, every "on" above every "off"), screenshot byte-identical. FM3_ALPHA_KILL_ALWAYS=1: off; live A/B:
+    // Fm3 "switch REGPU_SPLIT_ALPHA_TEST 0|1".
+    if (!getenv("FM3_ALPHA_KILL_ALWAYS"))
+        DefaultEnv("REGPU_SPLIT_ALPHA_TEST", "1");
+
     // Parallel draw workers (OPEN-ISSUES.md P): draw translation on 3 threads, which helps where the
     // command processor is the bound (near other cars). Occlusion queries (the sun flare and glare) work
     // with them since our ReGPU patch regpu-worker-queries (session 14: a counting query's draws go to the

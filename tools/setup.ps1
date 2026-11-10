@@ -39,6 +39,7 @@ $regpuPatches = @(
     'regpu-debug-shot-dump'          # debug-server shots after a capture no longer dump every resolve
     'regpu-turbo-hyper'              # speed pieces for the launcher's presets (lean fetch v2, cull, helper scale, ...)
     'regpu-vertex-arena'             # large vertex buffers in VRAM, changes seen by the port's write watch (from FM2)
+    'regpu-split-alpha-test'         # pixel shaders without the alpha-test discard when the test is off (early depth)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }
