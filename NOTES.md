@@ -25,9 +25,12 @@ temporary lines); test mods in `out/user/mods` are all switched off (`_lodx2`, `
    `fastcrowdrender` removes 3D spectators (-7% draws, fps same, flatter crowd); `fastcarrender` lowest models for every
    car (+1.3% fps, ugly); `perfmode` = all of it + fallback UI font without `.'-ë` + broken menu car: no use;
    `trackfardistance`, the dev overlays (`showframerate`, metrics, PVS) and `noattractvideo` are cut from retail.
-   **Key finding:** on this PC the grid frame (~5.0 ms) is bound by the game's render thread t7 (96% busy) with the GPU
-   at 4.7-4.8 ms, so LOD/draw cuts don't move fps; stock itself spread 198.8-206.0 fps over runs (use interleaved rounds
-   for small differences).
+   **Key finding (corrected in session 20):** the grid frame (~4.9 ms) is **not** bound by the game's render thread t7.
+   Its 98% "CPU" is mostly a spin: the session-20 profile (`out/logs/s20_t7_profile.log`, stock, paused CrownJewel grid,
+   1440p 4x, 203 fps) has t7 ~65% in D3D's ring-space spin (`sub_824B5048` -> `sub_824B4F78` -> `sub_824AAA68`, waiting
+   for ReGPU to consume the ring), ~2% asleep, only ~33% game work. The limit is downstream: ReGPU's draw thread
+   (94-98% busy) and/or the GPU (4.72 of 4.90 ms); -3%/-7% draws (crowd cuts) moving nothing points at the GPU. Stock
+   itself spread 198.8-206.0 fps over runs (use interleaved rounds for small differences).
 **Open, for the user to pick (ask first):**
 - (a) **Stop the attract video** on "Press A to start" (user request; leads in the note below: `ForzaUI::CAttract`,
   `Forza_Intro.bik`, UI flow idle timer).
@@ -94,8 +97,9 @@ shared its 4-page report; its code is not public, so every piece here is our own
   `fastcarrender` lowest models for every car, +1.3% fps: no. Crowd x0.5 data mod: 3D spectators halved, -3% draws,
   fps unchanged (GPU-bound): the clean lever for a draw-bound low-end preset. Grass: test on another track.
   `perfmode` in a race: -12% draws, 196 fps, low-LOD cars, no 3D crowd, font without `.'-ë`: no use. Its "slower" is
-  mostly run-to-run spread (stock 198.8-206.0 today); the grid frame is bound by the game's render thread t7 (96%)
-  with GPU 4.7-4.8 ms of 5.0, so fewer cheap draws save nothing (why no LOD change moved fps here).
+  mostly run-to-run spread (stock 198.8-206.0 today); the GPU (4.7-4.8 ms of 4.9) and ReGPU's draw thread are
+  both near full, so fewer cheap draws save nothing (why no LOD change moved fps here). t7 is mostly spin-waiting on
+  ReGPU (session 20 profile), not the limit.
 - **To do (user, session 19): no attract video on the title screen.** Left on "Press A to start" for a while, the game
   plays its attract video, which gets in the way of tests (and of the virtual pad). Leads: Turn 10's `noattractvideo`
   option (+2403) is only ever written, never read (cut, like the overlays); the UI class `ForzaUI::CAttract` (RTTI
@@ -524,11 +528,20 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-10 — session 20 (render thread profile)
+- User asked what "the render thread runs flat out" meant. Rechecked: the 96-98% is GetThreadTimes CPU time, which counts
+  spinning. Profiled t7 (`FM3_SAMPLE_THREAD=7`, temporary `play.cmd` line, removed; callers on live with
+  `Fm3 "env FM3_SAMPLE_CALLERS 1"`) on the paused CrownJewel grid, stock, 203 fps: ~65% in D3D's ring-space spin
+  (`sub_824B4F78` -> `sub_824AAA68` from `sub_824B5048`/`sub_82AF4AA8` and the present path `sub_824AF280`), ~2% asleep
+  (condition variable), ~33% game work spread thin (no hotspot over 1.1%). So t7 waits on ReGPU; the limit is ReGPU's draw
+  thread or the GPU (likely the GPU at 1440p 4x, since draw cuts moved nothing). NOTES top, OPEN-ISSUES L and CLAUDE.md
+  corrected. Log `out/logs/s20_t7_profile.log`. Open: a 720p 1x run of the same grid would tell draw thread vs GPU.
+
 ### 2026-11-10 — session 19, part 4 (LOD tests in races, perfmode sanity check, wrap-up)
 - With the user driving to the CrownJewel grid each time: keepLOD0Car (works), trackfardistance (dead), TrackSettings x2
   (all crowd), dev overlays (cut; no input combo: never read even in a race), perfmode (menu car body missing, fallback font;
   proven by restart, not the vertex arena: live arena off changed nothing), fastcrowdrender, fastcarrender, crowd x0.5,
-  perfmode in a race, then a perf-log sanity check (render thread t7 bound, run-to-run spread 198.8-206.0 fps). Results:
+  perfmode in a race, then a perf-log sanity check (run-to-run spread 198.8-206.0 fps; the "t7 bound" read was corrected in session 20). Results:
   OPEN-ISSUES L. User notes: stop the attract video (to do), test grass on another track later.
 
 ### 2026-11-10 — session 19, part 3 (LOD research toolkit)

@@ -212,8 +212,10 @@ Sources: upstream ReGPU (`reference/framework/ReGPU`: `main` = our pin; `engine-
 - **Sanity check of perfmode's "slower" (user asked):** stock on this grid measured 206.0, 198.8 and 203.4 fps in three
   runs today (same draws), so perfmode's 196.0 is mostly run-to-run spread, not a clear loss. `REGPU_PERF` (live) on the
   paused grid: stock 195-200 fps, GPU time 4.72 ms/frame, the game's render thread t7 96% busy; perfmode 200.7 fps, GPU
-  4.80 ms, t7 95-98%. Both at ~5.0 ms/frame: the frame is bound by t7 (the game's render thread) with the GPU almost as
-  busy, so cutting cheap draws (crowd, car parts) saves neither. GPU per pass (stock, `REGPU_GPU_PASSES=1`): main scene
+  4.80 ms, t7 95-98%. Both at ~5.0 ms/frame. (Session 20 correction: t7's 96% is mostly a spin, not work: its profile has
+  ~65% in D3D's ring-space wait `sub_824B4F78` -> `sub_824AAA68`, ~33% game work; `out/logs/s20_t7_profile.log`. The
+  limit is ReGPU's draw thread (94-98% busy) or the GPU, likely the GPU since draw cuts move nothing.) Cutting cheap
+  draws (crowd, car parts) saves nothing. GPU per pass (stock, `REGPU_GPU_PASSES=1`): main scene
   3.08 ms of 4.72 (2,184 draws), its bottom tile's resolve 0.41, a 5-draw full-screen pass 0.24, the rest < 0.13 each
   (`out/logs/s19_perf_stock.log`; perfmode's per-pass split not taken). This also explains why none of the LOD changes
   moved fps on this PC. A real small difference would need interleaved rounds (3 each) to show.
