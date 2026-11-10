@@ -219,6 +219,20 @@ Sources: upstream ReGPU (`reference/framework/ReGPU`: `main` = our pin; `engine-
   3.08 ms of 4.72 (2,184 draws), its bottom tile's resolve 0.41, a 5-draw full-screen pass 0.24, the rest < 0.13 each
   (`out/logs/s19_perf_stock.log`; perfmode's per-pass split not taken). This also explains why none of the LOD changes
   moved fps on this PC. A real small difference would need interleaved rounds (3 each) to show.
+- **Race vs time trial (session 20): what the ~100 fps costs.** CrownJewel, Scion xD, paused, 1440p 4x. Race grid 8th:
+  ~198 fps, 3,630 draws, GPU 4.80 ms of 5.0; time trial from the start line 311 fps, 1,635 draws, GPU 3.1 ms of 3.22
+  (GPU ~96% busy in both: the gap is GPU time, not CPU). Same view (time trial with the car moved back to the 8th grid
+  spot) with `REGPU_GPU_SHADERS=1` at launch (GPU time per pass and shader pair; costs fps itself): race 183 fps / 4.80 ms,
+  time trial 271 fps / 3.33 ms, **difference 1.47 ms, of which ~1.3 ms are the seven AI cars' own shaders in the main
+  scene's top tile** (pass 10, 1280 pitch): shader pairs drawn ~8x in the race vs 1x alone, e.g. `a102319a5aef757b/
+  e41e183a423e6f1b` 63 vs 8 draws +0.32 ms, `b55428e99d02d942/b117fbafcc1fa980` 122 vs 16 +0.23, `.../f7841c0a8245eabf`
+  +0.13, `7de73fe432ce4740/510c814e1a4ef99e` +0.12, `92221c33a34aa3b8/b117fbafcc1fa980` +0.10, then 0.05-0.09 each
+  (`a9e9840b.../4bb93f78...`, `f9b4086d.../90f99811...`, `a7f5e464.../30259c72...`, `f9b4086d.../d718f5ba...`).
+  ~0.19 ms per AI car on average (nearer cars more). Shadows (pass 0, 458 vs 26 draws), the 424-draw `e4d493f9` pass and
+  the crowd add little. With `fastcarrender` (lowest car models) giving only +1.3% fps, the cost is pixel shading of the
+  car materials at 1440p 4x, not vertices: lower LODs don't help; fewer pixels (resolution/MSAA/FSR) or cheaper car
+  shaders (the speed presets' fetch/multiply changes) would. Logs `out/logs/s20_gpu_{race8,tt8}.log`,
+  `s20_capture2_{race8,tt8}.log`, `s20_perf_{race,tt}.log`; scripts in the session scratchpad (gpudiff/where/shaderdiff).
 - Grass: no grass on the usual start grid (CrownJewel): test grass settings on another track later (user).
 **Suggested order:** (a) a race with `cmdline=keepLOD0Car` (AI cars stay detailed? draws in `Fm3 "status"`); (b) a race
 with `trackfardistance` watched, then set; (c) a lodsettings mod (crowd x2, sprite x2) on one track against stock, same

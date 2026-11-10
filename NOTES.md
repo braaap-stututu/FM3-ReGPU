@@ -31,6 +31,8 @@ temporary lines); test mods in `out/user/mods` are all switched off (`_lodx2`, `
    for ReGPU to consume the ring), ~2% asleep, only ~33% game work. The limit is downstream: ReGPU's draw thread
    (94-98% busy) and/or the GPU (4.72 of 4.90 ms); -3%/-7% draws (crowd cuts) moving nothing points at the GPU. Stock
    itself spread 198.8-206.0 fps over runs (use interleaved rounds for small differences).
+   **Race vs time trial (session 20):** the ~100 fps gap (198 vs 311) is GPU time, ~1.3 of 1.47 ms = the seven AI cars'
+   material shaders in the main scene (~0.19 ms per car, pixel cost at 1440p 4x, not vertices): OPEN-ISSUES L.
 **Open, for the user to pick (ask first):**
 - (a) **Stop the attract video** on "Press A to start" (user request; leads in the note below: `ForzaUI::CAttract`,
   `Forza_Intro.bik`, UI flow idle timer).
@@ -536,6 +538,11 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   (condition variable), ~33% game work spread thin (no hotspot over 1.1%). So t7 waits on ReGPU; the limit is ReGPU's draw
   thread or the GPU (likely the GPU at 1440p 4x, since draw cuts moved nothing). NOTES top, OPEN-ISSUES L and CLAUDE.md
   corrected. Log `out/logs/s20_t7_profile.log`. Open: a 720p 1x run of the same grid would tell draw thread vs GPU.
+- Race vs time trial (user asked, to find the ~100 fps difference): race grid 198 fps / 3,630 draws / GPU 4.80 ms vs time
+  trial 311 / 1,635 / 3.1. Then with `REGPU_GPU_SHADERS=1` (temporary `play.cmd` line, removed) and the time-trial car
+  moved back to the 8th grid spot (same view): GPU 4.80 vs 3.33 ms, ~1.3 ms of the 1.47 are the AI cars' own material
+  shaders in the main scene (~0.19 ms per car). Details OPEN-ISSUES L. Next ideas: the speed presets in a race (cheaper
+  car shaders), 720p/1x to confirm pixel cost.
 
 ### 2026-11-10 — session 19, part 4 (LOD tests in races, perfmode sanity check, wrap-up)
 - With the user driving to the CrownJewel grid each time: keepLOD0Car (works), trackfardistance (dead), TrackSettings x2
