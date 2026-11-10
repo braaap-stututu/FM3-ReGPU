@@ -33,6 +33,7 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 |---|---|
 | `NOTES.md` | Running log + phased work plan (source of truth for state) |
 | `OPEN-ISSUES.md` | Open issues other than the current focus: evidence, sibling-port findings, first step each |
+| `PERF-PLAN.md` | Performance to-do list (session 21): every untested/unbuilt speed idea, grouped by picture (lossless / lossless in intent / visible), the machines it helps and whether it A/Bs live; suggested order |
 | `RESEARCH.md` | Feasibility studies and leads with no code yet: 16-bit shaders for low-end GPUs, music cut-outs (solved in session 18), local multiplayer, AI-car frame rate (tile merge off with the draw thread), iGPU/APU options, GPU choice in the launcher, RAM/VRAM/bandwidth, ultrawide, shader precompilation and tools |
 | `play.cmd` | Test launcher the user runs (debug server on) |
 | `launcher/FM3Launcher`, `launcher.cmd` | The player launcher (C# .NET 9, Photino/WebView2), ported from the FM4 fork's; edits `settings.ini`, starts `fm3.exe` in `out\run`. Build: `dotnet build launcher\FM3Launcher -c Release` (`launcher.cmd` builds if missing, same folders as `play.cmd`) |

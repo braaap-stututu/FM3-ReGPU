@@ -26,6 +26,7 @@ presets in a race, grass, older items) is unchanged: it is in the session 19 blo
 5. Tools: `tools/fm3_ab.ps1` (interleaved live A/B of a switch), `tools/analysis/gpudiff.py` (two `REGPU_GPU_SHADERS`
    logs compared), `dupdraws.py`, `pngdiff.py` (pixel diff of two shots). `REGPU_GPU_PASSES`/`REGPU_GPU_SHADERS` are
    read at start only (temporary `play.cmd` line).
+**Session 21 (cloud):** [PERF-PLAN.md](PERF-PLAN.md) collects every performance item not yet built or measured (from this file, RESEARCH.md, OPEN-ISSUES.md), grouped by picture effect, target machine and live/start-time A/B, with a suggested order. Pick the next perf test from there.
 **Next (the user asked how to make AI cars cheaper without visible change; pick with the user):**
 - (1) **Re-measure the AI-car cost** with the new default (race grid vs time trial from the 8th spot, `REGPU_GPU_SHADERS=1`
   at launch, `gpudiff.py`): how much of the 1.3 ms is left.
