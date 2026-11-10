@@ -185,6 +185,16 @@ Sources: upstream ReGPU (`reference/framework/ReGPU`: `main` = our pin; `engine-
   are drawn at each detail level (the spectator popping of session 13); grass, cubemap and shadow distance changed
   nothing measurable from the grid (try them driving, where grass and far shadows show). The mod is kept off as
   `out/user/mods/_lodx2`.
+- **Developer overlays are cut from retail:** with `showframerate metrics cpumetrics gpumetrics EnablePVSMetrics
+  PVSOverlay=1` nothing new on screen and the same draws as stock (grid capture `out/logs/s19_capture_overlays.log`);
+  a read watch on `showframerate` (`82C22599`) saw no read at boot, in menus or a race (the getter `sub_821EC788` is only
+  in a table at `82001488`). No button combo can bring them back.
+- **`perfmode` breaks the game's look:** the UI switches to a fallback italic serif font, and the menu car is drawn
+  without its body (only mirrors, spoiler and a black bumper). Clearing all its flags live (`poke` on `82C225B4..BF`,
+  `82C220DC`) did not restore the car (set up when the car loads); the vertex arena is not involved (off live: same);
+  a restart without it: car and font normal. The `fast*` flags are read by `sub_822B9AC0`; if any is worth having
+  (crowd, grass), test it alone with a restart (`cmdline=fastcrowdrender`, etc.). Options object field addresses:
+  `0x82C21C60 + offset` (`xref.py options`); `Fm3 "peek/poke"` reads and writes them live.
 **Suggested order:** (a) a race with `cmdline=keepLOD0Car` (AI cars stay detailed? draws in `Fm3 "status"`); (b) a race
 with `trackfardistance` watched, then set; (c) a lodsettings mod (crowd x2, sprite x2) on one track against stock, same
 spot, shots + draws; (d) the dev overlays (`showframerate`, `PVSOverlay`) in case retail kept them.

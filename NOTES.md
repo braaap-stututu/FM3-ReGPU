@@ -48,7 +48,8 @@ shared its 4-page report; its code is not public, so every piece here is our own
   on the paused grid): a candidate launcher option. `trackfardistance` is never read (dead). A TrackSettings
   x2 mod costs +7% draws / -10% fps on the grid, all of it crowd (3D spectators doubled; `tools/analysis/passes.py`
   compares captures pass by pass); grass/cubemap/shadow distance: no change from the grid. Next: those while
-  driving, `perfmode` and the overlays (OPEN-ISSUES L).
+  driving (OPEN-ISSUES L). Developer overlays: cut from retail (never read). `perfmode`: fallback UI font and
+  car bodies missing in the menu: unusable as a whole; single `fast*` flags untested.
 - **Other ReGPU speed work found in other branches** (survey, RESEARCH.md "ReGPU speed work in other projects"): the
   biggest is FM2's vertex arena (large vertex buffers in VRAM, recopied on guest writes; FM3 reads them over PCIe).
 
