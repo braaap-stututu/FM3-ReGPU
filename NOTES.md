@@ -2,7 +2,48 @@
 
 ## ▶ Current status / next step  (updated 2026-11-10, session 19)
 
-### ▶ Start here next session (state at the end of session 19)
+### ▶ Start here next session (state at the end of session 19, 2026-11-10)
+All work is committed and pushed (`main`, last commit "Session 19 wrap-up"). `play.cmd` is back to its normal state (no
+temporary lines); test mods in `out/user/mods` are all switched off (`_lodx2`, `_crowdhalf`). 20 ReGPU patches.
+**What session 19 added (details in the block below and the session log "session 19" parts 1-4):**
+1. **Speed presets** (launcher Graphics > Performance > "Speed preset" slider; settings.ini `perf_preset=off|turbo|mild|
+   potato|low|extreme`; `FM3_PERF_PRESET`): our own versions of a ReGPU "Turbo/Hyper" study of FM2 (patch
+   `regpu-turbo-hyper`, table in `src/gpu_host.cpp` `ApplyPerfPreset`). Default **off**. Checked only in menus at
+   Extreme (two cull faults fixed there). **Untested in races** (fps and picture per preset).
+2. **Vertex arena** (from FM2, **on by default**; patch `regpu-vertex-arena`, write watch in `src/memory.cpp`, the GPU heap
+   over its own view of guest memory). Boots, zero-copy kept, verify clean on the title screen; every race today ran with
+   it with no visible fault. **Its fps A/B in a race was never done** (`Fm3 "switch REGPU_NO_VERTEX_ARENA 1"`, live from
+   the next frame). Off: `vertex_arena=0` / `FM3_NO_VERTEX_ARENA=1`.
+3. **ReGPU branch survey** (RESEARCH.md "ReGPU speed work in other projects"): next candidates PGR4's batched occlusion
+   resolve, FM2's 4-entry sampler table, texture eviction budget, SMAA, laptop GPU pick, ring-wait sleep.
+4. **LOD research toolkit + results** (OPEN-ISSUES **L** has everything): loose-file mods `out/user/mods/<mod>/game/<path>`,
+   `tools/analysis/lodsettings.py` (list/mod TrackSettings LOD fields), `tools/analysis/xref.py` (string users, Turn 10's
+   270 dev options with offsets in the options object `0x82C21C60`, their readers), `tools/analysis/passes.py` (captures
+   compared pass by pass), `Fm3 "peek/poke"` for option bytes, `FM3_WATCHW`/`FM3_WATCHRW` watchpoints.
+   Results on the CrownJewel grid (8 cars, 1440p 4x MSAA): `keepLOD0Car` works (full model for the near AI car, +0.6%
+   draws); crowd `lod0-3` scale the 3D spectators (x2: +7% draws, ~-10% fps; x0.5: halved, -3% draws, fps same);
+   `fastcrowdrender` removes 3D spectators (-7% draws, fps same, flatter crowd); `fastcarrender` lowest models for every
+   car (+1.3% fps, ugly); `perfmode` = all of it + fallback UI font without `.'-ë` + broken menu car: no use;
+   `trackfardistance`, the dev overlays (`showframerate`, metrics, PVS) and `noattractvideo` are cut from retail.
+   **Key finding:** on this PC the grid frame (~5.0 ms) is bound by the game's render thread t7 (96% busy) with the GPU
+   at 4.7-4.8 ms, so LOD/draw cuts don't move fps; stock itself spread 198.8-206.0 fps over runs (use interleaved rounds
+   for small differences).
+**Open, for the user to pick (ask first):**
+- (a) **Stop the attract video** on "Press A to start" (user request; leads in the note below: `ForzaUI::CAttract`,
+  `Forza_Intro.bik`, UI flow idle timer).
+- (b) **Vertex arena race A/B** (fps, and stale geometry with `REGPU_VERTEX_VERIFY`).
+- (c) **Speed presets in a race** (each preset vs Off; reflections, liveries, car pictures, sun flare; FSR 1 with 4x).
+- (d) LOD: grass on a track that has grass at the grid (user: not CrownJewel); a launcher option for `keepLOD0Car`
+  (full-detail AI cars) and maybe crowd density (data mod); single `fast*` flags other than crowd/car if wanted.
+- (e) The older list: C1 watch (DLC patches), band D, alt-tab hang, early-fence write-back bug upstream, wheel test,
+  engine sound G (pitch check or hl360 compare), Zonda R decals, vinyl leftovers.
+**How the LOD tests ran (reuse):** same race each time (CrownJewel, player 8th in a Scion xD, pause menu open); `Fm3 "status"`
+7 samples (perf log off) + `Save-Fm3Shot` + `Fm3 "capture"` saved to `out/logs/s19_capture_<run>.log`, then
+`passes.py stock.log run.log`. Data mods need only a race restart; command-line options (`FM3_CMDLINE` as a temporary
+`play.cmd` line) need a game restart. Claude restarted the game itself between runs (CloseMainWindow, then `play.cmd`);
+the user drove to the grid.
+
+### Session 19 details (kept for reference)
 **Session 19: speed presets (launcher slider, 6 stops), modelled on a ReGPU study of FM2's "Turbo/Hyper" modes** (the user
 shared its 4-page report; its code is not public, so every piece here is our own implementation from the descriptions).
 - ReGPU patch `regpu-turbo-hyper` (switches, all off by default): `REGPU_LEAN_FETCH=2` (a plain 2D texture, flagged on the
@@ -483,6 +524,13 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-10 — session 19, part 4 (LOD tests in races, perfmode sanity check, wrap-up)
+- With the user driving to the CrownJewel grid each time: keepLOD0Car (works), trackfardistance (dead), TrackSettings x2
+  (all crowd), dev overlays (cut; no input combo: never read even in a race), perfmode (menu car body missing, fallback font;
+  proven by restart, not the vertex arena: live arena off changed nothing), fastcrowdrender, fastcarrender, crowd x0.5,
+  perfmode in a race, then a perf-log sanity check (render thread t7 bound, run-to-run spread 198.8-206.0 fps). Results:
+  OPEN-ISSUES L. User notes: stop the attract video (to do), test grass on another track later.
+
 ### 2026-11-10 — session 19, part 3 (LOD research toolkit)
 - User asked for a way to research FM3's LOD levels first. Built and boot-tested: loose-file mods in `imports_io.cpp`
   (a no-op mod of all TrackSettings loaded for the menu's UIWhite/UITrack scenes, then removed), `lodsettings.py`
