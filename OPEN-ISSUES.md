@@ -70,6 +70,7 @@ Twice on Camino Viejo de Montserrat (the sun-flare test track; once before and o
 ## Audio
 
 ### G. Engine sound cuts out while holding RPM
+**Session 18 A/B (Acura RSX-S, solo race, held by the virtual pad: `hold LB` (clutch) + `trigger R 0.45` = steady ~5,000 RPM; 0.25 idles, 0.35 ~3,000, 0.55 limiter):** seek guard on: ~59 flushes and ~3.7k samples dropped per 5 s; guard off (`Fm3 "env FM3_NO_XMA_SEEK_GUARD 1"`): 0 and 0, ~78 codec reopens per 5 s either way (the title's own restarts). The user heard **no difference and no obvious cut-outs** in either mode (also with the clutch released, driving). So the guard's flushes are inaudible at constant revs and are not G's cause; G may depend on the car or driving conditions. Next time it is heard: note the car and the timer, then A/B the guard and `FM3_NO_XMA_DROP_AHEAD` live at that moment.
 **Session 18 lead:** the XMA seek guard flushed FM3's music codec between packets that did follow (music now exempt, NOTES session 18). It may misjudge engine streams the same way: in a race, hold RPM and A/B live `Fm3 "env FM3_NO_XMA_SEEK_GUARD 1"` / `0` (FM3_* switches are live now).
 - **Seen:** 1027.1, holding revs in a solo race. You mentioned it's known across the 360 recomps.
 - **Known (strong lead):** our XMA stats (`xma: 5 s:` log lines) show **0 "discontinuity flushes" in menus,
