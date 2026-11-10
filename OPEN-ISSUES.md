@@ -204,6 +204,11 @@ Sources: upstream ReGPU (`reference/framework/ReGPU`: `main` = our pin; `engine-
   204.1 fps (noise); near spectators keep their detail. So on this PC crowd LOD costs draws, not frame time; for a
   draw-bound low-end preset the data mod is the clean lever (no flag looks broken). No "lower LOD for AI cars only"
   switch exists (keepLOD0Car only raises it). Mods kept off as `_lodx2`, `_crowdhalf`; captures in `out/logs/s19_capture_*.log`.
+- **`perfmode` in a race (same grid):** 3,178 draws (-12%) but **196.0 fps (-5%, slower than stock's 206.0)**. The cars
+  use the low LODs (as `fastcarrender`), the 3D crowd is gone, nine main-scene shaders are dropped entirely (crowd
+  b32f44c5/d44a5b5a, e4d493f9 102 draws, 137c40c0, ef0cd27c, 45bc24c8, 685b8572, ...), none added; the fallback font has
+  no glyphs for `.`, `'`, `-`, `ë` (boxes in the pause menu). Why fewer draws cost more frame time is not known (perhaps
+  `nogpuvisibility`, which perfmode also sets). Capture `out/logs/s19_capture_perfmode.log`. Verdict: no use.
 - Grass: no grass on the usual start grid (CrownJewel): test grass settings on another track later (user).
 **Suggested order:** (a) a race with `cmdline=keepLOD0Car` (AI cars stay detailed? draws in `Fm3 "status"`); (b) a race
 with `trackfardistance` watched, then set; (c) a lodsettings mod (crowd x2, sprite x2) on one track against stock, same
