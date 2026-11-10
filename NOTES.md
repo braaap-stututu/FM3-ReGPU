@@ -27,6 +27,7 @@ presets in a race, grass, older items) is unchanged: it is in the session 19 blo
    logs compared), `dupdraws.py`, `pngdiff.py` (pixel diff of two shots). `REGPU_GPU_PASSES`/`REGPU_GPU_SHADERS` are
    read at start only (temporary `play.cmd` line).
 **Session 21 next (pick with the user):** the time-freeze switch (`FM3_FREEZE_TIME`, small); the car-physics RE in a race (float scan + watchpoints), which unlocks SimHub telemetry, AI throttle/brake/clutch control and the AI-driven benchmark; VRS measurement; installer decisions (ship exe or build locally, signing).
+**Session 22 (cloud):** FH1R + Sonic Unleashed perf survey (RESEARCH.md, PERF-PLAN L24–L29, I8); best next GPU-side steps: L26 GPU time by kind, I8 anisotropy from the fetch.
 **Session 21 (cloud):** [PERF-PLAN.md](PERF-PLAN.md) collects every performance item not yet built or measured (from this file, RESEARCH.md, OPEN-ISSUES.md), grouped by picture effect, target machine and live/start-time A/B, with a suggested order. Pick the next perf test from there.
 **Session 21 (cloud, research only):** RESEARCH.md "Installer for a public release" (FM2/FM4 Inno Setup + bundled Python + GitHub patch-zip updater; FH1R builds the game on the player's PC, SignPath signing; FM3 recommendation: Inno per user, the launcher's C# XISO/STFS instead of Python, self-contained launcher; decide: ship the exe or build locally) and "Benchmark tools" (FH1R hands the player car to the native race AI via the opponent factory + releasing the human override; FM3 options; **cheapest win: a live `FM3_FREEZE_TIME` in `frame_time.cpp` (dt 0) freezes the world while rendering continues**; then a dev-option search with `xref.py options`).
 **Next (the user asked how to make AI cars cheaper without visible change; pick with the user):**
@@ -585,6 +586,19 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-10 — session 22 (cloud: FH1R's latest performance work, Sonic Unleashed Recompiled)
+- Research only, no code (RESEARCH.md "FH1-ReImagined's latest performance work, and Sonic Unleashed Recompiled";
+  new PERF-PLAN items L24–L29, I8; L10/L23 notes).
+- FH1R since 11-05: command processor on two threads by default with ≥6 cores (+13%; −11% on 4 cores), descriptor
+  reuse (−7% CP per draw), present without the replay wait now default, a GPU profile by kind of work that found
+  render-target transfers at 30–37% of the GPU frame, a ReGPU D3D12 plugin (their fork `fh1`: `REGPU_ANISO_FROM_FETCH`,
+  no tile merge (0 gain), PGO +6%).
+- Upstream ReGPU is 15 commits past our pin (vertex reach + submit per view, one-copy queries, texture budget, live
+  MSAA/fullscreen): rebase = L27.
+- Sonic Unleashed Recompiled: hardware MSAA resolve, pipelines built at asset load behind the loading screen,
+  all XenonRecomp register options on with mid-asm hooks (FM3 keeps `non_volatile_as_local` off).
+- Suggested next on the user's PC: L26 (GPU time by kind on the race grid), then I8 (`REGPU_ANISO_FROM_FETCH` A/B).
+
 ### 2026-11-10 — session 21 (cloud: PERF-PLAN.md, installer study, AI-driver benchmark / frozen grid study)
 - PERF-PLAN.md: every unbuilt/unmeasured performance item by picture effect, target machine, live/start-time A/B.
 - RESEARCH.md: half-rate shading (D3D12 VRS) for weak GPUs/iGPUs: design, GPU coverage, FM3 exclusions; PERF-PLAN V2 updated.

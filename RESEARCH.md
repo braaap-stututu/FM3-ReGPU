@@ -3,13 +3,14 @@
 Investigations that are not bugs yet: options, feasibility studies and leads with no code behind them. Open bugs
 live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](VINYLISSUES.md).
 
-**Session 21 studies (2026-11-10, cloud, no code; first local steps in each):**
+**Session 21–22 studies (2026-11-10, cloud, no code; first local steps in each):**
 | Study | One-line result |
 |---|---|
 | [Installer](#installer-for-a-public-release-how-the-sibling-ports-do-it-session-21-2026-11-10) | FM2/FM4: Inno Setup per user, own-disc hash check, bundled Python, GitHub patch-zip updater. FH1R: builds the game on the player's PC, SignPath signing. FM3: Inno + the launcher's C# XISO/STFS, self-contained launcher; **decide: ship the exe or build locally, and signing** |
 | [Half-rate shading (VRS)](#half-rate-shading-variable-rate-shading-for-weak-gpus-and-igpus-session-21-2026-11-10) | Feasible without shader changes (tier 1 per draw, live A/B); scene draws only, never liveries/pictures/HUD/alpha-tested; no VRS on Vega APUs, Polaris, RDNA1, Pascal, old Intel; render scale + FSR stays the bigger iGPU lever; measure the pixel-shader share first |
 | [Telemetry to SimHub](#telemetry-out-to-simhub-forza-data-out-udp-session-21-2026-11-10) | Send FM7's 311-byte Forza "Data Out" Dash packet over UDP; SimHub's Forza profile reads it; needs FM3's car-physics object (the telemetry pages' getters are the shortcut) |
 | [Benchmark tools](#benchmark-tools-the-players-car-driven-by-the-games-ai-and-a-frozen-grid-session-21-2026-11-10) | Frozen world while rendering: dt 0 in `frame_time.cpp` (small, our code). AI on the player car: FH1R's native-AI takeover (opponent factory + releasing the human override). AI throttle/brake/clutch: one float controls block per car in FH1 (+3904), very likely in FM3 too; same RE as telemetry |
+| [FH1R latest + Sonic Unleashed](#fh1-reimagineds-latest-performance-work-and-sonic-unleashed-recompiled-session-22-2026-11-10) (session 22) | FH1R: CP on two threads (+13%/≥6 cores, −11% on 4), only changed register writes recorded, descriptor reuse −7%/draw, **GPU time by work kind: RT transfers were 37% of the GPU frame**; their ReGPU plugin uses `REGPU_ANISO_FROM_FETCH` (never tried on FM3), tile merge 0 gain, PGO +6%. Upstream ReGPU: 15 commits past our pin (vertex reach, view submit, one-copy queries). Unleashed: hardware MSAA resolve, pipelines built at asset load, `non_volatile_as_local` |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -331,6 +332,117 @@ the offsets and addresses will differ and must be found again.
 seconds: watch for that); the countdown may hold the cars anyway until "GO"; FM3's AI may ignore the clutch with an
 automatic gearbox (the physics probably still applies the float: check). Whatever we set, write it after the AI runs
 each substep, or the AI simply overwrites it.
+
+## FH1-ReImagined's latest performance work, and Sonic Unleashed Recompiled (session 22, 2026-11-10)
+Read only, cloud session, no code. FH1R = `FH1-ReImagined/ForzaHorizon1-ReImagined` main `8afc41e` (2026-11-09), its
+ReGPU fork `FH1-ReImagined/ReGPU` branch `fh1` (`ff39bea`), upstream `zer0ducksgiven/ReGPU` main `3fc8576`;
+Unleashed = `hedge-dev/UnleashedRecomp` `cf829a9`. FH1R is GPL-3 and Unleashed GPL-3: ideas only, our own code.
+Earlier FH1R findings (up to `c1ad9cc`, #607 step 2) are in the sections below and in PERF-PLAN; this covers what is new.
+
+### FH1R since our last read (2026-11-05 → 11-09)
+Their speed work is still almost all in their own Vulkan/Xenia backend (ReIGlue patches), so these are ideas to
+rebuild in ReGPU, not code to port. Measured on a 7800X3D + RX 9060 XT (CPU-bound, uncapped) and a GTX 1650 Ti laptop.
+1. **Command processor on two threads, on by default with ≥6 physical cores** (`0fdb852`, ReIGlue 0420, `docs/perf.md`
+   "Decoding and recording on two threads"): a decoder parses PM4 against a shadow register file and records the
+   register writes and the draws; a recorder applies them and runs the draws. Benchmark +13% (8 cores) / +5.8% (6 cores),
+   free roam +15% (6); **4 cores without SMT: −11%** (gated by physical core count, `src/platform/cpu_cores.h`).
+   ReGPU's draw thread (`REGPU_DRAW_THREAD`, FM3's default) is the same split. **Two details we don't have:**
+   - **Only changed register writes are recorded** (`gpu_split_elide_unchanged_registers`, on): ~30% of the
+     360k–530k register writes a frame are changes. Applies to what ReGPU's CP hands the draw thread (check what it
+     copies per draw). CPU-bound only.
+   - **Direct3D's coherency waits (`WAIT_REG_MEM` on `COHER_STATUS_HOST`, ~100 a frame) are answered from the shadow**
+     without waiting for the recorder; memory waits poll each finished batch (≤100 µs) instead of sleeping to a vblank
+     (their first build halved fps by sleeping). Check how ReGPU's CP answers these with the draw thread on.
+2. **Descriptor reuse** (`0fdb852`, ReIGlue 0442–0445, "Descriptor reuse in the command processor"): constants as
+   dynamic buffers with per-draw offsets (−4% per draw, the biggest part), unchanged samplers/texture requests skipped
+   (−2%), texture sets memoised by exact contents per frame (≈0 alone). Together −7.4% CP time per draw, 133 → 147
+   fps. A compare-with-previous-draw-only version drew wrong textures and was removed: memoise by full contents.
+   Already PERF-PLAN L8; this gives the order (constants first).
+3. **The swap no longer waits for the frame's replay** (`6e891d4`, now default; DLSS/VR/macOS keep the wait). Their
+   +13% above includes it. PERF-PLAN L12.
+4. **GPU time by kind of work** (ReIGlue 0460, `--fh1_gpu_profile`, "Where the GPU frame goes on a GTX 1650 Ti"):
+   timestamps where the kind of work changes, reported as guest draws / render-target transfers / texture loads /
+   resolves / uploads. **The surprise: render-target transfers (the same EDRAM bytes reinterpreted between MSAA modes
+   and formats: shadow maps at 4x read as 1x, scene depth) were 5.3 of 17.7 ms, 37% of the GPU frame at render scale 2.**
+   Their fix (stencil bit draws made conditional, NVIDIA only; direct texture upload at scale 1): 19.0 → 23.7 fps at
+   scale 2. **For FM3:** our `REGPU_GPU_PASSES` times passes between render-target switches and resolves; check that
+   ReGPU's own non-draw GPU work (EDRAM surface copies/reinterprets, MSAA resolve blits `psColor`, depth blits, upload
+   copies, 1440p 4x) is in its own bucket, and measure that share on the race grid before L4/L6/V3. FM3 also draws
+   at 4x MSAA with 2 EDRAM tiles: any per-tile copy scales with render scale.
+5. **Main loop waits while a render pass is held >1 s** (`6b2e9d2`, #725): with a slow GPU (cold shader caches on
+   an Intel UHD, WARP) the main loop free-ran ~1,300 frames, and FH1's HUD command-buffer ring (12 slots) wrapped:
+   null read crash or no frame. Correctness on slow machines, not speed. FM3 has never run with seconds-long frames;
+   keep in mind for iGPU first runs (OPEN-ISSUES-style crash with a cold cache).
+6. **The ReGPU plugin in FH1R** (`416ad22`, `e4d18f8`; `forza-recomp/regpu-plugin/src/regpu_graphics_system.cpp`
+   ~776–845). Switches it sets, with their measurements:
+   - **`REGPU_ANISO_FROM_FETCH`**: ReGPU filters every linear-wrap texture at 16x anisotropic; this uses the
+     fetch constant's own anisotropy (FH1: none on most ground, 2x–8x on some, what the console and Xenia give;
+     16x made distant ground sharper than stock). **In our pin, never tried on FM3** (we set the launcher's
+     anisotropy with `regpu::SetAnisotropy`). On a GPU-bound 1440p 4x frame 16x everywhere costs texture bandwidth:
+     a cheap start-time A/B (PERF-PLAN I8). The picture moves toward the console's, softer at a distance.
+   - `REGPU_NO_SETTLED_SKIP` (FH1's paint-job bake was skipped while its pipeline built). Only matters with
+     `REGPU_ASYNC_PIPELINES`, which FM3 doesn't set; GameSettled also gates the draw workers (not FM3's default
+     path). Note for VINYLISSUES if async pipelines ever get turned on.
+   - `REGPU_NO_TILE_MERGE` on: with the stencil fix, merging FH1's three tiles **saved nothing** (FX 31.5 vs 32.8
+     fps). Lowers expectations for PERF-PLAN L10.
+   - `REGPU_NO_FETCH_BOUNDS` (skid marks read past the fetch constant's size and stretched to the origin): a
+     correctness switch to remember if FM3's tyre marks ever stretch.
+   - **PGO build of the plugin** (CMake `FORZA_REGPU_PGO`, clang `-fprofile-instr-use`, a 60 s free-roam profile
+     shipped in the repo): +6% (99.3 → 105.5 fps). PERF-PLAN L23.
+   - Their numbers: ReGPU on the 1650 Ti laptop 36 vs Vulkan 52 fps in the benchmark, GPU only 63–82% busy at
+     35–41 W with ReGPU: "ReGPU's limit there is its CPU side". At the menu the main loop took 18.8 ms on ReGPU vs
+     7.3 on Vulkan. ReGPU's CP side is what weak machines will hit first, also for FM3.
+
+### Upstream ReGPU after our pin (57143cb → 3fc8576, 15 commits; our pin is an ancestor of main)
+- `5c493d1` **vertex reach**: each draw copies only the vertices it reads (a spark draw copied its whole 2.4 MB
+  particle ring; FX p99 80 → 28 ms on a wall hit, `REGPU_NO_VERTEX_REACH`), and the recorder **submits at every new
+  RTV/DSV** instead of only at 64 KB (+3.8% parked, `REGPU_NO_VIEW_SUBMIT`). FM3 sparks and tyre smoke: a stutter
+  lead; the vertex arena (L1) may already cover the big buffers.
+- `99403c0` occlusion queries recorded with the draw workers, **the frame's counts resolved in one copy** (PERF-PLAN
+  L7; our `regpu-worker-queries` / `regpu-zpd-tile-spans` patches overlap).
+- `16b389b` + `8a2ae2d` fences land after the host GPU (exploded geometry when told early), interrupts don't wait for
+  them (London grid 86 → 147 fps). FM3 runs early fences with our write-back fix: read before rebasing.
+- `73b05f9` + `7a2c6b6` texture budget 1 GB with eviction (PERF-PLAN L17), `e25824f` DXT cube maps never take
+  resolves as faces (FM2 showroom bug), `6e840c7` `regpu::SetMsaa` / `SetFullscreen` live (launcher/in-game options).
+- **Rebasing our 21 patches** onto main is the way to get these; a session of its own (patch conflicts with
+  zpd/worker queries and fences likely).
+
+### Sonic Unleashed Recompiled (hedge-dev): what is different
+Unleashed doesn't emulate the GPU: it **replaces the game's Direct3D calls** with its own renderer
+(`UnleashedRecomp/gpu/video.cpp`, plume over D3D12/Vulkan; shaders converted offline by XenosRecomp). Not a model
+for ReGPU (a PM4 emulator), but four ideas carry over:
+1. **Hardware MSAA resolve** (`video.cpp` ~3378): `ResolveSubresource` when the source is multisampled and the
+   formats allow (depth only on D3D12 with programmable sample positions; off on Intel, where it misbehaved), a
+   shader resolve otherwise. ReGPU always resolves 4x MSAA with a shader that averages 4 `Load`s (`renderer.cpp`
+   ~1652 `psColor`), even when scale is 1 and there is no clamp/gamma/swap. A hardware resolve to a 1x RGBA16F
+   intermediate in the plain case: lossless (same box average), GPU-bound, likely small; worth it only if the GPU
+   profile (item 4 above) shows resolves matter. PERF-PLAN L24.
+2. **Pipelines compiled when an asset loads, behind its loading screen** (`EnqueuePipelineTask(DatabaseData)`,
+   a custom "compiling pipelines" flag holds the game's `IsMadeAll` until the asset's pipelines are built): no hitch
+   the first time a model is drawn. FM3 version: hold the race load (or a car load in the showroom) until the
+   pipelines of the cars and track just loaded are built. Needs FM3's load-done flag; goes with L16 (static shader
+   scan + seed). Stutter only.
+3. **Low-end defaults on detection** (`ApplyLowEndDefaults`, ~1815): non-discrete GPU, under 2 GB VRAM, or D3D12
+   UMA → lower settings at first run. Same as PERF-PLAN V4.
+4. **Recompiler register options** (`UnleashedRecompLib/config/SWA.toml`): `skip_lr`, `skip_msr`,
+   `non_argument_as_local`, `non_volatile_as_local` all **true**; FM3 has them **false** (`config/fm3.toml`: hooks
+   and diagnostics read GPRs/LR from the context). Unleashed hooks through XenonRecomp's **mid-asm hooks**, which get
+   the registers they name as arguments, so the rest can live in host registers. For FM3: turn on
+   `non_volatile_as_local` (r14–r31, the most used) after checking which hooks and the thread sampler/caller
+   walk (`FM3_SAMPLE_CALLERS`) read r14–r31 or LR from the context, and moving those to mid-asm hooks. CPU only
+   (guest code: render thread t7, main loop); the user's PC is GPU-bound. PERF-PLAN L25. Build A/B.
+Also seen and already ours: GPU upload heap (ReBAR) for buffers (our pin uses `D3D12_HEAP_TYPE_GPU_UPLOAD`), dirty
+state tracking per draw, alpha test as a shader specialisation (our `regpu-split-alpha-test`).
+
+### What to do with this (ranked for FM3)
+1. **GPU work by kind on the race grid** (extend `REGPU_GPU_PASSES` so copies, resolves, MSAA blits and uploads get
+   their own buckets; the FH1R lesson is that non-draw GPU work can be a third of the frame). This decides between
+   L4/L5/L6/L24/V3. Small ReGPU patch, start-time switch.
+2. **`REGPU_ANISO_FROM_FETCH` A/B** (I8): one start-time switch, GPU-bound; check distant road and kerbs with pngdiff.
+3. **Rebase on upstream ReGPU** (vertex reach, view submit, one-copy queries, texture budget, live MSAA/fullscreen).
+4. CPU side for other machines: elide unchanged register writes on the CP → draw-thread handoff, coherency waits from
+   the shadow, descriptor reuse (constants first), `non_volatile_as_local`, PGO.
+5. Stutter: pipelines built at asset load (Unleashed), with L16.
 
 ## ReGPU speed work in other projects (session 19, 2026-11-10)
 Survey of every branch of the reference clones (framework/ReGPU, ReGPU-fh1, FM2, PGR4, FM4, FH1R), read only. Our pin

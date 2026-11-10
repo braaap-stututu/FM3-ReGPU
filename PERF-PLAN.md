@@ -1,6 +1,6 @@
 # Performance plan
 
-Every performance idea from NOTES.md, RESEARCH.md and OPEN-ISSUES.md (to session 20, 2026-11-10) that is **not yet
+Every performance idea from NOTES.md, RESEARCH.md and OPEN-ISSUES.md (to session 22, 2026-11-10) that is **not yet
 built, or built but not measured in a race**. Sorted by what it does to the picture, then by expected gain.
 Sources and older numbers stay in those files; this file is the to-do list. Update it when an item is measured,
 adopted or dropped.
@@ -50,7 +50,7 @@ adopted or dropped.
 | L7 | **Occlusion results resolved once a frame** (PGR4, `REGPU_RESOLVE_EACH_QUERY` = old) | Not built; touches our `regpu-zpd-tile-spans` and `regpu-worker-queries` patches | CPU-bound, some GPU | **Planned live** | PGR4 ~3%. Check sun flare at the Montserrat sun spot (answers must stay the same frame) |
 | L8 | **Per-draw command-processor cuts** (FH1R ideas: reuse unchanged render-target setup, no locked `xchg` per draw, descriptor/binding reuse; cache `GameSettled`/`RendererTracing` per packet) | Not built | CPU-bound | **Planned live** (one switch per cut) | FH1R 5–10% on its CP; the two caches ~3% of t9 (S14 profile). Skipping unchanged constant writes measured worse in FH1R: skip that one |
 | L9 | **`REGPU_SUBMIT_DRAWS=512`** | Switch in our pin, unknown with the draw thread | CPU-bound (may cost when GPU-bound) | **Start-time** | PGR4 FX +23%; FM2 (GPU-bound) −4…−17% |
-| L10 | **Tile merge for FM3's race scene** (ReGPU refuses surfaces that clear each tile with rectangles; also make it work with the draw thread) | Not built (ReGPU patch, game-neutral) | CPU-bound (half the scene's commands), some GPU | Live only with `FM3_NO_DRAW_THREAD=1` at start, then `REGPU_NO_TILE_MERGE` live; with the draw thread: **planned live** | PGR4 +19%, FH1R one-pass scene +15%. Large; S18 measured 0 gain as is (scene refused) |
+| L10 | **Tile merge for FM3's race scene** (ReGPU refuses surfaces that clear each tile with rectangles; also make it work with the draw thread) | Not built (ReGPU patch, game-neutral) | CPU-bound (half the scene's commands), some GPU | Live only with `FM3_NO_DRAW_THREAD=1` at start, then `REGPU_NO_TILE_MERGE` live; with the draw thread: **planned live** | PGR4 +19%, FH1R one-pass scene +15%. Large; S18 measured 0 gain as is (scene refused); FH1R (S22): merging FH1's 3 tiles saved nothing once fixed, now off there |
 | L11 | **Ring wait sleeps instead of spinning** (t7 spins ~65%; FM3 hook on `sub_824B5048` → `sub_824AAA68`, ReGPU `WakeByAddressAll` after its guest writes) | Not built | 4-core CPUs, laptops/APUs (power); 0 on desktops | **Planned live** (`FM3_*` LiveSwitch) | FH1R: render thread 86 → 45% of a core, +10% fps on a 4-core laptop |
 | L12 | **Present without waiting for the frame's replay** (FH1R) | Not built; first check whether ReGPU's present has such a wait | CPU-bound (4 cores) | **Planned live** | FH1R +15% uncapped on 4 cores, 0% GPU-bound. Latency changes, pixels don't |
 | L13 | **Draw-thread pieces slower than serial** (why? piece replay wait in `SplitMainList`?) | Investigation | CPU-bound | **Start-time** (`FM3_DRAW_THREAD_PIECES=1`) | Pieces were 195 vs serial 216 fps at 720p 1x (S15) |
@@ -63,7 +63,13 @@ adopted or dropped.
 | L20 | **Untile on the GPU** (compute shader from the mapped guest heap) | Not built (medium–large) | Stutter/streaming, CPU; iGPU | **Start-time** | Two memory passes instead of four per upload |
 | L21 | **Write textures in place on cache-coherent UMA** | Not built | iGPU | **Start-time** | Skips the ring copy; driver support varies |
 | L22 | **XMA codec pool RAM** (FH1R found 183 MB of unused codec contexts) | Not checked | Low RAM | n/a (memory reading) | RAM only, no fps |
-| L23 | **PGO build of ReGPU**, **x86-64-v3** for the recompiled code | Not built | CPU-bound | **Build** | FH1R: PGO +6%; v3: CPU −5%, fps same |
+| L23 | **PGO build of ReGPU**, **x86-64-v3** for the recompiled code | Not built | CPU-bound | **Build** | FH1R: PGO +6%; v3: CPU −5%, fps same; FH1R ships the PGO profile in-repo (clang `-fprofile-instr-use`, 60 s drive) |
+| L24 | **Hardware MSAA resolve** (`ResolveSubresource` when scale 1, no clamp/gamma/swap; ReGPU averages 4 `Load`s in `psColor` today) | Not built (Unleashed does it; shader fallback on Intel) | GPU-bound | **Planned live** | Same box average: lossless. Small; only if L26 shows resolves matter |
+| L25 | **`non_volatile_as_local` / `non_argument_as_local`** in `config/fm3.toml` (Unleashed: all register options on, hooks as XenonRecomp mid-asm hooks) | Not built: first list hooks and the sampler/caller walk that read r14–r31/LR from the context | CPU-bound (guest code: t7, main loop) | **Build** | Unknown; FM3 is GPU-bound on the user's PC |
+| L26 | **GPU time by kind of work** (extend `REGPU_GPU_PASSES`: EDRAM copies/reinterprets, MSAA resolve blits, depth blits, uploads in their own buckets) | Not built (small ReGPU patch) | Measurement for GPU-bound | **Start-time** | FH1R: render-target transfers were 30–37% of its GPU frame (surprise). Decides L4/L5/L6/L24/V3: do it before them |
+| L27 | **Rebase on upstream ReGPU** (15 commits past 57143cb: vertex reach `5c493d1`, submit at each new RTV/DSV, one-copy queries, texture budget, live `SetMsaa`/`SetFullscreen`) | Not done (a session: our 21 patches, conflicts likely with queries/fences) | Stutter (sparks), CPU, low VRAM | **Build**; most have their own `REGPU_NO_*` switch afterwards | View submit +3.8% parked, spark p99 80 → 28 ms (FX) |
+| L28 | **Handoff cuts on the draw thread** (FH1R split CP: record only changed register writes, ~30% of them; answer Direct3D coherency waits from the shadow; memory waits poll per batch) | Not built; first read what ReGPU's CP hands the draw thread and how it answers `WAIT_REG_MEM` | CPU-bound | **Planned live** | FH1R's split +13% on 8 cores including these; −11% on 4 cores (L14) |
+| L29 | **Pipelines built at asset load** (Unleashed: hold the game's load-done flag until the loaded models' pipelines are built) | Not built; needs FM3's race/car load-done flag | Stutter (first sight of AI cars, new tracks) | n/a | Goes with L16 |
 
 ## 2. Lossless in intent (needs a numeric picture check and a drive)
 | # | Item | Status | Helps on | Live A/B | Risk / note |
@@ -75,6 +81,7 @@ adopted or dropped.
 | I5 | **`REGPU_UPLOAD_STABLE_REUSE`** | Switch in our pin; S18 +2% on the grid, not adopted | CPU-bound | **Live** | A buffer one frame stale. Adopt only after a drive with damage/tyre marks/replays |
 | I6 | **`REGPU_OPTIMIZE_LEVEL`** (engine-optimisation afb4495) | Untested upstream too | GPU-bound | **Start-time** | Like L3, higher optimisation; float differences possible |
 | I7 | **16-bit pixel shaders** (`min16float` with a dataflow pass keeping coordinates/depth/predicates 32-bit) | Not built (large) | iGPU/APU, AMD/Intel low end; 0 on NVIDIA desktop | **Start-time** (separate shader cache) | Precision on liveries, shadows, glare: per-shader opt-out by hash. Only if L6 shows shaders are math-bound |
+| I8 | **`REGPU_ANISO_FROM_FETCH`** (the fetch constant's own anisotropy instead of 16x on every linear-wrap texture; FH1R's default) | Switch in our pin, never tried on FM3 | GPU-bound (texture bandwidth at 1440p 4x) | **Start-time** (samplers built once) | Closer to the console (softer distant ground in FH1, which is what stock looks like); pngdiff distant road/kerbs. The launcher's anisotropy setting would then only cap it |
 
 ## 3. Visible (quality traded for speed)
 | # | Item | Status | Helps on | Live A/B | Cost to the picture |
@@ -100,9 +107,9 @@ adopted or dropped.
 1. **Free live measurements on the race grid, one game session:** L1 vertex arena, I1 draw cull (1 px, shot burst),
    I4, I5, L2 on another track. Tool: `tools/fm3_ab.ps1` + `pngdiff.py`.
 2. **Start-time A/Bs (restarts, user back on the grid):** L3 `REGPU_OPTIMIZE_SHADERS`, I2 lean fetch, I3 plain
-   multiply, L9 submit draws, then V1 presets one by one. Re-measure the AI-car cost (race vs time trial,
+   multiply, I8 anisotropy from the fetch, L9 submit draws, then V1 presets one by one. Re-measure the AI-car cost (race vs time trial,
    `REGPU_GPU_SHADERS=1`, `gpudiff.py`) with whatever is adopted.
-3. **Measurement before code:** L4 overdraw count and L6 GPU profile of the car shaders. They decide between L5
+3. **Measurement before code:** L26 GPU time by kind (copies/resolves vs draws), L4 overdraw count and L6 GPU profile of the car shaders. They decide between L5
    (sampler table), a depth pre-pass, V2 (VRS), V3 and I7.
 4. **Code for the user's PC:** L5 sampler table first (proven +5% in FM2), then what step 3 points at.
 5. **Code for other machines:** L15 laptop GPU pick and V4 iGPU defaults (cheap, big for those users), L11 ring-wait
