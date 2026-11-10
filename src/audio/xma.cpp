@@ -474,9 +474,19 @@ struct Decoder
     int pendingBits = -1;
     // (capture) what the context showed at the last step: the output ring read index and the input buffers valid bits
     int capRead = -1, capValid = -1;
-    // Engine loop crossfade (FM3_XMA_LOOP_CROSSFADE, see LoopFade): the hash of the packet this stream started with,
-    // and the end of the previous pass, still to be blended into the first frames of the next.
-    uint64_t firstHash = 0;
+    // Engine loop crossfade (FM3_XMA_LOOP_CROSSFADE, see LoopFade): the hashes of the first packets of this stream (a
+    // loop restarts on one of them, not always the very first), and the end of the previous pass, still to be blended
+    // into the first frames of the next.
+    static constexpr uint32_t kHeadPackets = 8;
+    std::array<uint64_t, kHeadPackets> headHashes{};
+    uint32_t headCount = 0, streamPackets = 0;
+    int HeadIndex(uint64_t h) const
+    {
+        for (uint32_t i = 0; i < headCount; i++)
+            if (headHashes[i] == h)
+                return int(i);
+        return -1;
+    }
     std::vector<int16_t> fadeTail;
     size_t fadePos = 0;
     uint32_t fadeChannels = 0;
@@ -499,13 +509,13 @@ struct Decoder
         }
     }
 
-    // An engine sound loops by the title feeding the stream's first packet again. The seek guard then replaces the
-    // codec, which threw away the audio FFmpeg still held back from the pass that ended (about a packet), and the
-    // new pass started on a step. Instead: the old pass is drained, its last kLoopFadeFrames (or what is left
-    // unplayed, at least 8) are kept back and blended into the first frames of the new pass (BlendFade), a
-    // raised-cosine crossfade of about 9 ms, after the FM2 port's engine-loop crossfade
+    // At a restart the seek guard replaces the codec, which threw away the audio FFmpeg still held back from what
+    // was playing (about a packet), and the next piece started on a step. Instead: the old codec is drained, its last
+    // kLoopFadeFrames (or what is left unplayed, at least 8) are kept back and blended into the first frames after the
+    // restart (BlendFade), a raised-cosine crossfade of about 9 ms, after the FM2 port's engine-loop crossfade
     // (zer0ducksgiven/Forza-Motorsport-2-ReGPU, src/audio/xma.cpp Drain; FM2 crossfades at the stream end of its
-    // listed engine sounds). Session 18, a launcher toggle while it is tested.
+    // listed engine sounds). FM3's engine streams jump every packet or few, so every restart is crossfaded (Step).
+    // Session 18, a launcher toggle while it is tested.
     static constexpr size_t kLoopFadeFrames = 384;
     size_t LoopFade()
     {
@@ -662,7 +672,10 @@ struct Decoder
             flush = false;
         }
         if (!used || wasFlush)
-            firstHash = FullPacketHash(data); // a new stream (or pass) starts here
+            headCount = streamPackets = 0; // a new stream (or pass) starts here
+        if (headCount < kHeadPackets)
+            headHashes[headCount++] = FullPacketHash(data);
+        streamPackets++;
         used = true;
         const size_t pcmBefore = pcm.size();
         packetsDecoded++;
@@ -936,15 +949,23 @@ bool Step(uint32_t ctx)
                 contiguous = false; // nothing to say the frame it carries began in the packets before
             if (!contiguous)
             {
-                // The same sound again from its first packet: a loop (engine sounds). FM3_XMA_LOOP_CROSSFADE=1 (launcher
-                // "Engine loop crossfade", settings.ini engine_crossfade=1; live: Fm3 "env FM3_XMA_LOOP_CROSSFADE 1"):
-                // the end of the pass is kept and crossfaded into the restart (Decoder::LoopFade) instead of dropped.
+                // FM3_XMA_LOOP_CROSSFADE=1 (launcher "Engine sound crossfade", settings.ini engine_crossfade=1; live:
+                // Fm3 "env FM3_XMA_LOOP_CROSSFADE 1"): the end of what played is kept and crossfaded into the restart
+                // (Decoder::LoopFade) instead of dropped. Session 18 trace (FM3_TRACE_XMA_RESTARTS, held revs): FM3 feeds
+                // most engine streams one packet per input buffer and 36 of 41 restarts came after a single packet, none
+                // on one of the stream's first packets, so it is not FM2's replayed loop: every restart is crossfaded.
                 static LiveSwitch loopCrossfade("FM3_XMA_LOOP_CROSSFADE"), flushOnly("FM3_XMA_FLUSH_ONLY");
-                const bool loopRestart = loopCrossfade && !flushOnly && d.firstHash && FullPacketHash(thisPacket) == d.firstHash;
+                const uint64_t restartHash = FullPacketHash(thisPacket);
+                const int headIndex = d.HeadIndex(restartHash);
+                const bool loopRestart = loopCrossfade && !flushOnly;
+                // FM3_TRACE_XMA_RESTARTS=1 (live): each restart, and whether it is one of the stream's first packets.
+                static LiveSwitch traceRestarts("FM3_TRACE_XMA_RESTARTS");
+                static std::atomic<int> restartBudget{ 300 };
+                if (traceRestarts && restartBudget.fetch_sub(1) > 0)
+                    Log("xma: %08X restart: buffer %u packet %u of %u after %u packets of the stream (buffer %d packet %u); one of its first packets: %d%s",
+                        ctx, current, packet, packets, d.streamPackets, d.lastBuffer, d.lastPacket, headIndex, loopRestart ? " (crossfaded)" : "");
                 if (loopRestart && d.LoopFade())
                     g_loopFades++;
-                else if (!loopRestart)
-                    d.fadeTail.clear(); // (another sound: nothing of the old one to blend into it)
                 d.flush = true;
                 d.guardFlushes++, g_guardFlushes++;
                 // The title restarted the context with another sound. The console's decoder never runs further ahead than
@@ -1045,7 +1066,7 @@ void ReportStats()
         Log("xma: 5 s: %llu decoded samples dropped unplayed at stream restarts", (unsigned long long)(ad - aheadSeen)), aheadSeen = ad;
     static uint64_t fadesSeen = 0;
     if (const uint64_t lf = g_loopFades; lf != fadesSeen)
-        Log("xma: 5 s: %llu engine loop restarts crossfaded", (unsigned long long)(lf - fadesSeen)), fadesSeen = lf;
+        Log("xma: 5 s: %llu stream restarts crossfaded", (unsigned long long)(lf - fadesSeen)), fadesSeen = lf;
     errors = e, flushes = f, packets = p, reopens = r, waits = w, errorPkts = ep, dumps = dm, bufs = bc, rates = rc, offs = ow, kicks = kk, locks = lk, clears = cl;
 }
 
@@ -1120,7 +1141,7 @@ void XmaInit()
     // the live switch FM3_XMA_LOOP_CROSSFADE, unless that is set already.
     if (GetSettings().Extra("engine_crossfade") == "1" && !getenv("FM3_XMA_LOOP_CROSSFADE"))
         _putenv_s("FM3_XMA_LOOP_CROSSFADE", "1");
-    Log("xma: engine loop crossfade %s", getenv("FM3_XMA_LOOP_CROSSFADE") && strcmp(getenv("FM3_XMA_LOOP_CROSSFADE"), "0") ? "on" : "off");
+    Log("xma: engine sound crossfade %s", getenv("FM3_XMA_LOOP_CROSSFADE") && strcmp(getenv("FM3_XMA_LOOP_CROSSFADE"), "0") ? "on" : "off");
 }
 
 // A store to an APU register (PPCMmioStore32): value as the register takes it.

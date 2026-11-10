@@ -11,7 +11,7 @@ No game data is in this repository. You need your own disc dump.
 
 ## Status
 
-**"Playable."** The game boots, can run and finish the audi r8 race and do career races. Performance on my 9800X3D and 7900XTX at 1440p native with 4x MSAA currently hovers around 180-200fps in races when around ai cars and maxes out at around 300fps in time trial or if no ai cars are visible/near . Controller and keyboard work. Wheel support integrated from my FM4 fork but not yet tested. The random crash on some race loads (an AI driver with an empty name) has a workaround and hasn't come back; its cause is still being looked into. Vinyls cover nearly the whole car now, with small gaps at the edges of some cars. Disc 2 (the Content Install Disc: 6 car packs, 2 track packs) installs from its disc image and works in game. Optional: skip the intro, or start straight into a quick race. Always make regular backups. Running log and roadmap: [NOTES.md](NOTES.md);
+**"Playable."** The game boots, can run and finish the audi r8 race and do career races. Performance on my 9800X3D and 7900XTX at 1440p native with 4x MSAA currently hovers around 180-200fps in races when around ai cars and maxes out at around 300fps in time trial or if no ai cars are visible/near . Controller and keyboard work. Wheel support integrated from my FM4 fork but not yet tested. The random crash on some race loads (an AI driver with an empty name) has a workaround and hasn't come back; its cause is still being looked into. Vinyls cover nearly the whole car now, with small gaps at the edges of some cars. Disc 2 (the Content Install Disc: 6 car packs, 2 track packs) installs from its disc image and works in game; since session 18 the DLC packs' database patches are applied too (they never ran before: the game looks for them as loose files). Music now plays in menus and races. Optional: skip the intro, or start straight into a quick race. Always make regular backups. Running log and roadmap: [NOTES.md](NOTES.md);
 game-specific quirks: [FM3-QUIRKS.md](FM3-QUIRKS.md).
 
 Fixed so far (all confirmed in game):
@@ -28,9 +28,11 @@ Fixed so far (all confirmed in game):
 | Other cars' shade flickering on your car | FM3 clears the car's shade map through a 4x MSAA view; only depth clears were scaled | ReGPU patch `regpu-msaa-color-clear-scale` |
 | Sun glare far too big / no sun flare with the faster renderer | occlusion query answers (raw sample count, worker command lists) | ReGPU patches `regpu-worker-queries`, `regpu-zpd-scale`, `regpu-draw-thread-pieces` |
 | Low frame rate near other cars (~70 fps at 1440p 4x MSAA) | fence waits and a busy command processor | fence/draw-thread defaults in `src/gpu_host.cpp`, ReGPU patch `regpu-early-fence-writebacks` |
+| No music (or a few seconds, then none for the session) | the music streamer gave up waiting for a decoder; then our XMA seek guard reset the music decoder between packets | codec opened at once for that start loop, no seek guard for music (`src/audio/xma.cpp`) |
 
 Known issues and not yet checked:
-- Photo mode and the pre-race camera show a whitened band over the top third of the image (not seen while driving).
+- Photo mode and the pre-race camera show a whitened band over the top third of the image (not seen while driving); its edge is exactly one 4x MSAA EDRAM tile (row 256 of 720).
+- Engine sound at steady revs sweeps in tone ("AAAAEEEEOOOO"); being looked into. The launcher's experimental "Engine sound crossfade" made it worse in testing: leave it off.
 - Disc 2: tested with Fujimi Kaido and the Pagani Zonda R; its decals may look lower resolution than expected (not compared with console yet). Profiles and most tracks are untested. Career mode looks to be working but i haven't done much testing in this regard.
 - The game can hang when alt-tabbing out during a race.
 - Small vinyl gaps at the edges of some cars (Scion, Fiat, Supra rear bumper).
@@ -65,7 +67,8 @@ build\rel\fm3.exe <folder with the Disc 1 files>
 ```
 Saves and settings go to `Documents\fm3` (`FM3_USER_DIR` overrides it); the log is `fm3.log` in the
 working directory. `play.cmd` is the test launcher used during development: it uses `out\user` for
-saves, writes the log to `out\run`, and turns on ReGPU's debug server for `tools/fm3ctl.ps1`.
+saves, writes the log to `out\run`, skips the intro movie (`FM3_SKIP_INTRO=0` to see it), and turns on ReGPU's
+debug server for `tools/fm3ctl.ps1`.
 The first boot compiles shaders, so expect stutter until the cache is built.
 
 **Launcher** (`launcher/FM3Launcher`, ported from the FM4 ReGPU launcher; needs the .NET 9 SDK to build):
@@ -74,7 +77,7 @@ uses the same folders as `play.cmd`. Tabs: **Play** (game folder, `default.xex` 
 language, skip intro, start in a quick race, Play),
 **Profiles** (switch, create, duplicate, rename, back up, restore, export, import, delete), **Graphics**
 (resolution, aspect, fullscreen, frame cap, VSync, MSAA, FSR 1/3, anisotropy) and **Settings** (shader cache,
-folders, test timer, debug server, performance log). It edits `settings.ini` in the user folder and starts
+folders, test timer, debug server, performance log, and A/B toggles: draw workers, engine sound crossfade). It edits `settings.ini` in the user folder and starts
 `fm3.exe` from `out\run`. `FM3Launcher.exe --play` starts the game with the saved settings, without the window.
 
 **Disc 2:** on the launcher's Play tab, "Disc 2 content" > "Install from .iso…" (or "From folder…" for an
