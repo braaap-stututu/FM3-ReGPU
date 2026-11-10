@@ -169,6 +169,12 @@ Sources: upstream ReGPU (`reference/framework/ReGPU`: `main` = our pin; `engine-
    (`trackfardistance` = `82C2259C`: not read at boot or in menus, so read at track load or in the race).
 6. **Car LOD code leads:** `sub_827B4008` forms `StartLOD`/`EndLOD`/`HasLOD0`/`NumLODs` (car model description),
    `sub_82813530`/`sub_82297D38` form `_LOD0` (file names), `CCarPresentationDeferred` load/unload LOD0 (RTTI strings).
+**First results (session 19, user's race, 8 cars, paused grid with the pause menu, 1440p 4x MSAA, vertex arena on):**
+- `keepLOD0Car` works in retail (read by `sub_8223BEA8` through the options getter, stored at options +1146): the
+  Eclipse '03 beside the player shows its full model (rounder trunk, tail light and plate shapes), the stock run a lower
+  LOD for that adjacent car. Cost: 3,611 -> 3,634 draws (+0.6%), 206.0 -> 203.3 fps (-1.3%), 7 samples each.
+  Shots `out/shots/s19_lod_keep0.png` / `s19_lod_stock.png`, crops `s19_crop_*.png`. A candidate player option.
+- `trackfardistance` (+2364) is never read in retail (watchpoint over a whole race load and grid): dead option.
 **Suggested order:** (a) a race with `cmdline=keepLOD0Car` (AI cars stay detailed? draws in `Fm3 "status"`); (b) a race
 with `trackfardistance` watched, then set; (c) a lodsettings mod (crowd x2, sprite x2) on one track against stock, same
 spot, shots + draws; (d) the dev overlays (`showframerate`, `PVSOverlay`) in case retail kept them.

@@ -43,7 +43,10 @@ shared its 4-page report; its code is not public, so every piece here is our own
   (`out/user/mods/<mod>/game/<path>`), `tools/analysis/lodsettings.py` (per-track LOD fields; makes scaled TrackSettings
   mods), `tools/analysis/xref.py` (string/address users, the 270 developer options with their offsets, their readers),
   the existing `FM3_WATCHW`/`FM3_WATCHRW` watchpoint (validated on `launch`). Found: dev options `keepLOD0Car`,
-  `trackfardistance`, `perfmode`/`fast*render`, `nogpuvisibility`, `nopvs`, overlays; none tested in a race yet.
+  `trackfardistance`, `perfmode`/`fast*render`, `nogpuvisibility`, `nopvs`, overlays.
+  **Tested in a race:** `keepLOD0Car` works (the adjacent AI car gets its full model; +0.6% draws, -1.3% fps
+  on the paused grid): a candidate launcher option. `trackfardistance` is never read (dead). Next: a
+  lodsettings mod (crowd/grass/cubemap), `perfmode` and the overlays (OPEN-ISSUES L).
 - **Other ReGPU speed work found in other branches** (survey, RESEARCH.md "ReGPU speed work in other projects"): the
   biggest is FM2's vertex arena (large vertex buffers in VRAM, recopied on guest writes; FM3 reads them over PCIe).
 
