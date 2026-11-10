@@ -39,6 +39,11 @@ shared its 4-page report; its code is not public, so every piece here is our own
   title screen. **Not yet measured in a race:** live A/B `Fm3 "switch REGPU_NO_VERTEX_ARENA 1"` (from the next frame)
   on a paused grid; watch for stale geometry (tyre marks, damage) with `Fm3 "switch REGPU_VERTEX_VERIFY 1"` (logs
   `changed with no write seen`). Off: settings.ini `vertex_arena=0` or `FM3_NO_VERTEX_ARENA=1`.
+- **LOD research toolkit (end of session 19, OPEN-ISSUES L "Research toolkit"):** loose-file mods
+  (`out/user/mods/<mod>/game/<path>`), `tools/analysis/lodsettings.py` (per-track LOD fields; makes scaled TrackSettings
+  mods), `tools/analysis/xref.py` (string/address users, the 270 developer options with their offsets, their readers),
+  the existing `FM3_WATCHW`/`FM3_WATCHRW` watchpoint (validated on `launch`). Found: dev options `keepLOD0Car`,
+  `trackfardistance`, `perfmode`/`fast*render`, `nogpuvisibility`, `nopvs`, overlays; none tested in a race yet.
 - **Other ReGPU speed work found in other branches** (survey, RESEARCH.md "ReGPU speed work in other projects"): the
   biggest is FM2's vertex arena (large vertex buffers in VRAM, recopied on guest writes; FM3 reads them over PCIe).
 
@@ -460,6 +465,13 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-10 — session 19, part 3 (LOD research toolkit)
+- User asked for a way to research FM3's LOD levels first. Built and boot-tested: loose-file mods in `imports_io.cpp`
+  (a no-op mod of all TrackSettings loaded for the menu's UIWhite/UITrack scenes, then removed), `lodsettings.py`
+  (list/mod/fields), `xref.py` (strings/refs/func/floats/options/readers; `readers launch` reproduces session 17's 8
+  readers), watchpoint check on `launch` (3 reads in `sub_8225CDE0` at boot) and `trackfardistance` (none at boot/menus).
+- Research plan and every lead: OPEN-ISSUES L.
+
 ### 2026-11-10 — session 19, part 2 (vertex arena from FM2, on by default)
 - Ported FM2's vertex arena (commits a6edeb7..f893212 read for the design): ReGPU patch `regpu-vertex-arena` + `Host::watchArm/
   watchClean/watchSeq`; FM3 `src/memory.cpp` write watch (FM2's, MIT), `GuestWillWrite` before NtReadFile's ReadFile.

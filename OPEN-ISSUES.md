@@ -143,6 +143,35 @@ Sources: upstream ReGPU (`reference/framework/ReGPU`: `main` = our pin; `engine-
 **Seen:** while testing the frame-rate unlock you noticed animated spectators swapping detail levels (LOD popping) near the track; it is the same with `REGPU_NO_FENCE_ORDER` on or off, so it's the game's own LOD, not a ReGPU bug. At 1440p and above the console's LOD distances (tuned for 720p) are more visible. Idea: push LOD/draw distances out (an option, like FH1R's "World detail beyond the console", #361), now that there is CPU/GPU headroom.
 **What FM3 has (strings in `out/fm3.bin`):** `SpriteDistance` (crowd sprites; in FH1 `TrackSettings <Crowds lod0-3 SpriteDistance>`), `AnimLODValue`, `GrassLODDist`/`GrassLODFadeRange`, `MipMapLodBiasModifier`/`MipMapLodBias`/`LODBias`, `StartLOD`/`EndLOD`/`NumLODs`/`LODCount`/`LODType`/`LODError`, `Lod1EventGroup`/`Lod2EventGroup`, car models `LOD0`..`LOD2` (`HasLOD0`, `CCarBodyModelLOD0`, `CCarPresentationDeferred` load/unload LOD0). **Not** present: FH1's `CarLODTransDist`/`LODdist_*`, `CarLODThresholds`, `CrowdLODCountScales`, `CrowdSpriteDistScale` — FM3's car/crowd LOD selection is set up differently (find it from the strings above: which function reads `SpriteDistance`/`AnimLODValue`, and where car LOD0 is loaded/unloaded).
 **First steps:** (1) find where the crowd's LOD/sprite distance is read (track settings XML in the game data, e.g. `SpriteDistance` per track) and whether it's a value we can scale by hook or data; (2) the car LOD selection (distance thresholds, the "only the N nearest cars get LOD0" rule FH1 has); (3) texture LOD bias (`MipMapLodBiasModifier`, FH1 +1404 in its render settings). Measure the cost (draws/frame) since frame rate near cars is draw-bound (issue P).
+**Research toolkit (session 19, all tested at boot/menus):**
+1. **Per-track data:** `Media/Tracks/<track>/TrackSettings.xml` (loose files, parsed by `sub_8283CE78`): `Crowds lod0-3`
+   + `SpriteDistance`, `Performance CrowdSize/DynamicCubemap/NonFocusCarProjectedShadows`, `GrassLODDist/FadeRange`,
+   `GrassMin/MaxNumShells`, `Cubemap MeshSizeThreshold/MeshLimit/FacesPerFrame/FarDistance/VisibilityThreshold`,
+   `Mirror VisibilityThreshold`, `MipMapLodBiasModifier`, `ShadowEnds InGameShadowEnd`.
+   `python -I tools/analysis/lodsettings.py list` tabulates them per track (the crowd `lod0-3` values are not monotonic,
+   e.g. Le Mans 0/0/50/0: maybe counts or shares per level, not distances: to find out).
+2. **Loose-file mods:** `out/user/mods/<mod>/game/<path>` replaces that disc file when the game opens it
+   (`src/kernel/imports_io.cpp`, log `mods: ...`; `_name` folders skipped; `FM3_NO_OVERLAY=1` off). Make one with
+   `python -I tools/analysis/lodsettings.py mod <name> crowd=x2 sprite=x2 grass=x2 cubefar=x2 ...` (`fields` lists the
+   names; values `x2`, `+0.5`, `=100`; `--tracks A,B`). A track's file is read when it loads: restart the race to test.
+3. **Developer options** (Turn 10's command line, `FM3_CMDLINE` / settings.ini `cmdline=`): `keepLOD0Car` (pre-game
+   handler `sub_8225E5F0`), `trackfardistance=<f>` (+2364), `perfmode` (+2388, sets the ten `fast*` flags +2389..2398
+   and a far distance), `fastcarrender`, `fasttrackrender`, `fastcrowdrender`, `fastgrassrender`, ..., `nogpuvisibility`
+   (+1148), `nopvs` (+1522), `preloadallmeshes` (+1151), `showallcars` (+2472), `drawcrowd` (+2400, read by
+   `sub_822E18F0`), overlays `showframerate`, `metrics`/`cpumetrics`/`gpumetrics`, `PVSOverlay`/`EnablePVSMetrics`.
+   Whether retail still acts on each is unknown (`launch` doesn't). Full map:
+   `python -I tools/analysis/xref.py options [filter]` (name -> offset in the options object `0x82C21C60` -> parser).
+4. **Who reads what:** `python -I tools/analysis/xref.py refs <string|0xaddr>` (functions forming that address),
+   `func sub_X` (strings, float constants and calls of a function), `readers <option>` (loads through the options getter:
+   finds `launch`'s 8 readers; most fields are read another way, so use 5).
+5. **Runtime watch:** `FM3_WATCHW=<guest addr>` + `FM3_WATCHRW=1` (env before `play.cmd`) logs every read/write with the
+   guest call stack (`watchpoint: ... __imp__sub_X+off`). An option's address is `0x82C21C60 + offset`
+   (`trackfardistance` = `82C2259C`: not read at boot or in menus, so read at track load or in the race).
+6. **Car LOD code leads:** `sub_827B4008` forms `StartLOD`/`EndLOD`/`HasLOD0`/`NumLODs` (car model description),
+   `sub_82813530`/`sub_82297D38` form `_LOD0` (file names), `CCarPresentationDeferred` load/unload LOD0 (RTTI strings).
+**Suggested order:** (a) a race with `cmdline=keepLOD0Car` (AI cars stay detailed? draws in `Fm3 "status"`); (b) a race
+with `trackfardistance` watched, then set; (c) a lodsettings mod (crowd x2, sprite x2) on one track against stock, same
+spot, shots + draws; (d) the dev overlays (`showframerate`, `PVSOverlay`) in case retail kept them.
 **Reference:** FH1R `docs/graphics-detail.md` (World detail beyond the console, #361: texture LOD bias, model LOD/zone switches, grass, crowd LOD, car detail with `sub_8248CBD0`/`sub_824351D8`/`sub_8247C5C8`/`sub_82477368` in FH1 — FM4 engine; GPL-3, ideas only), `reference/sibling-recomps/ForzaHorizon1-ReImagined/docs/render-tests.md`.
 
 ## Sibling-port check (2026-11-09)

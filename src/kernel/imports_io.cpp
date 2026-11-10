@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <atomic>
 #include <filesystem>
+#include <mutex>
+#include <set>
 #include <unordered_map>
+#include <vector>
 
 #include <windows.h>
 
@@ -218,6 +221,33 @@ bool VfsResolve(std::string guest, fs::path& host, bool* readOnly)
         std::string zip = Lower(rest);
         std::replace(zip.begin(), zip.end(), '\\', '/');
         host = ZipOverlay(zip, host);
+    }
+    // Loose files of the disc replaced by mods (session 19, for LOD research: Media\Tracks\<track>\TrackSettings.xml):
+    // <user>\mods\<mod>\game\<path> opens instead of game:\<path>; mods in name order, the last one wins, a folder
+    // starting with '_' or '.' is skipped (as the zip overlay's). FM3_NO_OVERLAY=1: the disc's files.
+    else if (ro && root == GameDir() && !rest.empty() && !getenv("FM3_NO_OVERLAY"))
+    {
+        std::error_code ec;
+        const fs::path mods = UserDir() / "mods";
+        if (fs::is_directory(mods, ec))
+        {
+            std::vector<fs::path> dirs;
+            for (const auto& d : fs::directory_iterator(mods, ec))
+                if (d.is_directory(ec) && d.path().filename().string().find_first_of("_.") != 0)
+                    dirs.push_back(d.path());
+            std::sort(dirs.begin(), dirs.end());
+            for (const fs::path& d : dirs)
+                if (const fs::path candidate = d / "game" / fs::path(rest); fs::is_regular_file(candidate, ec))
+                    host = candidate;
+            if (host.native().rfind((UserDir() / "mods").native(), 0) == 0)
+            {
+                static std::mutex m;
+                static std::set<std::string> logged;
+                std::lock_guard lock(m);
+                if (logged.insert(host.string()).second)
+                    Log("mods: %s from %s", guest.c_str(), host.string().c_str());
+            }
+        }
     }
     if (readOnly)
         *readOnly = ro;
