@@ -10,7 +10,8 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Half-rate shading (VRS)](#half-rate-shading-variable-rate-shading-for-weak-gpus-and-igpus-session-21-2026-11-10) | Feasible without shader changes (tier 1 per draw, live A/B); scene draws only, never liveries/pictures/HUD/alpha-tested; no VRS on Vega APUs, Polaris, RDNA1, Pascal, old Intel; render scale + FSR stays the bigger iGPU lever; measure the pixel-shader share first |
 | [Telemetry to SimHub](#telemetry-out-to-simhub-forza-data-out-udp-session-21-2026-11-10) | Send FM7's 311-byte Forza "Data Out" Dash packet over UDP; SimHub's Forza profile reads it; needs FM3's car-physics object (the telemetry pages' getters are the shortcut) |
 | [Benchmark tools](#benchmark-tools-the-players-car-driven-by-the-games-ai-and-a-frozen-grid-session-21-2026-11-10) | Frozen world while rendering: dt 0 in `frame_time.cpp` (small, our code). AI on the player car: FH1R's native-AI takeover (opponent factory + releasing the human override). AI throttle/brake/clutch: one float controls block per car in FH1 (+3904), very likely in FM3 too; same RE as telemetry |
-| [FH1R latest + Sonic Unleashed](#fh1-reimagineds-latest-performance-work-and-sonic-unleashed-recompiled-session-22-2026-11-10) (session 22) | FH1R: CP on two threads (+13%/≥6 cores, −11% on 4), only changed register writes recorded, descriptor reuse −7%/draw, **GPU time by work kind: RT transfers were 37% of the GPU frame**; their ReGPU plugin uses `REGPU_ANISO_FROM_FETCH` (never tried on FM3), tile merge 0 gain, PGO +6%. Upstream ReGPU: 15 commits past our pin (vertex reach, view submit, one-copy queries). Unleashed: hardware MSAA resolve, pipelines built at asset load, `non_volatile_as_local` |
+| [FH1R latest + Sonic Unleashed](#fh1-reimagineds-latest-performance-work-and-sonic-unleashed-recompiled-session-22-2026-11-10) (session 22) | FH1R: CP on two threads (+13%/≥6 cores, −11% on 4), only changed register writes recorded, descriptor reuse −7%/draw, **GPU time by work kind: RT transfers were 37% of the GPU frame**; their ReGPU plugin uses `REGPU_ANISO_FROM_FETCH` (never tried on FM3), tile merge 0 gain, PGO +6%. Upstream ReGPU: 15 commits past our pin (vertex reach, view submit, one-copy queries). Unleashed: hardware MSAA resolve, pipelines built at asset load (`non_volatile_as_local` later measured as a loss by Pinyon Shift) |
+| [Pinyon Shift](#pinyon-shift-fh1-recomp-performance-leads-session-22-2026-11-10) (session 22) | GPU: fetch state as shader variants (our `TFetch` branches on gamma/exp/swizzle per fetch; ~5% there), per-shader price list first, per-hash 0×Inf rule with a NaN scrub (car paint is the risky one), depth-alias copies −1.1 ms, specialised resolves. CPU: inline register save/restore, fewer MXCSR toggles, `SetPWLGamma` every frame (30% of FH1's render thread); **`non_volatile_as_local` 20–27% slower**. Stutter: wait for pipelines at submit, long-frame sampler, slow SQLite views after a race |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -430,7 +431,8 @@ for ReGPU (a PM4 emulator), but four ideas carry over:
    the registers they name as arguments, so the rest can live in host registers. For FM3: turn on
    `non_volatile_as_local` (r14–r31, the most used) after checking which hooks and the thread sampler/caller
    walk (`FM3_SAMPLE_CALLERS`) read r14–r31 or LR from the context, and moving those to mid-asm hooks. CPU only
-   (guest code: render thread t7, main loop); the user's PC is GPU-bound. PERF-PLAN L25. Build A/B.
+   (guest code: render thread t7, main loop); the user's PC is GPU-bound. **Dropped: Pinyon Shift measured
+   `non_volatile_as_local` 20–27% slower (section below); PERF-PLAN L25 dropped.**
 Also seen and already ours: GPU upload heap (ReBAR) for buffers (our pin uses `D3D12_HEAP_TYPE_GPU_UPLOAD`), dirty
 state tracking per draw, alpha test as a shader specialisation (our `regpu-split-alpha-test`).
 
@@ -441,8 +443,117 @@ state tracking per draw, alpha test as a shader specialisation (our `regpu-split
 2. **`REGPU_ANISO_FROM_FETCH` A/B** (I8): one start-time switch, GPU-bound; check distant road and kerbs with pngdiff.
 3. **Rebase on upstream ReGPU** (vertex reach, view submit, one-copy queries, texture budget, live MSAA/fullscreen).
 4. CPU side for other machines: elide unchanged register writes on the CP → draw-thread handoff, coherency waits from
-   the shadow, descriptor reuse (constants first), `non_volatile_as_local`, PGO.
+   the shadow, descriptor reuse (constants first), PGO (not `non_volatile_as_local`: a loss in Pinyon Shift).
 5. Stutter: pipelines built at asset load (Unleashed), with L16.
+
+## Pinyon Shift (FH1 recomp): performance leads (session 22, 2026-11-10)
+Read only. `arcanite24/pinyon-shift` (`620e7c4`, release 0.8.2, 2026-11-07; BSD-3, so code may be adapted with its
+notice), on ShiftGlue (`arcanite24/shiftglue-sdk`, its own ReXGlue/Xenia Vulkan fork, not ReGPU). FH1R took its split
+command processor from here. Sources are its `docs/` (PERFORMANCE_BACKLOG, NEAR_NATIVE_RESEARCH, NEXT_LEVEL_RESEARCH,
+RECOMP_OPTIMIZATION_SURVEY, LOW_SPEC_BACKLOG, AOT_PIPELINE_BACKLOG, ANDROID_ODIN_BACKLOG, DESKTOP_RENDERER_BACKLOG,
+DEPTH_ALIAS_RESEARCH, MODERN_RENDERING_RESEARCH) with the commits named. **On desktop their GPU was never the limit**
+(RTX 4080: SMs 20% busy, DESKTOP_RENDERER DR-0.1), so their GPU-side numbers come from GPU-bound Android/Deck/UHD 620
+runs, which is the case that matches our 7900 XTX at 1440p 4x.
+
+### GPU side (for the user's PC), checked against our pin
+1. **Fetch state as shader variants** (ShiftGlue `efcbb82`, texture signedness as a specialisation constant; Odin 1x
+   45.8 → 43.8 ms, ~5%, byte-identical; PB-1.8(a) lists the same kind of per-fetch waste). **Applies to ReGPU:** our
+   `TFetch` (`hlsl.cpp` ~258) reads `tinfo` at run time on every fetch and branches on gamma-signed components, the
+   exponent adjust and the swizzle; `TFetchRaw` switches on dimension and clamp/mirror modes. Variants keyed on the
+   bound fetch constants' bits (as `regpu-split-alpha-test` keys on the alpha test) would turn those into constants.
+   Car materials average ~4 fetches. Lossless. Start-time (shader cache key). Medium. PERF-PLAN L30.
+2. **Per-shader price list before optimising** (Pinyon: flat pixel shaders, per-shader timestamps, knock-out by hash;
+   each shader also has a "flat bound" of 0.27–0.66 ms that no edit removes: fetch and output bandwidth). Ours:
+   `REGPU_GPU_SHADERS` + `gpudiff.py`, plus `Fm3 "ps <hash> float4(0,0,0,1)"` per AI-car material on the paused grid
+   gives each one's ceiling. Do it before I3/L30/L5.
+3. **The 0×Inf = 0 rule per shader, with one NaN scrub per output** (`b780677`): −0.02 to −0.09 ms per hot shader,
+   byte-identical; globally "fast pixel math" was −10% on an Adreno 740 and noise on desktop. **Risk they hit:** pure
+   IEEE everywhere smeared motion blur through a NaN (#403, `2b10c4a`), and PB-1.8 names HDR **paint and glass** as the
+   0×Inf-sensitive shaders: that is our car material. Our I3 (`REGPU_PLAIN_MUL_PS`, global) should become per-hash
+   with a final `isnan → 0` on each output, and be checked by pixel diff on the car paint shaders first.
+4. **Depth alias copies and stencil transfers.** Pinyon: sharing one depth image between a 1x view and its 4x alias
+   (draws that don't care which they use render into the 1x one) cut alias transfers 5 → 2 a frame, −1.09 ms on the
+   4080 at 3x/4x (DEPTH_ALIAS_RESEARCH R01); depth+stencil in one pass with stencil export instead of 8 bit passes:
+   35 → 28 ms on a Snapdragon (`3ee6536`). FH1R saw the same class of cost (30–37% of its GPU frame). For FM3: count
+   ReGPU's EDRAM ownership copies per frame (the two tiles, the sun/occlusion passes): PERF-PLAN L26 measures it.
+5. **Specialised resolve pipelines** (`38d55bc`/`3d69b06`: one pipeline per format/sample count instead of a generic
+   shader with switches; Turnip resolves 4.83 → 3.59 ms, 4080 at 2x −0.4 ms, byte-identical). Ours: one `psColor`
+   with run-time `scale/clamp/gamma/swapRB` branches averaging 4 `Load`s. Goes with L24 (hardware resolve).
+6. **Reflection cube redrawn less often** (`21dc1b1`, FH1's `EnvMapFrequencyScale` 0.25: Odin 25.4 → 23.2 ms, "looks the
+   same"; 0 left reflections dark) and reloading only changed cube faces (0.20 → 0.04 ms, lossless). FM3 has the car
+   reflection cubes (session 9 showroom work): find the game's update rate (OPEN-ISSUES L tools, `xref.py options`).
+   Visible in principle. PERF-PLAN V8.
+7. **Barrier census:** on Turnip ~14.6 ms a frame was in no labelled span (drains between ~300 barrier batches);
+   resolves writing textures directly took that to ~200. ReGPU already counts barriers (`REGPU_TRACE_BARRIERS`):
+   log batches per frame on the grid next to L26.
+**Checked, not applicable:** our pin has no per-sample shading (`SV_SampleIndex`/`sample` interpolation absent;
+`SV_Depth` only for shaders that export depth, the depth-restore copies), no geometry shaders (quads are expanded by
+index, which they measured as the fast way), no `SampleGrad` (implicit LOD already).
+**Measured losses there (don't repeat):** skipping no-op draws (FH1 120 a frame: noise), HDR targets as B10G11R11
+("shader-bound, not bandwidth": 0; bears on V3), RelaxedPrecision/spirv-opt/no robustness, shadows every other frame
+(trail visibly), 4x → 2x + FXAA (fails their 40 dB picture floor), render scale below 1x on a fast GPU (0%).
+
+### CPU side (other machines; FM3 is GPU-bound on the user's PC)
+1. **Per-thread profile, then small game hooks** (their cheapest big wins): FH1 called D3D `SetPWLGamma` every frame
+   with an unchanged ramp, ~30% of its render thread (`ffe6407`, skipped when unchanged); an empty array-free loop was a
+   fifth of a streaming worker (`8d9030b`, mid-asm hook); their own hooks' `VirtualQuery` per pointer 6% → 1.1% with a
+   page cache (`a722b98`). FM3 uses the same Xbox D3D library: check whether t7 calls `SetPWLGamma`/`SetGammaRamp`
+   every frame (session 20 profile: ~33% of t7 is game work) and audit `src/hooks` for per-call `VirtualQuery`.
+2. **Register save/restore inline** (NEAR_NATIVE NN-1.2): `__savegprlr_N`/`__restgprlr_N` were ~31% of all guest
+   calls; copying between `ctx` and locals instead (22,060 of 22,968 functions; helper kept where the slots can be
+   read) gave sim −4 to −6% instructions, render −7% per draw, `.text` +2.2%. A XenonRecomp `recompiler.cpp` patch
+   (we carry 5). Medium.
+3. **Fewer flush-mode (MXCSR) toggles** (ShiftGlue `99b7966`: carry the known mode across labels, −29% toggles, audio
+   −6%; NN-1.1: threads that never change FPSCR skip the checks, ~−3% CPU). XenonRecomp emits
+   `enable/disableFlushMode` per FP/VMX class change: same change. Small–medium.
+4. **`non_volatile_as_local` measured as a loss** (NL-1.4: every correct variant 20–27% slower, `.text` 55.6 → 92.3 MB;
+   the first crashed because functions read a caller's registers through `ctx`). This **overrides the Unleashed
+   lead above** (PERF-PLAN L25 dropped). Also lost: CR locals synced at every call, plain (non-volatile) stack
+   accesses (108–110 vs 117–119 fps), ThinLTO (neutral), devirtualisation (0.3–0.7%), MMCSS "Games" + 1 ms timer
+   (worse), PGO on their GPU plugin (0; on the game −0.7% after a retest; FH1R's ReGPU PGO measured +6%).
+5. **Waits:** the fence-predicate hook (spin 20 µs, then block on a "GPU wrote" signal, capped at 1 ms so the game's
+   own timeout logic runs) cut process CPU 186 → 159 s with **frame time unchanged**; spin length made no difference.
+   Windows `Sleep`/`SleepEx` below 1 ms rounds to a yield: use `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` (`fc39661`).
+   Sleeping waits won at ≤60 fps and **lost 2.4–4.5 fps at 120 fps** to a yield (LOW_SPEC LS-2.2): gate L11 by frame
+   rate (our cap is 360).
+6. **Frame pacing** with the sim at every other vblank (our `mainthread30fps` scheme): late swaps flipped at once when
+   two guest vblanks passed (`64983a2`, p95 13.07 → 10.48 ms); vblank on a self-calibrating high-resolution timer
+   (`90be82c`, lateness ~600 → 43 µs); hold the vblank while the main loop is two steps ahead (`ee41d07`, frames with
+   exactly one step 87 → 98.6% at 120 fps). Check `src/hooks/frame_time.cpp`: log steps per swap. PERF-PLAN L31.
+7. **Guest-native replacements with a verify mode** (`7c7d469`/`f8566cf`: strong `sub_X` overrides the weak one after
+   a code-hash check; verify runs the original every Nth call and compares). CRT `pow` 2.2x, LZX 1.8–2.2x: load time
+   only. Fits XenonRecomp's weak symbols; only if a profile shows a hot leaf.
+
+### Stutter and low-spec
+1. **Wait for missing pipelines at submit, not per draw** (`52b6374`: a cold drive's worst frame 305–416 → 145–166 ms,
+   frames over 100 ms 6–7 → 2; warm unchanged): a frame's new pipelines build in parallel. Check whether ReGPU's draw
+   thread blocks per draw (`GetPipeline` wait). PERF-PLAN L32.
+2. **Hitch sampler that fires only on long frames** (`b6fd36f`: samples the title and named host threads every 1 ms once
+   a frame passes N ms; named all three causes of a 28-minute session). Make `FM3_SAMPLE_THREAD` frame-time triggered.
+   Small; do it first for any stutter work. PERF-PLAN L33.
+3. **The game's SQLite as a hitch** (`622461e`: one view after each race took 158–186 ms; four indexes and the view
+   rewritten with plain joins, same rows: 49–55 ms). FM3 runs on `gamedb.slt` too (session 15, crash C1 work): profile
+   post-race and menu frames with item 2.
+4. **Pipeline list as "pairs × states seen together"**, built on workers behind the title screen, with the driver cache
+   loaded before the first creations (`cdde20b`); starting play before it's done was rejected (first-race stutter
+   back). Even with every pipeline stored, world entry and race load still had spikes (NL-3.6). Extends our manifest.
+5. **Runtime locks and per-use allocations** (Odin): file lookups under the global lock (up to 39 ms), a buffer made
+   and freed per readback, textures in 64 MB blocks as they appear (5–20 ms each), a pipeline-cache save holding the
+   command thread 30–40 ms every 30 s (`4d59c26`), a readback waiting for the whole queue (`a747943`). Audit ReGPU's
+   cache saves and `imports_io` (mods overlay) the same way.
+6. **Low-spec defaults and a laptop warning:** iGPU, under 6 GB VRAM or under 6 threads → MSAA off, 60 cap (LS-1.5).
+   A GeForce 930MX rendering for an Intel-driven display stalled 550–700 ms every 6–8 frames, and the UHD 620 alone ran
+   better (12.5 vs 6.8 fps): "always the dGPU" (L15) can be wrong for weak dGPUs. Losses: crowd, grass, traffic and
+   post-effect cuts saved nothing measurable.
+7. **Memory:** render surfaces sized to the rows actually used: at 3x 2,388 → 635 MB (NL-3.5). Texture budget rarely
+   bound. At 1440p 4x our render targets probably dominate VRAM: measure by category before L17.
+
+### Method worth copying (their benchmark)
+An in-run A/B that flips the setting every 180–300 frames on a scripted route and scores disjoint A-B-A blocks with a
+t-interval (adjacent pairs understated the error ~1.45x); frames banded by draw count; p95/p99/worst/over-25/50/100 ms
+reported, slow frames never filtered; warm-cache runs count "draws that waited for a pipeline" instead of fps; every
+run saved as JSON with commit, machine and effective settings. Our `tools/fm3_ab.ps1` does interleaved rounds: adding
+the block t-interval and the tail metrics is cheap.
 
 ## ReGPU speed work in other projects (session 19, 2026-11-10)
 Survey of every branch of the reference clones (framework/ReGPU, ReGPU-fh1, FM2, PGR4, FM4, FH1R), read only. Our pin

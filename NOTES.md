@@ -598,6 +598,10 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - Sonic Unleashed Recompiled: hardware MSAA resolve, pipelines built at asset load behind the loading screen,
   all XenonRecomp register options on with mid-asm hooks (FM3 keeps `non_volatile_as_local` off).
 - Suggested next on the user's PC: L26 (GPU time by kind on the race grid), then I8 (`REGPU_ANISO_FROM_FETCH` A/B).
+- Pinyon Shift (FH1, ShiftGlue; RESEARCH.md section): fetch-state shader variants (L30: our `TFetch` branches per fetch),
+  per-hash 0×Inf rule (I3 note), depth-alias copies, reflection cube rate (V8), inline register save/restore + fewer
+  MXCSR toggles (L25 rewritten: **`non_volatile_as_local` measured 20–27% slower there, so not that**), pacing (L31),
+  pipelines waited at submit (L32), long-frame sampler + `SetPWLGamma`/SQLite hitches (L33).
 
 ### 2026-11-10 — session 21 (cloud: PERF-PLAN.md, installer study, AI-driver benchmark / frozen grid study)
 - PERF-PLAN.md: every unbuilt/unmeasured performance item by picture effect, target machine, live/start-time A/B.
