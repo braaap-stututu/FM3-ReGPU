@@ -47,7 +47,18 @@
   mirror pass 148 -> 129 draws, mirror image 0.2% of pixels different. **User drive 3 with it on (video 22.15,
   log `out/logs/session26-drive-mirror2000.log`, same cockpit straight):** 8 aligned 2.6 s windows: draws 2,943 ->
   2,864 (-2.7%), fps 214 -> 221 (+3.5%), higher in every window (lines not identical). Mod left enabled
-  (`out/user/mods/mirror2000`, CrownJewel + Catalunya). Next: the user's view of the mirror, then a stronger value.
+  (`out/user/mods/mirror2000`, CrownJewel + Catalunya). User: the mirror's draw distance is already short, so no
+  stronger threshold; mod switched off again (`_mirror2000`).
+- **Half-rate mirror built (opt-in): `src/hooks/mirror.cpp`, settings.ini `mirror_rate=N` (launcher Testing
+  "Half-rate mirror" = 2), live `FM3_MIRROR_RATE`.** The mirror's scene render is `sub_827FDB88` (found by a t7
+  profile with call stacks, chase vs cockpit: `sub_821FC878 -> sub_82839A78 -> sub_827FDB88 -> sub_8283A220`; once a
+  frame, cockpit only; skipping it removes the mirror pass). The mirror keeps its last picture when skipped (0 pixels
+  on the frozen grid), so every Nth frame shows the previous picture in between. Grid cockpit, live: rate 2 +1.9%
+  (5/5) and +5.1% (3/4, noisier run); never +4.7%. The mirror pass: 384x128 target (2x MSAA in the game), ~147 opaque
+  world draws with the main view's shaders: nothing cheap to drop by kind. Dead end: `sub_8270C3B0` ("RenderMirror"
+  effect method) runs in every view, 0 pixels when skipped. Set `mirror_rate=2` for the user's next drive.
+  Side note: the cockpit capture's main pass ran on `14000500` (1x, depth 2D0) with one tile on: check whether the
+  cockpit view uses another tiling scenario.
 - Then from PERF-PLAN "Next up": L37 rect clears as real clears, L39/L40/L14, the rest.
 
 ### ▶ Start here (session 26): state at the end of session 25 (2026-11-11)

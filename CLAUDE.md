@@ -48,6 +48,7 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 | `src/hooks/frame_time.cpp` | Frame-rate unlock: vblank hook (sets `mainthread30fps` for divider 2), main-loop dt from the vblank clock at rates other than 60 (FH1R scheme, own code) |
 | `src/hooks/boot_options.cpp` | Intro skip (wraps the boot sequencer's setter `sub_822BD7B8`), the developer command line (`FM3_CMDLINE`), `FM3_DUMP_THREADS` live thread dumps |
 | `src/hooks/one_tile.cpp` | One guest tile (session 26, L36, opt-in `one_tile=1`): FM3's tiling scenarios (`0x82BF60D0`) set to one 720-row tile after the renderer set-up; ReGPU merges the prerecorded per-tile window fixups (`REGPU_WINDOW_FIXUP_UNION`) |
+| `src/hooks/mirror.cpp` | Half-rate rear-view mirror (session 26, opt-in `mirror_rate=N`, live `FM3_MIRROR_RATE`): the mirror scene render `sub_827FDB88` runs every Nth frame; the mirror keeps its last picture in between |
 | `src/hooks/ring_wait.cpp` | D3D ring/fence wait sleeps ~100 us instead of spinning (`FM3_RING_WAIT`, default 2 since session 23: -17-19% CPU, same fps) |
 | `PERF-RESULTS.md` | Session 23's measured results for every testable performance lead (summary at the top), pictures in `out/perf/s23/` |
 | `tools/rga_shaders.ps1` | Offline RDNA3 statistics of translated pixel shaders (VGPRs, code size, samples, branches) with Radeon GPU Analyzer (outside the repo: `G:/claude code projects/tools/rga-2.15`); root signature from `REGPU_DUMP_ROOTSIG=<file>` (session 24, L6) |

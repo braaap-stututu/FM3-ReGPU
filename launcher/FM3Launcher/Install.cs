@@ -74,6 +74,7 @@ public sealed class GameSettings
     public bool Timer { get; set; } = true;        // the test timer, top left (off: FM3_NO_TIMER)
     public bool PerfLog { get; set; }              // REGPU_PERF: frame timings in fm3.log
     public bool DrawWorkers { get; set; }          // FM3_DRAW_THREAD_PIECES: draw workers on the draw thread (A/B; off = faster at 720p)
+    public bool HalfRateMirror { get; set; } = false; // mirror_rate=2: the rear-view mirror rendered every second frame (src/hooks/mirror.cpp)
     public bool OneTile { get; set; } = false; // one_tile: L36, the race scene drawn as one guest tile (src/hooks/one_tile.cpp; read by the game, so play.cmd too)
     public bool AsyncPresent { get; set; } = true; // async_present: L12, the frame ends on ReGPU's replay thread (src/gpu_host.cpp; read by the game, so play.cmd too)
     public bool EngineCrossfade { get; set; }      // engine_crossfade: engine sound loops crossfaded at the restart (src/audio/xma.cpp; read by the game, so play.cmd too)
@@ -82,7 +83,7 @@ public sealed class GameSettings
     public string GameFolder { get; set; } = "";
 
     // The racing wheel's wheel_* keys are the Wheel stuff tab's (Wheel.cs); Save keeps them like any other key it doesn't know.
-    static readonly string[] Known = ["profile", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "hide_shader_overlay", "timer", "perf_log", "draw_workers", "async_present", "one_tile", "engine_crossfade", "debug_server", "game_folder"];
+    static readonly string[] Known = ["profile", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "hide_shader_overlay", "timer", "perf_log", "draw_workers", "async_present", "one_tile", "mirror_rate", "engine_crossfade", "debug_server", "game_folder"];
 
     public static GameSettings Load()
     {
@@ -115,6 +116,7 @@ public sealed class GameSettings
                 case "draw_workers": s.DrawWorkers = v == "1"; break;
                 case "async_present": s.AsyncPresent = v != "0"; break;
                 case "one_tile": s.OneTile = v == "1"; break;
+                case "mirror_rate": s.HalfRateMirror = v == "2"; break;
                 case "engine_crossfade": s.EngineCrossfade = v == "1"; break;
                 case "debug_server": s.DebugServer = v != "0"; break;
                 case "game_folder": s.GameFolder = v; break;
@@ -135,7 +137,7 @@ public sealed class GameSettings
         sb.Append($"language={Language}\n");
         sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n"); // (session 23: these three were read but never saved)
         sb.Append($"perf_preset={(PerfPresets.Contains(PerfPreset) ? PerfPreset : "off")}\n");
-        sb.Append($"anisotropy={B(Anisotropy)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nperf_log={B(PerfLog)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\none_tile={B(OneTile)}\nengine_crossfade={B(EngineCrossfade)}\ndebug_server={B(DebugServer)}\n");
+        sb.Append($"anisotropy={B(Anisotropy)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nperf_log={B(PerfLog)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\ndebug_server={B(DebugServer)}\n");
         sb.Append($"game_folder={Clean(GameFolder)}\n");
         foreach (var (k, v) in keep) sb.Append($"{k}={v}\n");
         Directory.CreateDirectory(Paths.User);
