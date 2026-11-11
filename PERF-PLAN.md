@@ -51,11 +51,12 @@ without the replay wait; **CPU-bound grid ~288 fps**. Upload hashing: 6 MB/frame
 `REGPU_UPLOAD_STABLE_REUSE` +1.2% (off: stale-for-a-frame risk). L10: 18% of draws are second-tile copies (the upside).
 The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch 200, 1% low 200.5 at 1440p 4x).
 
-## Next up (from session 26; ask the user which)
-0. **Suggested order (end of session 25):** L38 (timer while hidden: our minimized tests) -> L36 one guest tile
-   (first test: the game's MSAA off) -> L37 -> L39/L40/L14 -> the rest below. NOTES "Start here (session 26)".
-1. **Cockpit cam performance** (user; noticeably better with L12, session 25): re-check only if the user still
-   finds it low: measure per camera view while the race runs (GPU passes per view, `threads.ps1`).
+## Next up (from session 27; ask the user which)
+0. **Suggested order (end of session 26):** one guest tile as default? (user's call) -> cockpit tiling check (does
+   cockpit use another scenario?) -> L37 -> L39/L40/L14 -> draw-thread cost per draw -> the rest below. NOTES
+   "Start here (session 27)". Done in session 26: L38 (not affected), L36 (opt-in, driven), L41 (opt-in).
+1. ~~Cockpit cam performance~~ (session 26): the rear-view mirror's second scene (+~300 draws while driving, -12%);
+   L41 half-rate mirror built (opt-in); a stronger mirror threshold (L42) and a lower-resolution mirror (L43) ruled out.
 2. **Draw thread, still the CPU limit:** ~~L12~~, ~~VertexCache lock~~, ~~pass-scale helpers~~ (done, session 25);
    upload hashing measured (stable reuse +1.2%, user's call on the risk); 18% of draws are second-tile copies: try
    **L36 (one guest tile)** before L10 (merge: needs FM3's rectangle tile clears handled + the draw thread); L28's
@@ -137,6 +138,9 @@ The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch
 | L38 | **Timer resolution while the window is hidden** (Windows 11 drops `timeBeginPeriod` for invisible windows; `PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION`) | **Checked session 26: not affected** (minimized Sleep(1) ~1.3 ms with and without); fix kept as a safeguard (`FM3_NO_TIMER_FIX=1` off) | Minimized/covered play, our test method, hybrid CPUs (EcoQoS) | Start-time | Small, lossless |
 | L39 | **Guest atomics without the MSR lock** (mcla-recomp: `mtmsrd` regions holding only an `lwarx`/`stwcx.` loop, statically verified) | Not built; profile `PPCMsrChanged` on t7/t3 first (1,832 sites in `out/ppc`) | CPU (game threads) | Build | MCLA: render thread -6 to -12% CPU, frame -0.3 to -0.7% |
 | L40 | **Spin waits as sleeps only under a frame cap** (mcla-recomp: -46 to -53% CPU at 60/30 caps) | Not built; `threads.ps1` at a 60 cap: which threads spin | Laptops, power, 4 cores | Live | Lossless |
+| L41 | **Half-rate rear-view mirror** (cockpit view: the mirror's scene render `sub_827FDB88` every Nth frame) | **Built session 26, opt-in** (`mirror_rate=2`, launcher Testing "Half-rate mirror", live `FM3_MIRROR_RATE`); user drove it: "looked good", cockpit 214 -> ~240 fps (traffic differed), grid +2-5%. Off by default (user): 30 Hz mirror at 60 fps | Cockpit view, CPU-bound | Live | Visible (mirror one frame late) |
+| L42 | **Mirror `VisibilityThreshold`** (per-track TrackSettings.xml; 32 on most tracks) | Tested session 26: 2000 = -2.7% draws, +3.5% fps in cockpit; **rejected by the user** (mirror draw distance short already). Mod `out/user/mods/_mirror2000` (disabled) | Cockpit view | Start (track load) | Visible |
+| L43 | **Lower-resolution mirror** (`REGPU_HELPER_SCALE` on the mirror's 400-pitch surface only) | Tested session 26: **no gain** (fps/GPU same at 1/2, 1/4; mirror blurrier); filter not kept | - | Start | Visible |
 
 ## 2. Lossless in intent (needs a numeric picture check and a drive)
 | # | Item | Status | Helps on | Live A/B | Risk / note |

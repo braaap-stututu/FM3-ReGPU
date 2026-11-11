@@ -19,6 +19,11 @@ Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleave
 | L38 timer fix (minimized) | 720p 1x grid, Sleep(1) | 268/286 fps, 1.28-1.58 ms | 279/286 fps, 1.23-1.57 ms | - (not throttled: no change) |
 | L36 one guest tile | 720p 1x grid, 3 boots each, alternating | 288.9 / 290.0 / 291.2 (3,288 draws) | 315.8 / 317.0 / 316.3 (2,647) = **+9.1%** | masked 0.004-0.008% (noise one/one 0.013%), seam rows same |
 | L36 one guest tile | 1440p 4x grid, 1 boot each | 250.1 | 254.3 | 0.56% unmasked (crowd) |
+| Cockpit vs chase (why cockpit is slower) | user drive, Catalunya opening straight, 1440p 4x, one tile on | chase ~243 fps / ~2,630 draws | cockpit ~215 / ~2,950 (the mirror's scene) | - |
+| L42 mirror threshold 2000 | same drive, cockpit, 8 aligned windows | 214 fps / 2,943 draws | 221 / 2,864 (+3.5%) | mirror 0.2% of pixels (grid); rejected by the user |
+| L41 half-rate mirror | grid cockpit, live, 5 rounds (and a noisier 4) | 253.9 | 258.8 (+1.9%; +5.1% in the noisier run) | 0 pixels |
+| L41 half-rate mirror | user drive, same straight (traffic differed) | 214 | ~240 (+12%) | "looked good" |
+| L43 lower-resolution mirror | grid cockpit, perf log, boots at 1 / 0.5 / 0.25 / 1 | 258.0 fps, GPU 3.72 ms | 256.8 / 258.0 / 259.8 fps, GPU 3.74 / 3.72 / 3.70 | mirror blurrier: no gain |
 
 ## Session 25 (2026-11-11): L12 asynchronous frame end
 | Test | Switch | Setting | Off | On | Change | Rounds | Picture |

@@ -1,8 +1,51 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-11, session 26)
+## ▶ Current status / next step  (updated 2026-11-11, end of session 26)
 
-### ▶ Start here (session 27): session 26 (2026-11-11), L38 checked, L36 one guest tile built (opt-in)
+### ▶ Start here (session 27): state at the end of session 26 (2026-11-11)
+- **Built in session 26 (all pushed; details in the section below):**
+  - **L36 one guest tile**, opt-in (launcher Settings > Testing "One guest tile" = settings.ini `one_tile=1`,
+    `FM3_ONE_TILE=1`; logged `gpu: one guest tile on|off`): `src/hooks/one_tile.cpp` + ReGPU patch 30
+    `regpu-window-fixup-union`. CPU-bound grid **+9.1%**, pictures within noise. **The user drove it twice (on): "seems
+    fine", no errors seen.** Open decision: make it the default (asked at the end of session 26, not answered yet).
+  - **Half-rate rear-view mirror**, opt-in by the user's decision (launcher Testing "Half-rate mirror" = settings.ini
+    `mirror_rate=2`, live `FM3_MIRROR_RATE=N`): `src/hooks/mirror.cpp` (mirror scene render `sub_827FDB88` every Nth
+    frame; the mirror keeps its last picture). Cockpit was ~12% slower than chase while driving (the mirror's ~300
+    extra draws; draw thread limits); with it the user's Catalunya cockpit run went 214 -> ~240 fps (traffic differed;
+    grid A/B +2-5%), "looked good". Stays off by default: at ~60 fps a 30 Hz mirror may look choppy.
+  - L38 (timer while hidden): checked, our minimized tests were never throttled; safeguard kept (`src/main.cpp`,
+    `FM3_NO_TIMER_FIX=1` off).
+- **Ruled out:** a stronger mirror `VisibilityThreshold` (track mod; +3.5% at 2000, but the user finds the mirror's
+  draw distance short already; mod `out/user/mods/_mirror2000` left disabled); a lower-resolution mirror (0 change in
+  fps/GPU at 1/2 and 1/4 scale: the draws cost, not the pixels).
+- **The user's settings.ini now:** 2560x1440, msaa 4, max_fps 360, perf_log 1, `one_tile=1`, `mirror_rate=2`. Back it
+  up before CPU-bound runs and restore it after, as always.
+- **Parked:** a one-frame cyan bush (session 26 drive 1, not reproducible; NOTES below has the A/B plan if it shows
+  again); the yellow Celica's rims flicker a little (not examined).
+- **Next, in the suggested order (ask the user):**
+  1. Decide one guest tile as default (the user's call); if yes: default on in `one_tile.cpp`/`gpu_host.cpp`
+     (`one_tile=0` off), launcher toggle default on, tooltip.
+  2. **Cockpit tiling check** (small): the cockpit capture's main pass ran on `14000500` (1x, depth 2D0) even with one
+     tile on; find out whether cockpit view uses another scenario (log `one tile: scenario ...` lines when switching
+     views) and whether one tile does anything there.
+  3. **L37 rect clears as real clears** (count full-surface plain-rect draws per frame first), then L39 lock-free
+     guest atomics, L40 sleeps under a frame cap, L14 4-core test (masks 0x55, 0xF).
+  4. Draw-thread cost per draw (it limits at 1440p 4x too: 3.4 of 3.8 ms busy on the grid): every cut there helps
+     cockpit and the mirror as well.
+  5. Older leads: GPU side (shader `510c814e1a4ef99e` without an L30 variant, literal sampler index, V8), stutter (L32
+     with a 4 ms/frame budget, L33, L34).
+- **How we test (unchanged, plus session 26):** `tools/perf_suite.ps1` (`Start-Grid` minimized, `Test-Live`,
+  `Get-Fps`, `Save-Shot`). **Camera on the frozen grid: `Fm3 "press RB 500"`** cycles views (150 ms is too short);
+  order chase -> hood -> bumper -> chase -> far chase -> cockpit, so check each step by a screenshot (cockpit = dark
+  lower-left corner; see the `Dark` helper in the session's scripts). The perf log (`REGPU_PERF`) is only on when the
+  game starts from the launcher (or `Start-Grid @{REGPU_PERF='1'}`); without it, the log's `renderer: frame N` lines
+  (every 600 frames) still give fps and draws per ~2.5 s. **Driving tests:** the user records with Radeon ReLive;
+  line the video up with the log (contact sheet `ffmpeg -vf "fps=0.5,scale=256:-1,tile=6x8"`; the race start/pause
+  give the offset) and compare aligned stretches of the same straight (Catalunya's opening straight works).
+  Per-pass GPU time: `REGPU_GPU_PASSES=1` (start time) + `tools/analysis/gpudiff.py`. Render-thread profile with
+  stacks: `FM3_SAMPLE_THREAD=7`, `FM3_SAMPLE_CALLERS=6` (that is how the mirror render was found).
+
+### Session 26 (2026-11-11): L38 checked, L36 one guest tile, cockpit mirror (details)
 - **L38 (timer while hidden): not an issue for us.** Minimized test boots measure Sleep(1) = ~1.3 ms with and without
   the fix (`FM3_TRACE_SLEEP=1` logs it 3x at 20 s intervals); our limiter, vblank and ring waits use high-resolution
   waitable timers anyway. Kept as a cheap safeguard in `src/main.cpp`: `SetProcessInformation(ProcessPowerThrottling,
@@ -937,6 +980,12 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   ~1.3 ms either way); fix kept as a safeguard. L36: found FM3's tiling scenarios and set-up, built one guest tile
   (hook + ReGPU `regpu-window-fixup-union`, patch 30), opt-in with a launcher toggle: CPU-bound grid +9.1%, picture
   within noise. Waiting on the user's drive before it becomes a default. settings.ini restored (2560x1440, msaa 4).
+- User drives (ReLive videos + logs): one tile on twice, fine (an unrelated one-frame cyan bush, parked). Cockpit
+  ~12% slower than chase = the rear-view mirror's second scene; found its render (`sub_827FDB88`) with a t7 profile;
+  built the half-rate mirror (opt-in, `mirror_rate`, launcher toggle; user: "looked good", stays off by default).
+  Mirror threshold mod and lower-resolution mirror ruled out. One revert mistake (a `git checkout` of ReGPU's
+  renderer.cpp dropped the patch stack's changes; restored from the stack, gotcha added to CLAUDE.md). User's
+  settings.ini: one_tile=1, mirror_rate=2.
 ### 2026-11-11 — session 25 (draw thread: L12 asynchronous frame end)
 - User: "let's tackle the draw thread next". Profiled ReGPU's draw thread with whole call stacks (sampler reworked:
   `FM3_SAMPLE_CALLERS=N`; two freezes on the way, from unwinding and getenv while the thread was stopped, fixed).
