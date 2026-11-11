@@ -86,6 +86,28 @@ Each costs a little fps when GPU-bound (less overlap); that trade is what Reflex
 - Test case: the paused CrownJewel race grid at 1440p 4x (GPU-bound, the case with queues) and a time trial at the 360
   cap (should change nothing). Report fps loss next to the latency gain.
 
+### FH1R's "Use FIFO latest ready" (looked at on request, session 21)
+FH1R (ReXGlue, Vulkan presenter) patch `0070-fifo-latest-ready-present-mode` + cvar
+`vulkan_allow_present_mode_fifo_latest_ready` (default on; launcher Advanced, "Use FIFO latest ready"; docs
+`framerate.md`, `sdk_patches.md`, their issue #80). It is a **Vulkan presentation mode**
+(`VK_PRESENT_MODE_FIFO_LATEST_READY_KHR`, extension `VK_EXT/KHR_present_mode_fifo_latest_ready`): vsync without
+tearing like plain FIFO, but at each vblank the display takes the **newest finished frame** and drops older queued ones,
+instead of showing every queued frame in order. Plain FIFO, with a game faster than the refresh or at a rate that isn't
+a divisor of it, builds a queue that delays frames and drops them unevenly (their #80: an AMD Windows driver without
+MAILBOX showed 53 of 63 fps at irregular 1-5 vblanks on 144 Hz). Used only if the driver offers it, chosen after
+mailbox/immediate/relaxed FIFO, else plain FIFO. FH1R itself says it was not measured on hardware yet.
+**For us:** ReGPU is D3D12/DXGI, not Vulkan, so the mode doesn't exist as such. The DXGI equivalent is a flip-model
+`Present(0, 0)` (sync interval 0 **without** `DXGI_PRESENT_ALLOW_TEARING`): no tearing, and a newer present replaces
+one not yet shown (PresentMon lists those as "Discarded"). Today `presenter.cpp` has only `Present(1, 0)` (vsync on =
+plain FIFO, up to 3 queued) and `Present(0, ALLOW_TEARING)` (vsync off, the user's setting). So a third "VSync: newest
+frame" mode is a one-line present change plus a launcher choice; with it the cap would not be clamped to the refresh
+(`FrameCap`), so the game draws faster than the display and each vblank shows the freshest frame (lower latency than
+FIFO, no tearing, but GPU work on frames never shown, and uneven motion unless fps is well above the refresh).
+Related, and possibly worth more: with vsync on, our limiter paces on the CPU clock at the refresh while `Present(1)`
+paces on the real vblank; the two drift, so FIFO's queue can fill to 3 frames (~20 ms at 144 Hz) or repeat a frame. A
+waitable swap chain with `SetMaximumFrameLatency(1)` (queue-limit option 1 above) fixes that for vsync-on players.
+Neither matters with vsync off on a FreeSync display (the user's setup: tearing flag + VRR, cap 360).
+
 ### Recommendation (order)
 1. Latency probe (measure what we have). 2. Our own queue limit (switch, A/B with the probe; every GPU).
 3. **Anti-Lag 2** (testable on the user's GPU; one header). 4. **Reflex** with markers (needs an NVIDIA tester).
