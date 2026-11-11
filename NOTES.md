@@ -62,6 +62,16 @@
   2 cores + SMT (0xF) 257.1 (-2%). 720p 1x: 331.4 / 324.3 (-2.1%) / 264.7 (-20%); four threads busy (replay 98%,
   draw thread 92%, CP 72%, t7 52%; 3.9 cores). No thread gating needed for 4 cores; 2c/4t CPUs lose ~20% when
   CPU-bound.
+- **Audit (user request, end of session 27):** PERF-PLAN's 60 ids: 14 built+default, 7 opt-in, 15 tested and
+  rejected/parked, 2 measurement-only, **22 not built** (L7, L17-L23, L25, L27, L29, L31-L34, I6, I7, V2-V5, V8; the
+  status column is stale for sessions 23-24, the result blocks above it are current). FH1R v0.3.2: its CP split, reg
+  skip, swap without replay wait and GPU profile are covered (draw thread, L28, L12, L26); coherency waits from the
+  shadow, dynamic-offset constants (L8 rest), NVIDIA-only transfers and PGO (L23) researched only. ReGPU: upstream
+  `origin/main` is 15 commits past our pin (L27 rebase not done; L7/L17 from it not built); `engine-optimisation`'s
+  `REGPU_OPTIMIZE_LEVEL` (I6) untested; FM2 branches `fm4-picks`/`proton-d3dcompiler` never examined. **Boot shader
+  compile vs FM2:** FM2 also scans DLC/title update (we skip Disc 2 STFS), runs scan threads below normal priority
+  (ours don't), seeds from 212 manifests incl. players' uploads (ours 2), has its own boot screen. Statically we find
+  784 shaders; seed 2,100 pipelines + 86 vertex variants.
 - Note: `quick_race=1`'s pad route stops one A short of Start Race (pre-race menu), then the track fly-over runs.
 
 ### ▶ Start here (session 27): state at the end of session 26 (2026-11-11)
