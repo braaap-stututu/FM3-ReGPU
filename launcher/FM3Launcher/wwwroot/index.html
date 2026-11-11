@@ -369,6 +369,10 @@
         <div><div class="toggle-title">Draw workers</div><div class="toggle-sub">Performance A/B, off by default</div></div>
         <button class="switch" id="drawWorkers" role="switch"></button>
       </div>
+      <div class="toggle-row" data-tip="The end of each frame (submit and present) runs on ReGPU's replay thread, so the draw thread goes straight on to the next frame instead of waiting for the graphics driver. Session 25: +18% fps where the CPU is the limit, +4% at 1440p 4x MSAA, same picture. It can let one more frame queue up. Turn off to compare. Read when the game starts.">
+        <div><div class="toggle-title">Asynchronous present</div><div class="toggle-sub">Performance (L12), on by default</div></div>
+        <button class="switch" id="asyncPresent" role="switch"></button>
+      </div>
       <div class="toggle-row" data-tip="Blends the end of each piece of engine sound into the next (about 9 ms) where the sound jumps, after the FM2 port's fix for rev hitches, and keeps the end of the piece that was dropped there. Experimental: compare with it off. Read when the game starts.">
         <div><div class="toggle-title">Engine sound crossfade</div><div class="toggle-sub">Audio A/B, off by default</div></div>
         <button class="switch" id="engineCrossfade" role="switch"></button>

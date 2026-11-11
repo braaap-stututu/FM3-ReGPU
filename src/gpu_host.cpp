@@ -367,9 +367,11 @@ void GpuStart()
     // waits there for the replay and then inside the driver's Present (AMD's driver sleeps there while frames are
     // queued: ~10% of the draw thread's time, the CPU limit). Frozen grid, live, 5/5 rounds each, byte-identical:
     // 720p 1x 216.5 -> 255.2 fps (+17.9%), 1440p 4x 232.4 -> 242.3 (+4.3%). FM3_SYNC_PRESENT=1: off; live A/B:
-    // Fm3 "switch REGPU_ASYNC_PRESENT 0|1".
-    if (!getenv("FM3_SYNC_PRESENT"))
+    // Fm3 "switch REGPU_ASYNC_PRESENT 0|1". settings.ini async_present=0 (launcher Settings > Testing "Asynchronous
+    // present") is off too.
+    if (!getenv("FM3_SYNC_PRESENT") && GetSettings().Extra("async_present") != "0")
         DefaultEnv("REGPU_ASYNC_PRESENT", "1");
+    Log("gpu: asynchronous present %s", getenv("REGPU_ASYNC_PRESENT") && strcmp(getenv("REGPU_ASYNC_PRESENT"), "0") ? "on" : "off");
     // Sun glare size (session 14): FM3 sizes the glare from the occlusion query's raw sample count (not
     // the visible share): none below ~0.55x our count of a fully visible sun, largest at ~1.5-2x. At 1x
     // the glare covered half the screen, far bigger than console footage (YouTube Fx4sKnongdM, 1:16-1:21);

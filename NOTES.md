@@ -842,6 +842,9 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - Part 2: patch `regpu-draw-thread-memos` (vertex memo +3.6%, pass snapshot +2.2%, timer/overlay without the replay
   wait); CPU-bound grid ~288 fps. Upload hashing measured (stable reuse +1.2%, off: risk); L10 scoped (18% of draws).
   User drove part 2: FPS floor noticeably higher (user); lowest stretch 200. Open: L10 build (ask).
+- Launcher option (user request): Settings > Testing **"Asynchronous present"** (L12, on by default) writes
+  `async_present=0|1` to settings.ini; the game reads it (so `play.cmd` runs follow it too) and logs
+  `gpu: asynchronous present on|off`. Checked both ways with grid boots (off 245.3, on 246.7 fps at 1440p 4x).
 ### 2026-11-11 — session 24 (shaders at first boot, minimized test boots)
 - Checked which leads are left (PERF-PLAN) and FH1R v0.3.2 (its CP split ~ our draw thread; descriptor reuse L8,
   changed-register handoff L28 and present-without-replay-wait L12 not built). User picked FM2-style shader
