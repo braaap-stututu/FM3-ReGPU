@@ -224,3 +224,19 @@ weaker GPUs, where the scale cuts count. Mild/Potato's unsteady samples look lik
 | 2 sleep | 4.532-4.541 | 4.45-4.49 | 5.36-5.41 | 5.73-5.80 | 5.75-5.93 | 0 |
 Same pacing (the sleep's tail is if anything a little tighter). With phase 4 this made `FM3_RING_WAIT=2` the default.
 Final build sanity boot (ring wait 2 by default, presets fixed): 221.3 fps, frozen at 9.003 s (`final-defaults.png`).
+
+## Drive test by the user (+5.1% set: lean fetch 1, plain multiply, 10-bit copies; `play.cmd`, perf log off)
+CrownJewel, 2560x1440 4x, cap 360. Graph: `out/perf/s23/drive-test.html` (`tools/perf/drive_graph.py`, fps per 60
+frames from the log's swap stamps; log kept as `out/perf/s23/drive1-fm3.log`).
+| Segment | Average | 1% low (60-frame stretches) | Lowest stretch | Stretches under 180 fps |
+|---|---|---|---|---|
+| Career race, 2 laps and a bit (GO to the finish, log 27.6-160.4 s) | **258.0 fps** | 180 | 91 (log 59.3 s) | 4 |
+| Time trial (log 206.4-276.9 s) | **331.6 fps** | 283 | 281 | 0 |
+**The stutters were one-time shader builds.** In the first lap (log 47-59 s) four pixel shaders were compiled
+(300-793 ms each, background) and ~30 pipelines built (1766 -> 1795); the worst dip (59.3 s) follows the 793 ms
+compile of `ps dd492c7cb9ec6a9f`. All five compiled shaders are old ones (microcode cached since 11-07): what was new
+is their lean-fetch/plain-multiply variant, which the shader cache keys apart. My grid runs compiled only the
+variants visible from the grid. The time trial on the same track had no stutter (variants cached by then). One dip
+without a compile (log 35.2 s) coincides with track textures streaming in (786 -> 1111 textures over the next 15 s):
+the game's own streaming, not the switches. The race end (log ~160 s) also refilled the vertex arena ("full,
+starting over"), but that is the finish/menu transition, not driving.
