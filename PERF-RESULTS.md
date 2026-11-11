@@ -40,6 +40,11 @@ lean vertex fetch.
 (fetch variants for the car shaders), then CPU-side cuts (L8, L28) to lift the ~231 ceiling. The test grid is the
 same car line-up on every boot (checked: rosters, pictures); only the crowd animates differently between boots.
 
+**Picture report:** `out/perf/s23/report.html` (open it in a browser): all 55 comparisons with a swipe slider, side by
+side and a red difference picture each, numbers and verdict per card. Rebuild: `python -I tools/perf/report_s23.py
+pairs out/perf/s23`, `tools/perf/make_pairs.ps1 -Dir out/perf/s23 -Pairs pairs.txt`, `python -I tools/perf/report_s23.py
+html out/perf/s23`.
+
 ## How to read the numbers
 - **Live A/B** (same game session): 4 interleaved rounds of off/on, 8 `status` fps samples each after 3 s. The frozen
   world makes the GPU work constant: a null A/B (an unused variable flipped) gave 214.3 vs 213.8 (-0.2%) with
