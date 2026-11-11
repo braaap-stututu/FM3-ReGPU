@@ -33,6 +33,9 @@
   same race (user, session 26); the vertex arena was near full then (505 of 512 MB, started over only at 274 s), no log
   event at 222.8 s. Parked: ask the user for the timer value if it shows again, then A/B `REGPU_SPLIT_ALPHA_TEST 0`,
   `REGPU_NO_VERTEX_MEMO 1`, `REGPU_NO_VERTEX_ARENA 1` (all live).
+  Log stats around it: pipelines flat at 2,238 (no pipeline compiled), shaders 1,048 -> 1,049, textures rising
+  (2,317 -> 2,333: streaming as the car moves), 2 skipped draws in 222-224 s. Best guess: a texture or mip arriving a
+  frame late (LOD change of the bush), not a shader compile.
 - Then from PERF-PLAN "Next up": L37 rect clears as real clears, L39/L40/L14, the rest.
 
 ### ▶ Start here (session 26): state at the end of session 25 (2026-11-11)
