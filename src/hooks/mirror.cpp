@@ -51,6 +51,99 @@ int Rate()
 }
 }
 
+// Experiment (session 27, user request: what can the mirror leave out?). While the mirror renders, the scene
+// renderer sub_8283A220's steps can be skipped one call site at a time: FM3_MIRROR_SKIP=<hex>[,<hex>...] lists
+// return addresses (the call site + 4, as ctx.lr holds them) or function addresses; FM3_MIRROR_TRACE=1 logs each
+// distinct (function, call site) the mirror reaches once. Read every 250 ms with the rate, so both work live.
+namespace
+{
+bool g_inMirror = false; // render thread only (sub_827FDB88 and everything below it run there)
+uint32_t g_skip[32];
+int g_skipCount = 0;
+bool g_trace = false;
+
+void ReadSkips()
+{
+    static int64_t next = 0;
+    const int64_t now = std::chrono::steady_clock::now().time_since_epoch().count();
+    if (now < next)
+        return;
+    next = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::milliseconds(250)).count();
+    char v[512] = {};
+    GetEnvironmentVariableA("FM3_MIRROR_SKIP", v, sizeof(v));
+    static std::string last;
+    if (last != v)
+    {
+        last = v;
+        g_skipCount = 0;
+        for (const char* p = v; *p && g_skipCount < 32;)
+        {
+            char* end = nullptr;
+            const unsigned long a = strtoul(p, &end, 16);
+            if (end == p)
+                break;
+            if (a)
+                g_skip[g_skipCount++] = uint32_t(a);
+            p = *end ? end + 1 : end;
+        }
+        Log("mirror: skipping %d step(s) in the mirror: %s", g_skipCount, v[0] ? v : "(none)");
+    }
+    char t[4] = {};
+    g_trace = GetEnvironmentVariableA("FM3_MIRROR_TRACE", t, sizeof(t)) && t[0] == '1';
+}
+
+bool SkipInMirror(uint32_t function, uint32_t lr)
+{
+    if (!g_inMirror)
+        return false;
+    if (g_trace)
+    {
+        static uint64_t seen[256];
+        static int seenCount = 0;
+        const uint64_t key = uint64_t(function) << 32 | lr;
+        bool found = false;
+        for (int i = 0; i < seenCount && !found; i++)
+            found = seen[i] == key;
+        if (!found && seenCount < 256)
+        {
+            seen[seenCount++] = key;
+            Log("mirror: step sub_%08X from %08X", function, lr);
+        }
+    }
+    for (int i = 0; i < g_skipCount; i++)
+        if (g_skip[i] == lr || g_skip[i] == function)
+            return true;
+    return false;
+}
+} // namespace
+
+#define FM3_MIRROR_STEP(addr)                                     \
+    PPC_FUNC_IMPL(__imp__sub_##addr);                             \
+    PPC_FUNC(sub_##addr)                                          \
+    {                                                             \
+        if (SkipInMirror(0x##addr, uint32_t(ctx.lr)))             \
+        {                                                         \
+            ctx.r3.u64 = 0;                                       \
+            return;                                               \
+        }                                                         \
+        __imp__sub_##addr(ctx, base);                             \
+    }
+// The scene renderer sub_8283A220's steps (its direct calls, apart from small helpers).
+FM3_MIRROR_STEP(828374C8)
+FM3_MIRROR_STEP(82855790)
+FM3_MIRROR_STEP(82839508)
+FM3_MIRROR_STEP(828363C0)
+FM3_MIRROR_STEP(82837530)
+FM3_MIRROR_STEP(8284A370)
+FM3_MIRROR_STEP(828342D8)
+FM3_MIRROR_STEP(82834380)
+FM3_MIRROR_STEP(82838518)
+FM3_MIRROR_STEP(828339F0)
+FM3_MIRROR_STEP(82833A78)
+FM3_MIRROR_STEP(8283A128)
+FM3_MIRROR_STEP(82835E18)
+FM3_MIRROR_STEP(828329C8)
+
 PPC_FUNC_IMPL(__imp__sub_827FDB88);
 PPC_FUNC(sub_827FDB88)
 {
@@ -58,5 +151,8 @@ PPC_FUNC(sub_827FDB88)
     const int rate = Rate();
     if (rate > 1 && calls++ % uint64_t(rate) != 0)
         return; // (the mirror keeps last frame's picture)
+    ReadSkips();
+    g_inMirror = true;
     __imp__sub_827FDB88(ctx, base);
+    g_inMirror = false;
 }

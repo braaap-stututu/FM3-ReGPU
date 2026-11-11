@@ -16,6 +16,15 @@
   draws (2,837 -> 2,712), picture 684 px different (0.019%, a faint shadow under the car behind), but fps +0.5%
   median / +1.1% mean over 10 alternating pairs (mirror every frame), inside this session's noise (181-211 fps in one
   state). A guest-side skip would save the game's side too, but these draws are cheap. Next mirror lead: car LOD.
+- **Mirror LOD / shadows (user request), first look:** the mirror render `sub_827FDB88` only swaps two shadow-cascade
+  fields of the shadow settings object (`*0x82C40EEC` +292 = 0, +532 = 50; restored after): the mirror reuses the main
+  view's shadow maps (no shadow pass of its own); shadow receiving is pixel work (free, L43). No LOD override there.
+  New live experiment switch in `src/hooks/mirror.cpp`: `FM3_MIRROR_SKIP=<return address or sub>,...` skips steps of
+  the scene renderer `sub_8283A220` while the mirror renders; `FM3_MIRROR_TRACE=1` logs the mirror's 17 call sites.
+  Montserrat quick race grid (8th, no cars behind, cockpit, ~150-draw mirror): only the first draw-list call
+  (`sub_828342D8` from `8283A9BC`) draws anything (-136 draws); the other 16 draw nothing; fps unchanged (229 vs 228,
+  base swinging 207-249). Cars, track and blobs share one draw list; telling them apart (and the LOD choice) is in the
+  1,200-instruction draw scheduler `sub_82AF4AA8` (per-view visibility bits in 200-byte items): hours of work.
 - Note: `quick_race=1`'s pad route stops one A short of Start Race (pre-race menu), then the track fly-over runs.
 
 ### ▶ Start here (session 27): state at the end of session 26 (2026-11-11)
