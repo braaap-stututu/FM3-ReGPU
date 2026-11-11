@@ -47,12 +47,12 @@ draw's burst of writes (the stall is the store buffer draining); every-constant 
 so constant writes are a small share. GPU time at 720p 1x is ~3.1 ms of a ~4.3 ms frame.
 
 ## Next up (from session 25; ask the user which)
-1. **Cockpit cam performance** (user, open): measure per camera view while the race runs (GPU passes per view,
+1. **Cockpit cam performance** (user, open; noticeably better with L12 per the user, session 25): measure per camera view while the race runs (GPU passes per view,
    `threads.ps1`), GPU or CPU? Then the matching lead below.
 2. **Draw thread, still the CPU limit:** ~~L12~~ (done, session 25: +17.9% CPU-bound); `~PsAlias` explained (store
    buffer at the draw's exit); left: re-profile after L12, the VertexCache lock release (2.7%; a recursive mutex, a
    locked instruction that also drains the store buffer), upload hashing (2.5%, the I5 risk), pass-scale helpers (~4%,
-   state can change inside a draw), L28's second half, L10 tile merge (big, PGR4 +19%). User drive of L12 first.
+   state can change inside a draw), L28's second half, L10 tile merge (big, PGR4 +19%).
 3. **GPU side on this PC:** shader `510c814e1a4ef99e` (97 KB) gets no L30 variant (some texture not plain: find which),
    sampler index as a literal in `TFetchPlain`, the remaining car paint cost (math/sampling: RGA ISA), plain multiply
    per shader (I3 without the black flags), V8 reflection cubes less often (find FM3's rate).
