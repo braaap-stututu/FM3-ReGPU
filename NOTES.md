@@ -44,7 +44,10 @@
   The replay thread's "98% CPU" is AMD's driver sleeping in Present (frames queued), not work.
   Lever found: per-track `<Mirror VisibilityThreshold>` in TrackSettings.xml (32 on most tracks, CrownJewel 0; the
   cubemap's is 2,000-50,000). Test mod `out/user/mods/_mirror2000` (CrownJewel + Catalunya at 2000, disabled): grid
-  mirror pass 148 -> 129 draws, mirror image 0.2% of pixels different. Its effect while driving: untested.
+  mirror pass 148 -> 129 draws, mirror image 0.2% of pixels different. **User drive 3 with it on (video 22.15,
+  log `out/logs/session26-drive-mirror2000.log`, same cockpit straight):** 8 aligned 2.6 s windows: draws 2,943 ->
+  2,864 (-2.7%), fps 214 -> 221 (+3.5%), higher in every window (lines not identical). Mod left enabled
+  (`out/user/mods/mirror2000`, CrownJewel + Catalunya). Next: the user's view of the mirror, then a stronger value.
 - Then from PERF-PLAN "Next up": L37 rect clears as real clears, L39/L40/L14, the rest.
 
 ### ▶ Start here (session 26): state at the end of session 25 (2026-11-11)
