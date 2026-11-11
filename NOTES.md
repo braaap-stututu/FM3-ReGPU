@@ -15,6 +15,12 @@
   ~+2.8%, noise +-1.5%). Remaining profile is flat: DrawImpl body 21%, waits ~10%, VertexCache mutex release 2.7%,
   upload hashing 2.5%, shader-load memcmp (`FrameOnShaderLoad`) 3.4%, pass-scale helpers ~4%. Next: ask the user
   (structural: L8 per-draw state reuse, L28 handoff; or the small ones above).
+- **Small cuts, round 2 (user's pick):** shader-load repeat skip (patch `regpu-shader-repeat-skip`, live
+  `REGPU_NO_SHADER_REPEAT_SKIP`): 55% of ~2,200 shader loads a frame are exact repeats; the CP drops them. Live A/B
+  222.9 -> 228.3 fps (+2.4%, 5/5), 0 pixels. **Session total on the CPU-bound grid: 214.5 -> 229.4 fps (+7%)**, two
+  boots each; the draw thread is still the limit (94%). Not done, on purpose: upload hashing (the safety net for vertex
+  data rewritten mid-frame: I5's risk), the VertexCache lock (contended: needs a redesign), per-draw caching of pass
+  scale (surface state can change inside a draw). Next CPU step: the structural L8/L28 (ask the user).
 
 ### ▶ Session 24, part 2 (2026-11-11): L6 shader profile + L30 fetch variants (start here)
 - **L6** (RGA 2.15 downloaded with the user's OK to `G:/claude code projects/tools/rga-2.15`, outside the repo):

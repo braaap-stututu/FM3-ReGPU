@@ -1,0 +1,53 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index 67c4371..732adb7 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -464,12 +464,48 @@ void SegShaderLoad(ShaderType type, const uint32_t* microcodeBE, uint32_t dwords
+ 
+ void SubmitShaderLoad(ShaderType type, const uint32_t* microcodeBE, uint32_t dwords, uint32_t guestAddress)
+ {
++    static std::vector<uint32_t> last[2]; // the last load of each type sent to the draw thread
++    static uint32_t lastAddress[2] = {};
+     if (!work::Active())
+     {
++        last[0].clear(); // (loads on this thread: the memo no longer says what the draw thread has)
++        last[1].clear();
+         SegShaderLoad(type, microcodeBE, dwords, guestAddress);
+         return;
+     }
+     dwords = std::min<uint32_t>(dwords, 0x10000);
++    // A load that repeats the last one of its type byte for byte changes nothing on the draw thread (its current
++    // shader of that type is already this one): not sent. The draw thread spent ~6% of its time copying and
++    // comparing such loads (FM3, session 24); the comparison here is on the command processor, which has time.
++    // REGPU_NO_SHADER_REPEAT_SKIP=1: every load is sent, as before (live).
++    {
++        static LiveSwitch noSkip("REGPU_NO_SHADER_REPEAT_SKIP");
++        static uint64_t loads = 0, skipped = 0;
++        static auto lastLog = std::chrono::steady_clock::now();
++        const uint32_t t = uint32_t(type);
++        if (t > 1 || noSkip)
++        {
++            last[0].clear();
++            last[1].clear();
++        }
++        else
++        {
++            loads++;
++            if (lastAddress[t] == guestAddress && last[t].size() == dwords && memcmp(last[t].data(), microcodeBE, size_t(dwords) * 4) == 0)
++            {
++                skipped++;
++                if (std::chrono::steady_clock::now() - lastLog > std::chrono::seconds(30))
++                {
++                    lastLog = std::chrono::steady_clock::now();
++                    Log("gpu: shader loads: %llu, %llu repeats not sent (%.0f%%)", (unsigned long long)loads, (unsigned long long)skipped,
++                        100.0 * double(skipped) / double(loads));
++                }
++                return;
++            }
++            last[t].assign(microcodeBE, microcodeBE + dwords);
++            lastAddress[t] = guestAddress;
++        }
++    }
+     uint32_t* p = work::Begin(work::kShader, dwords + 3);
+     p[0] = uint32_t(type);
+     p[1] = guestAddress;
