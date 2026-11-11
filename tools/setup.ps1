@@ -40,6 +40,7 @@ $regpuPatches = @(
     'regpu-turbo-hyper'              # speed pieces for the launcher's presets (lean fetch v2, cull, helper scale, ...)
     'regpu-vertex-arena'             # large vertex buffers in VRAM, changes seen by the port's write watch (from FM2)
     'regpu-split-alpha-test'         # pixel shaders without the alpha-test discard when the test is off (early depth)
+    'regpu-gpu-stats'                # REGPU_GPU_PASSES=2: pipeline statistics per draw (overdraw by pass and pixel shader)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

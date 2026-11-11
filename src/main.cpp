@@ -16,6 +16,16 @@
 void CrashHandlerInit();
 void D3DDebugLog();
 
+// Laptops with an integrated and a dedicated GPU (session 23, PERF-PLAN L15): ReGPU makes its device on the
+// default adapter (D3D12CreateDevice(nullptr)), which on such a laptop is often the integrated one. These two
+// exports ask NVIDIA Optimus and AMD switchable graphics to make the dedicated GPU the default for this exe.
+// Nothing changes on a desktop with one GPU; Windows' own per-app GPU choice still wins over them.
+extern "C"
+{
+__declspec(dllexport) unsigned long NvOptimusEnablement = 1;
+__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
+
 int main(int argc, char** argv)
 {
     // The launcher's Wheel stuff tab: racing wheels, pedals, shifters and handbrakes as the game sees

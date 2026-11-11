@@ -1,0 +1,163 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 6eb9b57..84e159d 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -869,6 +869,33 @@ struct PassMarkInfo
+ std::vector<PassMarkInfo> g_passMarks[3];
+ uint32_t g_passDraws = 0;
+ 
++// REGPU_GPU_PASSES=2 (overdraw): also D3D12 pipeline statistics around every draw, summed by pass and by pixel
++// shader and logged with the pass times: pixel shader invocations (after early depth rejection), so a pass's
++// invocations over its pixels is how often each pixel was shaded. Draw workers' draws are not counted (run with
++// REGPU_DRAW_WORKERS=0 for a whole frame).
++const bool g_gpuStats = [] {
++    const char* v = getenv("REGPU_GPU_PASSES");
++    return v && atoi(v) >= 2;
++}();
++constexpr UINT kStatDraws = 8192;
++ComPtr<ID3D12QueryHeap> g_statQueries;
++ComPtr<ID3D12Resource> g_statReadback;
++struct StatDraw
++{
++    uint32_t ps;   // pixel shader hash (low 32 bits)
++    uint32_t pass; // index into g_statPassNames
++};
++std::vector<StatDraw> g_statDraws[3];
++std::vector<std::string> g_statPassNames{ "(before the first pass)" };
++std::map<std::string, uint32_t> g_statPassIds;
++uint32_t g_statPass = 0;
++struct StatTotal
++{
++    uint64_t psInvocations = 0, vsInvocations = 0, primitives = 0, draws = 0;
++};
++std::map<uint32_t, StatTotal> g_statByPass, g_statByShader;
++uint64_t g_statFrames = 0;
++
+ // Occlusion queries (EVENT_WRITE_ZPD: the sun flare's visibility). Each guest query becomes a
+ // D3D12 one; the guest gets the result of the same query (by order in the frame) from the
+ // last frame that has completed, so the command processor never waits for the GPU.
+@@ -2235,6 +2262,13 @@ void PassMark(const char* fmt, uint32_t a, uint32_t b)
+     g_passDraws = 0;
+     PassMarkInfo m{};
+     snprintf(m.label, sizeof(m.label), fmt, a, b);
++    if (g_gpuStats && (strncmp(m.label, "pass ", 5) == 0 || strncmp(m.label, "resolve", 7) == 0 || strncmp(m.label, "frame", 5) == 0))
++    {
++        auto [it, fresh] = g_statPassIds.try_emplace(m.label, uint32_t(g_statPassNames.size()));
++        if (fresh)
++            g_statPassNames.push_back(m.label);
++        g_statPass = it->second;
++    }
+     C().list->EndQuery(g_passQueries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, frameIndex * kPassMarks + UINT(marks.size()));
+     marks.push_back(m);
+ }
+@@ -2478,6 +2512,75 @@ void BeginFrameIfNeeded()
+         qd.Count = kPassMarks * kFrames;
+         g_r.device->CreateQueryHeap(&qd, IID_PPV_ARGS(&g_passQueries));
+         g_passReadback = CreateBuffer(8ull * kPassMarks * kFrames, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
++        if (g_gpuStats)
++        {
++            D3D12_QUERY_HEAP_DESC sd{};
++            sd.Type = D3D12_QUERY_HEAP_TYPE_PIPELINE_STATISTICS;
++            sd.Count = kStatDraws * kFrames;
++            g_r.device->CreateQueryHeap(&sd, IID_PPV_ARGS(&g_statQueries));
++            g_statReadback = CreateBuffer(sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS) * kStatDraws * kFrames, D3D12_HEAP_TYPE_READBACK,
++                D3D12_RESOURCE_STATE_COPY_DEST);
++            Log("gpu stats: pipeline statistics per draw on (REGPU_GPU_PASSES=2)%s", g_statQueries ? "" : ": query heap failed");
++        }
++    }
++    if (g_gpuStats && g_statReadback && !g_statDraws[frameIndex].empty())
++    {
++        // This slot's previous frame has completed (as for the pass times below): add up its draws.
++        auto& draws = g_statDraws[frameIndex];
++        D3D12_QUERY_DATA_PIPELINE_STATISTICS* q = nullptr;
++        const size_t stride = sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS);
++        const D3D12_RANGE range{ size_t(frameIndex) * kStatDraws * stride, (size_t(frameIndex) * kStatDraws + draws.size()) * stride };
++        if (SUCCEEDED(g_statReadback->Map(0, &range, reinterpret_cast<void**>(&q))))
++        {
++            const D3D12_QUERY_DATA_PIPELINE_STATISTICS* s = q + size_t(frameIndex) * kStatDraws;
++            for (size_t i = 0; i < draws.size(); i++)
++                for (StatTotal* t : { &g_statByPass[draws[i].pass], &g_statByShader[draws[i].ps] })
++                {
++                    t->psInvocations += s[i].PSInvocations;
++                    t->vsInvocations += s[i].VSInvocations;
++                    t->primitives += s[i].CPrimitives;
++                    t->draws++;
++                }
++            const D3D12_RANGE none{ 0, 0 };
++            g_statReadback->Unmap(0, &none);
++            g_statFrames++;
++        }
++        draws.clear();
++        static auto lastStatLog = std::chrono::steady_clock::now();
++        if (std::chrono::steady_clock::now() - lastStatLog > std::chrono::seconds(2) && g_statFrames)
++        {
++            lastStatLog = std::chrono::steady_clock::now();
++            uint64_t sum = 0;
++            for (auto& [pass, t] : g_statByPass)
++                sum += t.psInvocations;
++            const double n = double(g_statFrames);
++            Log("gpu stats: %.0f pixel shader invocations/frame over %llu frames (%.2f per output pixel at %ux%u)", double(sum) / n,
++                (unsigned long long)g_statFrames, double(sum) / n / double(std::max(1u, OutputWidth() * OutputHeight())), OutputWidth(), OutputHeight());
++            auto top = [&](std::map<uint32_t, StatTotal>& m, bool passes) {
++                std::vector<std::pair<uint64_t, uint32_t>> order;
++                for (auto& [k, t] : m)
++                    order.push_back({ t.psInvocations, k });
++                std::sort(order.rbegin(), order.rend());
++                for (size_t i = 0; i < order.size() && i < 20; i++)
++                {
++                    const StatTotal& t = m[order[i].second];
++                    char name[64];
++                    if (passes)
++                        snprintf(name, sizeof(name), "%s", order[i].second < g_statPassNames.size() ? g_statPassNames[order[i].second].c_str() : "?");
++                    else
++                        snprintf(name, sizeof(name), "ps %08X", order[i].second);
++                    Log("gpu stats: %12.0f ps inv  %10.0f vs inv  %8.0f prims  %6.1f draws  %s", double(t.psInvocations) / n, double(t.vsInvocations) / n,
++                        double(t.primitives) / n, double(t.draws) / n, name);
++                }
++            };
++            Log("gpu stats: by pass");
++            top(g_statByPass, true);
++            Log("gpu stats: by pixel shader");
++            top(g_statByShader, false);
++            g_statByPass.clear();
++            g_statByShader.clear();
++            g_statFrames = 0;
++        }
+     }
+     if (g_gpuPasses && g_passMarks[frameIndex].size() > 1)
+     {
+@@ -11869,10 +11972,21 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             C().list->IASetIndexBuffer(&indexView);
+         }
+         auto issue = [&] {
++            // REGPU_GPU_PASSES=2: this draw's pipeline statistics (begun and ended in the same list).
++            const UINT statFrame = UINT(&Frame() - g_r.frames);
++            const bool stat = g_gpuStats && g_statQueries && !C().worker && g_statDraws[statFrame].size() < kStatDraws;
++            const UINT statQuery = statFrame * kStatDraws + UINT(stat ? g_statDraws[statFrame].size() : 0);
++            if (stat)
++            {
++                g_statDraws[statFrame].push_back({ uint32_t(C().psHash), g_statPass });
++                C().list->BeginQuery(g_statQueries.Get(), D3D12_QUERY_TYPE_PIPELINE_STATISTICS, statQuery);
++            }
+             if (indexedCount)
+                 C().list->DrawIndexedInstanced(indexedCount, 1, 0, 0, 0);
+             else
+                 C().list->DrawInstanced(directIndex ? directVertices : UINT(list.size()), 1, 0, 0);
++            if (stat)
++                C().list->EndQuery(g_statQueries.Get(), D3D12_QUERY_TYPE_PIPELINE_STATISTICS, statQuery);
+         };
+         // REGPU_DRAW_CULL (DrawCull above): drawn inside a query of its own, or predicated on last frame's.
+         DrawCull::Decision cull;
+@@ -12747,6 +12861,12 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         C().list->ResolveQueryData(g_passQueries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, frameIndex * kPassMarks, n, g_passReadback.Get(),
+             UINT64(frameIndex) * kPassMarks * 8);
+     }
++    if (g_gpuStats && g_statQueries && !g_statDraws[UINT(&Frame() - g_r.frames)].empty())
++    {
++        const UINT frameIndex = UINT(&Frame() - g_r.frames);
++        C().list->ResolveQueryData(g_statQueries.Get(), D3D12_QUERY_TYPE_PIPELINE_STATISTICS, frameIndex * kStatDraws,
++            UINT(g_statDraws[frameIndex].size()), g_statReadback.Get(), UINT64(frameIndex) * kStatDraws * sizeof(D3D12_QUERY_DATA_PIPELINE_STATISTICS));
++    }
+     if (g_timestamps)
+     {
+         const UINT frameIndex = UINT(&Frame() - g_r.frames);

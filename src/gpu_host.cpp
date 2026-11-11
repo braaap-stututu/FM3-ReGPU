@@ -115,10 +115,10 @@ void DefaultEnv(const char* name, const char* value)
 //            lists hashed once a frame, draws that drew nothing last time predicated off (every other frame
 //            retested), 2_10_10_10 copies kept in 10 bits, alpha-to-mask as a plain test at 1x MSAA, pixel
 //            shaders multiply as IEEE (FM2: 42.7 -> 52.0 fps, no visible change)
-//   mild     turbo + scene at 67% (FSR 1 unless an upscaler is chosen), small off-screen passes at half scale,
-//            4x anisotropy
-//   potato   turbo + small passes at a quarter scale, reflections drawn every 3rd frame, 2x anisotropy;
-//            native resolution
+//   mild     turbo + scene at 67% (FSR 1 unless an upscaler is chosen), 4x anisotropy
+//   potato   turbo + 2x anisotropy; native resolution
+//   (session 23: the helper-pass pieces, small off-screen passes at half/quarter scale and reflections drawn every
+//   3rd frame, broke the race picture and are out of the presets: see kPresets)
 //   low      potato at 59%
 //   extreme  potato at 50%, no anisotropy
 // Mesh decimation (in the study's Hyper set) is not done: inside its run-to-run noise there, and it bends geometry.
@@ -134,13 +134,18 @@ struct PerfPreset
     int anisotropy;    // regpu::SetAnisotropy (-1 = the fetch's own)
     uint32_t quality;  // upscale_quality at least this (0 = native)
 };
+// Session 23 (PERF-RESULTS.md phase 6): in a race, smaller helper passes (REGPU_HELPER_SCALE) wash out a large
+// rectangle of the picture (one of FM3's exposure/bloom-type passes counts as a helper and is read back at the wrong
+// size), and frozen helper passes (REGPU_FREEZE_HELPERS) wash out everything above the EDRAM tile seam (a pass run
+// once per tile, frozen for one tile). Both are off in every preset until they are fixed; set either in the
+// environment to try it. Mild/Potato/Low/Extreme are now Turbo + render scale (FSR 1) + lower anisotropy.
 constexpr PerfPreset kPresets[] = {
     { "off", false, 1.0f, 0, 0, -1, 0 },
     { "turbo", true, 1.0f, 1, 0, -1, 0 },
-    { "mild", true, 0.5f, 1, 0, 4, 1 },
-    { "potato", true, 0.25f, 1, 3, 2, 0 },
-    { "low", true, 0.25f, 1, 3, 2, 2 },
-    { "extreme", true, 0.25f, 1, 3, 0, 3 },
+    { "mild", true, 1.0f, 1, 0, 4, 1 },
+    { "potato", true, 1.0f, 1, 0, 2, 0 },
+    { "low", true, 1.0f, 1, 0, 2, 2 },
+    { "extreme", true, 1.0f, 1, 0, 0, 3 },
 };
 
 const PerfPreset& CurrentPreset()

@@ -11,8 +11,8 @@ const PAGES = ["play", "profiles", "graphics", "wheel", "settings", "about"]
 const PRESETS = [
   { value: "off", name: "Off", note: "Everything drawn as the console does." },
   { value: "turbo", name: "Turbo", note: "Faster shaders and fewer wasted draws. The picture stays the same." },
-  { value: "mild", name: "Mild", note: "Turbo, with the 3D scene drawn at 67% (upscaled), softer reflections and 4x texture filtering." },
-  { value: "potato", name: "Potato", note: "Turbo at full resolution, with soft reflections updated every 3rd frame and 2x texture filtering." },
+  { value: "mild", name: "Mild", note: "Turbo, with the 3D scene drawn at 67% (upscaled) and 4x texture filtering." },
+  { value: "potato", name: "Potato", note: "Turbo at full resolution with 2x texture filtering." },
   { value: "low", name: "Low", note: "Potato with the 3D scene drawn at 59% (upscaled)." },
   { value: "extreme", name: "Extreme", note: "Potato with the 3D scene drawn at half size and no texture filtering boost. The fastest." },
 ]

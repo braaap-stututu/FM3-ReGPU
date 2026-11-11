@@ -2,6 +2,33 @@
 
 ## ▶ Current status / next step  (updated 2026-11-11, session 23)
 
+### ▶ Session 23, part 2 (2026-11-11, user AFK): every testable performance lead, hands-off (start here)
+Full results, pictures and how to read them: **[PERF-RESULTS.md](PERF-RESULTS.md)** (summary at its top); raw numbers,
+journal and every screenshot in `out/perf/s23/` (local). Harness: `tools/perf_suite.ps1` (boot to the frozen grid
+with start-time env, fps samples, shots, interleaved live A/B, CSV), phase scripts `tools/perf/session23/s23_*.ps1` (copies of `out/perf/s23_*.ps1`).
+- **Grid sameness (user's question)**: the same 7 AI drivers in the same order and spots on every boot (3 boots,
+  `FM3_AI_POOL_LOG=1` rosters). Only the crowd/pit crew/flags animate differently, plus ~50-70 single pixels on AI car
+  edges; `FM3_FIXED_DT=1` does not remove those. Within one session frozen shots are byte-identical.
+- **Made default: `FM3_RING_WAIT=2`** (`src/hooks/ring_wait.cpp`, L11): D3D's ring/fence wait sleeps ~100 us instead
+  of spinning: same fps at 1440p 4x and 720p 1x, same frame times, identical pictures, game CPU -17-19%.
+  `FM3_RING_WAIT=0` (live) = old spin.
+- **Fixed: Mild/Potato/Low/Extreme presets broke the race picture** (white rectangles). Cause: `REGPU_HELPER_SCALE`
+  (an exposure/bloom-type pass counted as a helper) and `REGPU_FREEZE_HELPERS` (a per-tile pass frozen for one tile).
+  Both are out of the presets (`src/gpu_host.cpp` kPresets, launcher texts); all six presets checked in a race.
+- New: L15 driver exports (`src/main.cpp`), ReGPU patch `regpu-gpu-stats` (`REGPU_GPU_PASSES=2`: pipeline statistics
+  per draw: overdraw by pass and pixel shader; 22 ReGPU patches now), `tools/analysis/pngdiff_mask.py` (diff with the
+  crowd masked), `pngdiffimg.py` (diff picture), launcher build with the fixed presets.
+- Key numbers (1440p 4x, frozen grid, ~220 fps): vertex arena +10.5%, alpha-test-free +4.1%, draw thread +17.5%
+  (all already default); **lean fetch 1 + plain multiply + 10-bit copies +5.1%** (not default: needs a drive);
+  Turbo +3.5%; L3 optimised shaders -6%, L9 submit-512 -5.7% (but +5.3% when CPU-bound), draw cull -1.3%.
+  GPU frame 4.39 ms, 68% the main scene pass; car paint `e41e183a423e6f1b` 0.5 ms (17 fetches, not overdraw).
+  **CPU-side ceiling ~231 fps** (720p 1x): GPU-only savings stop at about +5% on this PC.
+- `perf_log` was off for the runs; the user's settings.ini is restored (backup `settings.ini.s23-backup`). The save
+  changed from ~40 boots (career not advanced: still the CrownJewel grid); backup `out/profile-backups/s23-grid-route-start`.
+- **Next (ask the user):** decide the +5.1% set (a drive: sun/glare/paint/liveries), I8 anisotropy (visible),
+  L30 fetch variants for the car shaders, CPU-side cuts (L8/L28) to lift the ~231 ceiling, fixing the helper passes
+  for FM3 (then presets could gain again), L6 RGP profile of the paint shader.
+
 ### ▶ Session 23 (2026-11-11): test grid by itself + frozen world (start here)
 - **Merged** the cloud research branches (sessions 21, 21b, 22) into `main`: PERF-PLAN.md, RESEARCH.md studies, NOTES.
 - **`FM3_FREEZE_TIME`** (LiveSwitch, `src/hooks/frame_time.cpp`): main-loop dt 0, the world stops (cars, cameras,
@@ -637,6 +664,11 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-11 — session 23 part 2 (performance leads, hands-off)
+- Phases on the frozen grid: boot check (3 boots), 1 live switches, 3 GPU time/overdraw, L11, fixed-dt, 2 start-time
+  switches, 4 CPU-bound (720p 1x), 5 stacked pieces (3 rotated rounds), 6 preset bug isolation, 7 presets after the
+  fix, 8 L11 frame pacing. Details and tables: PERF-RESULTS.md. Harness bug found and fixed on the way (CSV rows with
+  no shot were dropped; phase 3/4 numbers kept in the journal).
 ### 2026-11-11 — session 23 (research merge, frozen world, test-grid route)
 - Merged cloud branches `ccr-acb8fc05-rpzqri` (sessions 21/22) and `ccr-2e46a7d8-wv8coh` (21b, Anti-Lag 2/Reflex);
   conflicts were additions on both sides (kept both; the Anti-Lag session renamed 21b).

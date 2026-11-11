@@ -14,6 +14,15 @@ adopted or dropped.
 - Current race-grid baseline: ~213 fps (CrownJewel, 8th, paused, 1440p 4x, after `regpu-split-alpha-test`).
   Run-to-run spread is ±3%: use interleaved rounds (`tools/fm3_ab.ps1`) for anything small.
 
+## Session 23 results (2026-11-11): see [PERF-RESULTS.md](PERF-RESULTS.md)
+Measured hands-off on the frozen test grid (`grid_test=1`). Settled: L1 keep (+10.5%), L2 keep (+4.1%), L3 loss (-6%),
+L4 closed (car shaders not overdrawn: no pre-pass), L5 = I2 (already in ReGPU), L9 loss (-5.7%), L11 built
+(`FM3_RING_WAIT=2`: -19% CPU, same fps), L13 loss (-2.3%), L15 built (driver exports), L24 dropped (resolves are a
+small share), L26 answered (68% of the GPU frame is the main scene pass), L35 closed (0 reloads on the frozen grid),
+I1 loss (-1.3%), I2 lean1 +2.6%, I3 +2.7%, I4a 0, I4b +2.3% (rounding-only picture change), I5 0, I8 +1.7% (visible),
+V1 Turbo +3.7%; **Mild/Potato/Low/Extreme break the race picture** (white rectangles). I6 not in our ReGPU. V8 no
+switch. Open: L30 (the car paint makes 17 fetches through the full helper), L6 (RGP profile), the CPU-bound runs.
+
 ## Legend
 **Picture**
 - **Lossless**: same pixels by design (check with `tools/analysis/pngdiff.py` anyway).
