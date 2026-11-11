@@ -2,6 +2,20 @@
 
 ## ▶ Current status / next step  (updated 2026-11-11, session 24)
 
+### ▶ Session 24, part 3 (2026-11-11): CPU side (start here)
+- CPU-bound grid (settings.ini 1280x720 msaa 1, backed up and restored): ~214 fps minimized. `tools/perf/threads.ps1`
+  (CPU per OS thread, named, no cost): **ReGPU's draw thread ("gpu draw worker") 95% of a core = the limit**; CP (t9)
+  57%, game t3 35%, t7 31%, command list replay 10%, xma decoder 8%; ~2.8 cores in all.
+- Draw-thread profile (`FM3_SAMPLE_THREAD=name:gpu draw worker`, new; `FM3_SAMPLE_CALLERS`/`FM3_SAMPLE_LINES` live):
+  ~11% waiting; `DrawImpl` body 21%; pass-scale helpers ~10% (BigPassSize, PassScale, ScaleY, TallView, ScaleWide,
+  WindowScissor); content hashing ~6%; locks ~5.5% (mostly `IsPsEditAlias`); `getenv` 1.2% from **our**
+  `ExperimentWriteback` (FM3_WRITEBACK read at every resolve).
+- Cut (patch `regpu-draw-thread-cuts` + `src/gpu_host.cpp`): no mutex in `IsPsEditAlias` without live edits,
+  `FetchShader` memo per thread, `FM3_WRITEBACK` read 4x a second. 211.7/217.3 -> 220.7/220.2 fps (two boots each,
+  ~+2.8%, noise +-1.5%). Remaining profile is flat: DrawImpl body 21%, waits ~10%, VertexCache mutex release 2.7%,
+  upload hashing 2.5%, shader-load memcmp (`FrameOnShaderLoad`) 3.4%, pass-scale helpers ~4%. Next: ask the user
+  (structural: L8 per-draw state reuse, L28 handoff; or the small ones above).
+
 ### ▶ Session 24, part 2 (2026-11-11): L6 shader profile + L30 fetch variants (start here)
 - **L6** (RGA 2.15 downloaded with the user's OK to `G:/claude code projects/tools/rga-2.15`, outside the repo):
   `tools/rga_shaders.ps1 -RootSig <file> -Hlsl <files>` compiles translated pixel shaders for RDNA3 through the driver

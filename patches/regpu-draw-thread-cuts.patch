@@ -1,0 +1,57 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index fd1a170..57aa717 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -3997,12 +3997,15 @@ std::unordered_map<uint64_t, uint64_t> g_psEditAlias; // shader -> alias
+ std::unordered_map<uint64_t, std::string> g_psEditExpr; // alias -> the expression it returns
+ std::atomic<bool> g_psEdits{ false };
+ std::unordered_set<uint64_t> g_psEditEver; // every alias made (kept out of the pipeline manifest)
++std::atomic<bool> g_psEditAny{ false };    // g_psEditEver has one (IsPsEditAlias's fast path)
+ // The debug server's drawstats: draws per (vs, ps) over one frame.
+ std::atomic<int> g_drawStats{ 0 }; // 1 armed for the next frame, 2 counting, 0 off
+ std::mutex g_drawStatsMutex;
+ std::map<std::pair<uint64_t, uint64_t>, uint32_t> g_drawStatsCounts;
+ bool IsPsEditAlias(uint64_t hash)
+ {
++    if (!g_psEditAny.load(std::memory_order_acquire))
++        return false; // (no live shader edit this session: no lock on the draw path)
+     std::lock_guard lock(g_psEditMutex);
+     return g_psEditEver.count(hash) != 0;
+ }
+@@ -4615,7 +4618,27 @@ const CompiledShader* FetchVariantOf(const CompiledShader& base, uint32_t mask)
+ // nullptr until the variant is compiled (the draw uses its base meanwhile) or if it can't be made.
+ const CompiledShader* FetchShader(const CompiledShader& base, uint32_t mask)
+ {
+-    const CompiledShader* f = FetchVariantOf(base, mask);
++    // (Per thread, the variants already looked up: shaders and variants are never freed.)
++    struct Key
++    {
++        const CompiledShader* base;
++        uint32_t mask;
++        bool operator==(const Key&) const = default;
++    };
++    struct KeyHash
++    {
++        size_t operator()(const Key& k) const { return std::hash<const void*>()(k.base) ^ (size_t(k.mask) * 0x9E3779B97F4A7C15ull); }
++    };
++    thread_local std::unordered_map<Key, const CompiledShader*, KeyHash> memo;
++    const Key key{ &base, mask };
++    const CompiledShader* f;
++    if (auto it = memo.find(key); it != memo.end())
++        f = it->second;
++    else
++    {
++        f = FetchVariantOf(base, mask);
++        memo.emplace(key, f);
++    }
+     return f && f->IsReady() ? f : nullptr;
+ }
+ 
+@@ -13341,6 +13364,7 @@ uint64_t RendererEditPixelShader(uint64_t hash, const std::string& expr)
+         g_psEditAlias[hash] = alias;
+         g_psEditExpr[alias] = expr;
+         g_psEditEver.insert(alias);
++        g_psEditAny.store(true, std::memory_order_release);
+     }
+     g_psEdits = !g_psEditAlias.empty();
+     return alias;

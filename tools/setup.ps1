@@ -43,6 +43,7 @@ $regpuPatches = @(
     'regpu-gpu-stats'                # REGPU_GPU_PASSES=2: pipeline statistics per draw (overdraw by pass and pixel shader)
     'regpu-seed-variants'            # first boot: seed pipelines use the alpha-test-free variant; don't wait for single slow shaders
     'regpu-fetch-variants'           # REGPU_FETCH_VARIANTS: pixel-shader variants with plain texture fetches (L30); REGPU_DUMP_ROOTSIG
+    'regpu-draw-thread-cuts'         # draw thread: no mutex in IsPsEditAlias without live edits, fetch-variant lookups memoised per thread
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

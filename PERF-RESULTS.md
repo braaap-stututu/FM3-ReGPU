@@ -12,6 +12,11 @@ where two plain boots N1/N2 differ: the crowd), `pngdiffimg.py A B OUT [thr] [x0
 Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleaved live A/B, CSV), the phase scripts in
 `tools/perf/session23/s23_*.ps1` (copies of `out/perf/s23_*.ps1`).
 
+## Session 24 (2026-11-11): CPU side
+- CPU-bound grid (1280x720, msaa 1, minimized): ReGPU's draw thread 95% of a core (the limit), CP 57%, game t3 35%,
+  t7 31% (`tools/perf/threads.ps1`). Lock and getenv cuts (`regpu-draw-thread-cuts`, host `FM3_WRITEBACK`
+  throttle): 211.7/217.3 -> 220.7/220.2 fps (two boots each). Profile details: NOTES session 24 part 3.
+
 ## Session 24 (2026-11-11): L6 shader profile, L30 fetch variants
 - RGA (`tools/rga_shaders.ps1`, RDNA3 gfx1100): car paint `e41e183a423e6f1b` 80 VGPRs, 117,056 bytes of code (236 sample
   instructions for 17 fetches, 1,064 branches); `510c814e1a4ef99e` 58 VGPRs, 97,300 bytes; `b117fbafcc1fa980` 46 / 33,040;

@@ -11,6 +11,7 @@
 
 #include <windows.h>
 #include <dbghelp.h>
+#include <tlhelp32.h>
 
 #include "indirect.h"
 #include "live_switch.h"
@@ -590,16 +591,51 @@ void StartThreadProfiler()
     static const char* env = getenv("FM3_SAMPLE_THREAD");
     if (!env)
         return;
-    const uint32_t target = uint32_t(atoi(env)); // 0 with "w": the first draw piece worker
-    std::thread([target] {
+    const uint32_t target = uint32_t(atoi(env));
+    // "name:<text>" (session 24): a host thread whose description starts with the text, e.g. ReGPU's draw thread
+    // ("name:gpu draw worker"); the first one found is kept.
+    const std::wstring hostName = strncmp(env, "name:", 5) == 0 ? std::wstring(env + 5, env + strlen(env)) : std::wstring();
+    std::thread([target, hostName] {
         std::unordered_map<std::string, uint64_t> counts;
         uint64_t samples = 0;
         auto lastLog = std::chrono::steady_clock::now();
+        HANDLE hostThread = nullptr;
         for (;;)
         {
             Sleep(1);
             HANDLE handle = nullptr;
-            // (FM4's "w" = ReGPU's draw worker needs its vendored ReGPU; guest threads only here.)
+            if (!hostName.empty())
+            {
+                if (!hostThread)
+                {
+                    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+                    THREADENTRY32 te{ sizeof(te) };
+                    for (BOOL more = Thread32First(snap, &te); more && !hostThread; more = Thread32Next(snap, &te))
+                    {
+                        if (te.th32OwnerProcessID != GetCurrentProcessId())
+                            continue;
+                        HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_LIMITED_INFORMATION, FALSE, te.th32ThreadID);
+                        PWSTR desc = nullptr;
+                        if (h && SUCCEEDED(GetThreadDescription(h, &desc)) && desc && wcsncmp(desc, hostName.c_str(), hostName.size()) == 0)
+                        {
+                            hostThread = h;
+                            Log("profile: sampling host thread %lu (%S)", te.th32ThreadID, desc);
+                        }
+                        else if (h)
+                            CloseHandle(h);
+                        if (desc)
+                            LocalFree(desc);
+                    }
+                    CloseHandle(snap);
+                    if (!hostThread)
+                    {
+                        Sleep(500);
+                        continue;
+                    }
+                }
+                handle = hostThread;
+            }
+            else
             {
                 std::lock_guard lock(g_threadsMutex);
                 for (auto& [kthread, weak] : g_threadsByKthread)
@@ -689,7 +725,7 @@ void StartThreadProfiler()
                 for (auto& [n, k] : counts)
                     top.push_back({ k, n });
                 std::sort(top.rbegin(), top.rend());
-                Log("profile: thread %u, %llu samples", target, (unsigned long long)samples);
+                Log("profile: thread %u%S, %llu samples", target, hostName.c_str(), (unsigned long long)samples);
                 for (size_t i = 0; i < top.size() && i < 60; i++)
                     Log("profile: %5.1f%% %s", top[i].first * 100.0 / samples, top[i].second.c_str());
                 counts.clear();

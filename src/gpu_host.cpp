@@ -77,6 +77,29 @@ bool ExperimentWriteback(const regpu::ResolveCopy& c)
     static std::mutex m;
     static std::string text;
     static std::set<std::pair<uint32_t, uint32_t>> sizes, logged;
+    // (Asked at every resolve: the variable is read 4 times a second, and nothing is locked while it is unset.)
+    static std::atomic<int64_t> nextRead{ 0 };
+    static std::atomic<bool> any{ false };
+    const int64_t now = GetTickCount64();
+    if (now < nextRead.load(std::memory_order_relaxed))
+    {
+        if (!any.load(std::memory_order_relaxed))
+            return false;
+    }
+    else
+    {
+        nextRead.store(now + 250, std::memory_order_relaxed);
+        const char* v = getenv("FM3_WRITEBACK");
+        any.store(v && *v, std::memory_order_relaxed);
+        if (!(v && *v))
+        {
+            std::lock_guard lock(m);
+            text.clear();
+            sizes.clear();
+            logged.clear();
+            return false;
+        }
+    }
     const char* env = getenv("FM3_WRITEBACK");
     std::lock_guard lock(m);
     if ((env ? env : "") != text)
