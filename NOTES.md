@@ -62,6 +62,11 @@
   draws 1,700-2,500), so the mirror's own share is between the grid's +2-5% and that. **User decision: stays an
   opt-in launcher toggle, off by default** (at ~60 fps a 30 Hz mirror may look choppy). The user's own settings.ini
   has `mirror_rate=2`.
+  **Lower-resolution mirror (user request): no gain.** Tested with `REGPU_HELPER_SCALE` limited to the mirror's
+  400-pitch surface (temporary filter, not kept): grid cockpit, perf log, mirror at 1 / 0.5 / 0.25 / 1 of the
+  output's scale: 258.0 / 256.8 / 258.0 / 259.8 fps, GPU 3.72 / 3.74 / 3.72 / 3.70 ms; the mirror visibly blurrier
+  at 0.25 (34% of its pixels). Its pass is ~0.2 ms of GPU and cockpit is draw-thread-limited: the draws, not the
+  pixels, cost. (`REGPU_HELPER_SCALE` alone still scales all small passes, for weak GPUs.)
   Side note: the cockpit capture's main pass ran on `14000500` (1x, depth 2D0) with one tile on: check whether the
   cockpit view uses another tiling scenario.
 - Then from PERF-PLAN "Next up": L37 rect clears as real clears, L39/L40/L14, the rest.

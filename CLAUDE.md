@@ -102,6 +102,7 @@ VS 2022 Build Tools 17.14 (MSVC 14.44, bundled CMake 3.31.6 + Ninja 1.12.1), Win
 **FidelityFX SDK 2.1.0** at `G:/claude code projects/tools/FidelityFX-SDK-2.1.0`, junctioned as `thirdparty/fidelityfx`. **FFmpeg 8.1 LGPL shared** (BtbN, checksum-verified) in `thirdparty/ffmpeg`; the winget Gyan.FFmpeg GPL static build is exe-only and not used. Optional (ask first): numpy.
 
 ## Gotchas learned the hard way
+- **Never `git checkout` a file inside `thirdparty/ReGPU` to undo an experiment:** the working tree holds the whole patch stack, so that drops every patch's changes to the file (session 26: link errors). Undo only your edit, or restore the file from the stack: scratch index (`read-tree HEAD` + `git apply --cached` of every patch) then `git checkout-index -f -- <file>`, and verify with `tools\setup.ps1 -NoBuild`.
 - **Line endings:** the global git `core.autocrlf=true` turns patch files into CRLF, so `git apply` fails. Use `.gitattributes` with `*.patch -text` (keep `.cmd/.bat/.ps1` CRLF). hl360 + its SDK already have repo-local fixes. The reference clones' working trees are CRLF too: take patch files from their git objects (`git show HEAD:path`), not by copying.
 - **Long paths:** some submodules (vulkan-loader) need `core.longpaths=true` (set repo-locally).
 - **Guest addresses move between runs**: diff dumps by content hash / (size, format, first-use order), never by address.
