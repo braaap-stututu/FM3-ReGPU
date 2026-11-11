@@ -16,7 +16,7 @@ const PRESETS = [
   { value: "low", name: "Low", note: "Potato with the 3D scene drawn at 59% (upscaled)." },
   { value: "extreme", name: "Extreme", note: "Potato with the 3D scene drawn at half size and no texture filtering boost. The fastest." },
 ]
-const SWITCHES = ["vsync", "anisotropy", "hideShaderOverlay", "timer", "debugServer", "perfLog", "drawWorkers", "engineCrossfade", "skipIntro", "quickRace"]
+const SWITCHES = ["vsync", "anisotropy", "hideShaderOverlay", "timer", "debugServer", "perfLog", "drawWorkers", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
 
 // ---- host calls
 

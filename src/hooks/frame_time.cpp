@@ -30,6 +30,12 @@
 // Read every second, so the debug server can set them live (Fm3 "env NAME 1"):
 // FM3_GAME_FRAME_TIME=1 keeps the game's millisecond dt (A/B); FM3_FRAMETIME_LOG=1 logs dt
 // statistics every 10 s.
+//
+// Freeze (session 23, LiveSwitches, any frame rate): FM3_FREEZE_TIME=1 makes the main loop's dt 0, so the
+// world stops (cars, cameras, countdown, race clock) while every frame is still drawn: two screenshots of a
+// frozen race grid are byte-identical. The test-grid route (grid_test.cpp) freezes through FrameTimeFreeze and
+// sets the variable too, so FM3_FREEZE_TIME=0 lets the race go on. FM3_FIXED_DT=1 makes dt exactly 1/target
+// fps (game time = frame count; not tried yet). Main frames of 250 ms or more are logged as loads.
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -40,6 +46,7 @@
 
 #include "hooks/frame_time.h"
 #include "kernel/imports.h"
+#include "live_switch.h"
 #include "log.h"
 
 namespace
@@ -173,12 +180,77 @@ PPC_FUNC(sub_822580C8)
     __imp__sub_822580C8(ctx, base);
 }
 
+namespace
+{
+std::atomic<bool> g_freezeByRoute{ false };
+std::atomic<uint64_t> g_mainFrames{ 0 }, g_lastLongFrame{ 0 };
+
+// The main loop's frame time this frame (sub_821F6AF8 has set f31/r3 already): FM3_FREEZE_TIME=1 (live, or the
+// test-grid route) makes it 0, so the world stops (cars, cameras, countdown, clocks: everything the main loop
+// steps with dt) while every frame is still drawn: steady pictures without the pause menu. FM3_FIXED_DT=1 makes
+// it exactly one frame of the target rate, so game time is the frame count and two runs step alike.
+void Override(PPCContext& ctx)
+{
+    static LiveSwitch freeze("FM3_FREEZE_TIME");
+    static LiveSwitch fixed("FM3_FIXED_DT");
+    const uint64_t frame = g_mainFrames.fetch_add(1, std::memory_order_relaxed) + 1;
+    // r30 = the game's millisecond count (16 after a load of more than 4 s; the long frame itself is logged)
+    if (ctx.r30.u32 >= 250)
+    {
+        g_lastLongFrame.store(frame, std::memory_order_relaxed);
+        Log("frame time: main frame %llu took %u ms (a load)", (unsigned long long)frame, ctx.r30.u32);
+    }
+    // The route's freeze (FrameTimeFreeze) also sets FM3_FREEZE_TIME=1, so the switch going off lets it go too.
+    static bool switchWasOn = false;
+    const bool switchOn = freeze;
+    if (switchWasOn && !switchOn)
+        g_freezeByRoute.store(false, std::memory_order_relaxed);
+    switchWasOn = switchOn;
+    const bool frozen = switchOn || g_freezeByRoute.load(std::memory_order_relaxed);
+    static bool wasFrozen = false;
+    if (frozen != wasFrozen)
+    {
+        wasFrozen = frozen;
+        Log("frame time: world %s at main frame %llu", frozen ? "frozen (dt 0)" : "running again", (unsigned long long)frame);
+    }
+    if (frozen)
+    {
+        ctx.f31.f64 = 0.0;
+        ctx.r3.u64 = 1;
+    }
+    else if (fixed)
+    {
+        ctx.f31.f64 = double(float(1.0 / double(g_targetFps.load(std::memory_order_relaxed))));
+        ctx.r3.u64 = 1;
+    }
+}
+} // namespace
+
+void FrameTimeFreeze(bool on)
+{
+    g_freezeByRoute.store(on, std::memory_order_relaxed);
+}
+uint64_t FrameTimeMainFrames()
+{
+    return g_mainFrames.load(std::memory_order_relaxed);
+}
+uint64_t FrameTimeLastLongFrame()
+{
+    return g_lastLongFrame.load(std::memory_order_relaxed);
+}
+
 PPC_FUNC_IMPL(__imp__sub_821F6AF8);
 PPC_FUNC(sub_821F6AF8)
 {
-    if (ctx.lr != kFrameTimeCallReturn || g_targetFps.load(std::memory_order_relaxed) == 60 || !Precise())
+    if (ctx.lr != kFrameTimeCallReturn)
     {
         __imp__sub_821F6AF8(ctx, base);
+        return;
+    }
+    if (g_targetFps.load(std::memory_order_relaxed) == 60 || !Precise())
+    {
+        __imp__sub_821F6AF8(ctx, base);
+        Override(ctx);
         return;
     }
     // f31 = ms * 0.001 (the game's dt), r30 = ms (16 after a load of more than 4 s).
@@ -193,6 +265,7 @@ PPC_FUNC(sub_821F6AF8)
         // The first frame, or one after a load: the game's own rule.
         prev = stamp;
         __imp__sub_821F6AF8(ctx, base);
+        Override(ctx);
         return;
     }
     double dt = double(stamp - prev) / Freq();
@@ -201,4 +274,5 @@ PPC_FUNC(sub_821F6AF8)
     Account(dt, gameDt, !onTarget);
     ctx.f31.f64 = double(float(dt));
     ctx.r3.u64 = 1; // take f31 as it is (and drop the loop's carried remainder)
+    Override(ctx);
 }

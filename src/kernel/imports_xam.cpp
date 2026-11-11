@@ -8,6 +8,7 @@
 #include <fstream>
 #include <vector>
 
+#include "hooks/grid_test.h"
 #include "input/wheel/wheel_system.h"
 #include "kernel/imports.h"
 #include "kernel/runtime.h"
@@ -540,6 +541,8 @@ bool ReadPad(uint32_t user, PadState& s, bool gameRead = true)
     {
         connected = true;
         AddKeyboard(s, isWheel);
+        if (GridTestPressA()) // grid_test=1: A presses from boot to the race start (src/hooks/grid_test.cpp)
+            s.buttons |= XINPUT_GAMEPAD_A;
         static LiveSwitch autoStart("FM3_AUTOSTART");
         static const auto start = Clock::now();
         // FM3_INPUT_SCRIPT="7:START,10:A,14:RIGHT,...": press each button for

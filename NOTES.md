@@ -1,6 +1,39 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-10, session 22)
+## ▶ Current status / next step  (updated 2026-11-11, session 23)
+
+### ▶ Session 23 (2026-11-11): test grid by itself + frozen world (start here)
+- **Merged** the cloud research branches (sessions 21, 21b, 22) into `main`: PERF-PLAN.md, RESEARCH.md studies, NOTES.
+- **`FM3_FREEZE_TIME`** (LiveSwitch, `src/hooks/frame_time.cpp`): main-loop dt 0, the world stops (cars, cameras,
+  countdown, race clock), every frame is still drawn (~190 fps on the grid, 1440p 4x). Two screenshots of the frozen
+  grid 2-3 s apart: **0 pixels differ**. `Fm3 "env FM3_FREEZE_TIME 1"` / `0` anywhere, live. `FM3_FIXED_DT=1`
+  (dt = 1/target fps) is in but not tried.
+- **Test grid route** (`grid_test=1` in settings.ini, launcher "Start on the test grid", or `$env:FM3_GRID_TEST='1'`
+  before starting `play.cmd`; `src/hooks/grid_test.cpp`): presses A ~3x a second from boot (title > Forza Motorsport 3 >
+  Go Race > Season Play > calendar > event Start Race > track load > Pre-Race Start Race), stops when the race-start
+  sequence runs, and **freezes at 9.0 s of its countdown clock** (mid-"1", chase camera, AI cars on their grid spots).
+  Two runs: frozen 23.1 / 22.8 s after launch, no input from anyone. `Fm3 "env FM3_FREEZE_TIME 0"` lets the race go
+  on. Expects the Baseline profile with CrownJewel (Ladera Test Track, Short Circuit Reverse, 8th, Scion xD) as the
+  next Season Play event. `FM3_GRID_FREEZE_AT=<s>` moves the freeze point.
+- **Across two boots** the frozen grid differs in 0.65% of pixels, all in the animated grandstand crowd (left) and
+  the spectators (right): cars, track, sky and HUD are identical. Within one game session it is byte-identical. For
+  start-time A/Bs (restart between sides) compare with the crowd boxes left out, or crop to cars/track.
+- How the race start was found: the "321Tuning" settings (`sub_822E77D0` loads HumanRevScript/AIRevScript/
+  PreRaceCamsFadeOut into `0x82C37520..70`); their reader `sub_822E6AD0(this, dt)` is the race-start sequence's
+  update. Fields: phase byte +4 (3 in a career race), flags +24/+25/+26, a double clock at +16. Flags 1/1/0 = Start
+  Race taken (short load, ~1.3 s), 0/1/0 = car intro + countdown running (clock from 0), 0/1/1 at GO (clock stops at
+  9.5). Clock vs the user's video: "3" ~6.7 s, "2" ~7.7, "1" with the chase camera settled ~8.6, GO 9.5. The pre-race
+  predicate `sub_823D5600` (ShowPreRaceAnd321InCmdlineLaunch) is not called during the intro/countdown: a dead end.
+- Launcher fix: `skip_intro` and `quick_race` were read from settings.ini but never written back (the toggles did
+  nothing); now saved, with `grid_test`.
+- Virtual pad lessons: `Fm3 "hold A 400"` **latches** A until `release` (the number is ignored; use `press A 150`);
+  menus hide after ~5 s without input and the first press only wakes them; after a game restart dot-source
+  `fm3ctl.ps1` again (the old connection is dead).
+- Save backup before this session's career-race runs: `out/profile-backups/s23-grid-route-start`.
+- **Next:** use the frozen grid for the perf/picture A/Bs (PERF-PLAN step 1: live switches on the frozen grid, now
+  without the pause menu over the picture); try `FM3_FIXED_DT=1` with the route to see whether the crowd differences
+  across boots go away; maybe a "regrid" (pause > Restart > Start Race > freeze) without rebooting.
+
 
 ### ▶ Session 22 (2026-11-10, cloud, research only; branch `ccr-acb8fc05-rpzqri`)
 No code changed; the game state is as at the end of session 20/21. All findings are in RESEARCH.md (index rows marked
@@ -604,6 +637,12 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-11 — session 23 (research merge, frozen world, test-grid route)
+- Merged cloud branches `ccr-acb8fc05-rpzqri` (sessions 21/22) and `ccr-2e46a7d8-wv8coh` (21b, Anti-Lag 2/Reflex);
+  conflicts were additions on both sides (kept both; the Anti-Lag session renamed 21b).
+- User put the splash-screen skip aside (screens are mostly gone already).
+- Walked the route to CrownJewel with the virtual pad (screenshots per step), then the user recorded an A-spam boot;
+  `FM3_FREEZE_TIME` + `FrameTimeFreeze`, the route in `grid_test.cpp`, settings/launcher option. Details above.
 ### 2026-11-10 — session 22 (cloud: research: FH1R, upstream ReGPU, Sonic Unleashed, Pinyon Shift, ITC, features, VR)
 - Research only, no code (RESEARCH.md "FH1-ReImagined's latest performance work, and Sonic Unleashed Recompiled";
   new PERF-PLAN items L24–L29, I8; L10/L23 notes).

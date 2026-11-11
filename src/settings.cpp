@@ -75,6 +75,8 @@ void Load()
             g_settings.skipIntro = value == "1";
         else if (key == "quick_race")
             g_settings.quickRace = value == "1";
+        else if (key == "grid_test")
+            g_settings.gridTest = value == "1";
         else if (key == "msaa")
             g_settings.msaa = uint32_t(atoi(value.c_str()));
         else if (key == "smaa")
@@ -123,7 +125,11 @@ void Load()
         g_settings.skipIntro = atoi(v) != 0;
     if (const char* v = getenv("FM3_QUICK_RACE"))
         g_settings.quickRace = atoi(v) != 0;
-    if (g_settings.quickRace) // the route's timings assume the title screen comes up at once
+    if (const char* v = getenv("FM3_GRID_TEST"))
+        g_settings.gridTest = atoi(v) != 0;
+    if (g_settings.gridTest && g_settings.quickRace) // two routes can't share the pad
+        g_settings.quickRace = false;
+    if (g_settings.quickRace || g_settings.gridTest) // the routes assume the title screen comes up at once
         g_settings.skipIntro = true;
     if (const char* v = getenv("FM3_MSAA"))
         g_settings.msaa = uint32_t(atoi(v));
@@ -190,6 +196,7 @@ void SaveSettings()
     out << "enhance=" << (s.enhance ? 1 : 0) << "\n";
     out << "skip_intro=" << (s.skipIntro ? 1 : 0) << "\n";
     out << "quick_race=" << (s.quickRace ? 1 : 0) << "\n";
+    out << "grid_test=" << (s.gridTest ? 1 : 0) << "\n";
     out << "language=" << s.language << "\n";
     out << "msaa=" << s.msaa << "\n";
     out << "smaa=" << s.smaa << "\n";

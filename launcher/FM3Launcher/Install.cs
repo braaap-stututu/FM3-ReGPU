@@ -64,6 +64,7 @@ public sealed class GameSettings
     public int Language { get; set; } = 1;
     public bool SkipIntro { get; set; }            // skip_intro: straight to the title screen (src/hooks/boot_options.cpp)
     public bool QuickRace { get; set; }            // quick_race: Free Play > Quick Race by itself after boot (implies skip_intro)
+    public bool GridTest { get; set; }             // grid_test: the reference career race's start grid by itself, world frozen there (src/hooks/grid_test.cpp)
     // perf_preset: off, turbo, mild, potato, low, extreme (src/gpu_host.cpp ApplyPerfPreset; read by the game, so play.cmd too).
     public string PerfPreset { get; set; } = "off";
     public static readonly string[] PerfPresets = ["off", "turbo", "mild", "potato", "low", "extreme"];
@@ -79,7 +80,7 @@ public sealed class GameSettings
     public string GameFolder { get; set; } = "";
 
     // The racing wheel's wheel_* keys are the Wheel stuff tab's (Wheel.cs); Save keeps them like any other key it doesn't know.
-    static readonly string[] Known = ["profile", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "hide_shader_overlay", "timer", "perf_log", "draw_workers", "engine_crossfade", "debug_server", "game_folder"];
+    static readonly string[] Known = ["profile", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "hide_shader_overlay", "timer", "perf_log", "draw_workers", "engine_crossfade", "debug_server", "game_folder"];
 
     public static GameSettings Load()
     {
@@ -103,6 +104,7 @@ public sealed class GameSettings
                 case "language": s.Language = int.TryParse(v, out var l) && l > 0 ? l : 1; break;
                 case "skip_intro": s.SkipIntro = v == "1"; break;
                 case "quick_race": s.QuickRace = v == "1"; break;
+                case "grid_test": s.GridTest = v == "1"; break;
                 case "perf_preset": s.PerfPreset = PerfPresets.Contains(v) ? v : "off"; break;
                 case "anisotropy": s.Anisotropy = v != "0"; break;
                 case "hide_shader_overlay": s.HideShaderOverlay = v == "1"; break;
@@ -127,6 +129,7 @@ public sealed class GameSettings
         sb.Append($"msaa={(Options.Msaa.Any(x => x.Value == Msaa) ? Msaa : 1)}\n");
         sb.Append($"upscaler={(Options.Upscalers.Any(u => u.Value == Upscaler) ? Upscaler : "off")}\nupscale_quality={Math.Clamp(Upscale, 1, 4)}\nsharpness={sharp}\n");
         sb.Append($"language={Language}\n");
+        sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n"); // (session 23: these three were read but never saved)
         sb.Append($"perf_preset={(PerfPresets.Contains(PerfPreset) ? PerfPreset : "off")}\n");
         sb.Append($"anisotropy={B(Anisotropy)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nperf_log={B(PerfLog)}\ndraw_workers={B(DrawWorkers)}\nengine_crossfade={B(EngineCrossfade)}\ndebug_server={B(DebugServer)}\n");
         sb.Append($"game_folder={Clean(GameFolder)}\n");
