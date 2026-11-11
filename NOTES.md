@@ -36,6 +36,11 @@
   them: level 2 = -50 draws, picture 0.09% different, **fps unchanged** (227.1 / 228.0 / 225.7 at 0/1/2; half rate
   258.8 vs 257.9). Car draws are per material, not per detail level (as `fastcarrender` showed in session 19): a
   lower car LOD is no lever. What would help is fewer car draws in the mirror: glass off (+10%, visible) or fewer cars.
+- **Cockpit tiling check (done):** captures on the user's Catalunya race (one tile on), cockpit vs chase: both main passes
+  on surface `14000500` (1,579 / 1,548 draws); the race set up scenario 1 as one tile (`one tile: scenario 1 (2 tiles)
+  drawn as one 1280x720 tile`). Cockpit view uses no other scenario. The hood view shows a virtual rear-view mirror
+  too (the mirror cost applies there as well). Careful: `FM3_FREEZE_TIME 1` did not fully hold after GO (race clock
+  moved ~2 s over two captures and camera presses).
 - Note: `quick_race=1`'s pad route stops one A short of Start Race (pre-race menu), then the track fly-over runs.
 
 ### ▶ Start here (session 27): state at the end of session 26 (2026-11-11)
