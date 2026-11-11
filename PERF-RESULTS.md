@@ -20,6 +20,12 @@ Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleave
 - Frozen grid, live A/B of `REGPU_FETCH_VARIANTS` with `REGPU_GPU_PASSES=1`: GPU frame 4.38/4.42/4.44/4.44 ms off vs
   4.28/4.32/4.32/4.32 on (-0.11 ms, -2.5%). fps: -0.3% (5 rounds) and +1.2% (3/3 rounds) in two sessions (CPU ceiling).
   Pictures: 0 pixels differ (live, same session). Now the default.
+- **User drive with it (CrownJewel career race, ~3 laps, log 25.4-196 s, same settings as the S23 drives):** 300.6 fps
+  average, 1% low 195, lowest 60-frame stretch 182, none under 180 (S23 drive 1: 258.0 average, lowest 91). Not a
+  clean A/B (different laps and traffic; drive 1 also had plain multiply), but every 10 s block of lap 1 was higher
+  (251/262/222/275 vs 235/235/211/236). One compile in the race: `ps dd492c7cb9ec6a9f` at 59 s (a fetch variant, in
+  the background), the same shader whose first build made drive 1's worst dip (91 fps); this time no dip. No errors,
+  no failed compiles, long frames only during loads. Graph: `out/perf/s24/drive-l30.html`, log `drive-l30.log`.
 
 ## Summary (read first)
 **Kept / made default**
