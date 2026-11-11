@@ -141,6 +141,7 @@ The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch
 | L41 | **Half-rate rear-view mirror** (cockpit view: the mirror's scene render `sub_827FDB88` every Nth frame) | **Built session 26, opt-in** (`mirror_rate=2`, launcher Testing "Half-rate mirror", live `FM3_MIRROR_RATE`); user drove it: "looked good", cockpit 214 -> ~240 fps (traffic differed), grid +2-5%. Off by default (user): 30 Hz mirror at 60 fps | Cockpit view, CPU-bound | Live | Visible (mirror one frame late) |
 | L42 | **Mirror `VisibilityThreshold`** (per-track TrackSettings.xml; 32 on most tracks) | Tested session 26: 2000 = -2.7% draws, +3.5% fps in cockpit; **rejected by the user** (mirror draw distance short already). Mod `out/user/mods/_mirror2000` (disabled) | Cockpit view | Start (track load) | Visible |
 | L43 | **Lower-resolution mirror** (`REGPU_HELPER_SCALE` on the mirror's 400-pitch surface only) | Tested session 26: **no gain** (fps/GPU same at 1/2, 1/4; mirror blurrier); filter not kept | - | Start | Visible |
+| L44 | **Mirror: skip car shadow blobs / lower car LOD** (session 27 capture: mirror = 30% of a race grid's draws; cars 369, shadow blobs 128 of 964) | Not built; shadow blobs = ps `1e5b88c3dde5cc88` in the mirror pass only; car LOD: find how the mirror picks it | Cockpit view, CPU-bound | Live | Visible (small) |
 
 ## 2. Lossless in intent (needs a numeric picture check and a drive)
 | # | Item | Status | Helps on | Live A/B | Risk / note |

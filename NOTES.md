@@ -2,6 +2,18 @@
 
 ## ▶ Current status / next step  (updated 2026-11-11, end of session 26)
 
+### Session 27 (2026-11-11): what the mirror draws (Free Play quick race, Catalunya, 4th of 8, cockpit)
+- The user drove to the grid; capture (mirror every frame, `FM3_MIRROR_RATE=1` live, world frozen): **964 of 3,164
+  draws (30%) are the mirror pass** (surface `06010190`, scissor 384x128, one unbroken run #427-1390, one resolve),
+  vs ~150 on the empty test-grid mirror. By group (tinted live, `out/perf/s27mirror/montage.png`): **cars 369**
+  (blend 07060706 shaders; 4 cars behind), **other world 273** (track, grass, barriers, buildings), **pit wall +
+  fence 161** (ps `c90e1b9eab1212f3`, main view only 23), **car shadow blobs 128** (ps `1e5b88c3dde5cc88`, multiply
+  blend, 64x64 texture, mirror-only variant: only a faint dark patch under the car behind), trees 34.
+- Leads (cheaper than a two-colour mirror, which would keep every draw): skip the shadow blobs in the mirror only
+  (~13% of the mirror, near-invisible); a lower car LOD in the mirror (cars are ~38%: check whether FM3 picks the
+  mirror's car LOD by size); the pit wall's 161 small pieces are visible, leave them.
+- Note: `quick_race=1`'s pad route stops one A short of Start Race (pre-race menu), then the track fly-over runs.
+
 ### ▶ Start here (session 27): state at the end of session 26 (2026-11-11)
 - **Built in session 26 (all pushed; details in the section below):**
   - **L36 one guest tile**, opt-in (launcher Settings > Testing "One guest tile" = settings.ini `one_tile=1`,
