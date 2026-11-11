@@ -6,6 +6,9 @@ Sources and older numbers stay in those files; this file is the to-do list. Upda
 adopted or dropped.
 
 ## Where we stand (read first)
+- **Since session 24 the GPU and the CPU limit this PC almost equally** (frozen grid ~225 fps at 1440p 4x; CPU-bound
+  720p 1x ~238 fps, ReGPU's draw thread ~93% of a core). Gains now need both sides; see "Next up" below. The older
+  bullets are kept for history.
 - **On the user's PC (RX 7900 XTX, 1440p 4x MSAA) the GPU is the limit**: ~96% busy on the race grid (4.8 of 5.0 ms).
   The game's render thread t7 mostly spin-waits on ReGPU (session 20 profile), and cutting cheap draws (crowd, car
   LODs) moves nothing. Only **GPU-side** items can raise fps there; CPU-side items help weaker CPUs, laptops and power.
@@ -22,6 +25,31 @@ small share), L26 answered (68% of the GPU frame is the main scene pass), L35 cl
 I1 loss (-1.3%), I2 lean1 +2.6%, I3 +2.7%, I4a 0, I4b +2.3% (rounding-only picture change), I5 0, I8 +1.7% (visible),
 V1 Turbo +3.7%; **Mild/Potato/Low/Extreme break the race picture** (white rectangles). I6 not in our ReGPU. V8 no
 switch. Open: L30 (the car paint makes 17 fetches through the full helper), L6 (RGP profile), the CPU-bound runs.
+
+## Session 24 results (2026-11-11): see PERF-RESULTS.md "Session 24" and NOTES session 24 parts 1-3
+Built and default: L16 (first-boot static shader scan + pipeline seed with vertex variants, `regpu-seed-variants`:
+cold boot waits ~35 s, then no race hitch), L30 (`regpu-fetch-variants`: plain-fetch pixel-shader variants, car paint
+117 -> 20 KB of GPU code, GPU frame -2.5%, byte-identical, user drove it: normal), L28 (`regpu-reg-skip`, +8.1%
+CPU-bound), shader-load repeat skip (`regpu-shader-repeat-skip`, +2.4%), draw-thread lock cuts
+(`regpu-draw-thread-cuts`, ~+2.8%). L6 done offline with RGA (`tools/rga_shaders.ps1`). **CPU-bound grid (720p 1x):
+214.5 -> 237.6 fps (+10.8%)**; ReGPU's draw thread is still the CPU limit (~93% of a core), the CP ~55-62%.
+Tools: `tools/perf/threads.ps1` (CPU per thread), `FM3_SAMPLE_THREAD=name:gpu draw worker` (+`FM3_SAMPLE_CALLERS`,
+`FM3_SAMPLE_LINES`, `FM3_SAMPLE_RVA`, all live), `FM3_MINIMIZED=1` (all automated boots), `REGPU_DUMP_ROOTSIG`.
+
+## Next up (from session 25; ask the user which)
+1. **Cockpit cam performance** (user, open): measure per camera view while the race runs (GPU passes per view,
+   `threads.ps1`), GPU or CPU? Then the matching lead below.
+2. **Draw thread, still the CPU limit:** the unexplained 6-8% at `~PsAlias` (a 16-byte store waiting behind earlier
+   stores: find what precedes it with `FM3_SAMPLE_RVA` + `llvm-objdump`), the VertexCache lock (2.7%, contended: who
+   else takes `g_textureMutex`?), upload hashing (2.5%, the I5 risk), pass-scale helpers (~4%, state can change inside a
+   draw), L28's second half (coherency waits from the shadow), L12 (does ReGPU's present wait for the replay?), L10 tile
+   merge (big, PGR4 +19%).
+3. **GPU side on this PC:** shader `510c814e1a4ef99e` (97 KB) gets no L30 variant (some texture not plain: find which),
+   sampler index as a literal in `TFetchPlain`, the remaining car paint cost (math/sampling: RGA ISA), plain multiply
+   per shader (I3 without the black flags), V8 reflection cubes less often (find FM3's rate).
+4. **Other machines:** L14 core gating (4 cores), V4 iGPU defaults, L17-L22 memory items, V5 SMAA, I7 16-bit shaders.
+5. **Stutter:** L32 (pipelines per frame in parallel), L33 long-frame sampler, L34 SIMD untile, L29 (needs FM3's
+   load-done flag).
 
 ## Legend
 **Picture**
@@ -57,7 +85,7 @@ switch. Open: L30 (the car paint makes 17 fetches through the full helper), L6 (
 | L5 | **4-entry sampler table** (FM2 ce5bf5a: 2 sample instructions per fetch instead of ~8) | Not built; root signature change in ReGPU | GPU-bound | **Start-time** (root signature and shaders built once; separate shader cache key) | FM2: 213.8 → 225.2 fps (4070, 1440p) |
 | L6 | **Profile translated car shaders** (Radeon GPU Profiler / Analyzer on the 7900 XTX) | **Done (S24, RGA offline: `tools/rga_shaders.ps1`)**: car paint 80 VGPRs (fine), 117 KB code from the fetch paths -> L30. RGP frame capture not done | GPU-bound | n/a (tool) | Finds the heaviest shaders (VGPRs, occupancy) → translator fixes. Also says whether 16-bit (V-items) could pay |
 | L7 | **Occlusion results resolved once a frame** (PGR4, `REGPU_RESOLVE_EACH_QUERY` = old) | Not built; touches our `regpu-zpd-tile-spans` and `regpu-worker-queries` patches | CPU-bound, some GPU | **Planned live** | PGR4 ~3%. Check sun flare at the Montserrat sun spot (answers must stay the same frame) |
-| L8 | **Per-draw command-processor cuts** (FH1R ideas: reuse unchanged render-target setup, no locked `xchg` per draw, descriptor/binding reuse; cache `GameSettled`/`RendererTracing` per packet) | Not built | CPU-bound | **Planned live** (one switch per cut) | FH1R 5–10% on its CP; the two caches ~3% of t9 (S14 profile). Skipping unchanged constant writes measured worse in FH1R: skip that one |
+| L8 | **Per-draw command-processor cuts** (FH1R ideas: reuse unchanged render-target setup, no locked `xchg` per draw, descriptor/binding reuse; cache `GameSettled`/`RendererTracing` per packet) | **Partly (S24)**: ReGPU already skips unchanged D3D state per draw (viewport, scissor, stencil ref, blend factor, tables, topology, IB, PSO); lock cuts in `regpu-draw-thread-cuts`; PS-constant block reuse tried: -2.4%, reverted. Left: descriptor/constant upload cost in `DrawImpl` | CPU-bound | **Planned live** (one switch per cut) | FH1R 5–10% on its CP; the two caches ~3% of t9 (S14 profile). Skipping unchanged constant writes measured worse in FH1R: skip that one |
 | L9 | **`REGPU_SUBMIT_DRAWS=512`** | Switch in our pin, unknown with the draw thread | CPU-bound (may cost when GPU-bound) | **Start-time** | PGR4 FX +23%; FM2 (GPU-bound) −4…−17% |
 | L10 | **Tile merge for FM3's race scene** (ReGPU refuses surfaces that clear each tile with rectangles; also make it work with the draw thread) | Not built (ReGPU patch, game-neutral) | CPU-bound (half the scene's commands), some GPU | Live only with `FM3_NO_DRAW_THREAD=1` at start, then `REGPU_NO_TILE_MERGE` live; with the draw thread: **planned live** | PGR4 +19%, FH1R one-pass scene +15%. Large; S18 measured 0 gain as is (scene refused); FH1R (S22): merging FH1's 3 tiles saved nothing once fixed, now off there |
 | L11 | **Ring wait sleeps instead of spinning** (t7 spins ~65%; FM3 hook on `sub_824B5048` → `sub_824AAA68`, ReGPU `WakeByAddressAll` after its guest writes) | Not built | 4-core CPUs, laptops/APUs (power); 0 on desktops | **Planned live** (`FM3_*` LiveSwitch) | FH1R: render thread 86 → 45% of a core, +10% fps on a 4-core laptop |
@@ -77,7 +105,7 @@ switch. Open: L30 (the car paint makes 17 fetches through the full helper), L6 (
 | L25 | ~~`non_volatile_as_local`~~ **Dropped (S22):** Pinyon Shift measured every correct variant 20–27% slower (`.text` 55.6 → 92.3 MB). Instead: **inline register save/restore** (NN-1.2: `__savegprlr/__restgprlr` ~31% of guest calls; sim −4…−6%, render −7% per draw) and **fewer MXCSR toggles** (−29% toggles, audio −6%), both XenonRecomp `recompiler.cpp` patches | Not built | CPU-bound | **Build** | `.text` +2.2% for the save/restore change |
 | L26 | **GPU time by kind of work** (extend `REGPU_GPU_PASSES`: EDRAM copies/reinterprets, MSAA resolve blits, depth blits, uploads in their own buckets) | Not built (small ReGPU patch) | Measurement for GPU-bound | **Start-time** | FH1R: render-target transfers were 30–37% of its GPU frame (surprise). Decides L4/L5/L6/L24/V3: do it before them |
 | L27 | **Rebase on upstream ReGPU** (15 commits past 57143cb: vertex reach `5c493d1`, submit at each new RTV/DSV, one-copy queries, texture budget, live `SetMsaa`/`SetFullscreen`) | Not done (a session: our 21 patches, conflicts likely with queries/fences) | Stutter (sparks), CPU, low VRAM | **Build**; most have their own `REGPU_NO_*` switch afterwards | View submit +3.8% parked, spark p99 80 → 28 ms (FX) |
-| L28 | **Handoff cuts on the draw thread** (FH1R split CP: record only changed register writes, ~30% of them; answer Direct3D coherency waits from the shadow; memory waits poll per batch) | Not built; first read what ReGPU's CP hands the draw thread and how it answers `WAIT_REG_MEM` | CPU-bound | **Planned live** | FH1R's split +13% on 8 cores including these; −11% on 4 cores (L14) |
+| L28 | **Handoff cuts on the draw thread** (FH1R split CP: record only changed register writes, ~30% of them; answer Direct3D coherency waits from the shadow; memory waits poll per batch) | **Built, default (S24, `regpu-reg-skip`)**: only changed register words sent (~29% of ~660k/frame), +8.1% CPU-bound live. Left: coherency waits answered from the shadow (not looked at) | CPU-bound | **Planned live** | FH1R's split +13% on 8 cores including these; −11% on 4 cores (L14) |
 | L29 | **Pipelines built at asset load** (Unleashed: hold the game's load-done flag until the loaded models' pipelines are built) | Not built; needs FM3's race/car load-done flag | Stutter (first sight of AI cars, new tracks) | n/a | Goes with L16 |
 | L30 | **Fetch state as shader variants** (our `TFetch` reads `tinfo` per fetch: gamma, exponent adjust, swizzle; `TFetchRaw`: dimension, clamp/mirror; key variants on the bound fetch constants as `regpu-split-alpha-test` does) | **Built, default on (S24, `regpu-fetch-variants`)**: plain slots per draw -> `TFetchPlain`; GPU frame -2.5%, byte-identical. Open: shader `510c814e1a4ef99e` (not plain), sampler index as a literal | GPU-bound (car materials ~4 fetches each) | **Start-time** (shader cache key) | Pinyon (texture signedness only): ~5% on a GPU-bound Odin, byte-identical. More variants to build/cache |
 | L31 | **Frame pacing checks** for `mainthread30fps` (log steps per swap; flip a late swap at once when two vblanks passed; vblank on a high-resolution waitable timer) | Not built | Smoothness (p95), not average fps | **Planned live** | Pinyon: p95 13.07 → 10.48 ms; one step per swap 87 → 98.6% at 120 fps |
@@ -111,6 +139,7 @@ switch. Open: L30 (the car paint makes 17 fetches through the full helper), L6 (
 | V8 | **Car reflection cubes updated less often** (Pinyon: FH1 `EnvMapFrequencyScale` 0.25, Odin −2.2 ms, "looks the same"; 0 left them dark) + reload only changed faces (lossless, 0.20 → 0.04 ms) | Not built; find FM3's update rate (`xref.py options`, TrackSettings) | GPU-bound, iGPU | Live if it is a live option | Reflections lag on fast-moving cars |
 
 ## Already tried and dropped (don't repeat without a new reason)
+- Reusing the previous draw's pixel-constant block when identical (S24, L8 attempt): -2.4% CPU-bound, reverted.
 - `REGPU_CONSTANTS_IN_RING` / `Config::lowPerformance`: −21% (S18).
 - Tile merge as it is: 0 gain, FM3's race scene is refused (S18): see L10 for the real fix.
 - `perfmode` and the `fast*` flags, `trackfardistance` (dead), LOD/crowd scaling: draws drop, fps doesn't on this PC (S19).

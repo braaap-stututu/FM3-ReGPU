@@ -2,7 +2,21 @@
 
 ## ▶ Current status / next step  (updated 2026-11-11, session 24)
 
-### ▶ Session 24, part 3 (2026-11-11): CPU side (start here)
+### ▶ Start here (session 25): state at the end of session 24 (2026-11-11)
+- Session 24 built (all default on, all pushed): first-boot shader compile (static scan + pipeline seed with vertex
+  variants), L30 plain-fetch shader variants, the CPU cuts (lock/getenv cuts, shader-load repeat skip, L28 register
+  skip). 27 ReGPU patches. Frozen grid 1440p 4x ~225 fps (GPU and CPU limits now close); CPU-bound grid (720p 1x)
+  214.5 -> 237.6 fps. The user drove the L30 and the CPU builds: both looked normal. Details: parts 1-3 below.
+- **Next: the remaining performance leads, PERF-PLAN.md "Next up (from session 25)"**: (1) cockpit cam performance
+  (user's open note), (2) the draw thread (still the CPU limit), (3) GPU-side leads, (4) other machines, (5) stutter.
+  Ask the user which.
+- How we test now: `tools/perf_suite.ps1` (`Start-Grid` boots minimized, `Test-Live` interleaved A/B with a pixel
+  diff); CPU-bound runs: back up `out/user/settings.ini`, set 1280x720 msaa 1, restore after; per-thread CPU
+  `tools/perf/threads.ps1`; draw-thread profile `FM3_SAMPLE_THREAD=name:gpu draw worker` (+ live `FM3_SAMPLE_CALLERS`,
+  `FM3_SAMPLE_LINES`, `FM3_SAMPLE_RVA`); GPU time `REGPU_GPU_PASSES=1`; shader statistics `tools/rga_shaders.ps1`.
+  Close the game before relinking (a running fm3.exe makes the link fail and the next boots test the old exe).
+
+### Session 24, part 3 (2026-11-11): CPU side
 - CPU-bound grid (settings.ini 1280x720 msaa 1, backed up and restored): ~214 fps minimized. `tools/perf/threads.ps1`
   (CPU per OS thread, named, no cost): **ReGPU's draw thread ("gpu draw worker") 95% of a core = the limit**; CP (t9)
   57%, game t3 35%, t7 31%, command list replay 10%, xma decoder 8%; ~2.8 cores in all.
@@ -39,7 +53,7 @@
   closer). First step: a drive with the camera switched at known times (or the frozen grid + live camera cycles while
   the race runs), `REGPU_GPU_PASSES=1` per view, and `tools/perf/threads.ps1` to see whether it is GPU or CPU.
 
-### ▶ Session 24, part 2 (2026-11-11): L6 shader profile + L30 fetch variants (start here)
+### Session 24, part 2 (2026-11-11): L6 shader profile + L30 fetch variants
 - **L6** (RGA 2.15 downloaded with the user's OK to `G:/claude code projects/tools/rga-2.15`, outside the repo):
   `tools/rga_shaders.ps1 -RootSig <file> -Hlsl <files>` compiles translated pixel shaders for RDNA3 through the driver
   (root signature from `REGPU_DUMP_ROOTSIG=<file>`, HLSL from `Fm3 "hlsl ..."`). The five heaviest grid shaders: car
