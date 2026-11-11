@@ -57,6 +57,11 @@
   (5/5) and +5.1% (3/4, noisier run); never +4.7%. The mirror pass: 384x128 target (2x MSAA in the game), ~147 opaque
   world draws with the main view's shaders: nothing cheap to drop by kind. Dead end: `sub_8270C3B0` ("RenderMirror"
   effect method) runs in every view, 0 pixels when skipped. Set `mirror_rate=2` for the user's next drive.
+  **User drive 4 (half rate on, video 22.40, log `out/logs/session26-drive-halfmirror.log`): "looked good".** Cockpit
+  ~240 fps (233-251) vs 214 before (+12%), ~chase level; traffic differed (the user reached 1st: fewer cars in view,
+  draws 1,700-2,500), so the mirror's own share is between the grid's +2-5% and that. **User decision: stays an
+  opt-in launcher toggle, off by default** (at ~60 fps a 30 Hz mirror may look choppy). The user's own settings.ini
+  has `mirror_rate=2`.
   Side note: the cockpit capture's main pass ran on `14000500` (1x, depth 2D0) with one tile on: check whether the
   cockpit view uses another tiling scenario.
 - Then from PERF-PLAN "Next up": L37 rect clears as real clears, L39/L40/L14, the rest.
