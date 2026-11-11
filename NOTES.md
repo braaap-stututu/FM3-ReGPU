@@ -41,6 +41,13 @@
   drawn as one 1280x720 tile`). Cockpit view uses no other scenario. The hood view shows a virtual rear-view mirror
   too (the mirror cost applies there as well). Careful: `FM3_FREEZE_TIME 1` did not fully hold after GO (race clock
   moved ~2 s over two captures and camera presses).
+- **One guest tile stays opt-in (user's decision, session 27).**
+- **L37 measured, not worth building now:** rect-list "clears" (pixel shader `8be0d4632b7d3122`, full scissor) are ~14
+  draws a frame in a race capture (3 on the main surface `14000500`, the rest on smaller targets). Frozen test grid,
+  1440p 4x, `REGPU_GPU_PASSES=1 REGPU_GPU_SHADERS=1`: the clear pair `vs ...B368B2CC / ps ...2B7D3122` = 9 draws,
+  **0.097 ms of 3.97 ms GPU (2.4%)**, three 2-s blocks identical. A real clear saves at most that, and only when the
+  GPU limits; with one guest tile there is no L10 tile merge left for it to unblock. (Same ps, other vs `236B889F`:
+  143 small 16x16 point/quads, 0.080 ms: not clears.)
 - Note: `quick_race=1`'s pad route stops one A short of Start Race (pre-race menu), then the track fly-over runs.
 
 ### ▶ Start here (session 27): state at the end of session 26 (2026-11-11)
@@ -64,7 +71,7 @@
 - **Parked:** a one-frame cyan bush (session 26 drive 1, not reproducible; NOTES below has the A/B plan if it shows
   again); the yellow Celica's rims flicker a little (not examined).
 - **Next, in the suggested order (ask the user):**
-  1. Decide one guest tile as default (the user's call); if yes: default on in `one_tile.cpp`/`gpu_host.cpp`
+  1. ~~Decide one guest tile as default~~ **session 27: the user keeps it opt-in.** (Was: if yes, default on in `one_tile.cpp`/`gpu_host.cpp`
      (`one_tile=0` off), launcher toggle default on, tooltip.
   2. **Cockpit tiling check** (small): the cockpit capture's main pass ran on `14000500` (1x, depth 2D0) even with one
      tile on; find out whether cockpit view uses another scenario (log `one tile: scenario ...` lines when switching
