@@ -13,6 +13,13 @@ sound (we apply no XMA trims: port FM2's trim handling first), VR after FH1R. Se
 `REGPU_ANISO_FROM_FETCH` A/B, the XMA trim port for the engine sweep, the legal/ESRB entry dump, the CrownJewel
 test-grid route (plan in the session 22 log; needs the "countdown started" signal), the FPS overlay patch.
 
+### Session 21b (2026-11-11, cloud, research only, no code; branch `ccr-2e46a7d8-wv8coh`)
+The user asked about **AMD Anti-Lag 2 and NVIDIA Reflex**: both feasible (MIT SDKs, a few hundred lines), write-up
+and plan in RESEARCH.md "Input latency". Order proposed: latency probe -> our own frame-queue limit (any GPU) -> Anti-Lag 2
+(testable on the user's 7900 XTX) -> Reflex (needs an NVIDIA tester). Waiting for the user's go.
+Also looked at FH1R's "Use FIFO latest ready" (a Vulkan present mode; our D3D12 equivalent = flip `Present(0, 0)`):
+RESEARCH.md, same section.
+
 ### ▶ Start here next session (state at the end of session 20, 2026-11-10)
 All work is committed and pushed (`main`, last commit "Session 20 wrap-up"). `play.cmd` is back to normal (no temporary
 lines). **21 ReGPU patches** (new: `regpu-split-alpha-test`). Session 19's open list (attract video, vertex arena A/B,
@@ -648,6 +655,12 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - RESEARCH.md: telemetry out to SimHub (Forza Data Out, FM7 311-byte Dash over UDP; needs the car-physics RE shared with the AI-control study; FM3's telemetry-page getters are the shortcut).
 - RESEARCH.md: two new studies (installer for a public release; benchmark tools: AI on the player car, frozen grid). No code change; nothing checked against FM3's code (no `out/ppc` in the cloud container): first local steps are listed in each study.
 
+### 2026-11-11 — session 21b (cloud research: Anti-Lag 2 and Reflex)
+- Read ReGPU's present path (flip swap chain, 3 buffers, no latency waitable, `kFrames = 3` GPU slots), the vblank/
+  `VdSwap`/limiter code and our `XamInputGetState`; checked the SDKs (AntiLag2-SDK header, NVIDIA/nvapi `nvapi.h`, both
+  MIT). Result and plan: RESEARCH.md "Input latency: AMD Anti-Lag 2 and NVIDIA Reflex". No code, nothing built.
+- FH1R's "Use FIFO latest ready" (their SDK patch 0070, Vulkan `VK_PRESENT_MODE_FIFO_LATEST_READY_KHR`): read and
+  mapped to DXGI in the same RESEARCH section.
 ### 2026-11-10 — session 20 (render thread profile, race vs time trial, alpha-test-free shaders)
 - User asked what "the render thread runs flat out" meant. Rechecked: the 96-98% is GetThreadTimes CPU time, which counts
   spinning. Profiled t7 (`FM3_SAMPLE_THREAD=7`, temporary `play.cmd` line, removed; callers on live with

@@ -918,6 +918,118 @@ motion vectors, which ReGPU's FSR 3 path already asks for); for the user's 200+ 
 - **Skipping repeated state calls** (+6.5% uncapped, CPU side) and constants uploaded only where changed: same ideas
   as FH1R's descriptor reuse (L8).
 - **Rejected there:** a per-frame texture time budget (visible pop-in from deferred first loads).
+## Input latency: AMD Anti-Lag 2 and NVIDIA Reflex (session 21, 2026-11-11)
+Question from the user: can we add AMD Anti-Lag 2 and NVIDIA Reflex? **Short answer: yes, both are possible and small, and
+both are free to use (MIT).** But the latency they remove is mostly our own frame queue, so a frame-queue limit of our own
+should come first: it works on every GPU and we can measure it ourselves. Research only, no code yet.
+
+### What the two features are
+Both do the same thing: when the GPU is the bottleneck, the CPU runs ahead and frames wait in queues before the GPU draws
+them. Every queued frame adds a frame of input lag. The driver measures how long the GPU takes and **makes the game sleep
+just before it reads input**, so that the frame reaches the GPU just as the GPU gets free. Nothing changes when the CPU
+is the limit or the frame cap holds (then the queues are already empty).
+- **AMD Anti-Lag 2 SDK** (GPUOpen `AntiLag2-SDK`, **MIT**, one header `ffx_antilag2_dx12.h`, no DLL to ship: it talks to
+  the driver's `amdxc64.dll`). API: `Initialize(&ctx, d3d12Device)`; `Update(&ctx, enable, maxFps)` **once per frame, just
+  before the game reads input** (the driver sleeps inside it; `maxFps` is an optional built-in limiter);
+  `MarkEndOfFrameRendering`/`SetFrameGenFrameType` only matter with frame generation (we have none). Needs RDNA1 or newer
+  (RX 5000+) and Adrenalin 24.7.1+ for DX12. **The user's RX 7900 XTX supports it, so we can test it here.**
+- **NVIDIA Reflex** (low-latency part of **NVAPI**, now on GitHub as `NVIDIA/nvapi`, **MIT**, static `nvapi64.lib`, no
+  DLL to ship: it calls into the driver). API: `NvAPI_D3D_SetSleepMode(device, {lowLatency, boost, minIntervalUs})`
+  once; `NvAPI_D3D_Sleep(device)` **once per frame, before input**; `NvAPI_D3D_SetLatencyMarker(device, {frameID,
+  SIMULATION_START/END, INPUT_SAMPLE, RENDERSUBMIT_START/END, PRESENT_START/END})` per frame (better sleep timing, and
+  the latency numbers in GeForce overlay / FrameView); `NvAPI_D3D_GetLatency` reads them back. GeForce 900 series or
+  newer. "Boost" keeps GPU clocks up when the CPU is the limit. **Nobody here has an NVIDIA GPU: it would need a tester.**
+  (The "NVIDIA Reflex" name and logo have NVIDIA branding rules; the launcher can call it "low latency (NVIDIA)" until
+  checked.)
+- Driver-only switches don't help here: NVIDIA's control-panel "Low Latency Mode" does not apply to D3D12, and no driver
+  can see the queues inside the guest (below).
+
+### Where our latency is (the queue, stage by stage)
+Read from our code and ReGPU's (pin 57143cb):
+1. **Game main loop** (`sub_821F5DE8`, guest main thread): one iteration per guest vblank, which **we** generate
+   (ReGPU `VblankLoop`, `gpu.cpp`; divider 2 + `mainthread30fps` above 60, `src/hooks/frame_time.cpp`). Reads input
+   through **our** `XamInputGetState` (`src/kernel/imports_xam.cpp`).
+2. **Render thread t7**: builds the PM4 stream for the main loop's frame into the guest ring, ends with `VdSwap`
+   (**ours**, ReGPU `gpu.cpp`; the 360-fps limiter `PaceSwap` runs there). In a GPU-bound race t7 spends ~65% waiting
+   for ring space (session 20): **the ring is full**, i.e. it holds queued work.
+3. **ReGPU command processor (t9) + draw thread**: translate into D3D12 lists.
+4. **D3D12 queue**: `kFrames = 3` frame slots (`renderer.cpp`); a frame waits only for the fence of the frame 3 back
+   (`BeginFrameIfNeeded`), so up to ~2 frames can be queued on the GPU.
+5. **Swap chain**: flip-discard, 3 buffers, tearing allowed, no frame-latency waitable object and no
+   `SetMaximumFrameLatency` (`presenter.cpp`): DXGI's default of up to 3 queued presents.
+At 1440p 4x MSAA in a race (~200 fps, ~5 ms a frame, GPU-bound) that is plausibly **2-4 frames = ~10-20 ms** of
+avoidable lag (an estimate: not measured yet). At the cap (time trial at 360 fps, menus) the queues are mostly empty.
+
+### How it would hook in
+- **The sleep / `Update` call: at the start of the main loop's frame, before it reads input.** Two candidates, both ours:
+  (a) ReGPU's `VblankLoop`, before `RaiseInterrupt` on the vblanks that release a main frame (game-neutral; the sleep
+  delays the vblank, so the whole frame starts later), or (b) our frame-time hook in the main loop (`frame_time.cpp`,
+  the call at `0x821F6004`). First check (log) that FM3 reads the pad after that point and only once per frame;
+  `XamInputGetState` is also the place for Reflex's `INPUT_SAMPLE` marker.
+- **Frame IDs**: the sim, render and present stages are 1-3 frames apart, so markers need one ID carried through:
+  the swap count (`VdSwap` number = CP swap number = ReGPU frame) is the natural one; the main loop's frame gets "the
+  next swap". If the main loop runs faster than t7 (it can drop frames), some IDs have no present: Reflex tolerates
+  gaps, but this is the part most likely to need care.
+- **Markers**: `RENDERSUBMIT_START/END` around the draw thread's frame (begin / `SubmitLists`), `PRESENT_START/END`
+  around `PresenterPresent()` (ReGPU `renderer.cpp`, end of frame), all on ReGPU's `ID3D12Device` (`g_device`).
+- **Code split** (ReGPU's rules): the vendor calls go in ReGPU as a game-neutral patch (`regpu-low-latency`: device,
+  present markers, a `regpu::LatencyFrameStart(frameId)` entry the port calls, `REGPU_LOW_LATENCY` switch), FM3 calls it
+  from its frame-start hook. Launcher: Graphics > "Low latency: off / on / on + boost" (`low_latency=` in
+  settings.ini). Builds: AL2 = one header in `thirdparty/`; Reflex = the NVAPI header + `nvapi64.lib` (MIT, can live in
+  `thirdparty/nvapi`). Size: roughly 150-250 lines plus the launcher option.
+- **Interaction with our limiter**: `PaceSwap` (cap 360) still applies; with Anti-Lag 2 its `maxFps` (or Reflex's
+  `minimumIntervalUs`) can replace it so the cap's sleep is also done at the best point.
+
+### Do this first: our own frame-queue limit (all GPUs)
+Most of the gain does not need a vendor SDK: limiting how many frames may be queued gives the same effect, roughly
+"Anti-Lag 1 / Reflex without the clever timing". Options, cheapest first:
+1. Swap chain with `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT` + `SetMaximumFrameLatency(1)` (one queued present).
+2. Fewer frames in flight on the GPU (ReGPU `kFrames` 3 -> 2, or wait for frame N-1's fence instead of N-2's); the
+   FM4 port has a `REGPU_FRAMES_AHEAD` switch (RESEARCH "ReGPU speed work", item 8) to look at.
+3. **Gate the game itself**: in `VdSwap`/`PaceSwap` (or before the vblank that releases the main loop) wait until the
+   host GPU has finished swap N-1. This empties the guest ring too, which (1) and (2) can't reach.
+Each costs a little fps when GPU-bound (less overlap); that trade is what Reflex/Anti-Lag 2 time better. Behind an
+`FM3_*`/`REGPU_*` switch, default off until measured.
+
+### How to measure (before and after)
+- **Our own probe** (new, small): timestamps per frame ID at main-loop start, `XamInputGetState`, `VdSwap`, CP swap,
+  `PresenterPresent`, and GPU completion (fence); log the average of "input read -> present" and "present -> GPU done"
+  every few seconds (`FM3_LATENCY_LOG=1`). Gives the queue depth in ms, any GPU.
+- **Reflex markers / AMD**: with Reflex, `NvAPI_D3D_GetLatency` reports the same stages; with AMD, the Adrenalin overlay
+  shows "PC latency" for Anti-Lag 2 games. PresentMon 2.x shows display latency on both (it doesn't see the guest
+  stages, so read it as a lower bound).
+- Test case: the paused CrownJewel race grid at 1440p 4x (GPU-bound, the case with queues) and a time trial at the 360
+  cap (should change nothing). Report fps loss next to the latency gain.
+
+### FH1R's "Use FIFO latest ready" (looked at on request, session 21)
+FH1R (ReXGlue, Vulkan presenter) patch `0070-fifo-latest-ready-present-mode` + cvar
+`vulkan_allow_present_mode_fifo_latest_ready` (default on; launcher Advanced, "Use FIFO latest ready"; docs
+`framerate.md`, `sdk_patches.md`, their issue #80). It is a **Vulkan presentation mode**
+(`VK_PRESENT_MODE_FIFO_LATEST_READY_KHR`, extension `VK_EXT/KHR_present_mode_fifo_latest_ready`): vsync without
+tearing like plain FIFO, but at each vblank the display takes the **newest finished frame** and drops older queued ones,
+instead of showing every queued frame in order. Plain FIFO, with a game faster than the refresh or at a rate that isn't
+a divisor of it, builds a queue that delays frames and drops them unevenly (their #80: an AMD Windows driver without
+MAILBOX showed 53 of 63 fps at irregular 1-5 vblanks on 144 Hz). Used only if the driver offers it, chosen after
+mailbox/immediate/relaxed FIFO, else plain FIFO. FH1R itself says it was not measured on hardware yet.
+**For us:** ReGPU is D3D12/DXGI, not Vulkan, so the mode doesn't exist as such. The DXGI equivalent is a flip-model
+`Present(0, 0)` (sync interval 0 **without** `DXGI_PRESENT_ALLOW_TEARING`): no tearing, and a newer present replaces
+one not yet shown (PresentMon lists those as "Discarded"). Today `presenter.cpp` has only `Present(1, 0)` (vsync on =
+plain FIFO, up to 3 queued) and `Present(0, ALLOW_TEARING)` (vsync off, the user's setting). So a third "VSync: newest
+frame" mode is a one-line present change plus a launcher choice; with it the cap would not be clamped to the refresh
+(`FrameCap`), so the game draws faster than the display and each vblank shows the freshest frame (lower latency than
+FIFO, no tearing, but GPU work on frames never shown, and uneven motion unless fps is well above the refresh).
+Related, and possibly worth more: with vsync on, our limiter paces on the CPU clock at the refresh while `Present(1)`
+paces on the real vblank; the two drift, so FIFO's queue can fill to 3 frames (~20 ms at 144 Hz) or repeat a frame. A
+waitable swap chain with `SetMaximumFrameLatency(1)` (queue-limit option 1 above) fixes that for vsync-on players.
+Neither matters with vsync off on a FreeSync display (the user's setup: tearing flag + VRR, cap 360).
+
+### Recommendation (order)
+1. Latency probe (measure what we have). 2. Our own queue limit (switch, A/B with the probe; every GPU).
+3. **Anti-Lag 2** (testable on the user's GPU; one header). 4. **Reflex** with markers (needs an NVIDIA tester).
+5. Launcher option. Risks: frame-ID mapping across the decoupled main loop / render thread; a sleep in the wrong place
+   could lower fps or stutter (keep everything behind switches, default off until the user has driven with it).
+Sources: GPUOpen AntiLag2-SDK README and `ffx_antilag2_dx12.h`; `NVIDIA/nvapi` `nvapi.h` (Reflex functions, "since
+release 455") and its MIT `License.txt`.
 
 ## ReGPU speed work in other projects (session 19, 2026-11-10)
 Survey of every branch of the reference clones (framework/ReGPU, ReGPU-fh1, FM2, PGR4, FM4, FH1R), read only. Our pin
