@@ -45,6 +45,7 @@ $regpuPatches = @(
     'regpu-fetch-variants'           # REGPU_FETCH_VARIANTS: pixel-shader variants with plain texture fetches (L30); REGPU_DUMP_ROOTSIG
     'regpu-draw-thread-cuts'         # draw thread: no mutex in IsPsEditAlias without live edits, fetch-variant lookups memoised per thread
     'regpu-shader-repeat-skip'       # CP: a shader load repeating the last of its type is not sent to the draw thread (REGPU_NO_SHADER_REPEAT_SKIP)
+    'regpu-reg-skip'                 # CP: register writes that change nothing on the draw thread are not sent (L28, REGPU_NO_REG_SKIP)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

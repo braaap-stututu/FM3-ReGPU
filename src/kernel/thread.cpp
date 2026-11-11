@@ -698,6 +698,15 @@ void StartThreadProfiler()
                     const char* file = strrchr(line.FileName, 92);
                     name += std::string(" (") + (file ? file + 1 : line.FileName) + ":" + std::to_string(line.LineNumber) + ")";
                 }
+                // FM3_SAMPLE_RVA=1: by address in fm3.exe (relative to its base), for a disassembler (session 24).
+                static LiveSwitch byRva("FM3_SAMPLE_RVA");
+                if (byRva)
+                {
+                    const uintptr_t base = uintptr_t(GetModuleHandleW(nullptr));
+                    char at[48];
+                    snprintf(at, sizeof(at), " @%llx", (unsigned long long)(c.Rip - base));
+                    name += at;
+                }
                 // No symbol: name the module (a driver, for example).
                 HMODULE module = nullptr;
                 char path[MAX_PATH];

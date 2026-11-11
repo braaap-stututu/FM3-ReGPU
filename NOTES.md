@@ -21,6 +21,16 @@
   boots each; the draw thread is still the limit (94%). Not done, on purpose: upload hashing (the safety net for vertex
   data rewritten mid-frame: I5's risk), the VertexCache lock (contended: needs a redesign), per-draw caching of pass
   scale (surface state can change inside a draw). Next CPU step: the structural L8/L28 (ask the user).
+- **L28 built** (user's go; patch `regpu-reg-skip`, live `REGPU_NO_REG_SKIP`): the CP sends only register writes that
+  change the draw thread's file (shadow of what was sent; runs cut to changed words). ~660,000 register words a frame,
+  ~29% change (FH1R: ~30%). Live A/B +8.1% (5/5, 0 pixels); boots 235.1/238.1/239.5 = 237.6 fps.
+  **CPU session total: 214.5 -> 237.6 fps (+10.8%)** on the CPU-bound grid; the draw thread is still the limit (~93%).
+- **L8:** ReGPU already skips unchanged D3D state per draw (viewport, scissor, stencil ref, blend factor, tables,
+  topology, index buffer, PSO). Tried reusing the previous draw's pixel-constant block when identical (50% of draws
+  have the same PS constants, 31% VS): **-2.4% (0/5 rounds), reverted**; the compare/bookkeeping cost more than the
+  upload writes. The 6-8% "closing brace of DrawImpl" sample is `~PsAlias` restoring the context's shader hashes (a
+  16-byte store that waits behind earlier stores); not explained further. Sampler: `FM3_SAMPLE_RVA=1` (live) logs
+  addresses; disassemble with `llvm-objdump --start-address` / `llvm-symbolizer --inlines --obj=build/rel/fm3.exe`.
 
 ### ▶ Session 24, part 2 (2026-11-11): L6 shader profile + L30 fetch variants (start here)
 - **L6** (RGA 2.15 downloaded with the user's OK to `G:/claude code projects/tools/rga-2.15`, outside the repo):

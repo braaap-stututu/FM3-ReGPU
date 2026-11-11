@@ -1,0 +1,63 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index 732adb7..bf5183e 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -198,12 +198,46 @@ void Drain()
+ 
+ bool Active() { return g_enabled && g_started.load(std::memory_order_relaxed); }
+ 
++// What the draw thread's register file holds (g_file follows exactly these records): register writes that
++// change nothing there are not sent, and a run is cut to its changed words (PERF-PLAN L28 in the FM3 port: FH1R's
++// split command processor records only the ~30% of writes that change a value). The comparison costs the command
++// processor, which has time; the draw thread, the limit on a CPU-bound PC, copies less. Command processor only.
++// REGPU_NO_REG_SKIP=1: every write is sent, as before (live).
++std::vector<uint8_t> g_sent(0x8000 * 4);
++uint64_t g_regWords = 0, g_regWordsSent = 0;
+ void LogRegs(uint32_t index, const uint32_t* valuesBE, uint32_t count)
+ {
+-    uint32_t* p = Begin(kRegs, count + 1);
+-    p[0] = index;
+-    memcpy(p + 1, valuesBE, size_t(count) * 4);
+-    End(count + 1);
++    static LiveSwitch noSkip("REGPU_NO_REG_SKIP");
++    if (uint64_t(index) + count > 0x8000)
++        count = index < 0x8000 ? 0x8000 - index : 0;
++    if (!count)
++        return;
++    uint32_t* const shadow = reinterpret_cast<uint32_t*>(g_sent.data()) + index;
++    uint32_t first = 0, last = count;
++    g_regWords += count;
++    if (!noSkip)
++    {
++        while (first < count && shadow[first] == valuesBE[first])
++            first++;
++        if (first == count)
++            return; // nothing changes
++        while (last > first + 1 && shadow[last - 1] == valuesBE[last - 1])
++            last--;
++    }
++    const uint32_t n = last - first;
++    g_regWordsSent += n;
++    memcpy(shadow + first, valuesBE + first, size_t(n) * 4);
++    uint32_t* p = Begin(kRegs, n + 1);
++    p[0] = index + first;
++    memcpy(p + 1, valuesBE + first, size_t(n) * 4);
++    End(n + 1);
++    static auto lastLog = std::chrono::steady_clock::now();
++    if (std::chrono::steady_clock::now() - lastLog > std::chrono::seconds(30))
++    {
++        lastLog = std::chrono::steady_clock::now();
++        Log("gpu: register words written %llu, sent to the draw thread %llu (%.0f%%)", (unsigned long long)g_regWords,
++            (unsigned long long)g_regWordsSent, 100.0 * double(g_regWordsSent) / double(std::max<uint64_t>(g_regWords, 1)));
++    }
+ }
+ }
+ 
+@@ -1546,6 +1580,7 @@ void CommandProcessorLoop(PPCContext& ctx)
+     if (work::g_enabled)
+     {
+         memcpy(work::g_file.data(), gpureg::LiveFile(), work::g_file.size());
++        memcpy(work::g_sent.data(), gpureg::LiveFile(), work::g_sent.size()); // (what the draw thread has)
+         std::thread worker(WorkerLoop);
+         static HANDLE workerHandle = nullptr;
+         DuplicateHandle(GetCurrentProcess(), worker.native_handle(), GetCurrentProcess(), &workerHandle, 0, FALSE, DUPLICATE_SAME_ACCESS);
