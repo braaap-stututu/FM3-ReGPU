@@ -31,6 +31,13 @@
   upload writes. The 6-8% "closing brace of DrawImpl" sample is `~PsAlias` restoring the context's shader hashes (a
   16-byte store that waits behind earlier stores); not explained further. Sampler: `FM3_SAMPLE_RVA=1` (live) logs
   addresses; disassemble with `llvm-objdump --start-address` / `llvm-symbolizer --inlines --obj=build/rel/fm3.exe`.
+- **User drove the CPU changes** (career race, log 25.7-176 s): "seems good", no visual issue reported; 0 compiles, 0
+  failures. 235.6 fps average, 1% low 183, lowest stretch 175 (graph `out/perf/s24/drive-cpu.html`); not comparable with
+  the L30 drive (300.6): camera views differed (cockpit used, see below).
+- **Open, user's note (later): cockpit cam performance still disappointing.** S23 grid numbers: cockpit 221.8 vs chase
+  223.1 (same on the frozen grid), so the cost shows while driving (more of the car interior, mirrors?, other cars
+  closer). First step: a drive with the camera switched at known times (or the frozen grid + live camera cycles while
+  the race runs), `REGPU_GPU_PASSES=1` per view, and `tools/perf/threads.ps1` to see whether it is GPU or CPU.
 
 ### ▶ Session 24, part 2 (2026-11-11): L6 shader profile + L30 fetch variants (start here)
 - **L6** (RGA 2.15 downloaded with the user's OK to `G:/claude code projects/tools/rga-2.15`, outside the repo):
