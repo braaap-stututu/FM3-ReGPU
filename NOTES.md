@@ -36,6 +36,15 @@
   Log stats around it: pipelines flat at 2,238 (no pipeline compiled), shaders 1,048 -> 1,049, textures rising
   (2,317 -> 2,333: streaming as the car moves), 2 skipped draws in 222-224 s. Best guess: a texture or mip arriving a
   frame late (LOD change of the bush), not a shader compile.
+- **User drive 2 (one tile ON): "seems fine".** Cockpit view still costs more. Measured (drive log
+  `out/logs/session26-drive-cockpit.log`, video 22.03, Catalunya opening straight, 1440p 4x, one tile on): chase
+  ~243 fps / ~2,630 draws (log 905-930 s) vs cockpit ~215 fps / ~2,950 draws (950-978 s): **-12% fps with +12% draws**
+  = the rear-view mirror's second scene (draw thread limits at this setting). On the frozen grid cockpit costs the same
+  as chase (you start last: the mirror sees empty track; mirror pass `colour 190000 depth 050` = 148 draws, 0.18 ms GPU).
+  The replay thread's "98% CPU" is AMD's driver sleeping in Present (frames queued), not work.
+  Lever found: per-track `<Mirror VisibilityThreshold>` in TrackSettings.xml (32 on most tracks, CrownJewel 0; the
+  cubemap's is 2,000-50,000). Test mod `out/user/mods/_mirror2000` (CrownJewel + Catalunya at 2000, disabled): grid
+  mirror pass 148 -> 129 draws, mirror image 0.2% of pixels different. Its effect while driving: untested.
 - Then from PERF-PLAN "Next up": L37 rect clears as real clears, L39/L40/L14, the rest.
 
 ### ▶ Start here (session 26): state at the end of session 25 (2026-11-11)

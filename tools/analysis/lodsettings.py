@@ -86,7 +86,7 @@ def main():
     if args[0] == "list":
         names = args[1:] or tracks()
         cols = ["crowd0", "crowd1", "crowd2", "crowd3", "sprite", "crowdsize", "grass", "grassfade", "cubefar", "meshlimit", "meshsize",
-                "cubefaces", "mipbias", "shadowend", "dyncube"]
+                "cubefaces", "cubevis", "mirrorvis", "mipbias", "shadowend", "dyncube"]
         print(f"{'track':14s}" + "".join(f"{c:>10s}" for c in cols))
         for t in names:
             text = read(t)
