@@ -2,6 +2,11 @@
 
 ## ▶ Current status / next step  (updated 2026-11-10, session 20)
 
+### Session 21 (2026-11-11, research only, no code)
+The user asked about **AMD Anti-Lag 2 and NVIDIA Reflex**: both feasible (MIT SDKs, a few hundred lines), write-up
+and plan in RESEARCH.md "Input latency". Order proposed: latency probe -> our own frame-queue limit (any GPU) -> Anti-Lag 2
+(testable on the user's 7900 XTX) -> Reflex (needs an NVIDIA tester). Waiting for the user's go.
+
 ### ▶ Start here next session (state at the end of session 20, 2026-11-10)
 All work is committed and pushed (`main`, last commit "Session 20 wrap-up"). `play.cmd` is back to normal (no temporary
 lines). **21 ReGPU patches** (new: `regpu-split-alpha-test`). Session 19's open list (attract video, vertex arena A/B,
@@ -582,6 +587,10 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-11 — session 21 (research: Anti-Lag 2 and Reflex)
+- Read ReGPU's present path (flip swap chain, 3 buffers, no latency waitable, `kFrames = 3` GPU slots), the vblank/
+  `VdSwap`/limiter code and our `XamInputGetState`; checked the SDKs (AntiLag2-SDK header, NVIDIA/nvapi `nvapi.h`, both
+  MIT). Result and plan: RESEARCH.md "Input latency: AMD Anti-Lag 2 and NVIDIA Reflex". No code, nothing built.
 ### 2026-11-10 — session 20 (render thread profile, race vs time trial, alpha-test-free shaders)
 - User asked what "the render thread runs flat out" meant. Rechecked: the 96-98% is GetThreadTimes CPU time, which counts
   spinning. Profiled t7 (`FM3_SAMPLE_THREAD=7`, temporary `play.cmd` line, removed; callers on live with
