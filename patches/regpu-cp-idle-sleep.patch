@@ -1,0 +1,58 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index 8637f32..f622add 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -1654,17 +1654,51 @@ void CommandProcessorLoop(PPCContext& ctx)
+         static std::chrono::steady_clock::time_point idleSince, logSince = std::chrono::steady_clock::now();
+         static double idleSeconds = 0;
+         static bool idle = false;
++        // REGPU_CP_IDLE_SLEEP_US=<n> (read twice a second, so live): once the ring has been empty for n
++        // microseconds, wait ~100 us at a time on a high-resolution timer instead of spinning on Sleep(0).
++        // Under a frame cap the CP is idle most of each frame and the spin holds a whole core; a title that
++        // queues work within n us of the last (uncapped) never reaches the sleep. 0 or unset: spin as before.
++        static std::chrono::steady_clock::time_point emptySince, sleepCheck;
++        static bool empty = false;
++        static int sleepAfterUs = 0;
+         if (g_gpu.rptr == wptr)
+         {
+             seg::Flush(); // nothing more queued: translate what there is
++            const auto now = std::chrono::steady_clock::now();
+             if (perf && !idle)
+             {
+                 idle = true;
+-                idleSince = std::chrono::steady_clock::now();
++                idleSince = now;
++            }
++            if (!empty)
++            {
++                empty = true;
++                emptySince = now;
++            }
++            if (now >= sleepCheck)
++            {
++                sleepCheck = now + std::chrono::milliseconds(500);
++                const char* v = getenv("REGPU_CP_IDLE_SLEEP_US");
++                const int us = v ? atoi(v) : 0;
++                if (us != sleepAfterUs)
++                    Log("gpu: command processor idle wait: %s%d us", us > 0 ? "sleeps after " : "spins (", us > 0 ? us : 0);
++                sleepAfterUs = us;
+             }
+-            Sleep(0);
++            if (sleepAfterUs > 0 && now - emptySince >= std::chrono::microseconds(sleepAfterUs))
++            {
++                thread_local HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
++                LARGE_INTEGER due;
++                due.QuadPart = -1000; // 100 us, relative, in 100 ns units
++                if (timer && SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE))
++                    WaitForSingleObject(timer, INFINITE);
++                else
++                    Sleep(0);
++            }
++            else
++                Sleep(0);
+             continue;
+         }
++        empty = false;
+         if (perf)
+         {
+             const auto now = std::chrono::steady_clock::now();

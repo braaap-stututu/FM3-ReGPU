@@ -48,6 +48,20 @@
   **0.097 ms of 3.97 ms GPU (2.4%)**, three 2-s blocks identical. A real clear saves at most that, and only when the
   GPU limits; with one guest tile there is no L10 tile merge left for it to unblock. (Same ps, other vs `236B889F`:
   143 small 16x16 point/quads, 0.080 ms: not clears.)
+- **L39 (guest atomics without the interrupt lock): not worth it.** `PPCMsrChanged` = 0.2% of t7 in the session 20
+  profile, absent from session 26's cockpit/chase profiles.
+- **L40 built, default under a frame cap:** ReGPU patch 31 `regpu-cp-idle-sleep` (`REGPU_CP_IDLE_SLEEP_US=<n>`, live:
+  after n us of empty ring the CP waits ~100 us steps on a high-resolution timer instead of `Sleep(0)`), plus the
+  existing `REGPU_CP_SPIN_MS=1` (WAIT_REG_MEM yields 1 ms, not 100 ms, before sleeping; start time). Frozen grid, 60
+  cap, 1440p 4x (`tools/perf/threads.ps1`): CP 98% of a core -> 50% (idle sleep 500 us) -> ~42-46% (20-200 us) ->
+  ~18-22% (+ spin 1 ms); process 2.1 -> **1.02 cores**, 60 fps held. Uncapped: 1440p 4x 264.1 vs 263.7 (2 boots
+  each), 720p 1x 328/333 old vs 324/330 new with dips (295, 275) and a live idle-sleep A/B 323.5 vs 319.7 (-1.2%):
+  so `src/gpu_host.cpp` sets both only at `max_fps` <= 144 or vsync (log `gpu: command processor sleeps while idle
+  (frame cap)`); `FM3_CP_SPIN=1` off. The user's 360 cap is unchanged.
+- **L14 (4-core test, affinity live on the frozen grid):** 1440p 4x: all 262.7, 4 cores (0x55) 261.8 (-0.3%),
+  2 cores + SMT (0xF) 257.1 (-2%). 720p 1x: 331.4 / 324.3 (-2.1%) / 264.7 (-20%); four threads busy (replay 98%,
+  draw thread 92%, CP 72%, t7 52%; 3.9 cores). No thread gating needed for 4 cores; 2c/4t CPUs lose ~20% when
+  CPU-bound.
 - Note: `quick_race=1`'s pad route stops one A short of Start Race (pre-race menu), then the track fly-over runs.
 
 ### ▶ Start here (session 27): state at the end of session 26 (2026-11-11)

@@ -375,6 +375,21 @@ void GpuStart()
     if (OneTileEnabled())
         DefaultEnv("REGPU_WINDOW_FIXUP_UNION", "1");
     Log("gpu: one guest tile %s", OneTileEnabled() ? "on" : "off");
+    // Command processor waits under a frame cap (session 27, PERF-PLAN L40, our ReGPU patch regpu-cp-idle-sleep):
+    // with the frame rate held by a cap the CP is idle most of each frame but spun a whole core (Sleep(0) on an empty
+    // ring, and up to 100 ms of SwitchToThread in WAIT_REG_MEM). Frozen grid at a 60 cap, 1440p 4x: CP 98% -> ~20%
+    // of a core, process 2.1 -> ~1.5 cores, 60 fps held. Uncapped it costs a little where the CPU limits (720p 1x
+    // ~-1%, a few dips), so only at caps of 144 and below or with vsync. FM3_CP_SPIN=1: off (spin as before).
+    {
+        const Settings& s = GetSettings();
+        if (!getenv("FM3_CP_SPIN") && (s.vsync || (s.maxFps > 0 && s.maxFps <= 144)))
+        {
+            DefaultEnv("REGPU_CP_SPIN_MS", "1");
+            DefaultEnv("REGPU_CP_IDLE_SLEEP_US", "200");
+        }
+        Log("gpu: command processor %s", getenv("REGPU_CP_IDLE_SLEEP_US") && atoi(getenv("REGPU_CP_IDLE_SLEEP_US")) > 0
+            ? "sleeps while idle (frame cap)" : "spins while idle");
+    }
     if (!getenv("FM3_SYNC_PRESENT") && GetSettings().Extra("async_present") != "0")
         DefaultEnv("REGPU_ASYNC_PRESENT", "1");
     Log("gpu: asynchronous present %s", getenv("REGPU_ASYNC_PRESENT") && strcmp(getenv("REGPU_ASYNC_PRESENT"), "0") ? "on" : "off");
