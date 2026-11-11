@@ -51,12 +51,15 @@ without the replay wait; **CPU-bound grid ~288 fps**. Upload hashing: 6 MB/frame
 `REGPU_UPLOAD_STABLE_REUSE` +1.2% (off: stale-for-a-frame risk). L10: 18% of draws are second-tile copies (the upside).
 The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch 200, 1% low 200.5 at 1440p 4x).
 
-## Next up (from session 25; ask the user which)
-1. **Cockpit cam performance** (user, open; noticeably better with L12 per the user, session 25): measure per camera view while the race runs (GPU passes per view,
-   `threads.ps1`), GPU or CPU? Then the matching lead below.
+## Next up (from session 26; ask the user which)
+0. **Suggested order (end of session 25):** L38 (timer while hidden: our minimized tests) -> L36 one guest tile
+   (first test: the game's MSAA off) -> L37 -> L39/L40/L14 -> the rest below. NOTES "Start here (session 26)".
+1. **Cockpit cam performance** (user; noticeably better with L12, session 25): re-check only if the user still
+   finds it low: measure per camera view while the race runs (GPU passes per view, `threads.ps1`).
 2. **Draw thread, still the CPU limit:** ~~L12~~, ~~VertexCache lock~~, ~~pass-scale helpers~~ (done, session 25);
-   upload hashing measured (stable reuse +1.2%, user's call on the risk); **L10 tile merge next** (18% of draws are
-   second-tile copies; needs FM3's rectangle tile clears handled + the draw thread); L28's second half.
+   upload hashing measured (stable reuse +1.2%, user's call on the risk); 18% of draws are second-tile copies: try
+   **L36 (one guest tile)** before L10 (merge: needs FM3's rectangle tile clears handled + the draw thread); L28's
+   second half; per-draw atomics (1.3%).
 3. **GPU side on this PC:** shader `510c814e1a4ef99e` (97 KB) gets no L30 variant (some texture not plain: find which),
    sampler index as a literal in `TFetchPlain`, the remaining car paint cost (math/sampling: RGA ISA), plain multiply
    per shader (I3 without the black flags), V8 reflection cubes less often (find FM3's rate).

@@ -1,6 +1,37 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-11, session 25)
+## ▶ Current status / next step  (updated 2026-11-11, end of session 25)
+
+### ▶ Start here (session 26): state at the end of session 25 (2026-11-11)
+- **Session 25 built (all default on, pushed, the user drove both):** L12 asynchronous frame end (patch
+  `regpu-async-present`; launcher Settings > Testing "Asynchronous present" = settings.ini `async_present`, logged
+  `gpu: asynchronous present on|off`; `FM3_SYNC_PRESENT=1` off) and the draw-thread memos (patch
+  `regpu-draw-thread-memos`: vertex-cache memo, pass-scale snapshot, timer/overlay uploads without the replay wait).
+  29 ReGPU patches. **CPU-bound grid (720p 1x) 216.5 -> ~288 fps**; 1440p 4x ~236-246 (GPU-bound; it drifts ~2% as
+  the GPU warms). User: "a straight improvement", cockpit view "noticeably" better, "a good deal" higher fps floor.
+  Draw-thread sampler takes whole call stacks now (`FM3_SAMPLE_CALLERS=N`, live; details in part 1 below).
+- **Measured, not built:** upload hashing (6 MB/frame; `REGPU_UPLOAD_STABLE_REUSE` +1.2%, off for its stale-frame
+  risk: the user's call); L10 tile merge scoped (**18% of draws are second-tile copies**; blocked by FM3's rectangle
+  tile clears and the draw thread).
+- **New leads from mcla-recomp** (RESEARCH.md "Midnight Club LA recomp", PERF-PLAN L36-L40). **Suggested order for
+  session 26 (ask the user):**
+  1. **L38 first (small, affects our test method):** Windows 11 drops `timeBeginPeriod(1)` for a process with no
+     visible window, and every automated boot runs minimized. Check whether minimized runs sleep 15.6 ms (ring wait
+     mode 2, `TimeStampThread`); fix with `SetProcessInformation(ProcessPowerThrottling,
+     PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION)` + `timeBeginPeriod(1)` at start; re-check the grid baseline.
+  2. **L36 one guest tile** (instead of L10's merge): first test = the game's own MSAA off (does FM3 then draw one
+     tile? ReGPU's host MSAA is set apart); then find FM3's tiling setup (`xref.py`, the predicated-tile IB replays
+     are visible with `REGPU_TRACE_IB`) and the EDRAM size check. Watch the tile seam (row 512) and the S16 4x-view rules.
+  3. **L37 rect clears as real clears** (count full-surface plain-rect draws first), then L10 only if L36 fails.
+  4. **L39 lock-free guest atomics** (profile `PPCMsrChanged` on t7/t3 first), **L40 sleeps under a frame cap**,
+     L14 4-core test (affinity masks 0x55 and 0xF).
+  5. Still open from before: cockpit cam (better since L12: re-check only if the user still finds it low), GPU-side
+     leads (shader `510c814e1a4ef99e` without an L30 variant, literal sampler index, plain multiply per shader, V8),
+     stutter (L32 with mcla's 4 ms/frame budget, L33, L34).
+- How we test: unchanged (`tools/perf_suite.ps1`: `Start-Grid` minimized, `Test-Live`; CPU-bound = settings.ini
+  1280x720 msaa 1, backed up and restored). A switch whose "off" side is not the old code (e.g.
+  `REGPU_NO_PASS_SNAPSHOT`) needs old/new exe boots instead: build the old variant to a copy, alternate boots.
+  Close the game before linking (a running fm3.exe fails the link silently in a script).
 
 ### ▶ Session 25, part 2 (2026-11-11): draw-thread memos; upload hashing and tile merge scoped
 - User: "go ahead with the four candidates" (vertex cache lock, upload hashing, pass-scale helpers, L10 tile merge).
