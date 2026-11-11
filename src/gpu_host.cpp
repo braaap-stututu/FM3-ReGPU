@@ -287,6 +287,21 @@ void GpuStart()
     if (!getenv("FM3_ALPHA_KILL_ALWAYS"))
         DefaultEnv("REGPU_SPLIT_ALPHA_TEST", "1");
 
+    // Lean texture fetch + 2_10_10_10 copies kept in 10 bits (session 23, PERF-RESULTS.md; default at the user's
+    // request after a race drive). REGPU_LEAN_FETCH=1: a pixel shader's 2D fetch samples once through the samplers
+    // as an indexed table instead of a branch per sampler (read at the first translation; its shaders cache apart,
+    // so their variants build once, then come from the pipeline list at boot). REGPU_COPIES_1010102=1: copies of
+    // 2_10_10_10 surfaces at 10 bits instead of half float. Frozen CrownJewel grid, 1440p 4x: lean fetch 1 +1.8%,
+    // 10-bit copies +2.3% (live, 4/4 rounds, worst pixel difference 2/255); the user drove a career race with both
+    // and saw nothing wrong (crowd flags fine: that was plain multiply, which is not part of this). A preset that
+    // sets lean fetch 2 keeps it (applied above). FM3_NO_SHADER_SHORTCUTS=1: both off (as before session 23); live
+    // A/B for the copies: Fm3 "switch REGPU_COPIES_1010102 0|1".
+    if (!getenv("FM3_NO_SHADER_SHORTCUTS"))
+    {
+        DefaultEnv("REGPU_LEAN_FETCH", "1");
+        DefaultEnv("REGPU_COPIES_1010102", "1");
+    }
+
     // Parallel draw workers (OPEN-ISSUES.md P): draw translation on 3 threads, which helps where the
     // command processor is the bound (near other cars). Occlusion queries (the sun flare and glare) work
     // with them since our ReGPU patch regpu-worker-queries (session 14: a counting query's draws go to the

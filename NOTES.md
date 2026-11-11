@@ -2,6 +2,21 @@
 
 ## ▶ Current status / next step  (updated 2026-11-11, session 23)
 
+### ▶ Session 23, part 3 (2026-11-11): drive tests, new defaults (start here)
+- User drove the CrownJewel career race + a time trial with lean fetch 1 + plain multiply + 10-bit copies: first-lap
+  stutters were one-time builds of the new shader variants (now listed in the pipeline manifest and built at boot);
+  **plain multiply turns the crowd's waving flags black** (found by the user; my cross-boot diffs masked the crowd):
+  removed from the test set and from the Turbo preset.
+- **New defaults: `REGPU_LEAN_FETCH=1` + `REGPU_COPIES_1010102=1`** (`src/gpu_host.cpp`, `FM3_NO_SHADER_SHORTCUTS=1` =
+  off), after a second recorded race with nothing wrong. Frozen grid 225.6 fps (was ~221).
+- Camera views on the frozen grid (RB cycles 5): cockpit 221.8 = chase 223.1, hood/bumper ~232; a one-time cost on
+  first entering cockpit. Race dips follow traffic (AI cars close).
+- Engine audio G: no silences in the recording; the log's XMA stream restarts (hundreds of codec reopens per 5 s)
+  stay the lead (port FM2's trim handling).
+- Tools: `tools/perf/drive_graph.py` (fps graph of a drive from the log's swap stamps), `crops.ps1`, `sheet.ps1`,
+  `report_s23.py` + `make_pairs.ps1` (the picture report `out/perf/s23/report.html`).
+- `play.cmd` is back to normal (no temporary lines).
+
 ### ▶ Session 23, part 2 (2026-11-11, user AFK): every testable performance lead, hands-off (start here)
 Full results, pictures and how to read them: **[PERF-RESULTS.md](PERF-RESULTS.md)** (summary at its top); raw numbers,
 journal and every screenshot in `out/perf/s23/` (local). Harness: `tools/perf_suite.ps1` (boot to the frozen grid

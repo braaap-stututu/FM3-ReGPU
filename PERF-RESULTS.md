@@ -14,6 +14,7 @@ Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleave
 
 ## Summary (read first)
 **Kept / made default**
+- **Lean fetch 1 + 10-bit copies are now defaults** (`src/gpu_host.cpp`, after the user's race drive; `FM3_NO_SHADER_SHORTCUTS=1` = off). Frozen grid with them: 225.6 fps vs ~221.
 - **L11 ring wait sleeps (`FM3_RING_WAIT=2`) is now the default**: same fps GPU-bound and CPU-bound, same frame times,
   identical pictures, **the game uses 17-19% less CPU** (3.4 -> 2.7-2.8 cores). `FM3_RING_WAIT=0` = old spin (live).
 - **L15 laptop GPU pick**: driver exports in `main.cpp` (not testable on a one-GPU PC).
