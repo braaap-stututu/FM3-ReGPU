@@ -61,7 +61,10 @@ The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch
    sampler index as a literal in `TFetchPlain`, the remaining car paint cost (math/sampling: RGA ISA), plain multiply
    per shader (I3 without the black flags), V8 reflection cubes less often (find FM3's rate).
 4. **Other machines:** L14 core gating (4 cores), V4 iGPU defaults, L17-L22 memory items, V5 SMAA, I7 16-bit shaders.
-5. **Stutter:** L32 (pipelines per frame in parallel), L33 long-frame sampler, L34 SIMD untile, L29 (needs FM3's
+5. **From mcla-recomp (session 25, RESEARCH.md):** L36 one guest tile (instead of L10's merge), L37 rect clears as
+   real clears, L38 timer resolution while hidden (affects our minimized tests), L39 lock-free guest atomics, L40
+   sleeps under a frame cap; test L14 with affinity masks 0x55 and 0xF.
+6. **Stutter:** L32 (pipelines per frame in parallel; mcla-recomp's 4 ms/frame wait budget), L33 long-frame sampler, L34 SIMD untile, L29 (needs FM3's
    load-done flag).
 
 ## Legend
@@ -126,6 +129,11 @@ The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch
 | L33 | **Long-frame sampler** (`FM3_SAMPLE_THREAD` triggered when a frame passes N ms, title + named threads every 1 ms) + **small hooks it finds** (Pinyon: unchanged `SetPWLGamma` every frame = 30% of FH1's render thread; slow SQLite view after a race 158–186 ms) | Not built (small) | Stutter, CPU-bound | n/a (tool) | Do first for any stutter or CPU work |
 | L34 | **Untile by runs + SIMD byte swaps** (ITC `71fb4f0`: copy 16 contiguous bytes per computed tiled address, SSSE3 swap; ours computes `TiledOffset2DInner` per block in `texture.cpp`) | Not built (small–medium, ReGPU) | Stutter (streaming, race start), CPU | **Start-time** or live switch | ITC race start 33.2 → 9.8 ms for 44 textures; byte-identical |
 | L35 | **Texture change checks: only the bytes a texture uses** (ITC: 741 of 748 hash "changes" were row padding past an untiled texture's last row → needless reloads) and/or **mark from recorded writes** (as our vertex arena does) | Not checked; count reloads per frame first | CPU, stutter | **Planned live** | Lossless; a verify mode keeps hashing for checks |
+| L36 | **One guest tile** (mcla-recomp: the game's tile count forced to 1 + a larger EDRAM; an alternative to L10) | Not built; first test: the game's own MSAA off (ReGPU's host MSAA apart): does FM3 draw one tile? Then find FM3's tiling setup with `xref.py` | CPU-bound most (18% of draws are second-tile copies), some GPU | **Start-time** | MCLA: frames -9 to -20%, CP -28 to -35%. Lossless in intent; pitfalls in RESEARCH.md (EDRAM wrap, tile-surface cache) |
+| L37 | **Rectangle clears as real clears** (mcla-recomp: the value from running the shaders on the CPU) | Not built; count full-surface plain-rect draws first | GPU-bound (AMD fast clear vs a 4x quad); unblocks L10 | **Planned live** | Lossless in intent (fp16 exponent bias, 20e4 depth exact) |
+| L38 | **Timer resolution while the window is hidden** (Windows 11 drops `timeBeginPeriod` for invisible windows; `PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION`) | Not built; check whether minimized test boots sleep 15.6 ms | Minimized/covered play, our test method, hybrid CPUs (EcoQoS) | Start-time | Small, lossless |
+| L39 | **Guest atomics without the MSR lock** (mcla-recomp: `mtmsrd` regions holding only an `lwarx`/`stwcx.` loop, statically verified) | Not built; profile `PPCMsrChanged` on t7/t3 first (1,832 sites in `out/ppc`) | CPU (game threads) | Build | MCLA: render thread -6 to -12% CPU, frame -0.3 to -0.7% |
+| L40 | **Spin waits as sleeps only under a frame cap** (mcla-recomp: -46 to -53% CPU at 60/30 caps) | Not built; `threads.ps1` at a 60 cap: which threads spin | Laptops, power, 4 cores | Live | Lossless |
 
 ## 2. Lossless in intent (needs a numeric picture check and a drive)
 | # | Item | Status | Helps on | Live A/B | Risk / note |

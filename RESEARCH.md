@@ -19,6 +19,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Triple screen, three instances](#triple-screen-over-a-virtual-lan-three-instances-like-three-consoles-session-22-2026-11-10) | FM3's multi-screen ran over a LAN (3 consoles); our networking is stubbed; FH1R's virtual System Link (per-instance UDP ports, virtual secure IPs) is the design; 3 user folders + 3 monitors; ~3x CPU/RAM/GPU |
 | [Triple screen, one instance](#single-instance-triple-screen-session-22-2026-11-10) | 48:9 flat (needs the aspect hook) → per-screen homography warp → three projections via one clip-space matrix per view (P·R·P⁻¹), ~3x main-scene GPU |
 | [Engine sound](#engine-sound-smoothing-the-cuts-session-22-2026-11-10) | FM2's fix is universal (12,541 of 18,292 engine sounds): exact trims + an offline seamless-loop table. We apply no XMA trims at all: prime suspect for the sweep; port trims first, then compare hl360 |
+| [MCLA-Recomp](#midnight-club-la-recomp-mcla-recomp-performance-leads-session-25-2026-11-11) (session 25) | One guest tile instead of merging tiles (the game's tile count forced to 1 + a larger EDRAM: frames -9 to -20%, CP -28 to -35%); rectangle clears made real clears (the missing piece of our L10); Windows 11 drops `timeBeginPeriod` for hidden windows (our minimized test boots!); lock-free guest atomics; per-core-count defaults and a 4-core test method; sleeps only under a frame cap; per-frame pipeline wait budget |
 | [VR](#vr-after-fh1rs-design-session-22-2026-11-10) | FH1R: virtual screen → head pose into the camera director's view matrix (two readers hooked: renderer camera + frustum) → HUD panel → true stereo by replaying the scene segment per eye with clip.x −= P00·d (+2–3 ms GPU). For FM3: OpenXR on ReGPU's D3D12 first, then find FM3's view matrix (shared RE with telemetry/ultrawide). Splash addendum: legal/ESRB likely cover the startup load |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
@@ -1523,3 +1524,85 @@ compile on the player's machine and ship only manifests (hashes and render state
    (upstream `engine-optimisation` only adds `REGPU_OPTIMIZE_LEVEL` for FXC, untested).
 6. **Emit DXBC/DXIL directly** from microcode, as Xenia's D3D12 backend does (no compiler, near-instant
    shaders): the fastest possible first boot, but a rewrite of the translator. Not recommended for this project.
+
+## Midnight Club LA recomp (mcla-recomp): performance leads (session 25, 2026-11-11)
+`RenanQueiroz/mcla-recomp` (GPL-3.0: **ideas only, no code taken**): Midnight Club: Los Angeles on the ReXGlue SDK
+(Xenia-derived, D3D12 + Vulkan). Read through `gh api` (docs, `launcher/dev/*.md` engineering notes,
+`patches/README.md`, `KNOWN-ISSUES.md`, dropped patches); nothing cloned or run. Their numbers: RTX 5080 + Ryzen 7
+9800X3D unless noted, "3x" = 4K. Their Xenia-only wins (EDRAM buffer transfers between MSAA modes, shared-memory
+uploads, direct resolve, Vulkan) don't apply to ReGPU and are left out.
+
+### New for us, ranked for FM3
+1. **One guest tile (an alternative to L10's tile merge).** RAGE drew the 720p 2x scene as two predicated tiles
+   (1280x512 + 1280x208), like FM3. They hook the game's `BeginTiledRendering` after it computes the tile count and
+   force one full-height tile, plus the surface check that rejects surfaces past EDRAM tile 0x800; their SDK needed a
+   4,096-tile EDRAM (720p 2x colour 1,472 + depth 1,472 tiles > 2,048). Kept, default on: frames -9 to -11% (city),
+   -15 to -20% (race) at 4K; -14% at native where their CP was the limit; CP CPU -28 to -35%; GPU -1 to -2.2 ms at 4K.
+   With the game's MSAA off the game picks one tile itself (draws -30 to -39%). Pitfalls: without the bigger EDRAM
+   colour wrapped into depth (garbage rows); the game's 8-slot tile-surface cache hangs on a ninth key; 4x passes
+   need two tiles. Sources: `launcher/dev/single-tile-2026-10-16.md`, `single-tile-edram-2026-10-16.md`,
+   `config/render_perf.toml`. **FM3:** 18% of the draw thread's draws are second-tile copies (session 25) and L10 is
+   blocked by the rectangle tile clears; one guest tile removes the copies at the source. ReGPU's EDRAM addressing
+   (12-bit bases) may already allow it. Cheapest first test: the game's own MSAA off (ReGPU's host MSAA is set
+   separately) and see whether FM3 then draws one tile. Medium effort; lossless in intent. -> PERF-PLAN L36.
+2. **Rectangle clears turned into real clears.** A qualifying rect-list "clear" draw (screen-space rectangle,
+   always-pass depth/stencil replace, one fully written colour target, no blend, a pixel shader with no fetch/kill/
+   depth out) becomes ClearRenderTargetView/ClearDepthStencilView; the value comes from running the VS/PS on the CPU
+   (twice with unrelated registers 0 and 1: outputs must match); fp16 targets of 2_10_10_10_FLOAT clears need the
+   exponent bias applied, depth exact in 20e4. Their gain (-13 to -32% at 4K) was mostly Xenia transfers. **FM3:** (a)
+   the missing piece of L10 (a recognised clear with a known value can be applied to the later tiles' rows), (b) on
+   AMD a real clear is a fast metadata clear, a full-surface quad writes every sample at 1440p 4x. Measure first:
+   full-surface plain-rect draws per frame and their GPU time. -> L37.
+3. **Windows 11 ignores `timeBeginPeriod(1)` while no window of the process is visible** (minimized, covered,
+   display asleep): sleeps fall back to 15.6 ms. Fix: `SetProcessInformation(ProcessPowerThrottling,
+   PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION)` first, logged (`KNOWN-ISSUES.md` "Timer resolution kept while
+   the window is hidden"). **FM3:** our automated boots run minimized (`FM3_MINIMIZED=1`); only `audio.cpp` and the
+   wheel code call `timeBeginPeriod`, nothing calls `SetProcessInformation`, and `TimeStampThread` sleeps 1 ms. Check
+   whether minimized grid runs see 15.6 ms sleeps (ring wait mode 2 sleeps ~100 us); also EcoQoS on hybrid CPUs.
+   Small, lossless. -> L38.
+4. **Guest atomics without the interrupt lock.** XDK Interlocked helpers wrap `lwarx`/`stwcx.` in `mfmsr`/`mtmsrd`;
+   the recompiler makes `mtmsrd` a global lock. A static check proved only loads/adds/compares/branches between the
+   pairs, so the lock is dropped there (`launcher/dev/check_atomic_regions.py` verifies). Render thread CPU -6 to
+   -12%, frame -0.3 to -0.7%. **FM3:** `out/ppc` has 1,832 `PPC_MSR_CHANGED` sites (per-CPU `Lock` in
+   `src/kernel/thread.cpp`); profile t7/t3 for `PPCMsrChanged` first; little fps while ReGPU's draw thread is the
+   limit. Small-medium (XenonRecomp patch + verifier). -> L39.
+5. **Defaults by processor count, and a 4-core test method** (for L14/L11/V4). Count logical processors from the
+   affinity mask (`hardware_concurrency` ignores job limits); at <=5 turn on sleeping waits etc. At 4: uncapped
+   +17-21%, p99 27-30 -> 10-12 ms; at 6+ the same sleeps cost +0.4-1.7% frame time (for -30% CPU). Test masks 0x55
+   (4 cores) **and** 0xF (2 cores + SMT): they behave differently; add busy processes to imitate a slow CPU. Keep
+   rule: median <= +1%, p99 <= +3%. (`KNOWN-ISSUES.md`, `launcher/dev/small-cpu-2026-10-28.md`,
+   `affinity-log-2026-10-29.md`.)
+6. **Spin waits become sleeps only while a frame cap is set** (30/60/120: -46 to -53% CPU per frame, cap held, p99
+   unchanged; uncapped as before). FM3: check with `tools/perf/threads.ps1` at a 60 cap which host/ReGPU threads
+   still spin (the CP idle loop's `Sleep(0)`, waits). Laptops/power. Small. -> L40.
+7. **Per-frame wait budget for new pipelines** (refines L32): no wait at submit; a draw whose pipeline is building
+   waits at most 4 ms per frame in total, then is left out; never left out inside an occlusion query; an incomplete
+   frame isn't presented (<=100 ms). Cold cache worst frame 326 -> 159 ms. FM3: compare with our seed's slow-shader
+   wait; stutter only.
+8. **Game render-phase markers** in the command stream (PM4 NOPs written by hooks on the game's phase loop,
+   replayed with each tile) -> GPU time per game phase. A better basis for L26/V8 than splitting at resolves.
+9. **VRAM:** host render targets unused for 60 s freed; at 90% of the DXGI budget a shorter idle time and halved
+   cache limits; a "ballast" of committed 512 MB buffers at top residency priority to imitate a 2.6-3.2 GB card on a
+   big GPU (free roam 12 -> 171-196 fps at 3.2 GB). Extends L17; the ballast is a cheap low-VRAM test on the 7900 XTX.
+10. **Resolve shader: all sample loads first, skip the second sample's conversion when its raw bits equal the
+    first's** (exact): 2-CU Radeon iGPU resolves 8.4 -> 5.7 ms (frame -6 to -8.5%), noise on the 5080. iGPU only.
+11. **Pipeline preload threads:** their SDK's preload never started its extra threads (a count compared with
+    itself) and returned before the last ones finished (fixed: 1.07x). Check our seed build uses all cores and
+    waits for all; re-prepare pipelines when the driver version changes.
+12. **Per-draw atomics and out-of-module calls on the hot thread** (counters batched per frame -0.8% per draw; an
+    out-of-DLL `bit_scan_forward` was 2.5% of their thread). FM3: our draw thread still has an `atomic++` per draw
+    (1.3% in the session 25 profile).
+13. **Hot pages** (a page faulting N times in T stops being write-protected): faults 12,000 -> 200/s, CP -20%. Our
+    vertex arena's `changing` handling is the same idea; only if a counter shows many `VirtualProtect` calls.
+
+### Negative results touching our list
+- L8: keeping bindings for fetch constants rewritten unchanged -0.4% (dropped), like our -2.4% PS-constant reuse;
+  also no gain: specialised system-constant updates, sampler prefetch, reused texture-request queues.
+- L25 (MXCSR): 16.6% fewer mode switches, no gain; the upper bound (no `ldmxcsr` at all) left frame time unchanged.
+- L14: sleeping waits cost 0.4-2.4% on 6+ logical processors and win big at 4; decide per core count and per cap.
+- L13: their D3D12 split every 1,000 draws gained 7.1% of CP time, but never while an occlusion query is open or
+  pipelines build (our pieces lost 10%: those exceptions may be why).
+- V8: far shadows every 2nd frame flickered in motion (removed); env map every 4th frame kept (~1 ms on an iGPU).
+- V4/iGPU: memory placement changes moved < 5%; copies and barriers were 37-46% of their iGPU frame.
+- Test method: compare only adjacent off-on-on-off runs (their iGPU had "slow hours" up to 1.4x); figures of merit =
+  CPU time per frame of the limiting thread and time per draw on it.
