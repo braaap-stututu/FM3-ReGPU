@@ -48,6 +48,7 @@ $regpuPatches = @(
     'regpu-reg-skip'                 # CP: register writes that change nothing on the draw thread are not sent (L28, REGPU_NO_REG_SKIP)
     'regpu-async-present'            # frame end (close, submit, Present, fence) on the replay thread; the draw thread goes on (L12, REGPU_ASYNC_PRESENT)
     'regpu-draw-thread-memos'        # draw thread: vertex-arena answers memoised per thread/frame, one pass-scale snapshot, timer/overlay recorded (no replay wait)
+    'regpu-window-fixup-union'       # REGPU_WINDOW_FIXUP_UNION: predicated per-tile window fixups merged outside a tiling pass (FM3 one guest tile)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

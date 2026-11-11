@@ -1,0 +1,53 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index bf5183e..8637f32 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -110,6 +110,7 @@ struct Gpu
+     uint64_t droppedDraws = 0;
+     uint64_t binMask = ~0ull;
+     uint64_t binSelect = ~0ull;
++    bool windowUnion = false; // REGPU_WINDOW_FIXUP_UNION: a predicated window fixup ran since the last draw
+     std::atomic<uint64_t> skippedPredicated{ 0 };
+     std::atomic<uint64_t> waits{ 0 }, slowWaits{ 0 }, waitMicros{ 0 };
+     std::atomic<uint32_t> interruptsHandled{ 0 };
+@@ -1066,6 +1067,8 @@ uint32_t ExecutePacket(uint32_t ptr)
+     if (g_trace && opcode != 0x10)
+         Log("gpu: %08X op %02X count %u: %08X %08X %08X %08X", ptr, opcode, count, arg(0), count > 1 ? arg(1) : 0,
+             count > 2 ? arg(2) : 0, count > 3 ? arg(3) : 0);
++    if (opcode == 0x22 || opcode == 0x36)
++        g_gpu.windowUnion = false;
+     switch (opcode)
+     {
+     case 0x64: // XE_SWAP: 'SWAP', front buffer physical address, width, height
+@@ -1357,7 +1360,31 @@ uint32_t ExecutePacket(uint32_t ptr)
+             const uint32_t type = (arg(0) >> 16) & 0xFF;
+             index = (arg(0) & 0x7FF) + (type < 5 ? bases[type] : 0);
+         }
++        // REGPU_WINDOW_FIXUP_UNION (start time): a title whose tiling the host forced to one tile (FM3: one guest
++        // tile, src/hooks/one_tile.cpp) still runs command buffers recorded for several tiles. Their per-tile window
++        // fixups (predicated SET_CONSTANTs of the window offset and scissor, one per tile) all run outside a tiling
++        // pass (bin select all ones), and the last tile's would win: rows 512-719 only, shifted. Outside a tiling
++        // pass they make one window instead: offset 0, the union of the tiles' scissors.
++        static const bool windowUnion = getenv("REGPU_WINDOW_FIXUP_UNION") != nullptr;
++        const bool unionHere = windowUnion && (header & 1) && opcode == 0x2D && index <= 0x2080 && index + count - 1 > 0x2082 &&
++            (g_gpu.binSelect & 0xFFFFFFFFull) == 0xFFFFFFFFull;
++        const uint32_t lastTl = Reg(0x2081), lastBr = Reg(0x2082);
+         WriteRegisters(index, data + 4, count - 1);
++        if (unionHere)
++        {
++            uint32_t tl = Reg(0x2081), br = Reg(0x2082);
++            if (g_gpu.windowUnion)
++            {
++                auto lo = [](uint32_t a, uint32_t b, uint32_t shift) { return std::min((a >> shift) & 0x7FFF, (b >> shift) & 0x7FFF) << shift; };
++                auto hi = [](uint32_t a, uint32_t b, uint32_t shift) { return std::max((a >> shift) & 0x7FFF, (b >> shift) & 0x7FFF) << shift; };
++                tl = (tl & 0x80000000u) | lo(tl, lastTl, 0) | lo(tl, lastTl, 16);
++                br = (br & 0x80000000u) | hi(br, lastBr, 0) | hi(br, lastBr, 16);
++            }
++            WriteRegister(0x2080, 0);
++            WriteRegister(0x2081, tl);
++            WriteRegister(0x2082, br);
++            g_gpu.windowUnion = true;
++        }
+         break;
+     }
+     case 0x2F: // LOAD_ALU_CONSTANT: address, offset/type, size (dwords)

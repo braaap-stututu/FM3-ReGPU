@@ -369,6 +369,12 @@ void GpuStart()
     // 720p 1x 216.5 -> 255.2 fps (+17.9%), 1440p 4x 232.4 -> 242.3 (+4.3%). FM3_SYNC_PRESENT=1: off; live A/B:
     // Fm3 "switch REGPU_ASYNC_PRESENT 0|1". settings.ini async_present=0 (launcher Settings > Testing "Asynchronous
     // present") is off too.
+    // One guest tile (session 26, src/hooks/one_tile.cpp): the command buffers recorded for two tiles keep their
+    // per-tile window fixups; ReGPU merges them into one window.
+    bool OneTileEnabled();
+    if (OneTileEnabled())
+        DefaultEnv("REGPU_WINDOW_FIXUP_UNION", "1");
+    Log("gpu: one guest tile %s", OneTileEnabled() ? "on" : "off");
     if (!getenv("FM3_SYNC_PRESENT") && GetSettings().Extra("async_present") != "0")
         DefaultEnv("REGPU_ASYNC_PRESENT", "1");
     Log("gpu: asynchronous present %s", getenv("REGPU_ASYNC_PRESENT") && strcmp(getenv("REGPU_ASYNC_PRESENT"), "0") ? "on" : "off");

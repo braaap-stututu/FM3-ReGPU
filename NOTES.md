@@ -1,6 +1,30 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-11, end of session 25)
+## ▶ Current status / next step  (updated 2026-11-11, session 26)
+
+### ▶ Start here (session 27): session 26 (2026-11-11), L38 checked, L36 one guest tile built (opt-in)
+- **L38 (timer while hidden): not an issue for us.** Minimized test boots measure Sleep(1) = ~1.3 ms with and without
+  the fix (`FM3_TRACE_SLEEP=1` logs it 3x at 20 s intervals); our limiter, vblank and ring waits use high-resolution
+  waitable timers anyway. Kept as a cheap safeguard in `src/main.cpp`: `SetProcessInformation(ProcessPowerThrottling,
+  IGNORE_TIMER_RESOLUTION)` + `timeBeginPeriod(1)` at start (`FM3_NO_TIMER_FIX=1` off). Earlier minimized results stand.
+- **L36 one guest tile: built, opt-in (`one_tile=1` in settings.ini = launcher Settings > Testing "One guest tile",
+  or `FM3_ONE_TILE=1`; logged `gpu: one guest tile on|off`).** `src/hooks/one_tile.cpp` + ReGPU patch 30
+  `regpu-window-fixup-union`. Frozen grid 720p 1x **290.0 -> 316.4 fps (+9.1%, 3 boots each, all pairs +8.6-9.3%)**,
+  draws 3,288 -> 2,647; 1440p 4x 250 -> 254 (one pair, GPU-bound); pictures within cross-boot noise, seam rows too.
+  **Next: the user drives with it on** (races, menus = the 4x scenario is flattened too, showroom, photo mode,
+  livery editor, replays); if clean, make it the default. How FM3 tiles (for later work):
+  - Three static scenarios at `0x82BF60D0` (1232 bytes each): 4x MSAA 3 tiles (rows 256/512), 2x 2 tiles (512),
+    1x 1 tile. +4 w, +8 h, +12 MSAA type, +16 tile count, +32 rects. Front end runs scenario 0, races scenario 1.
+    Set-up `sub_82798890` (r7 = index; count 1 -> non-tiled path, MSAA into the present parameters; >1 -> tiled
+    surfaces, byte +90); BeginTiling call `sub_82797C58` -> `sub_824BBA08` (byte +91 = game's own "one tile this
+    frame"); per-tile resolves `sub_82797ED0`; per-draw tile masks `sub_8271CA40`; predication masks `sub_82850280`;
+    tiled command buffers `sub_82855870`. `SetTilingScenario` = `sub_822A7758` (stores +2836, virtual).
+  - Dead ends: count 1 before set-up (non-tiled path: world missing, part of the frame on the 4x layout); byte +91
+    only (resolves still per tile: rows 512-719 black). The fix: set-up with the game's counts, then count 1 + tile 0
+    over 720 rows. Prerecorded command buffers (dozens in the heap) carry **predicated per-tile window fixups**
+    (`C0032D01 00040080 <offset> <TL> <BR>`); outside a tiling pass (bin select all ones) all run and tile 1's wins
+    (track drawn in rows 0-207 only): ReGPU now merges them (offset 0, union of the scissors).
+- Then from PERF-PLAN "Next up": L37 rect clears as real clears, L39/L40/L14, the rest.
 
 ### ▶ Start here (session 26): state at the end of session 25 (2026-11-11)
 - **Session 25 built (all default on, pushed, the user drove both):** L12 asynchronous frame end (patch
@@ -863,6 +887,11 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-11 — session 26 (L38 timer, L36 one guest tile)
+- User: "let's continue with the performance optimization leads". L38: minimized boots were never throttled (Sleep(1)
+  ~1.3 ms either way); fix kept as a safeguard. L36: found FM3's tiling scenarios and set-up, built one guest tile
+  (hook + ReGPU `regpu-window-fixup-union`, patch 30), opt-in with a launcher toggle: CPU-bound grid +9.1%, picture
+  within noise. Waiting on the user's drive before it becomes a default. settings.ini restored (2560x1440, msaa 4).
 ### 2026-11-11 — session 25 (draw thread: L12 asynchronous frame end)
 - User: "let's tackle the draw thread next". Profiled ReGPU's draw thread with whole call stacks (sampler reworked:
   `FM3_SAMPLE_CALLERS=N`; two freezes on the way, from unwinding and getenv while the thread was stopped, fixed).

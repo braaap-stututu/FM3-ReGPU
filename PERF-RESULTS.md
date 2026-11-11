@@ -13,6 +13,13 @@ Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleave
 `tools/perf/session23/s23_*.ps1` (copies of `out/perf/s23_*.ps1`).
 
 
+## Session 26 (2026-11-11): L38 timer, L36 one guest tile
+| Test | Setting | Before | After | Picture |
+|---|---|---|---|---|
+| L38 timer fix (minimized) | 720p 1x grid, Sleep(1) | 268/286 fps, 1.28-1.58 ms | 279/286 fps, 1.23-1.57 ms | - (not throttled: no change) |
+| L36 one guest tile | 720p 1x grid, 3 boots each, alternating | 288.9 / 290.0 / 291.2 (3,288 draws) | 315.8 / 317.0 / 316.3 (2,647) = **+9.1%** | masked 0.004-0.008% (noise one/one 0.013%), seam rows same |
+| L36 one guest tile | 1440p 4x grid, 1 boot each | 250.1 | 254.3 | 0.56% unmasked (crowd) |
+
 ## Session 25 (2026-11-11): L12 asynchronous frame end
 | Test | Switch | Setting | Off | On | Change | Rounds | Picture |
 |---|---|---|---|---|---|---|---|
