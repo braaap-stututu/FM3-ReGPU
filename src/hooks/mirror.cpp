@@ -61,6 +61,7 @@ bool g_inMirror = false; // render thread only (sub_827FDB88 and everything belo
 uint32_t g_skip[32];
 int g_skipCount = 0;
 bool g_trace = false;
+int g_carLod = 0; // FM3_MIRROR_CAR_LOD (below)
 
 void ReadSkips()
 {
@@ -90,6 +91,13 @@ void ReadSkips()
     }
     char t[4] = {};
     g_trace = GetEnvironmentVariableA("FM3_MIRROR_TRACE", t, sizeof(t)) && t[0] == '1';
+    char l[4] = {};
+    const int lod = GetEnvironmentVariableA("FM3_MIRROR_CAR_LOD", l, sizeof(l)) && l[0] ? atoi(l) : 0;
+    if (lod != g_carLod)
+    {
+        g_carLod = lod;
+        Log("mirror: cars drawn at detail level %d%s", lod, lod ? "" : " (as the game does: full detail)");
+    }
 }
 
 bool SkipInMirror(uint32_t function, uint32_t lr)
@@ -142,7 +150,32 @@ FM3_MIRROR_STEP(828339F0)
 FM3_MIRROR_STEP(82833A78)
 FM3_MIRROR_STEP(8283A128)
 FM3_MIRROR_STEP(82835E18)
-FM3_MIRROR_STEP(828329C8)
+
+// Car detail in the mirror (session 27). sub_82837530 draws the cars; per car it calls sub_828329C8 with r10 = an
+// object whose +596 holds the car's detail level. The main view ranks the cars and sets +596 = 0 for the nearest
+// 1-2, 1 up to rank 3-4, 2 beyond (code at 82837E50..82837F08), then resets it to 0. The mirror's loop (82838044..
+// 828380BC) never sets it, so every car in the mirror is drawn at level 0, the full model (Catalunya grid, 2nd, six
+// cars behind: the cars are 668 of the mirror's ~1,316 draws, and skipping them = +40% fps).
+// FM3_MIRROR_CAR_LOD=N (live): the mirror draws its cars at level N (0 = as the game does).
+PPC_FUNC_IMPL(__imp__sub_828329C8);
+PPC_FUNC(sub_828329C8)
+{
+    if (SkipInMirror(0x828329C8, uint32_t(ctx.lr)))
+    {
+        ctx.r3.u64 = 0;
+        return;
+    }
+    if (g_inMirror && g_carLod > 0 && uint32_t(ctx.lr) == 0x828380BC)
+    {
+        const uint32_t field = ctx.r10.u32 + 596;
+        const uint32_t old = LoadBE32(field);
+        StoreBE32(field, uint32_t(g_carLod));
+        __imp__sub_828329C8(ctx, base);
+        StoreBE32(field, old);
+        return;
+    }
+    __imp__sub_828329C8(ctx, base);
+}
 
 PPC_FUNC_IMPL(__imp__sub_827FDB88);
 PPC_FUNC(sub_827FDB88)

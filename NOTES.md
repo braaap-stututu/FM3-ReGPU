@@ -25,6 +25,17 @@
   (`sub_828342D8` from `8283A9BC`) draws anything (-136 draws); the other 16 draw nothing; fps unchanged (229 vs 228,
   base swinging 207-249). Cars, track and blobs share one draw list; telling them apart (and the LOD choice) is in the
   1,200-instruction draw scheduler `sub_82AF4AA8` (per-view visibility bits in 200-byte items): hours of work.
+- **Catalunya grid with cars behind (user set up, 2nd/5th, cockpit, 1440p 4x), `FM3_MIRROR_SKIP` per step:** mirror
+  ~1,316 of 2,753 draws. Skip all mirror cars (`sub_828329C8` from `828380BC`): -668 draws, **309 vs ~220 fps
+  (+40%)**; car bodies only (1st `sub_82837530`, `8283A8D0`): -465, 270; car glass/transparent parts (2nd call,
+  `8283AB40`): -211, 244 (+10%; windows look see-through at mirror size); track scenery list (`8283A9BC`): -457, 239
+  (+8%); `sub_82838518` (`8283AAF4`): -184, no change. Half rate: 273. Montage `out/perf/s27mirror/cat_montage.png`.
+- **Car detail level:** the main view ranks cars and sets `+596` of the object passed in r10 to `sub_828329C8` (0 for
+  the nearest 1-2, 1 to rank 3-4, 2 beyond; 82837E50..82837F08); the mirror's car loop (82838044..828380BC) never
+  sets it, so mirror cars are all level 0. `FM3_MIRROR_CAR_LOD=N` (live, `mirror.cpp`) sets it while the mirror draws
+  them: level 2 = -50 draws, picture 0.09% different, **fps unchanged** (227.1 / 228.0 / 225.7 at 0/1/2; half rate
+  258.8 vs 257.9). Car draws are per material, not per detail level (as `fastcarrender` showed in session 19): a
+  lower car LOD is no lever. What would help is fewer car draws in the mirror: glass off (+10%, visible) or fewer cars.
 - Note: `quick_race=1`'s pad route stops one A short of Start Race (pre-race menu), then the track fly-over runs.
 
 ### ▶ Start here (session 27): state at the end of session 26 (2026-11-11)
