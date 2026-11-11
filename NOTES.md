@@ -24,6 +24,12 @@
     over 720 rows. Prerecorded command buffers (dozens in the heap) carry **predicated per-tile window fixups**
     (`C0032D01 00040080 <offset> <TL> <BR>`); outside a tiling pass (bin select all ones) all run and tile 1's wins
     (track drawn in rows 0-207 only): ReGPU now merges them (offset 0, union of the scissors).
+- **User drive 1 (20:34, video `unknown_2026.11.11-20.36.mp4`) ran with one tile OFF** (log `gpu: one guest tile off`,
+  settings.ini without `one_tile`), so it says nothing about L36. Seen there (existing issues, not L36): the yellow
+  Celica's wheel rims flicker a little (from ~1:17); a small bush behind the fence, left-above the car ahead, turns
+  bright cyan for about one frame (video 1:22.2, timer 222.8 s, race lap 1 ~0:13.9; ~1040-1085 x 590-620 px at
+  1440p). Nothing in the log then. First suspects for the bush: alpha-test-free variants (`FM3_ALPHA_KILL_ALWAYS=1`),
+  plain-fetch variants, a foliage LOD switch; needs a capture at that spot.
 - Then from PERF-PLAN "Next up": L37 rect clears as real clears, L39/L40/L14, the rest.
 
 ### ▶ Start here (session 26): state at the end of session 25 (2026-11-11)
