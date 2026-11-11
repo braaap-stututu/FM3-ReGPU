@@ -108,6 +108,11 @@ uint64_t Fnv(const uint8_t* p, size_t n, uint64_t h = 0xCBF29CE484222325ull)
     return h;
 }
 
+// Finds that never compile and that the game never draws (session 24): left out so the log's "failed to compile"
+// check after translator changes stays clean. vs 8f3951a3cb05a9ea: FXC X3504 (array index out of bounds), a
+// translator limit on a shader none of our runs used.
+constexpr uint64_t kSkip[] = { 0x8f3951a3cb05a9eaull };
+
 struct Found
 {
     std::mutex mutex;
@@ -131,6 +136,8 @@ void ScanBytes(const uint8_t* bytes, size_t size, Found& found)
             continue;
         const uint8_t* code = bytes + i * 4;
         const uint64_t hash = Fnv(code, used * 4) ^ (pixel ? 1 : 0);
+        if (std::find(std::begin(kSkip), std::end(kSkip), hash) != std::end(kSkip))
+            continue;
         std::lock_guard lock(found.mutex);
         if (!found.seen.insert(hash).second)
             continue;
@@ -141,7 +148,7 @@ void ScanBytes(const uint8_t* bytes, size_t size, Found& found)
 }
 
 constexpr uint32_t kFileMagic = 0x53334D46; // 'FM3S'
-constexpr uint32_t kFileVersion = 1;
+constexpr uint32_t kFileVersion = 2; // 2: kSkip applied
 
 std::filesystem::path SavedPath() { return UserDir() / "static_shaders.bin"; }
 

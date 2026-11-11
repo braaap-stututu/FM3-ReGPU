@@ -1,0 +1,98 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 84e159d..efe1cb4 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -12368,6 +12368,16 @@ void BuildSeedPipelines()
+         todo.size(), missing, missingShaders.size());
+     if (todo.empty())
+         return;
++    // Flag 0x400 pipelines use the pixel shader's alpha-test-free variant (ManifestPixelShader), as the warm-up
++    // and the draws do: queue every variant's compile first so they build in parallel (before, the seed built
++    // these with the base shader: the right picture, without the variant's speed).
++    size_t variantsQueued = 0;
++    for (const auto& [key, shaders] : todo)
++        if ((key.flags & 0x400) && shaders.second->IsReady())
++            if (const CompiledShader* k = NoKillVariantOf(*shaders.second); k && k->state.load() == CompiledShader::Pending)
++                variantsQueued++;
++    if (variantsQueued)
++        Log("seed pipelines: %zu alpha-test-free pixel shader variants to compile", variantsQueued);
+     std::vector<std::shared_ptr<PipelineEntry>> building;
+     std::vector<uint8_t> frame;
+     size_t next = 0, failed = 0;
+@@ -12379,9 +12389,25 @@ void BuildSeedPipelines()
+                building.size() - size_t(std::count_if(building.begin(), building.end(), [](const auto& e) { return e->state.load() != 0; })) < 32)
+         {
+             const auto& [key, shaders] = todo[next++];
+-            const auto [vs, ps] = shaders;
+-            while (vs->state.load() == CompiledShader::Pending || ps->state.load() == CompiledShader::Pending)
+-                Sleep(1);
++            const CompiledShader* vs = shaders.first;
++            const CompiledShader* ps = shaders.second;
++            // A shader still compiling (one the static wait left behind): build when the game needs it.
++            if (vs->state.load() == CompiledShader::Pending || ps->state.load() == CompiledShader::Pending)
++            {
++                g_seedLater.push_back(key);
++                continue;
++            }
++            if ((key.flags & 0x400) && ps->IsReady())
++            {
++                ps = ManifestPixelShader(key, *ps);
++                if (!ps)
++                {
++                    failed++;
++                    continue;
++                }
++                while (ps->state.load() == CompiledShader::Pending)
++                    Sleep(1);
++            }
+             if (vs->IsReady() && ps->IsReady())
+                 building.push_back(EnsurePipeline(*vs, *ps, key));
+             else
+@@ -12615,6 +12641,12 @@ void PrecompileAll()
+     g_stats.staticDone = 0;
+     const auto compileStart = std::chrono::steady_clock::now();
+     auto lastShown = std::chrono::steady_clock::time_point{}, lastScan = std::chrono::steady_clock::now();
++    // A single shader can take far longer than the rest (FM3: one vertex shader, never drawn in play, 37 s of a
++    // 55 s first boot). Once only a few are left and they have run for 5 s, the boot goes on and they finish in
++    // the background; a draw that needs one waits for it as usual. REGPU_STATIC_WAIT_ALL=1 waits for every one.
++    static const bool waitAll = getenv("REGPU_STATIC_WAIT_ALL") != nullptr;
++    auto fewSince = std::chrono::steady_clock::time_point{};
++    size_t leftBehind = 0;
+     for (size_t next = 0;;)
+     {
+         while (next < compiling.size() && compiling[next]->state.load() != CompiledShader::Pending)
+@@ -12622,6 +12654,24 @@ void PrecompileAll()
+         if (next == compiling.size())
+             break;
+         const auto now = std::chrono::steady_clock::now();
++        if (!waitAll && compiling.size() > 8)
++        {
++            const size_t pending = size_t(std::count_if(compiling.begin() + next, compiling.end(),
++                [](const CompiledShader* cs) { return cs->state.load() == CompiledShader::Pending; }));
++            if (pending > 3)
++                fewSince = {};
++            else if (fewSince == std::chrono::steady_clock::time_point{})
++                fewSince = now;
++            else if (now - fewSince > std::chrono::seconds(5))
++            {
++                leftBehind = pending;
++                for (size_t i = next; i < compiling.size(); i++)
++                    if (compiling[i]->state.load() == CompiledShader::Pending)
++                        Log("static shaders: not waiting for %s %016llx (still compiling, finishes in the background)",
++                            compiling[i]->pixel ? "ps" : "vs", (unsigned long long)compiling[i]->hash);
++                break;
++            }
++        }
+         // The game keeps running meanwhile and builds the shaders it makes at runtime (the
+         // title's among them): compile those in the same wait.
+         if (now - lastScan > std::chrono::milliseconds(1500))
+@@ -12650,7 +12700,8 @@ void PrecompileAll()
+     g_hold.active = false;
+     g_stats.staticTotal = 0;
+     g_lastLongHold = std::chrono::steady_clock::now();
+-    Log("static shaders: %zu compiled in %.1f s (%zu found in memory meanwhile)", compiling.size(), std::chrono::duration<double>(std::chrono::steady_clock::now() - compileStart).count(), compiling.size() - size_t(toCompile));
++    Log("static shaders: %zu compiled in %.1f s (%zu found in memory meanwhile, %zu left to finish in the background)", compiling.size() - leftBehind,
++        std::chrono::duration<double>(std::chrono::steady_clock::now() - compileStart).count(), compiling.size() - size_t(toCompile), leftBehind);
+ }
+ 
+ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)

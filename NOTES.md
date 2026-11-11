@@ -17,11 +17,16 @@
   86 variants) waited 54.6 s for 826, then 60 (5 vs, 55 ps, all during loading screens) and no frame over 250 ms after
   the race start. Second boot: list loaded, 1 to compile, grid at 24 s as usual. On the user's warm cache the first boot
   of this build compiled 415 new ones in 42.7 s. Grid fps unchanged (225.8).
-- Leftovers: (1) the wait is set by one vertex shader, `5bff4886221c3c2d`, 37.6 s to compile alone (never drawn in any
-  of our runs): ReGPU could stop waiting for single slow ones; (2) one scan find, vs `8f3951a3cb05a9ea`, fails to compile
-  (X3504 array index out of bounds), retried each boot, harmless; (3) the 55 pixel-shader variants (lean fetch /
-  alpha-test-free, same hash compiled again) aren't seeded; (4) the first-boot overlay was not seen by eye (the debug
-  server's shots are the game's frame): the user sees it after clearing `out/user/shadercache`.
+- **Leftovers fixed (same session, patch `regpu-seed-variants`):** (1) ReGPU's seed builder built the 265 flag-0x400
+  seed pipelines with the base pixel shader, not the alpha-test-free variant (same picture, slower; the warm-up and
+  draws did it right): the variants are now queued together and used; (2) the static wait stops once <=3 shaders are
+  left for 5 s (vs `5bff4886221c3c2d`, never drawn, 37-44 s alone), they finish in the background
+  (`REGPU_STATIC_WAIT_ALL=1` waits); (3) the scan find that never compiles (vs `8f3951a3cb05a9ea`, FXC X3504) is left
+  out (`kSkip` in `src/static_shaders.cpp`, saved list version 2). **Cold boot 3:** wait 55 -> 35 s (30.4 s shaders +
+  3.6 s for 1,284 seed pipelines and 237 variants), grid at 58 s instead of 79, compiles after the boot 60 -> 15 (4 vs,
+  11 ps), no frame over 250 ms after the race start, 224.6 fps minimized, grandstand checked by eye (flags in colour).
+  Its second boot: 0 compiles, grid at 22.7 s. Still open: the first-boot overlay not seen by eye (the debug server's
+  shots are the game's frame; the user sees it after clearing `out/user/shadercache`).
 - **`FM3_MINIMIZED=1`** (`src/gpu_host.cpp`): minimizes the game window once ReGPU opens it, without taking focus.
   `tools/perf_suite.ps1` `Start-Grid` sets it by default (pass `@{FM3_MINIMIZED='0'}` to see the window); set it for
   any hands-off boot. Debug-server screenshots still work; grid fps ~1.3% lower minimized (214/221 vs 218/224 shown).
