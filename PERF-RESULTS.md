@@ -12,6 +12,15 @@ where two plain boots N1/N2 differ: the crowd), `pngdiffimg.py A B OUT [thr] [x0
 Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleaved live A/B, CSV), the phase scripts in
 `tools/perf/session23/s23_*.ps1` (copies of `out/perf/s23_*.ps1`).
 
+## Session 24 (2026-11-11): L6 shader profile, L30 fetch variants
+- RGA (`tools/rga_shaders.ps1`, RDNA3 gfx1100): car paint `e41e183a423e6f1b` 80 VGPRs, 117,056 bytes of code (236 sample
+  instructions for 17 fetches, 1,064 branches); `510c814e1a4ef99e` 58 VGPRs, 97,300 bytes; `b117fbafcc1fa980` 46 / 33,040;
+  `f7841c0a8245eabf` 48 / 32,672; `8be0d4632b7d3122` 12 / 1,372.
+- L30 variants (all lean fetches plain): car paint 72 VGPRs / 20,412 bytes, b117 46 / 14,204, f784 38 / 13,220.
+- Frozen grid, live A/B of `REGPU_FETCH_VARIANTS` with `REGPU_GPU_PASSES=1`: GPU frame 4.38/4.42/4.44/4.44 ms off vs
+  4.28/4.32/4.32/4.32 on (-0.11 ms, -2.5%). fps: -0.3% (5 rounds) and +1.2% (3/3 rounds) in two sessions (CPU ceiling).
+  Pictures: 0 pixels differ (live, same session). Now the default.
+
 ## Summary (read first)
 **Kept / made default**
 - **Lean fetch 1 + 10-bit copies are now defaults** (`src/gpu_host.cpp`, after the user's race drive; `FM3_NO_SHADER_SHORTCUTS=1` = off). Frozen grid with them: 225.6 fps vs ~221.

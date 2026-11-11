@@ -2,7 +2,25 @@
 
 ## ▶ Current status / next step  (updated 2026-11-11, session 24)
 
-### ▶ Session 24 (2026-11-11): shaders compiled at first boot, start minimized for tests (start here)
+### ▶ Session 24, part 2 (2026-11-11): L6 shader profile + L30 fetch variants (start here)
+- **L6** (RGA 2.15 downloaded with the user's OK to `G:/claude code projects/tools/rga-2.15`, outside the repo):
+  `tools/rga_shaders.ps1 -RootSig <file> -Hlsl <files>` compiles translated pixel shaders for RDNA3 through the driver
+  (root signature from `REGPU_DUMP_ROOTSIG=<file>`, HLSL from `Fm3 "hlsl ..."`). The five heaviest grid shaders: car
+  paint `e41e183a423e6f1b` 80 VGPRs (occupancy fine, no spills) but **117 KB of code** (21,886 instructions, 236
+  sample instructions for 17 fetches, 1,064 branches; RDNA3's instruction cache is 32 KB); `510c814e1a4ef99e` 97 KB,
+  `b117fbafcc1fa980`/`f7841c0a8245eabf` 33 KB. Cause: every lean `TFetch2D` carries all the fetch-constant special
+  cases (mirror, border, axis clamp, sub-image, 16-bit fixed, gamma, exponent, swizzle).
+- **L30 built** (patch `regpu-fetch-variants`, `REGPU_FETCH_VARIANTS`, live; **on by default** in `src/gpu_host.cpp`
+  with lean fetch, `FM3_NO_SHADER_SHORTCUTS=1` or `Fm3 "switch REGPU_FETCH_VARIANTS 0"` off): per draw, the slots whose
+  fetch constant is plain get a variant calling `TFetchPlain` (one sample). Car paint 117 -> 20 KB (72 VGPRs),
+  b117 33 -> 14 KB, f784 33 -> 13 KB. Frozen grid: **GPU frame 4.42 -> 4.31 ms (-2.5%, 4/4 rounds)**, pictures
+  **byte-identical** (0 pixels, live A/B, crowd included); fps -0.3% (5 rounds) and +1.2% (3 rounds) in two sessions:
+  this PC sits on its ~231 fps CPU ceiling, so the GPU saving shows on GPU-bound machines. First boot with it compiles
+  ~57-100 variants once (base shaders used meanwhile, no hitch); the manifest records them (9th field `fetchMask`) and
+  the seed now has 2,100 pipelines (317 fetch variants) + 86 vertex variants. `510c814e1a4ef99e` got no variant
+  (some texture not plain): next lead there; also the remaining car paint cost is math/sampling, not code size.
+
+### Session 24 (2026-11-11): shaders compiled at first boot, start minimized for tests
 - **Static shader scan** (`src/static_shaders.cpp`, ported from the FM4 port's, MIT): `Host::staticShaders` lists every
   shader in the game files (10 loose `.fxobj` in `Media/Shaders`, 752 inside the track `bin.zip`s, 256 in the
   executable: 784 in all, 549 pixel), saved as `<user>/static_shaders.bin` with a stamp of the files searched (a
@@ -713,6 +731,8 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   changed-register handoff L28 and present-without-replay-wait L12 not built). User picked FM2-style shader
   precompilation: FM3 already reloaded its cache at boot; added the static scan + seed (above). Two cold boots in a
   throwaway user folder (DLC by junction, removed afterwards), one warm. `FM3_MINIMIZED` on user request.
+- Part 2: leftovers fixed (`regpu-seed-variants`), then L6 (RGA downloaded with the user's OK) and L30
+  (`regpu-fetch-variants`, default on). All boots minimized; game closed at the end.
 
 ### 2026-11-11 — session 23 part 2 (performance leads, hands-off)
 - Phases on the frozen grid: boot check (3 boots), 1 live switches, 3 GPU time/overdraw, L11, fixed-dt, 2 start-time

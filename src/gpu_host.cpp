@@ -311,6 +311,10 @@ void GpuStart()
     {
         DefaultEnv("REGPU_LEAN_FETCH", "1");
         DefaultEnv("REGPU_COPIES_1010102", "1");
+        // Session 24 (PERF-PLAN L30, patch regpu-fetch-variants): pixel-shader variants whose plain texture fetches
+        // skip the fetch-constant special cases (car paint 117 KB -> 20 KB of GPU code): GPU frame -2.5% on the
+        // grid, byte-identical picture. Live: Fm3 "switch REGPU_FETCH_VARIANTS 0|1".
+        DefaultEnv("REGPU_FETCH_VARIANTS", "1");
     }
 
     // Parallel draw workers (OPEN-ISSUES.md P): draw translation on 3 threads, which helps where the
