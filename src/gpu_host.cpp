@@ -113,8 +113,9 @@ void DefaultEnv(const char* name, const char* value)
 //   off      as before
 //   turbo    lean texture fetch v2 (plain textures: one sample), vertex fetches load only their dwords, index
 //            lists hashed once a frame, draws that drew nothing last time predicated off (every other frame
-//            retested), 2_10_10_10 copies kept in 10 bits, alpha-to-mask as a plain test at 1x MSAA, pixel
-//            shaders multiply as IEEE (FM2: 42.7 -> 52.0 fps, no visible change)
+//            retested), 2_10_10_10 copies kept in 10 bits, alpha-to-mask as a plain test at 1x MSAA (FM2 with
+//            IEEE pixel-shader multiplies too: 42.7 -> 52.0 fps; on FM3 those turn the crowd's flags black,
+//            session 23, so they are out)
 //   mild     turbo + scene at 67% (FSR 1 unless an upscaler is chosen), 4x anisotropy
 //   potato   turbo + 2x anisotropy; native resolution
 //   (session 23: the helper-pass pieces, small off-screen passes at half/quarter scale and reflections drawn every
@@ -174,7 +175,8 @@ void ApplyPerfPreset(regpu::Config& c)
         DefaultEnv("REGPU_INDEX_HASH_ONCE", "1");
         DefaultEnv("REGPU_COPIES_1010102", "1");
         DefaultEnv("REGPU_A2M_AS_TEST", "1");
-        DefaultEnv("REGPU_PLAIN_MUL_PS", "1");
+        // (Not REGPU_PLAIN_MUL_PS since session 23: IEEE multiplies turned the crowd's waving flags black, a
+        // shader relying on the console's 0 * inf = 0. Set it in the environment to try it.)
     }
     if (p.drawCull)
         DefaultEnv("REGPU_DRAW_CULL", std::to_string(p.drawCull).c_str());

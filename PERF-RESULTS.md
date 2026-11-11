@@ -26,7 +26,7 @@ Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleave
 
 **Gains not made default (your call, each needs a drive)**
 - `REGPU_LEAN_FETCH=1` + `REGPU_PLAIN_MUL_PS=1` + `REGPU_COPIES_1010102=1`: **+5.1%** at 1440p 4x (230.9 vs 219.6, 3
-  rounds), pictures within noise. Alone: lean fetch 2 +3.6%, plain multiply +1.8-2.7%, 10-bit copies +2.3%.
+  rounds), but **plain multiply turns the crowd's flags black** (found by the user while driving; see the end): out. Alone: lean fetch 2 +3.6%, plain multiply +1.8-2.7%, 10-bit copies +2.3%.
 - Turbo preset: +3.5-3.7%, picture within noise.
 - `REGPU_ANISO_FROM_FETCH=1`: +1.7%, softer distant textures (closer to the console).
 - `REGPU_SUBMIT_DRAWS=512`: +5.3% when CPU-bound (720p 1x) but -5.7% at 1440p 4x: for CPU-bound machines only.
@@ -240,3 +240,14 @@ variants visible from the grid. The time trial on the same track had no stutter 
 without a compile (log 35.2 s) coincides with track textures streaming in (786 -> 1111 textures over the next 15 s):
 the game's own streaming, not the switches. The race end (log ~160 s) also refilled the vertex arena ("full,
 starting over"), but that is the finish/menu transition, not driving.
+
+## Issue found by the user while driving: plain multiply turns the crowd's waving flags black
+`REGPU_PLAIN_MUL_PS=1` (I3): the flags the spectators wave render as black silhouettes. It is in the grid shots too
+(`flags-crop.png`: the left grandstand from `P5-defaults-r1`, `P5-plainmul-r1`, `P5-lean1-r1`, `I4b-on`: only plain
+multiply is black). A shader there relies on the console's 0 * inf = 0. **My picture check missed it:** the cross-boot
+diffs masked the crowd areas (they always differ between boots), and the flags sit inside that mask. Lesson: for
+start-time switches, also look at the masked areas by eye (or compare a crop), and prefer live switches.
+**Action:** plain multiply is out of `play.cmd`'s test set and out of the Turbo preset (so out of every preset);
+`src/gpu_host.cpp`. Without it the grid set is lean fetch 1 + 10-bit copies (phase 5 alone: +1.8% and +2.3%; not
+measured together). A per-shader fix (Pinyon's idea: IEEE multiplies everywhere but the shaders that need 0*inf = 0,
+or a NaN-to-0 scrub on their outputs) could bring the gain back.
