@@ -14,8 +14,12 @@
   and Present in ReGPU drains the replay first (`Real`), so fence values stay in order; a resize drains too. **FM3
   default** (`src/gpu_host.cpp`; `FM3_SYNC_PRESENT=1` off). Frozen grid, live, 5/5 rounds, byte-identical: **720p 1x
   216.5 -> 255.2 fps (+17.9%), 1440p 4x 232.4 -> 242.3 (+4.3%)**. Boot, shots and a full `capture` work with it on.
-  Possible side effect: one more frame may be queued (input latency +~4 ms at 240 fps); **user drive pending** (feel,
-  stutter, alt-tab, the sun flare).
+  Possible side effect: one more frame may be queued (input latency +~4 ms at 240 fps).
+- **User drove L12** (1440p 4x, two career races, log `out/logs/session25-drive-l12.log`, graph
+  `out/perf/s25/drive-l12.html`): "a straight improvement overall", and **cockpit view noticeably better** (the open
+  cockpit-cam note from session 24 is helped; re-check it later if it still feels low). No errors, 0 shader compiles.
+  Race 1: 263.8 fps average, 1% low 210.7, lowest stretch 208; race 2: 311.1 average, 1% low 204.8, lowest 197; no
+  stretch under 180 in either (session 24's CPU drive: 235.6 average, 1% low 183, lowest 175; camera views differ).
 - Explained: the `~PsAlias` "16-byte store" (7%) is the draw's common exit: the first store after the draw's burst of
   writes waits for the store buffer to drain; copying every constant (3x the bytes, `REGPU_ALL_CONSTANTS`) costs only
   -6.2%, so constant writes are a small share. GPU time at 720p 1x is ~3.1 ms of a ~4.3 ms frame.
@@ -23,7 +27,7 @@
   stopped and unwound after it resumes, and nothing that takes a lock (getenv, allocation, LiveSwitch construction)
   runs while it is stopped: deep unwinds and a getenv there froze the game twice (fps 0). Frames without symbols show
   as `module+offset`; " ~ name" = the nearest fm3.exe return addresses found on the stack (heuristic).
-- Next: the user drives L12; then PERF-PLAN "Next up" (re-profile the draw thread after L12; cockpit cam).
+- Next: PERF-PLAN "Next up" (re-profile the draw thread after L12; cockpit cam if it still feels low); ask the user.
 
 ### ▶ Start here (session 25): state at the end of session 24 (2026-11-11)
 - Session 24 built (all default on, all pushed): first-boot shader compile (static scan + pipeline seed with vertex
@@ -808,7 +812,7 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - Found ~10% of the draw thread waiting at the frame end (Present asleep in AMD's driver, the replay wait at the swap);
   built L12 (`regpu-async-present`, default): CPU-bound grid +17.9%, 1440p 4x +4.3%, byte-identical, boot/shot/capture
   fine. `~PsAlias` store explained (store buffer at the draw's exit). settings.ini restored (2560x1440, msaa 4).
-- Open: the user's drive with L12 (latency feel, alt-tab, sun flare); then PERF-PLAN "Next up".
+- User drove L12: straight improvement, cockpit view noticeably better; 264/311 fps race averages, none under 180.
 ### 2026-11-11 — session 24 (shaders at first boot, minimized test boots)
 - Checked which leads are left (PERF-PLAN) and FH1R v0.3.2 (its CP split ~ our draw thread; descriptor reuse L8,
   changed-register handoff L28 and present-without-replay-wait L12 not built). User picked FM2-style shader
