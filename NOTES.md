@@ -12,6 +12,10 @@
 - Leads (cheaper than a two-colour mirror, which would keep every draw): skip the shadow blobs in the mirror only
   (~13% of the mirror, near-invisible); a lower car LOD in the mirror (cars are ~38%: check whether FM3 picks the
   mirror's car LOD by size); the pit wall's 161 small pieces are visible, leave them.
+- **Shadow blobs skipped in the mirror (live `REGPU_SKIP_SHADERS=1e5b88c3dde5cc88`): not worth building.** -125
+  draws (2,837 -> 2,712), picture 684 px different (0.019%, a faint shadow under the car behind), but fps +0.5%
+  median / +1.1% mean over 10 alternating pairs (mirror every frame), inside this session's noise (181-211 fps in one
+  state). A guest-side skip would save the game's side too, but these draws are cheap. Next mirror lead: car LOD.
 - Note: `quick_race=1`'s pad route stops one A short of Start Race (pre-race menu), then the track fly-over runs.
 
 ### ▶ Start here (session 27): state at the end of session 26 (2026-11-11)
