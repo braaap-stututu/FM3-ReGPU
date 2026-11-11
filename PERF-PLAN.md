@@ -49,6 +49,7 @@ so constant writes are a small share. GPU time at 720p 1x is ~3.1 ms of a ~4.3 m
 Part 2 (patch `regpu-draw-thread-memos`): vertex-cache memo +3.6%, pass-scale snapshot +2.2%, timer/overlay uploads
 without the replay wait; **CPU-bound grid ~288 fps**. Upload hashing: 6 MB/frame, 75% re-checks of reused copies;
 `REGPU_UPLOAD_STABLE_REUSE` +1.2% (off: stale-for-a-frame risk). L10: 18% of draws are second-tile copies (the upside).
+The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch 200, 1% low 200.5 at 1440p 4x).
 
 ## Next up (from session 25; ask the user which)
 1. **Cockpit cam performance** (user, open; noticeably better with L12 per the user, session 25): measure per camera view while the race runs (GPU passes per view,

@@ -23,6 +23,10 @@
   tile starts with a rectangle clear; ReGPU keeps such surfaces unmerged) and off with the draw thread. Building it =
   a way to keep the second tile's rows cleared without its rectangle clear + carrying the widen decision through the
   draw thread; risk at the tile seam (row 512). Next session's candidate.
+- **User drove part 2** (1440p 4x, one race, ~64 s, log `out/logs/session25-drive-memos.log`, graph
+  `out/perf/s25/drive-memos.html`): "a good deal to raise the FPS floor". No errors, 0 compiles. 251.1 fps average,
+  1% low 200.5, lowest stretch 200.3, nothing under 180 (L12 drive: lowest 197-208; short drive, views differ, so the
+  log alone doesn't separate the two).
 
 ### ▶ Session 25 (2026-11-11): draw thread, L12 asynchronous frame end
 - User's pick: the draw thread. Profiled ReGPU's draw thread ("gpu draw worker") on the CPU-bound grid (settings.ini
@@ -837,7 +841,7 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - User drove L12: straight improvement, cockpit view noticeably better; 264/311 fps race averages, none under 180.
 - Part 2: patch `regpu-draw-thread-memos` (vertex memo +3.6%, pass snapshot +2.2%, timer/overlay without the replay
   wait); CPU-bound grid ~288 fps. Upload hashing measured (stable reuse +1.2%, off: risk); L10 scoped (18% of draws).
-  Open: user drive of part 2; L10 build (ask).
+  User drove part 2: FPS floor noticeably higher (user); lowest stretch 200. Open: L10 build (ask).
 ### 2026-11-11 — session 24 (shaders at first boot, minimized test boots)
 - Checked which leads are left (PERF-PLAN) and FH1R v0.3.2 (its CP split ~ our draw thread; descriptor reuse L8,
   changed-register handoff L28 and present-without-replay-wait L12 not built). User picked FM2-style shader
