@@ -47,10 +47,12 @@ function Stop-Game {
 function Start-Grid([hashtable]$Env = @{}, [int]$Settle = 15) {
     Stop-Game
     $env:FM3_GRID_TEST = '1'
+    if (-not $Env.ContainsKey('FM3_MINIMIZED')) { $env:FM3_MINIMIZED = '1' } # game window minimized (session 24)
     foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }
     Start-Process cmd.exe "/c `"$($Suite.Root)\play.cmd`"" -WindowStyle Hidden
     foreach ($k in $Env.Keys) { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     Remove-Item env:FM3_GRID_TEST -ErrorAction SilentlyContinue
+    Remove-Item env:FM3_MINIMIZED -ErrorAction SilentlyContinue
     Start-Sleep 4
     $t0 = Get-Date
     while (((Get-Date) - $t0).TotalSeconds -lt 180) {

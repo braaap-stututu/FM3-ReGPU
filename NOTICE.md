@@ -8,6 +8,7 @@ overlay, crash/hang diagnostics, settings, log) started as a copy of
 `69bdae44d22a9e0f52733ff55b9f1d0dd5e55b2b` (`src/`), which itself builds on
 [Forza-Motorsport-2-ReGPU](https://github.com/zer0ducksgiven/Forza-Motorsport-2-ReGPU); its licence (below) is the one FM2 ships, kept by FM4. It was adapted for FM3: FM3 guest addresses (`src/hooks/addresses.h`),
 a single recompiled image, upstream ReGPU's API, `FM3_*` switches, and FM2/FM4-only parts removed.
+`src/static_shaders.cpp` (session 24) is adapted from that project's `src/static_shaders.cpp` (FM3 file stamp, `FM3_NO_STATIC_SHADERS`).
 The XenonRecomp patches in `patches/` come from the same project (see `patches/README.md`).
 The launcher in `launcher/FM3Launcher` is adapted from that project's `launcher/FM4Launcher` as of the same
 commit (via the fork `braaap-stututu/Fuzzy-Rittersport-4-ReGPU-testing`): renamed for FM3, its settings and paths

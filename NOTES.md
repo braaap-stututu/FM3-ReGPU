@@ -1,8 +1,32 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-11, session 23)
+## ▶ Current status / next step  (updated 2026-11-11, session 24)
 
-### ▶ Session 23, part 3 (2026-11-11): drive tests, new defaults (start here)
+### ▶ Session 24 (2026-11-11): shaders compiled at first boot, start minimized for tests (start here)
+- **Static shader scan** (`src/static_shaders.cpp`, ported from the FM4 port's, MIT): `Host::staticShaders` lists every
+  shader in the game files (10 loose `.fxobj` in `Media/Shaders`, 752 inside the track `bin.zip`s, 256 in the
+  executable: 784 in all, 549 pixel), saved as `<user>/static_shaders.bin` with a stamp of the files searched (a
+  changed game folder searches again; ~0.1 s). ReGPU compiles the uncached ones behind its progress overlay before the
+  game goes on. `FM3_NO_STATIC_SHADERS=1` / `REGPU_NO_STATIC_SHADERS=1` off. Disc 2 packages are not searched.
+- **Pipeline seed** (`src/pipeline_seed.h`, made by `tools/pipeline_seed.py <manifests>`): 1,783 pipelines + 86
+  vertex-shader variants (`V` lines) from our manifests (hashes and render state only). `REGPU_NO_SEED_PIPELINES=1` off.
+  `V` lines only appear in a manifest once the static shaders are known (ReGPU matches a run-time vertex shader to its
+  shipped one), so the user's old manifest had none; regenerate the seed from manifests of runs with this build.
+- **Measured** (frozen-grid route, fresh user folder): cold boot 1 (seed without variants) waited 53 s for 739 shaders,
+  then 110 compiles on the way to the race (58 vs, 52 ps) and a 353 ms hitch in the race load; cold boot 2 (with the
+  86 variants) waited 54.6 s for 826, then 60 (5 vs, 55 ps, all during loading screens) and no frame over 250 ms after
+  the race start. Second boot: list loaded, 1 to compile, grid at 24 s as usual. On the user's warm cache the first boot
+  of this build compiled 415 new ones in 42.7 s. Grid fps unchanged (225.8).
+- Leftovers: (1) the wait is set by one vertex shader, `5bff4886221c3c2d`, 37.6 s to compile alone (never drawn in any
+  of our runs): ReGPU could stop waiting for single slow ones; (2) one scan find, vs `8f3951a3cb05a9ea`, fails to compile
+  (X3504 array index out of bounds), retried each boot, harmless; (3) the 55 pixel-shader variants (lean fetch /
+  alpha-test-free, same hash compiled again) aren't seeded; (4) the first-boot overlay was not seen by eye (the debug
+  server's shots are the game's frame): the user sees it after clearing `out/user/shadercache`.
+- **`FM3_MINIMIZED=1`** (`src/gpu_host.cpp`): minimizes the game window once ReGPU opens it, without taking focus.
+  `tools/perf_suite.ps1` `Start-Grid` sets it by default (pass `@{FM3_MINIMIZED='0'}` to see the window); set it for
+  any hands-off boot. Debug-server screenshots still work; grid fps ~1.3% lower minimized (214/221 vs 218/224 shown).
+
+### Session 23, part 3 (2026-11-11): drive tests, new defaults
 - User drove the CrownJewel career race + a time trial with lean fetch 1 + plain multiply + 10-bit copies: first-lap
   stutters were one-time builds of the new shader variants (now listed in the pipeline manifest and built at boot);
   **plain multiply turns the crowd's waving flags black** (found by the user; my cross-boot diffs masked the crowd):
@@ -679,6 +703,12 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-11 — session 24 (shaders at first boot, minimized test boots)
+- Checked which leads are left (PERF-PLAN) and FH1R v0.3.2 (its CP split ~ our draw thread; descriptor reuse L8,
+  changed-register handoff L28 and present-without-replay-wait L12 not built). User picked FM2-style shader
+  precompilation: FM3 already reloaded its cache at boot; added the static scan + seed (above). Two cold boots in a
+  throwaway user folder (DLC by junction, removed afterwards), one warm. `FM3_MINIMIZED` on user request.
+
 ### 2026-11-11 — session 23 part 2 (performance leads, hands-off)
 - Phases on the frozen grid: boot check (3 boots), 1 live switches, 3 GPU time/overdraw, L11, fixed-dt, 2 start-time
   switches, 4 CPU-bound (720p 1x), 5 stacked pieces (3 rotated rounds), 6 preset bug isolation, 7 presets after the

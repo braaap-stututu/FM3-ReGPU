@@ -22,6 +22,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 
 #include <windows.h>
 
@@ -35,6 +36,8 @@
 #include "memory.h"
 #include "settings.h"
 #include "hooks/frame_time.h"
+#include "pipeline_seed.h"
+#include "static_shaders.h"
 
 std::string CurrentHostStack(int maxFrames); // crash.cpp
 void LogAllHostThreadStacks(const char* why); // hang.cpp
@@ -226,6 +229,14 @@ void GpuStart()
     host.watchArm = [](uint32_t offset, uint32_t bytes) { return WriteWatchArm(offset, bytes); };
     host.watchClean = [](uint32_t offset, uint32_t bytes, uint64_t since) { return WriteWatchClean(offset, bytes, since); };
     host.watchSeq = [] { return WriteWatchSeq(); };
+
+    // First boot: every shader in the game files compiled up front behind ReGPU's progress overlay, then
+    // the shipped pipeline list (src/pipeline_seed.h, tools/pipeline_seed.py) built (session 24). Later boots
+    // load both from the caches. FM3_NO_STATIC_SHADERS=1 / REGPU_NO_STATIC_SHADERS=1 skip the shaders,
+    // REGPU_NO_SEED_PIPELINES=1 the pipelines.
+    host.staticShaders = [] { return StaticShaders(); };
+    host.staticShadersSaved = [] { return StaticShadersSaved(); };
+    host.pipelineSeed = [] { return kPipelineSeed; };
 
     // The bar across the 3D view (rows ~360-511, ending at the EDRAM tile seam: FM3 draws its 2x MSAA 720p
     // scene in two tiles, 1280x512 and 1280x208): ReGPU's "foreign MSAA" path, which reinterprets a surface's
@@ -437,4 +448,33 @@ void GpuStart()
     Log("gpu: ReGPU at %ux%u, msaa %u, vblank %s Hz", config.width, config.height, config.msaa, getenv("REGPU_VBLANK_HZ"));
     regpu::Start();
     StartGpuMemoryLog();
+
+    // FM3_MINIMIZED=1 (automated tests, session 24): minimize the game window once ReGPU has opened it, without
+    // taking focus, so test boots don't cover the desktop. The game keeps rendering (debug-server screenshots are
+    // the game's own frames); grid fps measured ~1.3% lower minimized than shown.
+    if (const char* m = getenv("FM3_MINIMIZED"); m && *m && strcmp(m, "0"))
+        std::thread([] {
+            for (int i = 0; i < 400; i++)
+            {
+                struct Find { HWND hwnd = nullptr; } find;
+                EnumWindows([](HWND h, LPARAM p) -> BOOL {
+                    DWORD pid = 0;
+                    GetWindowThreadProcessId(h, &pid);
+                    wchar_t cls[16] = {};
+                    if (pid == GetCurrentProcessId() && GetClassNameW(h, cls, 16) && !wcscmp(cls, L"regpu") && IsWindowVisible(h))
+                    {
+                        reinterpret_cast<Find*>(p)->hwnd = h;
+                        return FALSE;
+                    }
+                    return TRUE;
+                }, LPARAM(&find));
+                if (find.hwnd)
+                {
+                    ShowWindow(find.hwnd, SW_SHOWMINNOACTIVE);
+                    Log("gpu: window minimized (FM3_MINIMIZED)");
+                    return;
+                }
+                Sleep(50);
+            }
+        }).detach();
 }
