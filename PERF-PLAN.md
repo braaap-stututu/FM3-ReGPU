@@ -46,13 +46,16 @@ Explained, not fixable cheaply: the "~PsAlias 16-byte store" (7%) is the draw's 
 draw's burst of writes (the stall is the store buffer draining); every-constant copying (3x the bytes) costs only -6.2%,
 so constant writes are a small share. GPU time at 720p 1x is ~3.1 ms of a ~4.3 ms frame.
 
+Part 2 (patch `regpu-draw-thread-memos`): vertex-cache memo +3.6%, pass-scale snapshot +2.2%, timer/overlay uploads
+without the replay wait; **CPU-bound grid ~288 fps**. Upload hashing: 6 MB/frame, 75% re-checks of reused copies;
+`REGPU_UPLOAD_STABLE_REUSE` +1.2% (off: stale-for-a-frame risk). L10: 18% of draws are second-tile copies (the upside).
+
 ## Next up (from session 25; ask the user which)
 1. **Cockpit cam performance** (user, open; noticeably better with L12 per the user, session 25): measure per camera view while the race runs (GPU passes per view,
    `threads.ps1`), GPU or CPU? Then the matching lead below.
-2. **Draw thread, still the CPU limit:** ~~L12~~ (done, session 25: +17.9% CPU-bound); `~PsAlias` explained (store
-   buffer at the draw's exit); left: re-profile after L12, the VertexCache lock release (2.7%; a recursive mutex, a
-   locked instruction that also drains the store buffer), upload hashing (2.5%, the I5 risk), pass-scale helpers (~4%,
-   state can change inside a draw), L28's second half, L10 tile merge (big, PGR4 +19%).
+2. **Draw thread, still the CPU limit:** ~~L12~~, ~~VertexCache lock~~, ~~pass-scale helpers~~ (done, session 25);
+   upload hashing measured (stable reuse +1.2%, user's call on the risk); **L10 tile merge next** (18% of draws are
+   second-tile copies; needs FM3's rectangle tile clears handled + the draw thread); L28's second half.
 3. **GPU side on this PC:** shader `510c814e1a4ef99e` (97 KB) gets no L30 variant (some texture not plain: find which),
    sampler index as a literal in `TFetchPlain`, the remaining car paint cost (math/sampling: RGA ISA), plain multiply
    per shader (I3 without the black flags), V8 reflection cubes less often (find FM3's rate).

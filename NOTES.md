@@ -2,6 +2,28 @@
 
 ## ▶ Current status / next step  (updated 2026-11-11, session 25)
 
+### ▶ Session 25, part 2 (2026-11-11): draw-thread memos; upload hashing and tile merge scoped
+- User: "go ahead with the four candidates" (vertex cache lock, upload hashing, pass-scale helpers, L10 tile merge).
+  Re-profile after L12 (CPU-bound grid, 253.8 fps): a `Real()` wait at the swap was left (2.7%): the timer/shader
+  overlays recorded their uploads on the real list. Patch **`regpu-draw-thread-memos`** (29 ReGPU patches):
+  1. **Timer/overlay recorded** through the recorded list (no replay wait): boots 253.8 -> ~270 fps (with 2).
+  2. **Vertex cache memo**: each thread remembers this frame's arena answers, so ~2,600 hits a frame skip the texture
+     mutex; `REGPU_NO_VERTEX_MEMO=1` off (live): **+3.6%** (5/5, 0 pixels); 0% at 1440p 4x (GPU-bound).
+  3. **Pass-scale snapshot**: `BigPassSize`/`PassWidth`/`PassHeight`/`PassScale`/`ScaleX/Y/Wide` worked out once per
+     input change: **+2.2%** over alternating boots of old/new exes (279.3, 280.8 vs 288.3, 284.0), byte-identical.
+  **CPU-bound grid now ~288 fps** (session start 216.5 with sync present; 255 after L12). 1440p 4x: 235-240 (GPU
+  drifts ~2% over minutes as it warms; timer on/off 0).
+- **Upload hashing, not changed:** 6.0 MB hashed a frame for 1,446 small-buffer uses (<16 KB: 369 copies, 1,077 reuses
+  hashed only to prove nothing changed). Write-watching them would fault every frame (they change every frame).
+  `REGPU_UPLOAD_STABLE_REUSE=1` (live) hashes 2.5 MB instead: **+1.2%** (4/4, 0 pixels), with the known risk (a range
+  unchanged for 600 frames that changes mid-frame is drawn stale for the rest of that frame: FH1's skid marks). Off;
+  the user's call.
+- **L10 tile merge, scoped only:** **18% of draws (~600 a frame) are second-tile copies** (temporary counter: draws in
+  indirect buffers run again with another window offset). Still refused on the race scene (`14010500`: its second
+  tile starts with a rectangle clear; ReGPU keeps such surfaces unmerged) and off with the draw thread. Building it =
+  a way to keep the second tile's rows cleared without its rectangle clear + carrying the widen decision through the
+  draw thread; risk at the tile seam (row 512). Next session's candidate.
+
 ### ▶ Session 25 (2026-11-11): draw thread, L12 asynchronous frame end
 - User's pick: the draw thread. Profiled ReGPU's draw thread ("gpu draw worker") on the CPU-bound grid (settings.ini
   1280x720 msaa 1, backed up and restored) with whole call stacks: **~10% of its time was waiting at the frame end**:
@@ -813,6 +835,9 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   built L12 (`regpu-async-present`, default): CPU-bound grid +17.9%, 1440p 4x +4.3%, byte-identical, boot/shot/capture
   fine. `~PsAlias` store explained (store buffer at the draw's exit). settings.ini restored (2560x1440, msaa 4).
 - User drove L12: straight improvement, cockpit view noticeably better; 264/311 fps race averages, none under 180.
+- Part 2: patch `regpu-draw-thread-memos` (vertex memo +3.6%, pass snapshot +2.2%, timer/overlay without the replay
+  wait); CPU-bound grid ~288 fps. Upload hashing measured (stable reuse +1.2%, off: risk); L10 scoped (18% of draws).
+  Open: user drive of part 2; L10 build (ask).
 ### 2026-11-11 — session 24 (shaders at first boot, minimized test boots)
 - Checked which leads are left (PERF-PLAN) and FH1R v0.3.2 (its CP split ~ our draw thread; descriptor reuse L8,
   changed-register handoff L28 and present-without-replay-wait L12 not built). User picked FM2-style shader

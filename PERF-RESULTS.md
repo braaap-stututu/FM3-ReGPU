@@ -19,7 +19,11 @@ Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleave
 | L12 async present | `REGPU_ASYNC_PRESENT` (live) | 720p 1x (CPU-bound) | 216.5 | 255.2 | **+17.9%** | 5/5 | 0 pixels |
 | L12 async present | `REGPU_ASYNC_PRESENT` (live) | 1440p 4x | 232.4 | 242.3 | **+4.3%** | 5/5 | 0 pixels |
 | All constants copied (diagnostic) | `REGPU_ALL_CONSTANTS` (live) | 720p 1x | 226.2 | 212.1 | -6.2% | 0/3 | 0 pixels |
-Frozen CrownJewel grid, minimized, `out/perf/s25/`. L12 is the FM3 default (`FM3_SYNC_PRESENT=1` off). The last row
+| Vertex cache memo | `REGPU_NO_VERTEX_MEMO` (live) | 720p 1x | 269.7 | 279.3 | **+3.6%** | 5/5 | 0 pixels |
+| Vertex cache memo | `REGPU_NO_VERTEX_MEMO` (live) | 1440p 4x | 234.6 | 234.7 | 0 | 3/4 | 0 pixels |
+| Pass-scale snapshot | old/new exe, alternating boots | 720p 1x | 279.3, 280.8 | 288.3, 284.0 | **+2.2%** | 2/2 | byte-identical (live) |
+| Upload stable reuse | `REGPU_UPLOAD_STABLE_REUSE` (live, not adopted) | 720p 1x, perf log on | 207.7 | 210.2 | +1.2% | 4/4 | 0 pixels |
+Frozen CrownJewel grid, minimized, `out/perf/s25/` and `out/perf/s25b/`. CPU-bound grid after part 2: ~288 fps. L12 is the FM3 default (`FM3_SYNC_PRESENT=1` off). The last row
 shows how much constant writes cost (3x the bytes: -6.2%), i.e. not the draw thread's main cost.
 
 ## Session 24 (2026-11-11): CPU side
