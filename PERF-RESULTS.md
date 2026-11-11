@@ -251,3 +251,18 @@ start-time switches, also look at the masked areas by eye (or compare a crop), a
 `src/gpu_host.cpp`. Without it the grid set is lean fetch 1 + 10-bit copies (phase 5 alone: +1.8% and +2.3%; not
 measured together). A per-shader fix (Pinyon's idea: IEEE multiplies everywhere but the shaders that need 0*inf = 0,
 or a NaN-to-0 scrub on their outputs) could bring the gain back.
+
+## User's recorded race (lean fetch 1 + 10-bit copies) and the camera views
+Log `out/perf/s23/drive2-fm3.log`, graph `drive-test-2.html`, video overview `vid2/overview.png`; log = video + 33.8 s.
+- No shader compiles in the race: the five variants were built at boot from last run's pipeline list.
+- Race (recording + overlay running): 246 fps average GO to pause. By view in the recording: chase lap 1 231 fps,
+  first cockpit stint 196, chase + rewind 217, cockpit laps 2-3 232. The cockpit difference follows the traffic (3rd
+  with cars close vs leading), not the view alone.
+- **Frozen grid, every view, 3-4 interleaved readings each** (RB cycles 5 views; `cam2-sheet.png`, `cam2.txt`):
+  cockpit 221.8 (221.5-222.0), chase 223.1, far chase 221.5, hood 233.0, bumper 231.9. **Cockpit costs the same as
+  the chase cameras**, ~5% more than hood/bumper (the interior). The first switch into cockpit read 192.8 fps once
+  (a one-time cost on entering it), never again.
+- Audio (open issue G): no silences in the recording's sound (none below 20% of the surrounding level), 8 short dips
+  to 30-50% (could be gear changes). The log shows the streams behind it: hundreds of XMA codec reopens and
+  discontinuity flushes every 5 s, ~26,000 decoded samples dropped at stream restarts per 5 s. Session 22's lead
+  stands: FM3 applies no XMA trims; port FM2's trim handling.
