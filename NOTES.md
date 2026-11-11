@@ -20,7 +20,7 @@
   the seed now has 2,100 pipelines (317 fetch variants) + 86 vertex variants. `510c814e1a4ef99e` got no variant
   (some texture not plain): next lead there; also the remaining car paint cost is math/sampling, not code size.
 - **User drove it** (career race, ~3 laps): 300.6 fps average, lowest stretch 182 (S23 drive 1: 258, lowest 91), one
-  background compile, no errors (PERF-RESULTS session 24). Whether anything looked different: ask the user.
+  background compile, no errors (PERF-RESULTS session 24). **The user confirmed it looked normal**: the fetch variants stay the default.
 
 ### Session 24 (2026-11-11): shaders compiled at first boot, start minimized for tests
 - **Static shader scan** (`src/static_shaders.cpp`, ported from the FM4 port's, MIT): `Host::staticShaders` lists every
