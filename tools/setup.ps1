@@ -46,6 +46,7 @@ $regpuPatches = @(
     'regpu-draw-thread-cuts'         # draw thread: no mutex in IsPsEditAlias without live edits, fetch-variant lookups memoised per thread
     'regpu-shader-repeat-skip'       # CP: a shader load repeating the last of its type is not sent to the draw thread (REGPU_NO_SHADER_REPEAT_SKIP)
     'regpu-reg-skip'                 # CP: register writes that change nothing on the draw thread are not sent (L28, REGPU_NO_REG_SKIP)
+    'regpu-async-present'            # frame end (close, submit, Present, fence) on the replay thread; the draw thread goes on (L12, REGPU_ASYNC_PRESENT)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

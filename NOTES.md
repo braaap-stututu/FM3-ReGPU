@@ -1,6 +1,29 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-11, session 24)
+## ▶ Current status / next step  (updated 2026-11-11, session 25)
+
+### ▶ Session 25 (2026-11-11): draw thread, L12 asynchronous frame end
+- User's pick: the draw thread. Profiled ReGPU's draw thread ("gpu draw worker") on the CPU-bound grid (settings.ini
+  1280x720 msaa 1, backed up and restored) with whole call stacks: **~10% of its time was waiting at the frame end**:
+  ~7% asleep inside AMD's driver (`amdxc64.dll` -> `SleepEx`) in `Present` (frame-queue throttling), ~2.5% waiting for
+  the command-list replay thread at the swap (`RecordedList::Real`). The rest: ~11% waiting for the command processor
+  (normal), `DrawImpl` body ~20%, hashing ~6%, pass-scale helpers ~5%, VertexCache lock release 2.7%.
+- **Built: L12 (patch `regpu-async-present`, 28 ReGPU patches)**: `REGPU_ASYNC_PRESENT=1` (live) queues the frame end
+  (back-buffer copy, close, submit, Present, frame fence) on the replay thread in stream order (new recorded-list ops
+  `Call`/`Switch`); the next frame records into a pool list of its own slot without waiting. Every other fence signal
+  and Present in ReGPU drains the replay first (`Real`), so fence values stay in order; a resize drains too. **FM3
+  default** (`src/gpu_host.cpp`; `FM3_SYNC_PRESENT=1` off). Frozen grid, live, 5/5 rounds, byte-identical: **720p 1x
+  216.5 -> 255.2 fps (+17.9%), 1440p 4x 232.4 -> 242.3 (+4.3%)**. Boot, shots and a full `capture` work with it on.
+  Possible side effect: one more frame may be queued (input latency +~4 ms at 240 fps); **user drive pending** (feel,
+  stutter, alt-tab, the sun flare).
+- Explained: the `~PsAlias` "16-byte store" (7%) is the draw's common exit: the first store after the draw's burst of
+  writes waits for the store buffer to drain; copying every constant (3x the bytes, `REGPU_ALL_CONSTANTS`) costs only
+  -6.2%, so constant writes are a small share. GPU time at 720p 1x is ~3.1 ms of a ~4.3 ms frame.
+- Sampler (`src/kernel/thread.cpp`): `FM3_SAMPLE_CALLERS=N` (2-16, live); the stack is copied while the thread is
+  stopped and unwound after it resumes, and nothing that takes a lock (getenv, allocation, LiveSwitch construction)
+  runs while it is stopped: deep unwinds and a getenv there froze the game twice (fps 0). Frames without symbols show
+  as `module+offset`; " ~ name" = the nearest fm3.exe return addresses found on the stack (heuristic).
+- Next: the user drives L12; then PERF-PLAN "Next up" (re-profile the draw thread after L12; cockpit cam).
 
 ### ▶ Start here (session 25): state at the end of session 24 (2026-11-11)
 - Session 24 built (all default on, all pushed): first-boot shader compile (static scan + pipeline seed with vertex
@@ -779,6 +802,13 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-11 — session 25 (draw thread: L12 asynchronous frame end)
+- User: "let's tackle the draw thread next". Profiled ReGPU's draw thread with whole call stacks (sampler reworked:
+  `FM3_SAMPLE_CALLERS=N`; two freezes on the way, from unwinding and getenv while the thread was stopped, fixed).
+- Found ~10% of the draw thread waiting at the frame end (Present asleep in AMD's driver, the replay wait at the swap);
+  built L12 (`regpu-async-present`, default): CPU-bound grid +17.9%, 1440p 4x +4.3%, byte-identical, boot/shot/capture
+  fine. `~PsAlias` store explained (store buffer at the draw's exit). settings.ini restored (2560x1440, msaa 4).
+- Open: the user's drive with L12 (latency feel, alt-tab, sun flare); then PERF-PLAN "Next up".
 ### 2026-11-11 — session 24 (shaders at first boot, minimized test boots)
 - Checked which leads are left (PERF-PLAN) and FH1R v0.3.2 (its CP split ~ our draw thread; descriptor reuse L8,
   changed-register handoff L28 and present-without-replay-wait L12 not built). User picked FM2-style shader

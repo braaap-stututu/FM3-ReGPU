@@ -1,0 +1,164 @@
+diff --git a/src/gpu/recorded_list.h b/src/gpu/recorded_list.h
+index 389bfbf..23423a6 100644
+--- a/src/gpu/recorded_list.h
++++ b/src/gpu/recorded_list.h
+@@ -78,6 +78,18 @@ public:
+         Submit();
+     }
+ 
++    // fn(real list, ctx) when the replay reaches this point; the replay goes on in the same list (unless fn closed it:
++    // then Switch must follow before anything else is recorded). For the asynchronous frame end (REGPU_ASYNC_PRESENT).
++    void Call(HandOffFn fn, void* ctx)
++    {
++        struct A { HandOffFn fn; void* ctx; } a{ fn, ctx };
++        Put(kCall, &a, sizeof(a));
++        Submit();
++    }
++
++    // Records into another list from here on, without waiting (Rebind waits for the replay).
++    void Switch(ID3D12GraphicsCommandList* next) { Put(kSwitch, &next, sizeof(next)); }
++
+     // The real list, with everything recorded so far replayed into it.
+     ID3D12GraphicsCommandList* Real()
+     {
+@@ -176,7 +188,8 @@ private:
+     {
+         kBarrier, kCopyTexture, kRootSignature, kTable, kCbv, kRoot32, kTargets, kPipeline, kViewports, kScissors, kStencilRef, kBlendFactor,
+         kTopology, kHeaps, kDraw, kEndQuery, kResolveQuery, kClearRtv, kClearDsv, kCreateRtv, kCreateDsv, kDrawIndexed, kIndexBuffer, kCopyBuffer,
+-        kComputeRootSignature, kComputeTable, kComputeRoot32, kDispatch, kBeginQuery, kHandOff, kComputeSrv, kComputeUav, kPredication
++        kComputeRootSignature, kComputeTable, kComputeRoot32, kDispatch, kBeginQuery, kHandOff, kComputeSrv, kComputeUav, kPredication,
++        kCall, kSwitch
+     };
+     static constexpr size_t kChunk = 64 << 10;
+ 
+@@ -325,6 +338,14 @@ private:
+                 l->DrawInstanced(d[0], d[1], d[2], d[3]);
+                 break;
+             }
++            case kCall:
++            {
++                struct A { HandOffFn fn; void* ctx; };
++                const A h = At<A>(a);
++                h.fn(l, h.ctx);
++                break;
++            }
++            case kSwitch: l = m_real = At<ID3D12GraphicsCommandList*>(a); break;
+             case kHandOff:
+             {
+                 struct A { ID3D12GraphicsCommandList* next; HandOffFn fn; void* ctx; };
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 57aa717..e854c7a 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -2140,6 +2140,8 @@ void Init()
+ double g_gpuWaitSeconds = 0; // CP thread blocked on the host GPU (frame resources)
+ 
+ FrameResources& Frame() { return g_r.frames[g_r.frameIndex]; }
++bool g_asyncFrameEnded = false; // the last frame's end was queued on the replay thread (REGPU_ASYNC_PRESENT)
++ID3D12GraphicsCommandList* AcquireList();
+ 
+ // A new output resolution (regpu::SetOutputSize), taken at the start of a frame with the host GPU idle:
+ // the EDRAM surfaces (made at the output size on first use) are dropped and come back at the new size,
+@@ -2154,6 +2156,7 @@ void ApplyOutputSize()
+     const uint32_t w = uint32_t(request >> 32), h = uint32_t(request);
+     if (w == st.width && h == st.height)
+         return;
++    g_r.recorder.Real(); // (a frame end queued on the replay thread presents there: REGPU_ASYNC_PRESENT)
+     // Every frame in flight may still use the old surfaces.
+     if (const UINT64 last = g_r.nextFence - 1; g_r.fence->GetCompletedValue() < last)
+     {
+@@ -2652,10 +2655,20 @@ void BeginFrameIfNeeded()
+         }
+         f.timed = false;
+     }
+-    f.allocator->Reset();
+     f.poolUsed = 0;
+-    g_r.recorder.Rebind(g_r.realList.Get()); // (a pool list may have continued last frame)
+-    C().list->Reset(f.allocator.Get(), nullptr);
++    if (g_asyncFrameEnded)
++    {
++        // Last frame ended on the replay thread (REGPU_ASYNC_PRESENT): its list is closed there; this frame records
++        // into a pool list of its own slot, without waiting for that (Rebind would).
++        g_asyncFrameEnded = false;
++        g_r.recorder.Switch(AcquireList());
++    }
++    else
++    {
++        g_r.recorder.Rebind(g_r.realList.Get()); // (a pool list may have continued last frame)
++        f.allocator->Reset();
++        C().list->Reset(f.allocator.Get(), nullptr);
++    }
+     // This frame's scene phase and scale (see UpscaleScene).
+     {
+         const Settings& st = GetSettings();
+@@ -12968,7 +12981,25 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     if (fromResolve)
+         if (ID3D12Resource* enhanced = EnhanceFrontBuffer(shown))
+             shown = enhanced;
+-    const bool presenting = fromResolve && PresenterRecordCopy(C().list->Real(), shown, overlay, kOverlayW, kOverlayH, timer, kTimerW, kTimerH);
++    // REGPU_ASYNC_PRESENT=1 (live; FM3 port, PERF-PLAN L12): the frame's end (back-buffer copy, close, submit, Present,
++    // fence) runs on the replay thread when it reaches this point, and the draw thread goes on with the next frame. It
++    // otherwise waited for the replay here (Real) and then in the driver's Present (frame-queue throttling): ~10% of
++    // its time on FM3's CPU-bound grid. Each frame end is one or the other; the next frame start follows its own read.
++    static LiveSwitch asyncPresentSwitch("REGPU_ASYNC_PRESENT");
++    const bool asyncPresent = asyncPresentSwitch;
++    struct AsyncEnd
++    {
++        bool copy = false;
++        ID3D12Resource *shown = nullptr, *overlay = nullptr, *timer = nullptr;
++        UINT64 fence = 0;
++    };
++    static AsyncEnd asyncEnds[kFrames];
++    AsyncEnd& asyncEnd = asyncEnds[g_r.frameIndex];
++    bool presenting = false;
++    if (asyncPresent)
++        asyncEnd = { fromResolve, shown, overlay, timer, 0 };
++    else
++        presenting = fromResolve && PresenterRecordCopy(C().list->Real(), shown, overlay, kOverlayW, kOverlayH, timer, kTimerW, kTimerH);
+     {
+         const uint64_t traceFrame = TraceFrame();
+         if (traceFrame && g_r.frame + 1 == traceFrame)
+@@ -13147,13 +13178,36 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     else if (g_occlusionPaused)
+         g_occlusionPending[g_r.frameIndex].push_back(g_occlusionCurrent);
+     g_occlusionPaused = false;
+-    C().list->Close();
+-    ID3D12CommandList* lists[] = { C().list->Real() };
+-    SubmitLists(1, lists);
+-    if (presenting)
+-        PresenterPresent();
+-    Frame().fence = g_r.nextFence++;
+-    g_r.queue->Signal(g_r.fence.Get(), Frame().fence);
++    if (asyncPresent)
++    {
++        // (The fence value is taken here, in order with the draw thread's other signals, which all wait for the replay
++        // first: Real.) The next frame starts in a pool list (BeginFrameIfNeeded): this one is closed over there.
++        Frame().fence = g_r.nextFence++;
++        asyncEnd.fence = Frame().fence;
++        C().list->Call(
++            [](ID3D12GraphicsCommandList* l, void* ctx) {
++                const AsyncEnd& e = *static_cast<const AsyncEnd*>(ctx);
++                const bool show = e.copy && PresenterRecordCopy(l, e.shown, e.overlay, kOverlayW, kOverlayH, e.timer, kTimerW, kTimerH);
++                l->Close();
++                ID3D12CommandList* lists[] = { l };
++                SubmitLists(1, lists);
++                if (show)
++                    PresenterPresent();
++                g_r.queue->Signal(g_r.fence.Get(), e.fence);
++            },
++            &asyncEnd);
++        g_asyncFrameEnded = true;
++    }
++    else
++    {
++        C().list->Close();
++        ID3D12CommandList* lists[] = { C().list->Real() };
++        SubmitLists(1, lists);
++        if (presenting)
++            PresenterPresent();
++        Frame().fence = g_r.nextFence++;
++        g_r.queue->Signal(g_r.fence.Get(), Frame().fence);
++    }
+     g_r.listOpen = false;
+ 
+     if (dump)

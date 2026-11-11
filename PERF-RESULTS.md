@@ -12,6 +12,16 @@ where two plain boots N1/N2 differ: the crowd), `pngdiffimg.py A B OUT [thr] [x0
 Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleaved live A/B, CSV), the phase scripts in
 `tools/perf/session23/s23_*.ps1` (copies of `out/perf/s23_*.ps1`).
 
+
+## Session 25 (2026-11-11): L12 asynchronous frame end
+| Test | Switch | Setting | Off | On | Change | Rounds | Picture |
+|---|---|---|---|---|---|---|---|
+| L12 async present | `REGPU_ASYNC_PRESENT` (live) | 720p 1x (CPU-bound) | 216.5 | 255.2 | **+17.9%** | 5/5 | 0 pixels |
+| L12 async present | `REGPU_ASYNC_PRESENT` (live) | 1440p 4x | 232.4 | 242.3 | **+4.3%** | 5/5 | 0 pixels |
+| All constants copied (diagnostic) | `REGPU_ALL_CONSTANTS` (live) | 720p 1x | 226.2 | 212.1 | -6.2% | 0/3 | 0 pixels |
+Frozen CrownJewel grid, minimized, `out/perf/s25/`. L12 is the FM3 default (`FM3_SYNC_PRESENT=1` off). The last row
+shows how much constant writes cost (3x the bytes: -6.2%), i.e. not the draw thread's main cost.
+
 ## Session 24 (2026-11-11): CPU side
 - CPU-bound grid (1280x720, msaa 1, minimized): ReGPU's draw thread 95% of a core (the limit), CP 57%, game t3 35%,
   t7 31% (`tools/perf/threads.ps1`). Lock and getenv cuts (`regpu-draw-thread-cuts`, host `FM3_WRITEBACK`

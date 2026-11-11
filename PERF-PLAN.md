@@ -36,14 +36,23 @@ CPU-bound), shader-load repeat skip (`regpu-shader-repeat-skip`, +2.4%), draw-th
 Tools: `tools/perf/threads.ps1` (CPU per thread), `FM3_SAMPLE_THREAD=name:gpu draw worker` (+`FM3_SAMPLE_CALLERS`,
 `FM3_SAMPLE_LINES`, `FM3_SAMPLE_RVA`, all live), `FM3_MINIMIZED=1` (all automated boots), `REGPU_DUMP_ROOTSIG`.
 
+## Session 25 results (2026-11-11)
+Draw-thread profile with whole call stacks (sampler fixed: `FM3_SAMPLE_CALLERS=N`, up to 16 frames, stack copied and
+unwound after the thread resumes; a module+offset for frames without symbols; " ~ " = nearest fm3.exe return addresses
+on the stack): ~10% of the draw thread was **waiting at the frame end**: ~7% asleep inside AMD's driver in `Present`,
+~2.5% waiting for the replay thread (`RecordedList::Real` at the swap). **L12 built and default** (patch
+`regpu-async-present`): CPU-bound grid +17.9% (216.5 -> 255.2 live), 1440p 4x +4.3% (232.4 -> 242.3), 0 pixels.
+Explained, not fixable cheaply: the "~PsAlias 16-byte store" (7%) is the draw's common exit, the first store after the
+draw's burst of writes (the stall is the store buffer draining); every-constant copying (3x the bytes) costs only -6.2%,
+so constant writes are a small share. GPU time at 720p 1x is ~3.1 ms of a ~4.3 ms frame.
+
 ## Next up (from session 25; ask the user which)
 1. **Cockpit cam performance** (user, open): measure per camera view while the race runs (GPU passes per view,
    `threads.ps1`), GPU or CPU? Then the matching lead below.
-2. **Draw thread, still the CPU limit:** the unexplained 6-8% at `~PsAlias` (a 16-byte store waiting behind earlier
-   stores: find what precedes it with `FM3_SAMPLE_RVA` + `llvm-objdump`), the VertexCache lock (2.7%, contended: who
-   else takes `g_textureMutex`?), upload hashing (2.5%, the I5 risk), pass-scale helpers (~4%, state can change inside a
-   draw), L28's second half (coherency waits from the shadow), L12 (does ReGPU's present wait for the replay?), L10 tile
-   merge (big, PGR4 +19%).
+2. **Draw thread, still the CPU limit:** ~~L12~~ (done, session 25: +17.9% CPU-bound); `~PsAlias` explained (store
+   buffer at the draw's exit); left: re-profile after L12, the VertexCache lock release (2.7%; a recursive mutex, a
+   locked instruction that also drains the store buffer), upload hashing (2.5%, the I5 risk), pass-scale helpers (~4%,
+   state can change inside a draw), L28's second half, L10 tile merge (big, PGR4 +19%). User drive of L12 first.
 3. **GPU side on this PC:** shader `510c814e1a4ef99e` (97 KB) gets no L30 variant (some texture not plain: find which),
    sampler index as a literal in `TFetchPlain`, the remaining car paint cost (math/sampling: RGA ISA), plain multiply
    per shader (I3 without the black flags), V8 reflection cubes less often (find FM3's rate).
@@ -89,7 +98,7 @@ Tools: `tools/perf/threads.ps1` (CPU per thread), `FM3_SAMPLE_THREAD=name:gpu dr
 | L9 | **`REGPU_SUBMIT_DRAWS=512`** | Switch in our pin, unknown with the draw thread | CPU-bound (may cost when GPU-bound) | **Start-time** | PGR4 FX +23%; FM2 (GPU-bound) −4…−17% |
 | L10 | **Tile merge for FM3's race scene** (ReGPU refuses surfaces that clear each tile with rectangles; also make it work with the draw thread) | Not built (ReGPU patch, game-neutral) | CPU-bound (half the scene's commands), some GPU | Live only with `FM3_NO_DRAW_THREAD=1` at start, then `REGPU_NO_TILE_MERGE` live; with the draw thread: **planned live** | PGR4 +19%, FH1R one-pass scene +15%. Large; S18 measured 0 gain as is (scene refused); FH1R (S22): merging FH1's 3 tiles saved nothing once fixed, now off there |
 | L11 | **Ring wait sleeps instead of spinning** (t7 spins ~65%; FM3 hook on `sub_824B5048` → `sub_824AAA68`, ReGPU `WakeByAddressAll` after its guest writes) | Not built | 4-core CPUs, laptops/APUs (power); 0 on desktops | **Planned live** (`FM3_*` LiveSwitch) | FH1R: render thread 86 → 45% of a core, +10% fps on a 4-core laptop |
-| L12 | **Present without waiting for the frame's replay** (FH1R) | Not built; first check whether ReGPU's present has such a wait | CPU-bound (4 cores) | **Planned live** | FH1R +15% uncapped on 4 cores, 0% GPU-bound. Latency changes, pixels don't |
+| L12 | **Present without waiting for the frame's replay** (FH1R) | **Built, default (session 25)**: patch `regpu-async-present`, `REGPU_ASYNC_PRESENT` (FM3 default; `FM3_SYNC_PRESENT=1` off). The draw thread waited at the swap for the replay thread and then ~7% of its time inside AMD's `Present` | CPU-bound, some GPU-bound | **Live** | **720p 1x +17.9%, 1440p 4x +4.3%** (5/5 rounds each, byte-identical). Up to one more frame may queue (latency): user drive pending |
 | L13 | **Draw-thread pieces slower than serial** (why? piece replay wait in `SplitMainList`?) | Investigation | CPU-bound | **Start-time** (`FM3_DRAW_THREAD_PIECES=1`) | Pieces were 195 vs serial 216 fps at 720p 1x (S15) |
 | L14 | **Thread gating on ≤4 cores** (draw workers / draw thread on with no core check) | Not built | 4-core CPUs | **Start-time** | PGR4: draw thread −7 fps on an FX; FH1R split −11% on 4 cores. Needs a 4-core measurement (affinity mask to simulate) |
 | L15 | **Laptop GPU pick** (`REGPU_ADAPTER`, or export `NvOptimusEnablement` / `AmdPowerXpressRequestHighPerformance`) | Not built | Laptops with iGPU + dGPU | **Start-time** | Can be the whole difference on hybrid laptops (runs on the iGPU otherwise) |

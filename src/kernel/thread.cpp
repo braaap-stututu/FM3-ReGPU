@@ -12,6 +12,7 @@
 #include <windows.h>
 #include <dbghelp.h>
 #include <tlhelp32.h>
+#include <psapi.h>
 
 #include "indirect.h"
 #include "live_switch.h"
@@ -644,19 +645,53 @@ void StartThreadProfiler()
             }
             if (!handle)
                 continue;
+            // (Made before the thread stops: the constructors read the environment and allocate; the stopped thread may
+            // hold those locks. Symbols too are looked up only after it runs again.)
+            static LiveSwitch callers("FM3_SAMPLE_CALLERS");
+            static std::vector<uint8_t> stackCopy(68 * 1024); // (4 KB past what is copied: an unwind may read a little beyond)
             if (SuspendThread(handle) == DWORD(-1))
                 continue;
             CONTEXT c{};
             c.ContextFlags = CONTEXT_FULL;
             const bool ok = GetThreadContext(handle, &c);
-            // FM3_SAMPLE_CALLERS=1: also the two callers (unwound while the thread is stopped)
-            static LiveSwitch callers("FM3_SAMPLE_CALLERS");
-            DWORD64 up[2] = {};
+            // FM3_SAMPLE_CALLERS=1: also the two callers; =N (2-16): N callers (session 25, live). The stack is copied while
+            // the thread is stopped and unwound after it runs again: unwinding a stopped thread (function-table lookups)
+            // deadlocked on a lock it held once the walk went 6 frames deep.
+            DWORD64 up[16] = {};
+            int depth = 0;
+            size_t copied = 0;
             if (ok && callers)
             {
-                CONTEXT u = c;
-                for (int k = 0; k < 2; k++)
+                MEMORY_BASIC_INFORMATION mbi{};
+                if (VirtualQuery(reinterpret_cast<void*>(c.Rsp), &mbi, sizeof(mbi)))
                 {
+                    const uintptr_t end = uintptr_t(mbi.BaseAddress) + mbi.RegionSize;
+                    copied = std::min<size_t>(64 * 1024, end - c.Rsp);
+                    memcpy(stackCopy.data(), reinterpret_cast<const void*>(c.Rsp), copied);
+                }
+            }
+            ResumeThread(handle);
+            if (!ok)
+                continue;
+            if (copied)
+            {
+                // (getenv only now: the stopped thread may hold the CRT's environment lock)
+                const char* n = getenv("FM3_SAMPLE_CALLERS");
+                depth = std::clamp(n ? atoi(n) : 1, 1, 16);
+                depth = depth == 1 ? 2 : depth;
+                const DWORD64 lo = c.Rsp, hi = c.Rsp + copied, delta = DWORD64(uintptr_t(stackCopy.data())) - lo;
+                auto rebase = [&](DWORD64& r) {
+                    if (r >= lo && r < hi)
+                        r += delta;
+                };
+                CONTEXT u = c;
+                rebase(u.Rsp);
+                rebase(u.Rbp);
+                const DWORD64 cLo = lo + delta, cHi = hi + delta;
+                for (int k = 0; k < depth; k++)
+                {
+                    if (u.Rsp < cLo || u.Rsp + 8 > cHi)
+                        break;
                     DWORD64 imageBase = 0;
                     auto* fn = RtlLookupFunctionEntry(u.Rip, &imageBase, nullptr);
                     if (!fn)
@@ -669,17 +704,37 @@ void StartThreadProfiler()
                         void* handlerData = nullptr;
                         DWORD64 establisher = 0;
                         RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, u.Rip, fn, &u, &handlerData, &establisher, nullptr);
+                        rebase(u.Rbp); // (a frame pointer restored from the stack points into the real stack)
                     }
                     up[k] = u.Rip;
                     if (!u.Rip)
                         break;
                 }
             }
-            // Symbols are looked up after the thread runs again: the lookups take locks
-            // (heap, loader) that the suspended thread may hold.
-            ResumeThread(handle);
-            if (!ok)
-                continue;
+            // A sample stopped outside fm3.exe (a driver, often without unwind data): the first two return addresses
+            // into fm3.exe found on the copied stack, shown after " ~ " (a heuristic: a stale value can show up).
+            DWORD64 ours[2] = {};
+            if (copied && depth > 2)
+            {
+                static const uintptr_t base = uintptr_t(GetModuleHandleW(nullptr));
+                static const uintptr_t size = [] {
+                    MODULEINFO mi{};
+                    GetModuleInformation(GetCurrentProcess(), GetModuleHandleW(nullptr), &mi, sizeof(mi));
+                    return uintptr_t(mi.SizeOfImage);
+                }();
+                const bool outside = c.Rip < base || c.Rip >= base + size;
+                if (outside)
+                {
+                    int found = 0;
+                    for (size_t o = 0; o + 8 <= copied && found < 2; o += 8)
+                    {
+                        const DWORD64 v = *reinterpret_cast<const DWORD64*>(stackCopy.data() + o);
+                        DWORD64 imageBase = 0;
+                        if (v > base + 0x1000 && v < base + size && RtlLookupFunctionEntry(v, &imageBase, nullptr))
+                            ours[found++] = v;
+                    }
+                }
+            }
             std::string name;
             {
                 alignas(SYMBOL_INFO) char buffer[sizeof(SYMBOL_INFO) + 256];
@@ -723,7 +778,31 @@ void StartThreadProfiler()
                 symbol2->SizeOfStruct = sizeof(SYMBOL_INFO);
                 symbol2->MaxNameLen = 255;
                 DWORD64 displacement2 = 0;
-                name += std::string(" < ") + (SymFromAddr(GetCurrentProcess(), addr, &displacement2, symbol2) ? symbol2->Name : "?");
+                if (SymFromAddr(GetCurrentProcess(), addr, &displacement2, symbol2))
+                    name += std::string(" < ") + symbol2->Name;
+                else
+                {
+                    // No symbol: the module and offset (a driver, for example).
+                    HMODULE module2 = nullptr;
+                    char path2[MAX_PATH];
+                    char at[96] = " < ?";
+                    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                           reinterpret_cast<LPCSTR>(addr), &module2) && GetModuleFileNameA(module2, path2, MAX_PATH))
+                        snprintf(at, sizeof(at), " < %s+%llx", strrchr(path2, 92) ? strrchr(path2, 92) + 1 : path2,
+                                 (unsigned long long)(addr - uintptr_t(module2)));
+                    name += at;
+                }
+            }
+            for (DWORD64 addr : ours)
+            {
+                if (!addr)
+                    break;
+                alignas(SYMBOL_INFO) char buffer3[sizeof(SYMBOL_INFO) + 256];
+                auto* symbol3 = reinterpret_cast<SYMBOL_INFO*>(buffer3);
+                symbol3->SizeOfStruct = sizeof(SYMBOL_INFO);
+                symbol3->MaxNameLen = 255;
+                DWORD64 displacement3 = 0;
+                name += std::string(" ~ ") + (SymFromAddr(GetCurrentProcess(), addr, &displacement3, symbol3) ? symbol3->Name : "?");
             }
             counts[name]++;
             samples++;
