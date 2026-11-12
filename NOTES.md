@@ -25,6 +25,16 @@
   pipeline from the user before reverse-engineering anything ourselves. Related: "FM4 Imported" (446 FM4 cars in FH1,
   moddb) shows the 360-era car path; Reddit counts 243 FM4 cars missing in FM3.
 
+### Session 29 (main PC, 2026-11-12): L45 RGP capture done
+- Radeon Developer Tool Suite 2026-10-02 downloaded (user OK) to `G:/claude code projects/tools/RadeonDeveloperToolSuite-2026-10-02-1872`.
+  Headless capture: `RadeonDeveloperPanelCLI.exe -m profiling -p fm3 -a frame:12000 -o <file>.rgp` started before
+  `Start-Grid`; the GUI (`RadeonGPUProfiler.exe <file>`) is the only reader, so the user sends screenshots of the panes.
+- **Results (PERF-RESULTS.md "Session 29"):** frame 3.70 ms, GPU idle 8%; **barriers 0.72%, no decompress / fast clear
+  eliminate anywhere, compression on: L46 parked.** Found instead: rectangle clears run as AMD slow clears (29-44 µs
+  each), end-of-frame quads serialised behind FULL-drain barrier pairs, every surface RGBA16F 4x. New PERF-PLAN rows
+  **L54 fast clears, L55 end-of-frame barrier chain, L56 render-target format**. Next by the plan: L54 (smallest), or
+  L47's ReBAR log line + A/B; ask the user.
+
 ### ▶ Start here (session 29): state after session 28 (2026-11-12)
 - **Shader and pipeline discovery, steps 1 and 3 done (step 2, the automated tour, is next):**
   - **Disc 2 in the boot scan** (`src/static_shaders.cpp`): installed packages (`<user>/dlc/<pkg>` with a `.license`)

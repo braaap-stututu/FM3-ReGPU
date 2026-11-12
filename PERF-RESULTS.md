@@ -13,6 +13,38 @@ Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleave
 `tools/perf/session23/s23_*.ps1` (copies of `out/perf/s23_*.ps1`).
 
 
+## Session 29 (2026-11-12): L45 Radeon GPU Profiler capture of the frozen grid
+**Method (reusable by the other ReGPU recomps):** Radeon Developer Tool Suite 2026-10-02 (RGP 2.7.1, panel 3.5.1;
+GPUOpen zip, AMD-signed; unpacked to `G:/claude code projects/tools/RadeonDeveloperToolSuite-2026-10-02-1872`, outside
+the repo), driver Adrenalin 26.10.1. Headless: start
+`RadeonDeveloperPanelCLI.exe -m profiling -p fm3 -a frame:12000 -o <file>.rgp --verbose` first (it waits for the
+process, sets peak clocks, captures frame N), then boot (`Start-Grid` from `tools/perf_suite.ps1`). Frozen grid at
+1440p 4x, one tile + half-rate mirror on (the user's settings), perf log off. ETW group not configured (admin script
+`scripts/AddUserToGroup.bat`): only queue signal/wait naming is missing. RGP has no text export: read in the GUI
+(`RadeonGPUProfiler.exe <file>`). Capture `out/perf/rgp/grid-1440p4x.rgp` (109 MB), the user's screenshots of
+every pane in `out/perf/rgp/screens/` (local, not in git).
+
+| Measure | Result |
+|---|---|
+| Frame | 3,699 µs (270.3 fps); **GPU idle 8.13%**; RGP's verdict "CPU bound" (the draw thread, as known since session 20) |
+| Events | 2,813: 2,119 DrawIndexedInstanced, 521 DrawInstanced, 106 ResourceBarrier, 22 ClearRenderTargetView, 17 CopyTextureRegion, 5 ClearDepthStencilView, 10 driver-overlay dispatches; 2 queue submissions, 9 command lists, no copy/compute queue, no waits/signals; 47.9 M shaded pixels |
+| **Barriers** | **0.72% of the frame**; 0.04 per draw. **No layout transitions at all:** every column (depth/stencil decompress, HiZ resummarize, DCC decompress, FMask decompress, fast clear eliminate, init mask RAM) empty. 311 cache invalidations, 143 flushes: most application barriers are a FULL drain with K/L0/L1/L2/CB/DB invalidate and L2/CB/DB flush. Driver barriers: occlusion-query resolve stalls (2-10 µs each, a few). |
+| **Compression** | ON for every scene target (Render/depth targets pane); OFF only for a few tiny R10G10B10A2/RGBA16F targets (128x64, 64x64, 192x192) |
+| Context rolls | 1,053 for 2,685 draws (2.55 draws per context), RGP "Low"; none completely redundant |
+| Main targets | Colour RT #12 = ReGPU's EDRAM surface, **R16G16B16A16_FLOAT 2560x2048 4x MSAA** (ReGPU `kColorFormat` for every surface), 1,790 draws, 2.89 ms; depth D32_FLOAT_S8X24 4x, ~1,900 draws |
+| **Clears** | `ClearRenderTargetView` events take **29-44 µs of real GPU work each** (e.g. events 2777: 43.9 µs, 2525: 29.3 µs) = slow clears: ReGPU clears EDRAM surfaces with a rectangle (`renderer.cpp` 8080, 11855, 11906), and AMD only fast-clears (metadata) a whole subresource |
+| Most expensive | top 5% of events = 16% of the time; fullscreen passes (event 2774 DrawInstanced(3): 101 µs duration / 29 µs work), the big car/track draws (1355-1363: 80 µs / 17-63 µs). **Runs of DrawInstanced(6) quads at ~44 µs duration but ~6 µs work** (events 2788-2802, 2527-2550): small passes serialised behind the FULL-drain barrier pairs (end-of-frame resolve/post chain, events ~2520-2810) |
+| Wavefront occupancy | mostly low (under 25%) through the scene pass with bursts: the GPU is busy but not on shader waves (bandwidth/ROP on 64-bit 4x MSAA targets, or the front end with ~2,600 small draws) |
+
+**Decisions from it:** **L46 (keep compression) has nothing to win: parked** (no decompress anywhere, compression on).
+New leads instead (PERF-PLAN L54-L56): **L54 fast clears** (whole-subresource clears where the rectangle covers the
+surface's used area, or a full clear when nothing else lives in that EDRAM range), **L55 the end-of-frame barrier
+chain** (merge the per-quad barrier pairs, drop full-cache flushes the next pass doesn't need; ceiling ≈ the 8% idle),
+**L56 render-target format** (RGBA16F everywhere = 8 bytes a sample at 4x; a 32-bit host format for guest 8888 /
+2_10_10_10 surfaces would halve ROP bandwidth on those passes, but ReGPU aliases all EDRAM surfaces in one format:
+large change, check FM3's main scene format first). L47 upload heaps is not touched by this capture (no copy queue in
+use; still open).
+
 ## Session 26 (2026-11-11): L38 timer, L36 one guest tile
 | Test | Setting | Before | After | Picture |
 |---|---|---|---|---|
