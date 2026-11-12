@@ -22,6 +22,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [MCLA-Recomp](#midnight-club-la-recomp-mcla-recomp-performance-leads-session-25-2026-11-11) (session 25) | One guest tile instead of merging tiles (the game's tile count forced to 1 + a larger EDRAM: frames -9 to -20%, CP -28 to -35%); rectangle clears made real clears (the missing piece of our L10); Windows 11 drops `timeBeginPeriod` for hidden windows (our minimized test boots!); lock-free guest atomics; per-core-count defaults and a 4-core test method; sleeps only under a frame cap; per-frame pipeline wait budget |
 | [VR](#vr-after-fh1rs-design-session-22-2026-11-10) | FH1R: virtual screen → head pose into the camera director's view matrix (two readers hooked: renderer camera + frustum) → HUD panel → true stereo by replaying the scene segment per eye with clip.x −= P00·d (+2–3 ms GPU). For FM3: OpenXR on ReGPU's D3D12 first, then find FM3's view matrix (shared RE with telemetry/ultrawide). Splash addendum: legal/ESRB likely cover the startup load |
 | [Project Forza Plus 3](#project-forza-plus-3-as-an-option-session-29-2026-11-12) (session 29) | Data-only mod (18 pre-extracted DLC folders, `Media` overrides, 4 career DBs); its `default.xex` is not used. **Blockers:** Q9 re-signing (not ported), mods can't replace a whole zip or DLC files, licence masks must be FFFFFFFF. Plan: launcher installs from the player's own zip into a separate mod folder + DLC root, career-mode dropdown, separate profile; ~5 steps |
+| [Ray tracing](#ray-tracing-and-screen-space-effects-session-29-2026-11-12) (session 29) | No full ray tracing or path tracing (ReGPU sees draws and shaders, not a scene; hits would need the game's pixel shaders). Realistic, all opt-in: (1) screen-space AO + reflections from depth, (2) ray-traced shadows/AO from captured vertex positions, (3) ray-traced reflections with simplified hit colour. Prerequisites: camera/projection matrices (shared with VR/telemetry/ultrawide), the scene/HUD split ReGPU already finds |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -1669,3 +1670,46 @@ hl360), hl360's public README, and the community guides listed at the end. Nothi
 Sources: hl360-forza3 README (github.com/0herculabs/hl360-forza3); akitaonrails/distrobox-gaming `docs/project-forza.md`
 (PFP3 v1.2 layout, modes, xex MD5s, known issues); DustinEdenYT's Xenia setup gist (PFP2/PFP4 layout, no FM3);
 r/ProjectForzaPlus threads (Xenia DLC count problems, PAL/NTSC DLC questions).
+
+## Ray tracing and screen-space effects (session 29, 2026-11-12)
+User question ("far fetched, but could we do real-time ray tracing?"). Cloud session, no code, nothing measured.
+
+### Why not full ray tracing / path tracing
+- ReGPU translates Xenos command streams into D3D12 draws. It has no scene: no object list, materials, lights or
+  matrices, only vertex buffers, shader microcode and constants. FM3's shaders (custom, no fixed function) turn those
+  into clip-space positions and colours.
+- RTX Remix-style rebuilding works for DX8/9 fixed-function games because the API names lights, materials and
+  transforms. For FM3 every draw's role would have to be guessed.
+- Shading a ray hit needs the hit surface's colour, i.e. running the game's own pixel shader at the hit point with the
+  right constants and textures. A research project, not a feature.
+
+### What is realistic, easiest first (all opt-in, launcher switch, picture stays stock by default)
+1. **Screen-space effects (no ray tracing):** ambient occlusion (GTAO/CACAO) and screen-space reflections on road and
+   paint. Inputs: the scene's depth buffer, normals reconstructed from depth (FM3 is forward-rendered: no normal
+   buffer), the projection. Most visible gain per cost; fits "lighter than FM4". **Check locally:** whether our
+   FidelityFX SDK 2.1 (`thirdparty/fidelityfx`) still ships CACAO/SSSR (FidelityFX 1.x had them) or they need porting.
+2. **Ray-traced shadows / AO (DXR 1.1 inline ray queries):** occlusion only, no hit shading. Geometry: capture each
+   draw's vertex-shader output positions (a stream-out / compute pass over the translated vertex shader), map clip space
+   back to view space with the inverse projection, build BLAS per draw per frame (or refit for static track draws;
+   ~1,000-2,000 draws per frame) and a TLAS. One ray-query pass after the main scene, before the HUD. Needs the sun
+   direction (shader constants of the shadow pass). FM3 draws 720p in two EDRAM tiles: capture once per frame, not per
+   tile (one-tile mode, L36, simplifies this). Exclude alpha-tested foliage/fences or handle any-hit alpha.
+3. **Ray-traced reflections:** the hit needs a colour; possible with a simplified per-draw colour (one texture sample
+   or a captured average). Would likely look worse than FM3's own cube-map reflections: low priority.
+4. **Path tracing / RT global illumination:** no.
+
+### Prerequisites (shared with other studies)
+- **FM3's camera view and projection matrices**: the same reverse-engineering as VR, telemetry and ultrawide (see those
+  sections); find them in the scene pass's vertex-shader constants.
+- **The scene/HUD boundary**: ReGPU already finds it for scene-only upscaling (Upscalers section); effects slot in there.
+- **Draw classification** for exclusions (sky, glass, particles, HUD in the scene, mirror scene): capture-based lists of
+  shader hashes, as in the alpha-test and car-material work.
+
+### Cost
+- The user's RX 7900 XTX (RDNA3) is weaker at ray tracing than NVIDIA cards; at 1440p 4x MSAA the game is already
+  GPU-bound (~180-300 fps), so ray-traced shadows would take a clear share. Screen-space AO/SSR at half resolution is
+  cheap. MSAA: run the effects on the resolved (or sample-0) depth.
+
+### Suggested order
+Screen-space AO + reflections as opt-in switches, getting the camera matrices on the way; if they look good, ray-traced
+shadows on the same groundwork.
