@@ -51,8 +51,12 @@ without the replay wait; **CPU-bound grid ~288 fps**. Upload hashing: 6 MB/frame
 `REGPU_UPLOAD_STABLE_REUSE` +1.2% (off: stale-for-a-frame risk). L10: 18% of draws are second-tile copies (the upside).
 The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch 200, 1% low 200.5 at 1440p 4x).
 
-## Next up (from session 27; ask the user which)
-0. **Suggested order (end of session 26):** one guest tile as default? (user's call) -> cockpit tiling check (does
+## Next up (from session 28; ask the user which)
+0. **End of session 27:** shader and pipeline discovery (Disc 2 static scan + low-priority scan threads, an automated
+   tour over every track/mode feeding the seed, a per-boot coverage line), then L27 rebase (L7/L17), I6, draw-thread
+   cost per draw, the remaining not-built leads (NOTES "Start here (session 28)" has the audit). Done in session 27:
+   cockpit tiling check, L37 (parked), L39 (no), L40 (built, default under caps), L14 (tested), L44 (mirror: rejected).
+   **Previous order (end of session 26):** one guest tile as default? (user's call) -> cockpit tiling check (does
    cockpit use another scenario?) -> L37 -> L39/L40/L14 -> draw-thread cost per draw -> the rest below. NOTES
    "Start here (session 27)". Done in session 26: L38 (not affected), L36 (opt-in, driven), L41 (opt-in).
 1. ~~Cockpit cam performance~~ (session 26): the rear-view mirror's second scene (+~300 draws while driving, -12%);

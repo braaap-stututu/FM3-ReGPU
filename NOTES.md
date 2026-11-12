@@ -1,6 +1,41 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-11, end of session 26)
+## ▶ Current status / next step  (updated 2026-11-12, end of session 27)
+
+### ▶ Start here (session 28): state at the end of session 27 (2026-11-11/12)
+- **Built in session 27 (all pushed, details in "Session 27" below):**
+  - **L40, command processor sleeps while idle under a frame cap**, default at `max_fps` <= 144 or vsync (ReGPU
+    patch 31 `regpu-cp-idle-sleep`, `REGPU_CP_IDLE_SLEEP_US=200` + `REGPU_CP_SPIN_MS=1`; `FM3_CP_SPIN=1` off; log
+    `gpu: command processor sleeps while idle (frame cap)`): 60 cap 2.1 -> 1.02 cores, fps held. Uncapped it cost ~1%
+    CPU-bound, so the user's 360 cap is unchanged. Not yet seen by the user in a capped drive.
+  - Mirror experiment switches in `src/hooks/mirror.cpp` (live): `FM3_MIRROR_SKIP=<return addr|sub>,...`,
+    `FM3_MIRROR_TRACE=1`, `FM3_MIRROR_CAR_LOD=N`.
+- **Learned / ruled out:** the mirror on a race grid is ~1,300 of ~2,750 draws, mostly the **cars** (+40% fps if
+  skipped); FM3's mirror draws every car at full detail, but a lower car detail level saves only ~50 draws, no fps
+  (draws are per material). Shadow blobs off: no gain. No shadow pass of its own. Two-colour mirror: would keep every
+  draw. Remaining mirror options are visible: no car glass (+10%) or fewer cars in the mirror; the user chose "back
+  to the list". L37 rect clears: 2.4% of GPU, parked. L39: 0.2% of t7, not worth it. L14: 4 cores fine (-0.3/-2%),
+  2c/4t -20% CPU-bound. Cockpit uses the same one-tile surface as chase (check done).
+- **User decisions:** one guest tile stays **opt-in**; half-rate mirror stays opt-in.
+- **The user's settings.ini:** 2560x1440, msaa 4, max_fps 360, perf_log 1, `one_tile=1`, `mirror_rate=2` (restored
+  after every test today).
+- **Next (the user asked at the end; offered, not started): shader and pipeline discovery.**
+  1. Static scan of Disc 2 STFS packages (`<user>/dlc`; `src/static_shaders.cpp` skips them, line 16) and scan
+     threads at below-normal priority (as FM2 `static_shaders.cpp:252`).
+  2. An automated tour (`FM3_TOUR`, `src/kernel/imports_xam.cpp`) over every track incl. Disc 2 (Free Play quick
+     race; the `quick_race` route needs `,WAIT:6,A,WAIT:2,A` appended to reach the countdown), showroom, photo mode,
+     livery editor, replays; merge each run's `pipelines.manifest` with `tools/pipeline_seed.py` (FM2 seeds from 212
+     manifests, we from 2).
+  3. A coverage line per boot: pipelines compiled mid-game that the seed lacked.
+  Then from the audit (below): the 22 unbuilt leads (most for weaker PCs or stutter), L27 rebase on upstream ReGPU
+  (15 commits ahead; brings L7/L17), I6 `REGPU_OPTIMIZE_LEVEL`, FM2 branches `fm4-picks`/`proton-d3dcompiler`
+  unexamined; draw-thread cost per draw (the limit at 1440p 4x: ~2 us a draw).
+- **Testing notes from today:** the frozen test grid puts the player 8th (empty mirror); for mirror/pack tests the
+  user drives to a Free Play quick race (Catalunya) and pauses, then `env FM3_FREEZE_TIME 1` + `press B 150` unpauses
+  with the world frozen, and `press START 150` + `env FM3_FREEZE_TIME 0` restores. The freeze does not fully hold
+  after GO (clock moves ~1 s per capture). Camera cycle by `press RB 500`: check each step with a shot (the order
+  depends on the start view). Per-thread CPU: `tools/perf/threads.ps1` (don't assign its output to `$T` in the
+  calling script). Resolution in settings.ini is `resolution=WxH`.
 
 ### Session 27 (2026-11-11): what the mirror draws (Free Play quick race, Catalunya, 4th of 8, cockpit)
 - The user drove to the grid; capture (mirror every frame, `FM3_MIRROR_RATE=1` live, world frozen): **964 of 3,164
@@ -1047,6 +1082,12 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-11/12 — session 27 (mirror analysis, L37/L39/L40/L14, audit)
+- User: two-colour mirror question -> mirror captures on the user's Catalunya quick-race grids: cars are most of the
+  mirror's cost; shadow blobs, car detail level, separate shadows: no gain. Experiment switches in `mirror.cpp`.
+  Cockpit tiling check done. One guest tile stays opt-in (user). L37 parked (2.4% GPU), L39 not worth it, **L40 built
+  (patch 31, default under caps <= 144)**, L14 tested. Audit of open leads, FH1R v0.3.2, ReGPU branches, FM2 boot
+  compile; next: shader/pipeline discovery. settings.ini restored; game closed.
 ### 2026-11-11 — session 26 (L38 timer, L36 one guest tile)
 - User: "let's continue with the performance optimization leads". L38: minimized boots were never throttled (Sleep(1)
   ~1.3 ms either way); fix kept as a safeguard. L36: found FM3's tiling scenarios and set-up, built one guest tile
