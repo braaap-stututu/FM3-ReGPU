@@ -10,6 +10,8 @@
   Plan: re-signing in `loader.cpp` -> mod overlay fixes -> separate DLC root `dlc-pfp3` -> launcher tile installing from the
   player's own zip (career mode dropdown, FOV) -> separate profile. **First local step:** put the PFP3 zip(s) in the project
   root, list the layout, and check the xex MD5 (sources disagree whether the mod's xex is UC-based); ask the user.
+- **Next on the main PC (user's choice):** PFP3 datamine, the ReBAR log line + L47 A/B, an RGP capture (L45), Proton boot
+  on the main PC's Linux (the user runs it). Merge this cloud branch into `main` first.
 - **User's follow-up plan (agreed direction):** on the project PC, **datamine PFP3 vs the stock files** (file trees by
   hash, zip members, `gamedb.slt` schema + row diff with Python's sqlite3, ini/xml text diffs, DLC packs vs Disc 2) and
   build a **general mod system** from it (manifest per mod with options, load order, game/update/dlc overlays, Q9
@@ -1165,6 +1167,11 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 ### 2026-11-12 — session 29b (cloud: Project Forza Plus 3 research)
 - User: "research how to add Project Forza Plus 3 as an option". No code; RESEARCH.md section + NOTES top. Found
   that loose-file mods skip `.zip` paths, mods don't reach DLC files, and Q9 re-signing is missing.
+- Then four more studies on the user's questions (all RESEARCH.md, index rows at the top): **ray tracing** (screen-space
+  AO/reflections first, RT shadows later; no path tracing), **vendor-specific speed-ups** (PERF-PLAN L45-L50: RGP capture
+  for decompress barriers first; **ReBAR/GPU upload heaps need code in ReGPU**, lead = S18's constants-in-ring -21%),
+  **Linux/Proton/Steam Deck** (PERF-PLAN L51-L53; the user's 3 dual-boot test machines in "Host machine"). The user wants
+  these written up for the other 360 recomps once measured. Branch `ccr-d85d3ffd-fbzvco`, not merged into `main`.
 ### 2026-11-11/12 — session 27 (mirror analysis, L37/L39/L40/L14, audit)
 - User: two-colour mirror question -> mirror captures on the user's Catalunya quick-race grids: cars are most of the
   mirror's cost; shadow blobs, car detail level, separate shadows: no gain. Experiment switches in `mirror.cpp`.
