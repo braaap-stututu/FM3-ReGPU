@@ -21,6 +21,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Engine sound](#engine-sound-smoothing-the-cuts-session-22-2026-11-10) | FM2's fix is universal (12,541 of 18,292 engine sounds): exact trims + an offline seamless-loop table. We apply no XMA trims at all: prime suspect for the sweep; port trims first, then compare hl360 |
 | [MCLA-Recomp](#midnight-club-la-recomp-mcla-recomp-performance-leads-session-25-2026-11-11) (session 25) | One guest tile instead of merging tiles (the game's tile count forced to 1 + a larger EDRAM: frames -9 to -20%, CP -28 to -35%); rectangle clears made real clears (the missing piece of our L10); Windows 11 drops `timeBeginPeriod` for hidden windows (our minimized test boots!); lock-free guest atomics; per-core-count defaults and a 4-core test method; sleeps only under a frame cap; per-frame pipeline wait budget |
 | [VR](#vr-after-fh1rs-design-session-22-2026-11-10) | FH1R: virtual screen → head pose into the camera director's view matrix (two readers hooked: renderer camera + frustum) → HUD panel → true stereo by replaying the scene segment per eye with clip.x −= P00·d (+2–3 ms GPU). For FM3: OpenXR on ReGPU's D3D12 first, then find FM3's view matrix (shared RE with telemetry/ultrawide). Splash addendum: legal/ESRB likely cover the startup load |
+| [Project Forza Plus 3](#project-forza-plus-3-as-an-option-session-29-2026-11-12) (session 29) | Data-only mod (18 pre-extracted DLC folders, `Media` overrides, 4 career DBs); its `default.xex` is not used. **Blockers:** Q9 re-signing (not ported), mods can't replace a whole zip or DLC files, licence masks must be FFFFFFFF. Plan: launcher installs from the player's own zip into a separate mod folder + DLC root, career-mode dropdown, separate profile; ~5 steps |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -1606,3 +1607,65 @@ uploads, direct resolve, Vulkan) don't apply to ReGPU and are left out.
 - V4/iGPU: memory placement changes moved < 5%; copies and barriers were 37-46% of their iGPU frame.
 - Test method: compare only adjacent off-on-on-off runs (their iGPU had "slow hours" up to 1.4x); figures of merit =
   CPU time per frame of the limiting thread and time per draw on it.
+
+## Project Forza Plus 3 as an option (session 29, 2026-11-12)
+Cloud session, no game files or mod zip available: from the repo's notes (FM3-QUIRKS Q9-Q14 and §9, written from
+hl360), hl360's public README, and the community guides listed at the end. Nothing is built yet.
+
+### What the mod is
+- **Project Forza Plus 3** (by Gas-and-Games, distributed as zips on Google Drive via r/ProjectForzaPlus):
+  `Project Forza Plus 3 v1.2.zip` (+ `v1.2 Update.zip`); hl360 already mentions a **v1.3** zip. Car stats/physics
+  rebalance (`Media/Physics/PI.xml`, tyre physics, X class), career changes, all Disc 2 content and 14 more DLC packs
+  (114 cars). It was made for Xenia.
+- Layout of the zip: `Main Game Changes/` (`default.xex` + `Media/...` overriding the disc), `Disc 2 and DLCs/00000002/`
+  (**18 pre-extracted content packages**, ~9.2 GB, which replace the UC's 8 because "using my versions of the DLC is
+  necessary for the changes to be applied"), `Game Mode DBs/<Mode> Mode/gamedb.slt` (+ `DLC DBs/*`, files overlaid onto
+  the DLC pack folders for the non-Normal modes), and a Xenia config `.toml`.
+- **Career modes** = which `Media/DB/gamedb.slt` is used: **Normal** (all events/cars unlocked, no reward cars, AI braking
+  and cornering stronger), **Hard** (start in F class, one class per 5 levels, events 50% longer, half earnings),
+  **Sandbox** (everything costs 1 credit), **Vanilla** (stock career, car stats kept); hl360 also offers "harder AI"
+  (more DB variants) and an FOV option (`Media/Camera/CameraSettings.ini`, `<Cam>\FOV\FOV0..2`).
+- Known mod issues (its own list): the GameStop Evo X pre-order car has broken panels and an **endless load** (never
+  pick it), wheel thumbnails missing, buy-menu stats off.
+
+### Which xex: the mod's `default.xex` is not needed
+- hl360 ships PFP3 support and **ignores the mod's xex** (its README: "the original 2009 edition, not used by the port").
+  A Linux/Xenia guide instead says it is built on the **UC xex** (MD5 `f0873d4e3c1dfc36d77bc92e174f37dc`; non-UC retail
+  `d3282839…`). These disagree. Either way, all the mod's content is in data, and a static recompilation can only run our
+  xex anyway. **First local check:** MD5 of our `game/default.xex` vs `f0873d4e…`; if the mod's xex is UC-based, dump both
+  with `build/tools/xexdump` and diff the images. Expect only the protected-file table (Q9) or a hash-check bypass; any
+  **code** difference has to become a hook in `src/hooks/` (we can't load another xex).
+
+### What our build already has
+| Need | State |
+|---|---|
+| Overriding disc files | **Partly.** Loose-file mods `<user>/mods/<mod>/game/<path>` (`imports_io.cpp`) and zip-member mods `<mod>/game/<zip path>/<member>` (`zip_overlay.cpp`). **Gap 1:** a whole `.zip` in a mod is never used (a `.zip` path goes to `ZipOverlay`, which only takes members; the loose check is the `else` branch). PFP3's `Media` probably replaces whole zips, so either unpack its zips into member folders at install time (they become zip overlays; only changed members count) or check the loose replacement first for zips. **Gap 2:** mods cover `game:` only, not DLC files (`\Device\Dlc`), which the non-Normal modes' `DLC DBs` need. |
+| DLC packages | Runtime mounts `<user>/dlc/<pkg>` folders that have a `<pkg>.license` (written last) and `<pkg>.title` (`imports_xam.cpp`). PFP3's packages are already extracted, so install = copy/hard-link plus those two files (title from the package's `Headers/…` file or the folder name). |
+| Licence mask (Q12) | `FM3_DLC_LICENSE_MASK=<hex>` override exists, default = each package's `.license` (Disc 2: 0). **PFP3 needs all bits**: FM3 runs `Media/LicenseMasks/<bit>.sql` per granted bit to make the mod's DLC cars appear. Write `FFFFFFFF` into the PFP3 packages' `.license` files. This is the same DB-patch system as crash C1's lead, so expect C1 to behave differently with PFP3. |
+| Header check (Q13), name cut (Q14) | Done (session 17). |
+| Protected-file re-signing (Q9) | **Missing: the main blocker.** The table at `0x82CF0000` (block size 0x8000, count, {offset,size}, then name + SHA-1 per 0x8000 block) covers 27 files incl. `gamedb.slt`, `PhysicsSettings.ini`, `CameraSettings.ini`; any changed one = disc read error. Port hl360's `file_signatures.cpp` idea into `src/loader.cpp` after the sections are copied: for each entry resolve the file **through the VFS with the mod overlay**, re-hash, rewrite in guest memory. No-op for the stock game. Also unblocks our own `mods/` (e.g. FOV or physics edits). |
+| Long paths (Q10) | hl360 needs a user root of ≤53 chars for v1.3's deepest file. Our host paths are plain (`StripPrefix` removes `\\?\`) and `fm3.exe` has no `longPathAware` manifest. Either add `longPathAware` to the exe manifest (+ the Windows LongPathsEnabled setting) or `\\?\`-prefix in `VfsResolve`, or have the launcher refuse long user folders like hl360. |
+| Shader scan / pipeline seed | `static_shaders.cpp` scans `<user>/dlc/*` with `.license`, so PFP3's packs are scanned if installed there; a mod overlay's `.fxobj` aren't. PFP3's new cars will add pipelines: run `tools/tour.ps1` on a PFP3 install and merge the manifest. |
+
+### Proposed design (each step can be tested alone)
+1. **Q9 re-signing** in `loader.cpp` (with `FM3_NO_RESIGN=1` off): read the table, hash through `VfsResolve`, log `resign: N of 27 files changed`. Test: stock game = 0 changed; a loose-mod `CameraSettings.ini` FOV edit loads without the disc error.
+2. **Mod overlay fixes:** whole-zip replacement (or unpack at install), and `\Device\Dlc\<pkg>\...` overrides from `<mod>/dlc/<pkg>/<path>`. Also: `ModFiles()` walks *every* mod folder recursively on each zip open, so keep PFP3's 9 GB of DLC **out of `mods/`**.
+3. **Separate DLC root:** `DlcDir()` = `<user>/dlc` normally, `<user>/dlc-pfp3` with the mod on (setting `mod=pfp3` in `settings.ini`, env `FM3_DLC_DIR`). UC's 8 packages stay untouched; hl360 instead backs them up and swaps.
+4. **Launcher "Project Forza Plus 3" tile** (like Disc 2): pick the player's own zip(s) (never bundled or downloaded by us: no licence known), check the layout, extract `Media` to `<user>/mods/pfp3/game/Media`, DLC to `<user>/dlc-pfp3` with `.license` = FFFFFFFF and `.title`; skip `default.xex` and the Xenia toml; apply the Update zip on top; on/off switch (folder `_pfp3` = off, DLC root swap) and remove. Options: career mode dropdown (copies `Game Mode DBs/<mode>/gamedb.slt` into a small `mods/pfp3-mode/` that sorts after `pfp3`, plus its `DLC DBs` under `mods/pfp3-mode/dlc/`), FOV, "harder AI".
+5. **Saves:** a career made on one DB doesn't fit another (unlocks, credits, prices). Use a **separate profile** for PFP3 (or a separate user folder), back up `out/user` saves on the first PFP3 boot, and warn when the mode changes on a profile that has progress.
+
+### Our own code that assumes the stock game
+- `src/hooks/ai_drivers.cpp` (C1 workaround) queries `AIPlayers` (`DriverTypeID`, `isUsed`, `Name`): check the PFP3 DBs keep those columns.
+- `grid_test.cpp` and `quick_race` press A along the stock career route to CrownJewel; PFP3's Normal/Hard careers change the menus, so the test grid route is stock-only (or needs a PFP3 route).
+- Pipeline seed, static shader list, `tools/tour.ps1` stops: built from stock content.
+- Perf results and frozen-grid A/Bs: keep on the stock game.
+
+### First steps on the user's PC
+1. Put the PFP3 zip(s) in the project root (gitignored like the ISOs) and list them: actual layout, whether `Media` holds whole zips, the DLC folder names, headers.
+2. MD5 of `game/default.xex` vs the guide's `f0873d4e…`; xex image diff if they match.
+3. Read hl360's PFP3 installer locally (`reference/.../hl360-forza3`, its launcher's "plus" tab and `file_signatures.cpp`); read only, don't run it.
+4. Then build steps 1–5 in order; the user tests a PFP3 career race and the DLC car count.
+
+Sources: hl360-forza3 README (github.com/0herculabs/hl360-forza3); akitaonrails/distrobox-gaming `docs/project-forza.md`
+(PFP3 v1.2 layout, modes, xex MD5s, known issues); DustinEdenYT's Xenia setup gist (PFP2/PFP4 layout, no FM3);
+r/ProjectForzaPlus threads (Xenia DLC count problems, PAL/NTSC DLC questions).
