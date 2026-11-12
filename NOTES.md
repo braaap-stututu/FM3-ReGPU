@@ -19,6 +19,11 @@
     no-depth-clip pipelines). Frozen test grid now: **769 drawn, 0 not in the seed, 0 built while drawing.**
   - `tools/pipeline_seed.py` now **merges the existing header** (`--fresh` = don't): this PC's manifest had lost its
     "V" lines, and a plain regeneration from it dropped all 86 vertex variants.
+- **Is 823 low? (user asked, vs FM2's ~4,800 scanned / 7,847 seeded):** the scan is checked against what the game
+  actually used on this PC (`shadercache/*.ucode`): pixel 343 of 345 found; vertex 123 of 139 match a scanned shader
+  apart from the fetch words the title rewrites, 16 don't (at a loose 85%-equal-dwords test). FM3 shares `.fxobj`
+  effect files; FM2 keeps shader copies inside every mesh file. The real gap to FM2 is the pipeline seed (2,556 vs
+  7,847 from 212 manifests): the tour's job. Open: where the 16 vertex + 2 pixel misses come from.
 - **Next:** step 2, the automated tour (`FM3_TOUR`) over every track incl. Disc 2, showroom, photo mode, livery editor,
   replays, reading the coverage line per stop; and a true first-boot test (empty `shadercache` + pipeline library in
   a scratch user folder) to see what a new player's first race builds. Report the flag-4 bug upstream (needs the user's
