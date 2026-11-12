@@ -50,7 +50,11 @@
   - **Coverage, first run (full1, seed of 2,556):** 1,891 pipelines drawn over the 23 stops, **644 not in the seed
     (34%)**; new tracks added 20-120 each (Le Mans, New York, Fujimi, Nurburgring most). Menus alone: 217 drawn, 2-4
     missing. **Seed regenerated: 3,274 pipelines + 91 vertex variants.**
-  - **Photo mode is washed yellow on every track** (OPEN-ISSUES D, session 28 entry): suspect one guest tile.
+  - **Photo mode is washed yellow on every track** (OPEN-ISSUES D, session 28 entry). **Investigated, then paused
+    by the user:** the cause is one guest tile (`one_tile=1`; `FM3_ONE_TILE=0` = correct, twice). One tile for the
+    race scenario only removes the yellow, but road markings then draw over the car; two more variants changed
+    nothing. Code reverted to `93ba002` at the user's request; the work is in `out/wip/photo-mode-session28.diff`
+    (local), findings and leads in OPEN-ISSUES D. Until fixed: `one_tile=0` if photo mode matters.
 - **Next:** a true first-boot test (empty shadercache + pipeline library in a scratch user dir) with the new seed;
   more layouts / cars per track if coverage shows gaps; the yellow photo mode; report the flag-4 bug upstream (needs
   the user's OK). Old plan line: step 2, the automated tour (`FM3_TOUR`) over every track incl. Disc 2, showroom, photo mode, livery editor,

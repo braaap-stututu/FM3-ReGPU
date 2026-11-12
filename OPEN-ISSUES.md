@@ -22,11 +22,32 @@ race-load crash. See NOTES.md for those.
 - **Sibling ports:** FM4 had photo mode's 64-bit picture accumulation sharing EDRAM with the 32-bit scene, which bled
   into the photo. It fixed this with `REGPU_COLOR_SURFACE_PER_BPP`, which exists only in FM4's own ReGPU and would
   need porting. FM2 fixed several photo-mode tile problems.
-- **Session 28 (tour, 2560x1440 4x MSAA, `one_tile=1`, `mirror_rate=2`, Motegi grid in a Free Play quick race):
-  photo mode is washed bright yellow over the whole view** (HUD fine), except a dark rectangle around the car's
-  front right; `out/perf/s28tour/ph1.png`. Much worse than the band above: suspect one guest tile (session 26) or
-  a later default first (A/B with `one_tile=0`; photo mode is reached by the tour script `tools/tour.ps1`: pause,
-  DOWN, DOWN, A). Not yet checked whether the user sees it.
+- **Session 28: photo mode broken with one guest tile (`one_tile=1`, the user's opt-in), investigation paused by the
+  user; code reverted, work saved locally in `out/wip/photo-mode-session28.diff` (gitignored).**
+  - **Symptom:** with `one_tile=1` photo mode is washed bright yellow over the whole 3D view (HUD fine), except a dark
+    rectangle at the car's front right; on every track of the tour (`out/perf/s28tour/ph1.png`, Motegi;
+    `out/perf/tour/full1/*-3-photo.png`). 2560x1440 4x MSAA, `mirror_rate=2`.
+  - **Cause confirmed by A/B (Catalunya quick race, photo mode, same route each boot):** `FM3_ONE_TILE=0` = photo
+    mode correct (twice: `out/perf/tour/photo/tile0.png`, `tile0b.png`; only the known lighter top band of this
+    issue). `FM3_ONE_TILE=1` = yellow (`tile1.png`).
+  - **What photo mode does to the tiling:** on entering photo mode the game runs the renderer set-up
+    `sub_82798890` for **scenario 0** (4x MSAA, 3 tiles; the front end's scenario, menus and car select look fine
+    as one tile) while the race renderer (**scenario 1**, 2x, set up as one tile) stays alive; leaving photo mode
+    sets scenario 1 up again. Log: `one tile: scenario 0 ...` at photo entry.
+  - **Tried (diff above):** (1) one tile for the race scenario only (`index == 1`; `FM3_ONE_TILE_ALL=1` = old
+    behaviour): **yellow gone**, but photo mode then shows the grid's road markings drawn over the car's hood/roof
+    and a stronger glare (`fixed.png`, `fixedc.png`). (2) + keep scenario 1 at one tile while scenario 0 is set up
+    (the hook's `Restore()` put every scenario back to the game's counts first): no change (`fixed2c.png`).
+    (3) + `REGPU_WINDOW_FIXUP_UNION` off (new `FM3_NO_WINDOW_UNION=1` in `gpu_host.cpp`): no change (`nounionc.png`).
+    (4) After leaving photo mode (B, START) with variant (2), the resumed race drew the track flat grey
+    (`after2.png`): not looked into; may come from the variants, not checked on the committed build.
+  - **Leads for later:** markings over the car = depth from a different tile layout: photo mode probably replays the
+    race renderer's prerecorded (one-tile) command buffers or reads its surfaces under scenario 0's three tiles;
+    capture photo mode with one tile on vs off (`Fm3 "capture"`) and compare passes (`tools/analysis/passes.py`).
+    Simplest workaround to try: turn one tile off around photo mode (not possible after set-up as done here; would
+    need the race renderer set up again). Until fixed: `one_tile=0` if photo mode matters.
+  - **Tool:** the diff adds `Start-TourPhoto <env index> @{ENV=..}` to `tools/tour.ps1` (boot with start-time
+    switches, stop in photo mode on that track's grid, ~2.5 min); re-apply it to repeat the A/B.
 - **First step:** in the pre-race menu (easier to reach than photo mode), pause, then `Fm3 "capture"`. Find the
   pass that writes rows 0 to about 262 (FM3's scene tiles are rows 0–511 and 512–719, so 262 is not a tile edge;
   check for a 64-bit surface sharing an EDRAM base). Live A/B: `switch REGPU_NO_TILE_MERGE 1`,
