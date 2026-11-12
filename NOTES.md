@@ -57,8 +57,12 @@
   `REGPU_PASS_SNAPSHOT_FULL_CHECK=1`. **User's race drive: no change** (`out/run/fm3.drive30-passepoch.log` vs
   `fm3.drive30-ringoff.log` by draw-count bucket): the race is limited by the draw thread's ring writes (the byte
   cut gave +5%, this compute cut 0). Kept.
-- **Next (ask):** fewer WC bytes/stores per draw is the lever that showed in races: (index list + constant writes as fewer, larger copies); the rest of
-  `PassScales` is call overhead (~25 calls a draw); content hashing ~6% (I5 risk).
+- **Unread block parts cut (user's pick; ReGPU patch 37 `regpu-unread-block-parts`, default):** bools, loops,
+  fetch layout (`vfl`, unread with baked fetches) and `vuser` are written only for shaders whose HLSL reads them
+  (scan after the game's rewrite). Grid: 1,437 -> 1,062 constant bytes a draw, 0 pixels, fps within noise.
+  **Next: the user's race drive** (launcher, Crown Jewel two laps; compare by draw-count bucket with
+  `out/run/fm3.drive30-ringoff.log` / `fm3.drive30-passepoch.log`). Left after it: the float constants (~800 of
+  ~1,060 bytes, written as scattered 16-byte stores), index lists, vertex uploads.
 - Launcher rebuilt (session 29's tooltip). settings.ini restored after the 720p runs (vram_upload_ring=0 there now).
 
 ### ▶ Start here (session 30): state at the end of session 29 (2026-11-12)
