@@ -23,7 +23,19 @@
   actually used on this PC (`shadercache/*.ucode`): pixel 343 of 345 found; vertex 123 of 139 match a scanned shader
   apart from the fetch words the title rewrites, 16 don't (at a loose 85%-equal-dwords test). FM3 shares `.fxobj`
   effect files; FM2 keeps shader copies inside every mesh file. The real gap to FM2 is the pipeline seed (2,556 vs
-  7,847 from 212 manifests): the tour's job. Open: where the 16 vertex + 2 pixel misses come from.
+  7,847 from 212 manifests): the tour's job.
+- **The 18 misses traced (user request):** a structural compare (same length and control flow, identical ALU slots,
+  fetch slots by opcode only) matches 14 of the 16 vertex shaders exactly and one more in all but one slot: they
+  are the title's per-layout copies. **3 real misses:** `ps_201e80f858c06c0e` (459 dw, no fetches; never in a
+  capture), `ps_a0d8cbb7f2f8ce9a` (24 dw; rect draws with a 32x32 texture in session 10's vinyl captures: livery
+  compositing) and `vs_6ee601730a7f9f87` (318 dw, 16 fetches; prim 4 draws in a 1280x256 scissor with 512x512 DXT1
+  textures in session 18's pre-race capture). A temporary `FM3_SCAN_ALL` experiment (every member of every zip and
+  every loose file, Disc 1 + Disc 2, 3,850 files, 14.5 s) found **none of the three anywhere** (first 24 bytes
+  searched): the game builds them at run time. The scan heuristic, even with ReGPU's `ucode::Plausible`, accepts
+  ~217,000 noise "shaders" in media/mesh data (.bik, .fsb, .xma, .xds, .carbin), so scanning more file types is no
+  win: no shader the game used came from them. The three cost a one-time background compile at first sight (the
+  vs: 726 ms); their pipelines are in the seed and build when the game makes them (`g_seedLater`). Finding the code
+  that builds them (write watch on the shader memory) is possible but not worth it. Experiment code removed.
 - **Next:** step 2, the automated tour (`FM3_TOUR`) over every track incl. Disc 2, showroom, photo mode, livery editor,
   replays, reading the coverage line per stop; and a true first-boot test (empty `shadercache` + pipeline library in
   a scratch user folder) to see what a new player's first race builds. Report the flag-4 bug upstream (needs the user's
