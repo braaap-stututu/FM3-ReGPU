@@ -1,8 +1,19 @@
 diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
-index 8683820..f5b26e1 100644
+index 8683820..4615822 100644
 --- a/src/gpu/renderer.cpp
 +++ b/src/gpu/renderer.cpp
-@@ -2422,6 +2422,8 @@ LiveSwitch g_sw_REGPU_OLD_CLEAR_SHIFT("REGPU_OLD_CLEAR_SHIFT");
+@@ -348,6 +348,10 @@ UINT64 kRingSize = 64ull << 20;
+ constexpr UINT64 kRingMax = 2048ull << 20;
+ std::atomic<UINT64> g_ringWant{ 0 };
+ UINT64 g_ringPeak = 0;
++// What each ring allocation holds (REGPU_TRACE_RING_KINDS).
++enum RingKind { RingOther, RingConstants, RingIndexList, RingVertexUpload, RingVertexArena, RingIndexBuffer, RingTexture, kRingKinds };
++std::atomic<uint64_t> g_ringKindBytes[kRingKinds], g_ringKindCount[kRingKinds];
++UINT64 RingAlloc(UINT64 bytes, UINT64 alignment = 256, RingKind kind = RingOther);
+ constexpr UINT kDescriptorsPerFrame = 8192; // per frame: ring + guest memory views, then resolve-blit views
+ constexpr UINT kBindless = 1u << 16;      // permanent texture descriptors (0 null 2D, 1 null cube)
+ constexpr UINT kBindlessBase = kDescriptorsPerFrame * 3;
+@@ -2422,6 +2426,8 @@ LiveSwitch g_sw_REGPU_OLD_CLEAR_SHIFT("REGPU_OLD_CLEAR_SHIFT");
  LiveSwitch g_sw_REGPU_TEXTURE_CHECK_EVERY4("REGPU_TEXTURE_CHECK_EVERY4");
  LiveSwitch g_sw_REGPU_TEXTURE_CHECK_STAGGER("REGPU_TEXTURE_CHECK_STAGGER");
  LiveSwitch g_sw_REGPU_TRACE_CONSTANTS_USED("REGPU_TRACE_CONSTANTS_USED");
@@ -11,16 +22,135 @@ index 8683820..f5b26e1 100644
  LiveSwitch g_sw_REGPU_TRACE_MIDSIZE("REGPU_TRACE_MIDSIZE");
  LiveSwitch g_sw_REGPU_TRACE_TEXCHANGE("REGPU_TRACE_TEXCHANGE");
  LiveSwitch g_sw_REGPU_TRACE_TILES("REGPU_TRACE_TILES");
-@@ -11194,7 +11196,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+@@ -2750,6 +2756,25 @@ void BeginFrameIfNeeded()
+     PassMark("frame start %u%u", 0, 0);
+     if (perf && g_timestamps)
+         C().list->EndQuery(g_timestamps.Get(), D3D12_QUERY_TYPE_TIMESTAMP, frameIndex * 2);
++    // REGPU_TRACE_RING_KINDS: what fills the upload ring, KB a frame by kind (RingKind), every 120 frames.
++    if (static LiveSwitch traceKinds("REGPU_TRACE_RING_KINDS"); traceKinds)
++    {
++        static uint64_t lastFrame = 0;
++        if (g_r.frame >= lastFrame + 120)
++        {
++            const double frames = double(g_r.frame - lastFrame);
++            lastFrame = g_r.frame;
++            uint64_t k[kRingKinds], n[kRingKinds];
++            for (int i = 0; i < kRingKinds; i++)
++                k[i] = g_ringKindBytes[i].exchange(0), n[i] = g_ringKindCount[i].exchange(0);
++            Log("ring kinds (KB a frame / allocations a frame): constants %.0f/%.0f, index lists %.0f/%.0f, vertex uploads %.0f/%.0f, vertex arena %.0f/%.0f, "
++                "index buffers %.0f/%.0f, textures %.0f/%.0f, other %.0f/%.0f",
++                k[RingConstants] / 1024.0 / frames, n[RingConstants] / frames, k[RingIndexList] / 1024.0 / frames, n[RingIndexList] / frames,
++                k[RingVertexUpload] / 1024.0 / frames, n[RingVertexUpload] / frames, k[RingVertexArena] / 1024.0 / frames, n[RingVertexArena] / frames,
++                k[RingIndexBuffer] / 1024.0 / frames, n[RingIndexBuffer] / frames, k[RingTexture] / 1024.0 / frames, n[RingTexture] / frames,
++                k[RingOther] / 1024.0 / frames, n[RingOther] / frames);
++        }
++    }
+     if (const UINT64 used = f.ringUsed.load(); used > g_ringPeak)
+     {
+         g_ringPeak = used;
+@@ -2818,8 +2843,10 @@ void BeginFrameIfNeeded()
+ }
+ 
+ // Allocates from the frame's upload ring; returns the offset (or ~0).
+-UINT64 RingAlloc(UINT64 bytes, UINT64 alignment = 256)
++UINT64 RingAlloc(UINT64 bytes, UINT64 alignment, RingKind kind)
+ {
++    g_ringKindBytes[kind].fetch_add(bytes, std::memory_order_relaxed);
++    g_ringKindCount[kind].fetch_add(1, std::memory_order_relaxed);
+     FrameResources& f = Frame();
+     UINT64 used = f.ringUsed.load(std::memory_order_relaxed), offset;
+     for (;;)
+@@ -3011,7 +3038,7 @@ UINT64 UploadGuest(uint32_t guest, uint32_t bytes)
+         static std::atomic<uint32_t> logged{ 0 };
+         if (logged++ < 8)
+             Log("upload: %08X (%u bytes) is not all readable guest memory: %zu bytes copied, zeros after", guest, bytes, readable);
+-        const UINT64 offset = RingAlloc(std::max<uint32_t>(bytes, 16) + 16, 16);
++        const UINT64 offset = RingAlloc(std::max<uint32_t>(bytes, 16) + 16, 16, RingVertexUpload);
+         if (offset != ~0ull)
+         {
+             memcpy(f.ringCpu + offset, src, readable);
+@@ -3128,7 +3155,7 @@ UINT64 UploadGuest(uint32_t guest, uint32_t bytes)
+     if (g_perfTiming) g_uploadStats.copied += bytes;
+     if (RendererTracing() && bytes > (16u << 10))
+         Log("upload: %08X %u bytes (ring %llu)", guest, bytes, (unsigned long long)f.ringUsed.load());
+-    const UINT64 offset = RingAlloc(std::max<uint32_t>(bytes, 16) + 16, 16);
++    const UINT64 offset = RingAlloc(std::max<uint32_t>(bytes, 16) + 16, 16, RingVertexUpload);
+     if (offset == ~0ull)
+         return offset;
+     memcpy(f.ringCpu + offset, src, bytes);
+@@ -3371,7 +3398,7 @@ uint64_t VertexCacheLocked(uint32_t address, uint32_t bytes, bool& arenaHit)
+         arena.hits++;
+         return e.offset;
+     }
+-    const UINT64 offset = RingAlloc((bytes + 15) & ~15u, 16);
++    const UINT64 offset = RingAlloc((bytes + 15) & ~15u, 16, RingVertexArena);
+     if (offset == ~0ull)
+     {
+         e.checkedFrame = ~0ull; // not staged: checked again next time
+@@ -3554,7 +3581,7 @@ bool GetIndexBufferLocked(uint32_t base, uint32_t count, bool is32, uint32_t end
+         g_indexChanging = !checkOnce;
+     }
+     // Swap into the upload ring (as the vertex shader would read them), then copy.
+-    const UINT64 offset = RingAlloc((bytes + 15) & ~15u, 16);
++    const UINT64 offset = RingAlloc((bytes + 15) & ~15u, 16, RingIndexBuffer);
+     if (offset == ~0ull)
+         return false;
+     uint8_t* dst = Frame().ringCpu + offset;
+@@ -5461,7 +5488,7 @@ ID3D12Resource* GetVolumeTexture(const TextureFetch& fetch, DXGI_FORMAT& format)
+     if (!DecodeTexture3D(fetch, rgba))
+         return nullptr;
+     const UINT rowPitch = (w * 4 + 255) & ~255u;
+-    const UINT64 offset = RingAlloc(UINT64(rowPitch) * h * d, 512);
++    const UINT64 offset = RingAlloc(UINT64(rowPitch) * h * d, 512, RingTexture);
+     if (offset == ~0ull)
+     {
+         NoteTextureFailure("upload ring full (3D)", fetch);
+@@ -5660,7 +5687,7 @@ ID3D12Resource* GetCubeTexture(const TextureFetch& fetch, DXGI_FORMAT& format)
+             return cached.resource.Get();
+         const UINT rowPitch = (w * 4 + 255) & ~255u;
+         const UINT64 faceBytes = (UINT64(rowPitch) * h + 511) & ~511ull;
+-        const UINT64 offset = RingAlloc(faceBytes * 6 * 2, 512); // all levels fit in twice level 0
++        const UINT64 offset = RingAlloc(faceBytes * 6 * 2, 512, RingTexture); // all levels fit in twice level 0
+         if (offset == ~0ull)
+             return nullptr;
+         C().list->ResourceBarrier(1, &b);
+@@ -6105,7 +6132,7 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+         {
+             const uint32_t lw = levels[l].Width(), lh = levels[l].Height();
+             const UINT rowPitch = (((lw + bs - 1) / bs) * blockBytes + 255) & ~255u;
+-            const UINT64 offset = RingAlloc(UINT64(rowPitch) * ((lh + bs - 1) / bs), 512);
++            const UINT64 offset = RingAlloc(UINT64(rowPitch) * ((lh + bs - 1) / bs), 512, RingTexture);
+             if (offset == ~0ull)
+             {
+                 NoteTextureFailure("upload ring full (compressed)", fetch);
+@@ -6195,7 +6222,7 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+         }
+         const uint32_t lw = levels[l].Width(), lh = levels[l].Height();
+         const UINT rowPitch = (lw * 4 + 255) & ~255u;
+-        const UINT64 offset = RingAlloc(UINT64(rowPitch) * lh, 512);
++        const UINT64 offset = RingAlloc(UINT64(rowPitch) * lh, 512, RingTexture);
+         if (offset == ~0ull)
+         {
+             NoteTextureFailure("upload ring full", fetch);
+@@ -11151,7 +11178,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+     {
+         if (indexEntry->frame != g_r.frame)
+         {
+-            indexEntry->offset = RingAlloc(list.size() * 4, 16);
++            indexEntry->offset = RingAlloc(list.size() * 4, 16, RingIndexList);
+             if (indexEntry->offset != ~0ull)
+             {
+                 memcpy(f.ringCpu + indexEntry->offset, list.data(), list.size() * 4);
+@@ -11194,7 +11221,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
          uint32_t tinfo[32][4];
          float tbias[32][4];
      };
 -    const UINT64 vsOffset = RingAlloc(sizeof(VSConstants)), psOffset = RingAlloc(sizeof(PSConstants));
-+    UINT64 vsOffset = RingAlloc(sizeof(VSConstants)), psOffset = RingAlloc(sizeof(PSConstants));
++    UINT64 vsOffset = RingAlloc(sizeof(VSConstants), 256, RingConstants), psOffset = RingAlloc(sizeof(PSConstants), 256, RingConstants);
      if (vsOffset == ~0ull || psOffset == ~0ull)
      {
          TraceSkip("ring full", initiator);
-@@ -11207,22 +11209,48 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+@@ -11207,22 +11234,48 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
      // frame and reading back is slower still.
      auto* vcRing = reinterpret_cast<VSConstants*>(f.ringCpu + vsOffset);
      auto* pcRing = reinterpret_cast<PSConstants*>(f.ringCpu + psOffset);
@@ -75,7 +205,7 @@ index 8683820..f5b26e1 100644
          LiveSwitch &allConstants = g_sw_REGPU_ALL_CONSTANTS; // A/B
          const uint32_t nv = allConstants ? 256 : std::min(vs.info.constantsUsed, 256u), np = allConstants ? 256 : std::min(ps.info.constantsUsed, 256u);
          if (LiveSwitch &traceUsed = g_sw_REGPU_TRACE_CONSTANTS_USED; traceUsed)
-@@ -12101,15 +12129,144 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+@@ -12101,15 +12154,144 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
              for (uint32_t k : vs.info.vertexFetchConstants)
                  fetches = std::max(fetches, k + 1);
              const size_t layouts = std::min<size_t>(vs.info.vertexFetchLayout.size(), 32);

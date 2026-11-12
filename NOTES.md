@@ -31,16 +31,20 @@
   from entry 0 up to the highest used one (FM3's fetch constants sit near 95). **ReGPU patch 35
   `regpu-sparse-fetch-table` (default): fetch and texture entries written one by one, ~1,470 bytes a draw (7.8 ->
   ~3.8 MB a frame), byte-identical.** Frozen grid fps neutral (system ring: write-combining hides the bytes); the VRAM
-  ring at 720p 1x now ties the system ring (+0.1%, was -5.1%). **Block reuse** (`REGPU_CONSTANT_REUSE`, live) built
+  ring at 720p 1x still -5.3% vs the system ring (one boot showed +0.1%: noise). **Block reuse** (`REGPU_CONSTANT_REUSE`, live) built
   as planned but **off**: vs repeats 28.5%, ps 42.2%, 1,144 bytes a draw, but fps -1.4..+0.6% (compares cost what
   they save). A/B of the new default: `REGPU_FETCH_TABLE_BY_RANGE=1` (live) = old.
 - **User's race drives done (PERF-RESULTS "Session 30"):** ring in system memory **~+5% at equal draw counts**
   (whole drive 256 -> 280 fps; draw thread ~1.40 -> ~1.33 us a draw). Ring in VRAM barely moved and still loses
   ~-11.5% to it: its CPU cost is not mainly the constants. Toggle stays off by default, tooltip unchanged.
-- **Next candidates:** (1) find what the VRAM ring's CPU cost is (bytes per frame of index lists / vertex and texture
-  uploads vs constants; a split ring with only the constants in VRAM would keep the frozen grid's GPU gain if the
-  uploads are the cost); (2) profile the draw thread in a race (`FM3_SAMPLE_THREAD=name:gpu draw worker`,
-  `FM3_SAMPLE_CALLERS`) for the next cut; ask the user.
+- **VRAM ring cost found (user's pick; PERF-RESULTS "What the VRAM ring costs"):** live trace `REGPU_TRACE_RING_KINDS`:
+  constants are ~70% of the ~5.4 MB a frame the CPU writes (uploads ~1.3 MB, index lists ~0.5 MB), so a split ring
+  would not help. Whole 64-byte line writes tested and removed (-5.5..-5.9% in VRAM): the cost grows with bytes. VRAM
+  ring at 720p 1x still -5.3% (my earlier +0.1% was one noisy boot). The only route left to the VRAM ring's GPU gain
+  without BAR writes: packed constant allocation (blocks are allocated whole, 30 MB a frame for 3.7 MB written), then
+  a GPU copy of each segment's constants into VRAM. Not built.
+- **Next candidates:** (1) profile the draw thread in a race (`FM3_SAMPLE_THREAD=name:gpu draw worker`,
+  `FM3_SAMPLE_CALLERS`) for the next cut; (2) packed constants + GPU copy (above), bigger work; ask the user.
 - Launcher rebuilt (session 29's tooltip). settings.ini restored after the 720p runs (vram_upload_ring=0 there now).
 
 ### ▶ Start here (session 30): state at the end of session 29 (2026-11-12)

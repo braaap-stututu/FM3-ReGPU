@@ -36,7 +36,7 @@ Live A/Bs (6 rounds, all **0 pixels differ**):
 | block reuse, 720p 1x | system | +0.6% (4/6) |
 | sparse table, 720p 1x | VRAM | +0.7% (4/6) |
 | block reuse, 720p 1x | VRAM | -1.4% (1/6) |
-| VRAM vs system ring, sparse table on, 720p 1x | | **+0.1%** (session 29, old code: -5.1%) |
+| VRAM vs system ring, sparse table on, 720p 1x | | +0.1% in one boot, **-5.3% in a second** (session 29, old code: -5.1%): no real change |
 
 Reading: on the frozen grid the ring writes are not the draw thread's limit in system memory (write-combining absorbs
 them); block reuse costs its compares. The sparse table stays (fewer bytes, identical picture, no loss), reuse stays
@@ -61,6 +61,29 @@ there the draw thread is the limit, and it writes half the bytes. The VRAM ring 
 loses ~-11.5% to the system ring at equal draws, so its CPU cost is not mainly the constant bytes (left: index lists
 and vertex/texture uploads in the same ring, or the BAR write cost per store). The launcher toggle stays off by
 default; its tooltip (-13% racing) still holds roughly.
+
+### What the VRAM ring costs (session 30, user's pick)
+New live trace `REGPU_TRACE_RING_KINDS` (patch 35): upload-ring use a frame by kind, 1440p 4x, perf log off.
+
+| Kind | frozen grid: allocated KB / allocations | race running (AI cars, world unfrozen) |
+|---|---|---|
+| constants | 30,682 / 5,322 (**3,733 KB written**: blocks are allocated whole, written sparse) | 19,923 / 3,456 (2,218 KB written) |
+| index lists | 456 / 122 | 297 / 64 |
+| vertex uploads (UploadGuest) | 1,267 / 370 | 824 / 278 |
+| vertex arena | 0 | 277 / 2 |
+| index buffers, textures, other | ~0 | ~0 |
+
+So the CPU writes ~5.4 MB a frame on the grid and **constants are ~70% of it**; uploads are not the VRAM cost. Next
+hypothesis, partly written 64-byte lines (each its own PCIe write through BAR): a live switch wrote every touched
+line whole (1,966 bytes a draw instead of ~1,470): **-5.5% (1440p 4x) and -5.9% (720p 1x) with the ring in VRAM**,
+0% in system memory, byte-identical. Wrong: the VRAM cost grows with the bytes written, not their scatter (switch
+removed). The VRAM ring vs system ring at 720p 1x in that boot: **-5.3%** (an earlier boot's +0.1% was noise).
+Reading of the race drives: halving the constants made both ring locations ~faster, the VRAM one per byte still
+dearer, so the gap stayed. The VRAM ring's gain is GPU-side (constants read from VRAM: 1440p 4x frozen grid 311 vs
+270 fps in this boot, +15%); racing on this PC is draw-thread bound, so it loses there. A way to keep the GPU gain
+without the CPU's BAR writes would be a GPU copy of each segment's constants from the system ring into VRAM before
+its draws, but blocks are allocated whole (30 MB a frame for 3.7 MB written): it needs compact (packed) constant
+allocation first. Not built.
 
 ## Session 29 (2026-11-12): L45 Radeon GPU Profiler capture of the frozen grid
 **Method (reusable by the other ReGPU recomps):** Radeon Developer Tool Suite 2026-10-02 (RGP 2.7.1, panel 3.5.1;
