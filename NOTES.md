@@ -10,6 +10,13 @@
   Plan: re-signing in `loader.cpp` -> mod overlay fixes -> separate DLC root `dlc-pfp3` -> launcher tile installing from the
   player's own zip (career mode dropdown, FOV) -> separate profile. **First local step:** put the PFP3 zip(s) in the project
   root, list the layout, and check the xex MD5 (sources disagree whether the mod's xex is UC-based); ask the user.
+- **User's follow-up plan (agreed direction):** on the project PC, **datamine PFP3 vs the stock files** (file trees by
+  hash, zip members, `gamedb.slt` schema + row diff with Python's sqlite3, ini/xml text diffs, DLC packs vs Disc 2) and
+  build a **general mod system** from it (manifest per mod with options, load order, game/update/dlc overlays, Q9
+  re-signing, conflict report, launcher Mods tab, DB changes as SQL patches where possible so mods combine). PFP3 = first
+  mod. Later, as an option: **FM4 content / career / handling in FM3** (user's idea, FM3 is lighter): study feasibility
+  per part first (one FM4 car's file versions and shaders vs FM3's; career = DB rows + UI flows; handling = data vs
+  FM4's tyre-model code). Never commit game data: a mod made from the user's discs is a recipe applied at install.
 
 ### ▶ Start here (session 29): state after session 28 (2026-11-12)
 - **Shader and pipeline discovery, steps 1 and 3 done (step 2, the automated tour, is next):**
