@@ -50,11 +50,15 @@
   stall gone, but the user's race -3..-6%: removed. My ring-kind counters cost 2.2% (now only while traced).
   Remaining targets: `PassScales` ~7% (its memo check runs ~25 times a draw), content hashing ~6% (upload safety
   net, I5's risk), GetIndexBuffer ~2.5%.
-- **Next candidates (ask the user):** (1) `PassScales`: compute once per draw instead of checking the memo ~25
-  times (needs proof the surface state can't change inside a draw); (2) fewer WC stores per draw (merge the index
-  list and constant writes into fewer, larger contiguous copies); (3) the cockpit/other open items.
-- The fm3.exe on disk was not relinked after removing the cached-ring experiment (the game was open): run
-  `tools\vcenv.cmd ninja -C build/rel fm3` first (the source and patch 35 are clean).
+- **PassScales cut (user's pick; ReGPU patch 36 `regpu-pass-epoch`, default):** a per-draw cache was not safe
+  (`WindowScissor` sets the tall-pass globals inside the draw), so every writer of the non-register inputs bumps
+  `g_passEpoch` and the memo compares two registers + the epoch: `PassScales` 11.1% -> ~5.5% of the draw thread
+  (live, same boot), 0 pixels; grid fps unchanged (the grid's draw thread has slack). A/B
+  `REGPU_PASS_SNAPSHOT_FULL_CHECK=1`. **Next: the user's race drive** (launcher, perf log on, Crown Jewel two laps;
+  compare with `out/run/fm3.drive30-ringoff.log` by draw-count bucket: fps and renderer-draw ms of each `perf:`
+  line, bucketed by draws/100).
+- **Then (ask):** fewer WC stores per draw (index list + constant writes as fewer, larger copies); the rest of
+  `PassScales` is call overhead (~25 calls a draw); content hashing ~6% (I5 risk).
 - Launcher rebuilt (session 29's tooltip). settings.ini restored after the 720p runs (vram_upload_ring=0 there now).
 
 ### ▶ Start here (session 30): state at the end of session 29 (2026-11-12)

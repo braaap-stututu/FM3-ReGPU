@@ -101,6 +101,10 @@ GetIndexBuffer 2.3%, and **2.2% from the new ring-kind counters** (atomic adds i
   session-30 ring-off drive** (e.g. 2,200 draws 283.5 vs 295.8, 2,600: 244.0 vs 258.5; draw thread ~1.37 vs ~1.31 us a
   draw). Removed: cached CPU writes cost the draw thread more than the WC stall did (and GPU reads of snooped
   memory are slower).
+- **PassScales (ReGPU patch 36 `regpu-pass-epoch`):** the memo checked ~10 inputs on each of ~25 calls a draw; now
+  two registers and one epoch that every other input's writer bumps. 720p 1x grid, live in one boot, alternating:
+  `PassScales` 11.1/11.1% -> 5.9/5.1% of the draw thread, its wait 10.7/8.6% -> 15.0/14.7%; fps 720p 1x -1.2% (8
+  rounds, noisy with the sampler on), 1440p 4x -0.3% (GPU-bound); 0 pixels differ. Race drive pending.
 
 ## Session 29 (2026-11-12): L45 Radeon GPU Profiler capture of the frozen grid
 **Method (reusable by the other ReGPU recomps):** Radeon Developer Tool Suite 2026-10-02 (RGP 2.7.1, panel 3.5.1;
