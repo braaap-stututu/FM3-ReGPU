@@ -54,6 +54,7 @@ $regpuPatches = @(
     'regpu-seed-coverage'            # log 'seed coverage': pipelines drawn vs the host's pipeline seed
     'regpu-gpu-upload-ring'          # REGPU_GPU_UPLOAD_RING (live): the upload ring in a GPU upload heap (VRAM via resizable BAR)
     'regpu-sparse-fetch-table'       # per-draw fetch/texture entries written one by one (REGPU_FETCH_TABLE_BY_RANGE=1 old); REGPU_CONSTANT_REUSE, REGPU_TRACE_CONSTANT_BYTES
+    'regpu-pass-epoch'               # PassScales' memo checked against one epoch (REGPU_PASS_SNAPSHOT_FULL_CHECK=1 old)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

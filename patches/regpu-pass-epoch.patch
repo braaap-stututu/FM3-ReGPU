@@ -1,0 +1,124 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 8579454..defc6ea 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -74,12 +74,17 @@ constexpr UINT kWidth = 1280, kHeight = 720;
+ // all read the same pitch, so they agree.
+ // (Changed while the game runs by regpu::SetOutputSize, applied between frames: ApplyOutputSize.)
+ std::atomic<uint32_t> g_outputWidth{ 0 }, g_outputHeight{ 0 };
++// Bumped by every change to what the pass sizes and scales depend on besides the surface registers (output size,
++// scene scale, the tall pass, the native MSAA table): PassScales' memo compares it instead of each input.
++std::atomic<uint32_t> g_passEpoch{ 0 };
++void BumpPassEpoch() { g_passEpoch.fetch_add(1, std::memory_order_relaxed); }
+ void LoadOutputSize()
+ {
+     uint32_t w, h;
+     RenderSize(w, h);
+     g_outputWidth = w;
+     g_outputHeight = h;
++    BumpPassEpoch();
+ }
+ uint32_t OutputWidth()
+ {
+@@ -156,7 +161,10 @@ void SetNativeMsaa(uint32_t key, uint32_t msaa)
+     // Read first: written at every draw, the slot's cache line bounced between the draw workers.
+     std::atomic<uint32_t>& slot = NativeSlot(key);
+     if (slot.load(std::memory_order_relaxed) != (key << 2 | msaa) && slot.exchange(key << 2 | msaa, std::memory_order_relaxed) != (key << 2 | msaa))
++    {
+         g_nativeMsaaGeneration.fetch_add(1, std::memory_order_relaxed);
++        BumpPassEpoch();
++    }
+ }
+ // The same, for depth surfaces: the MSAA layout each depth EDRAM base and row width (in samples)
+ // is drawn in. A title can reset a 1x pass's stencil through a 4x view that only shares the depth
+@@ -202,7 +210,7 @@ uint32_t BigPassSizeUncached()
+ // memos and their re-checks were ~8% of the draw thread). Defined below (PassScales).
+ struct PassScaleSnapshot
+ {
+-    uint32_t surface = ~0u, color = ~0u, generation = ~0u, tallInfo = ~0u, tallHeight = ~0u, tallKey = ~0u, outW = ~0u, outH = ~0u;
++    uint32_t surface = ~0u, color = ~0u, generation = ~0u, tallInfo = ~0u, tallHeight = ~0u, tallKey = ~0u, outW = ~0u, outH = ~0u, epoch = ~0u;
+     float scene = -1;
+     uint32_t big = 0, width = 0, height = 0;
+     float passScale = 1, scaleY = 1, scaleWide = 1, scaleX = 1;
+@@ -292,16 +300,23 @@ float HelperPassScale(float passScale, uint32_t big)
+ 
+ bool WidePass() { return (gpureg::Get(0x2000 /* RB_SURFACE_INFO */) & 0x3FFF) == kWidth; }
+ // REGPU_NO_PASS_SNAPSHOT=1: worked out at every call (A/B, live).
++LiveSwitch g_passNoSnapshot("REGPU_NO_PASS_SNAPSHOT"), g_passFullCheck("REGPU_PASS_SNAPSHOT_FULL_CHECK");
+ const PassScaleSnapshot& PassScales()
+ {
+     thread_local PassScaleSnapshot s, fresh;
+-    static LiveSwitch noSnapshot("REGPU_NO_PASS_SNAPSHOT");
+-    const uint32_t surface = gpureg::Get(0x2000), color = gpureg::Get(0x2001) & 0xFFF, generation = g_nativeMsaaGeneration.load(std::memory_order_relaxed);
++    // Asked ~25 times a draw: the memo is checked against the surface registers and the pass epoch (g_passEpoch:
++    // every other input bumps it), not each input (that check was ~7% of the draw thread, FM3 session 30).
++    // REGPU_PASS_SNAPSHOT_FULL_CHECK=1 compares every input again (A/B, live).
++    const uint32_t surface = gpureg::Get(0x2000), color = gpureg::Get(0x2001) & 0xFFF, epoch = g_passEpoch.load(std::memory_order_relaxed);
++    if (!g_passFullCheck && !g_passNoSnapshot && surface == s.surface && color == s.color && epoch == s.epoch && s.outH)
++        return s;
++    const uint32_t generation = g_nativeMsaaGeneration.load(std::memory_order_relaxed);
+     const uint32_t outW = g_outputWidth.load(std::memory_order_relaxed), outH = g_outputHeight.load(std::memory_order_relaxed);
+-    if (!noSnapshot && surface == s.surface && color == s.color && generation == s.generation && g_tallInfo == s.tallInfo &&
++    if (!g_passNoSnapshot && surface == s.surface && color == s.color && generation == s.generation && g_tallInfo == s.tallInfo &&
+         g_tallHeight == s.tallHeight && g_tallKey == s.tallKey && outW == s.outW && outH == s.outH && outH && g_sceneScale == s.scene)
+         return s;
+-    PassScaleSnapshot& n = noSnapshot ? fresh : s;
++    PassScaleSnapshot& n = g_passNoSnapshot ? fresh : s;
++    n.epoch = epoch;
+     n.surface = surface, n.color = color, n.generation = generation, n.tallInfo = g_tallInfo, n.tallHeight = g_tallHeight, n.tallKey = g_tallKey;
+     n.outW = OutputWidth(), n.outH = OutputHeight(), n.scene = g_sceneScale;
+     n.big = BigPassSizeUncached();
+@@ -2751,6 +2766,7 @@ void BeginFrameIfNeeded()
+             (!temporalUpscaler || TemporalInit());
+         g_temporal = g_scenePhase && temporalUpscaler;
+         g_sceneScale = g_scenePhase ? scale : 1.0f;
++        BumpPassEpoch();
+         if (g_temporal)
+             BeginTemporalFrame();
+     }
+@@ -6776,6 +6792,7 @@ D3D12_RECT WindowScissor()
+         g_tallInfo = surfaceInfo;
+         g_tallHeight = uint32_t(y1);
+         g_tallKey = LayoutKey(surfaceInfo);
++        BumpPassEpoch();
+         // REGPU_CAPTURE_TALL=1: trace this very frame from here on (its dump is taken at the swap).
+         static LiveSwitch captureTall("REGPU_CAPTURE_TALL");
+         static bool traced = false;
+@@ -7363,8 +7380,10 @@ bool EvaluateTemporal(uint32_t base, bool dlss)
+     const uint32_t inWidth = dest.hostWidth, inHeight = dest.hostHeight;
+     const float savedScale = g_sceneScale;
+     g_sceneScale = 1.0f;
++    BumpPassEpoch();
+     const uint32_t outWidth = uint32_t(HostX(LONG(dest.width))), outHeight = uint32_t(HostY(LONG(dest.height)));
+     g_sceneScale = savedScale;
++    BumpPassEpoch();
+     if (outWidth < inWidth || outHeight < inHeight)
+         return false;
+     const uint64_t frame = dest.frame;
+@@ -7715,8 +7734,10 @@ void UpscaleResolved(uint32_t base)
+     const uint32_t inWidth = dest.hostWidth, inHeight = dest.hostHeight;
+     const float savedScale = g_sceneScale;
+     g_sceneScale = 1.0f;
++    BumpPassEpoch();
+     const uint32_t outWidth = uint32_t(HostX(LONG(dest.width))), outHeight = uint32_t(HostY(LONG(dest.height)));
+     g_sceneScale = savedScale;
++    BumpPassEpoch();
+     if (outWidth <= inWidth || outHeight <= inHeight)
+         return;
+     const uint64_t frame = dest.frame;
+@@ -7823,6 +7844,7 @@ void UpscaleScene(uint32_t base)
+     else
+         UpscaleResolved(base);
+     g_sceneScale = 1.0f;
++    BumpPassEpoch();
+     g_scenePhase = false;
+     g_upscale.switchedThisFrame = true;
+ }
+@@ -13264,6 +13286,7 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     {
+         UpscaleResolved(frontBuffer);
+         g_sceneScale = 1.0f;
++        BumpPassEpoch();
+         g_scenePhase = false;
+         g_upscale.retryFrame = g_r.frame + 120;
+         g_upscale.reset = true; // the next scene has no usable history
