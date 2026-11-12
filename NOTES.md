@@ -54,10 +54,10 @@
   (`WindowScissor` sets the tall-pass globals inside the draw), so every writer of the non-register inputs bumps
   `g_passEpoch` and the memo compares two registers + the epoch: `PassScales` 11.1% -> ~5.5% of the draw thread
   (live, same boot), 0 pixels; grid fps unchanged (the grid's draw thread has slack). A/B
-  `REGPU_PASS_SNAPSHOT_FULL_CHECK=1`. **Next: the user's race drive** (launcher, perf log on, Crown Jewel two laps;
-  compare with `out/run/fm3.drive30-ringoff.log` by draw-count bucket: fps and renderer-draw ms of each `perf:`
-  line, bucketed by draws/100).
-- **Then (ask):** fewer WC stores per draw (index list + constant writes as fewer, larger copies); the rest of
+  `REGPU_PASS_SNAPSHOT_FULL_CHECK=1`. **User's race drive: no change** (`out/run/fm3.drive30-passepoch.log` vs
+  `fm3.drive30-ringoff.log` by draw-count bucket): the race is limited by the draw thread's ring writes (the byte
+  cut gave +5%, this compute cut 0). Kept.
+- **Next (ask):** fewer WC bytes/stores per draw is the lever that showed in races: (index list + constant writes as fewer, larger copies); the rest of
   `PassScales` is call overhead (~25 calls a draw); content hashing ~6% (I5 risk).
 - Launcher rebuilt (session 29's tooltip). settings.ini restored after the 720p runs (vram_upload_ring=0 there now).
 

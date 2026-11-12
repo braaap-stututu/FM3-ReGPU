@@ -104,7 +104,7 @@ GetIndexBuffer 2.3%, and **2.2% from the new ring-kind counters** (atomic adds i
 - **PassScales (ReGPU patch 36 `regpu-pass-epoch`):** the memo checked ~10 inputs on each of ~25 calls a draw; now
   two registers and one epoch that every other input's writer bumps. 720p 1x grid, live in one boot, alternating:
   `PassScales` 11.1/11.1% -> 5.9/5.1% of the draw thread, its wait 10.7/8.6% -> 15.0/14.7%; fps 720p 1x -1.2% (8
-  rounds, noisy with the sampler on), 1440p 4x -0.3% (GPU-bound); 0 pixels differ. Race drive pending.
+  rounds, noisy with the sampler on), 1440p 4x -0.3% (GPU-bound); 0 pixels differ. **User's race drive (Crown Jewel two laps, launcher, `out/run/fm3.drive30-passepoch.log`): no change** vs the session-30 ring-off drive at equal draw counts (2,000: 320.8 vs 315.7; 2,200: 288.9 vs 295.8; 2,600: 255.0 vs 258.5; draw thread ~1.33 vs ~1.31 us a draw). Reading: the compute it saves is not the race's limit; the draw thread's ring writes are (the sparse table's byte cut gave +5% in the race, this compute cut 0, and the time saved reappears as the write-combining stall). Kept (byte-identical, cheaper on the grid).
 
 ## Session 29 (2026-11-12): L45 Radeon GPU Profiler capture of the frozen grid
 **Method (reusable by the other ReGPU recomps):** Radeon Developer Tool Suite 2026-10-02 (RGP 2.7.1, panel 3.5.1;
