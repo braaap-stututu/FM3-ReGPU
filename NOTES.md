@@ -60,8 +60,8 @@
 - **Unread block parts cut (user's pick; ReGPU patch 37 `regpu-unread-block-parts`, default):** bools, loops,
   fetch layout (`vfl`, unread with baked fetches) and `vuser` are written only for shaders whose HLSL reads them
   (scan after the game's rewrite). Grid: 1,437 -> 1,062 constant bytes a draw, 0 pixels, fps within noise.
-  **Next: the user's race drive** (launcher, Crown Jewel two laps; compare by draw-count bucket with
-  `out/run/fm3.drive30-ringoff.log` / `fm3.drive30-passepoch.log`). Left after it: the float constants (~800 of
+  **User's race drive:** +0..+4% at 2,300+ draws vs the patch-36 drive (edge of noise; `out/run/fm3.drive30-unread.log`).
+  Left after it: the float constants (~800 of
   ~1,060 bytes, written as scattered 16-byte stores), index lists, vertex uploads.
 - Launcher rebuilt (session 29's tooltip). settings.ini restored after the 720p runs (vram_upload_ring=0 there now).
 
