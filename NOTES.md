@@ -1,6 +1,28 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-12, end of session 27)
+## ▶ Current status / next step  (updated 2026-11-12, session 28)
+
+### ▶ Start here (session 29): state after session 28 (2026-11-12)
+- **Shader and pipeline discovery, steps 1 and 3 done (step 2, the automated tour, is next):**
+  - **Disc 2 in the boot scan** (`src/static_shaders.cpp`): installed packages (`<user>/dlc/<pkg>` with a `.license`)
+    are searched like the game folder (their 4 track zips hold 241 `.fxobj`; car packs none); the stamp covers them,
+    so an install rescans. Scan threads run below normal priority (as FM2). 784 -> **823 shaders** (+39), 24 newly
+    compiled on that boot, 0 failed to compile.
+  - **Coverage line** (ReGPU patch 33 `regpu-seed-coverage`): `seed coverage: N pipelines drawn, M not in the seed
+    (P%), K built while drawing` with the 600-frame renderer line, plus the first 64 missing keys in manifest format.
+  - **ReGPU bug found and fixed** (patch 32 `regpu-motion-flag`, upstream has it too: worth reporting): pipeline flag 4
+    meant both "no depth clipping" and "motion-vector variant", so every no-depth-clip draw (FM3: rect clears + ~40
+    others on the grid) was built with the motion root signature and two render targets, and never reached the
+    manifest/seed (built while drawing on every boot). Motion variants now use 0x800. Frozen grid: picture the same
+    (masked cross-boot diff 48 px, all animated spectators), fps in boot noise (274.8 vs 270.8/275.3).
+  - **Seed regenerated:** 2,100 -> **2,556 pipelines + 89 vertex variants** (adds L30 plain-fetch variants and the
+    no-depth-clip pipelines). Frozen test grid now: **769 drawn, 0 not in the seed, 0 built while drawing.**
+  - `tools/pipeline_seed.py` now **merges the existing header** (`--fresh` = don't): this PC's manifest had lost its
+    "V" lines, and a plain regeneration from it dropped all 86 vertex variants.
+- **Next:** step 2, the automated tour (`FM3_TOUR`) over every track incl. Disc 2, showroom, photo mode, livery editor,
+  replays, reading the coverage line per stop; and a true first-boot test (empty `shadercache` + pipeline library in
+  a scratch user folder) to see what a new player's first race builds. Report the flag-4 bug upstream (needs the user's
+  OK: it posts publicly). Then the audit list below.
 
 ### ▶ Start here (session 28): state at the end of session 27 (2026-11-11/12)
 - **Built in session 27 (all pushed, details in "Session 27" below):**

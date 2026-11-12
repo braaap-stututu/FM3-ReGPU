@@ -1,0 +1,63 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 1e3a2d1..ea55276 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -3779,6 +3779,14 @@ struct Manifest
+     }
+ } g_manifest;
+ 
++// Seed coverage: every pipeline a draw asks for, counted once, against the host's pipeline seed
++// (BuildSeedPipelines fills g_seedKeys). "Not in the seed" = a first boot on another PC would build
++// it while playing; "built while drawing" = this run had not prepared it (seed, manifest or
++// warm-up) when the draw came. Logged with the 600-frame renderer line when it changes. Guarded by
++// g_shaderMutex.
++std::unordered_set<PipelineKey, PipelineKeyHash> g_seedKeys, g_drawnKeys;
++uint32_t g_drawnPipelines = 0, g_drawnUnseeded = 0, g_drawnUnprepared = 0;
++
+ // Shader compilation runs on worker threads so the command processor never
+ // stalls on fxc: a draw whose shaders are still compiling is skipped. The
+ // bytecode is cached on disk by HLSL hash, so later runs start warm.
+@@ -5303,6 +5311,15 @@ ID3D12PipelineState* GetPipeline(const CompiledShader& vs, const CompiledShader&
+             if (const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - lockStart).count(); ms > 2.0)
+                 Log("perf: GetPipeline waited %.1f ms for the shader lock", ms);
+         auto it = g_r.pipelines.find(key);
++        // (As the manifest records them: no motion variants or live edits.)
++        if (!motion && !g_seedKeys.empty() && !IsPsEditAlias(key.ps) && !IsPsEditAlias(key.vs) && g_drawnKeys.insert(key).second)
++        {
++            g_drawnPipelines++;
++            if (!g_seedKeys.count(key) && g_drawnUnseeded++ < 64) // (manifest format, for the seed)
++                Log("seed coverage: not in the seed: P %llx %llx %x %x %x %x %x %x %x", (unsigned long long)key.vs, (unsigned long long)key.ps, key.blend,
++                    key.depth, key.stencilMaskMode, key.flags, key.biasScale, key.biasOffset, key.fetchMask);
++            g_drawnUnprepared += it == g_r.pipelines.end();
++        }
+         if (it != g_r.pipelines.end() && it->second->state.load(std::memory_order_acquire) == 1)
+         {
+             ready.emplace(key, it->second->pso.Get());
+@@ -12622,6 +12639,7 @@ void BuildSeedPipelines()
+         key.biasOffset = RoundedBias(key.biasOffset);
+         if (!seen.insert(PipelineKeyHash{}(key)).second)
+             continue;
++        g_seedKeys.insert(key);
+         listed++;
+         if (g_manifest.known.count(key) || g_r.pipelines.count(key))
+         {
+@@ -13407,6 +13425,19 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     if (frameNumber % 600 == 0)
+         Log("renderer: frame %llu: %u draws, %u skipped, %zu shaders, %zu pipelines, %zu textures", (unsigned long long)frameNumber,
+             g_r.drawsThisFrame.load(), g_r.skippedThisFrame.load(), g_r.shaders.size(), g_r.pipelines.size(), g_r.textures.size());
++    if (frameNumber % 600 == 0)
++    {
++        static uint32_t loggedDrawn = 0;
++        uint32_t drawn, unseeded, unprepared;
++        {
++            std::lock_guard lock(g_shaderMutex);
++            drawn = g_drawnPipelines, unseeded = g_drawnUnseeded, unprepared = g_drawnUnprepared;
++        }
++        if (drawn != loggedDrawn)
++            Log("seed coverage: %u pipelines drawn, %u not in the seed (%.1f%%), %u built while drawing", drawn, unseeded,
++                drawn ? 100.0 * unseeded / drawn : 0.0, unprepared);
++        loggedDrawn = drawn;
++    }
+     g_lastFrameDraws.store(g_r.drawsThisFrame.load(), std::memory_order_relaxed);
+     g_r.drawsThisFrame = g_r.skippedThisFrame = 0;
+     g_r.frameIndex = (g_r.frameIndex + 1) % kFrames;

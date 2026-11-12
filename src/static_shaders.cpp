@@ -13,8 +13,9 @@
 //
 // The vertex shaders found are the copies on disc: the title patches their vertex fetches when it
 // binds them to a vertex layout, so they reach the GPU under ReGPU's canonical key (fetch fields
-// masked), not their own hash. Disc 2 content (STFS packages in <user>/dlc) is not searched: the
-// run-time memory scan still finds those shaders when a track loads.
+// masked), not their own hash. Installed Disc 2 packages (<user>/dlc/<package>, those with a
+// <package>.license) are searched too (session 28): their track zips hold ~240 .fxobj files, and
+// installing one changes the stamp, so the next boot searches again.
 #include "static_shaders.h"
 
 #include <algorithm>
@@ -25,6 +26,8 @@
 #include <mutex>
 #include <thread>
 #include <unordered_set>
+
+#include <windows.h>
 
 #include "kernel/runtime.h"
 #include "log.h"
@@ -158,27 +161,36 @@ std::string Lower(std::string s)
     return s;
 }
 
-// The files searched (.fxobj and .zip under the game folder) and a stamp of their names and sizes.
+// The files searched (.fxobj and .zip under the game folder and in installed Disc 2 packages) and a
+// stamp of their names and sizes.
 std::vector<std::filesystem::path> SearchFiles(uint32_t& stamp)
 {
-    std::vector<std::filesystem::path> files;
+    std::vector<std::pair<std::string, std::filesystem::path>> named; // (stamp name, path)
     std::error_code ec;
-    for (auto it = std::filesystem::recursive_directory_iterator(GameDir(), ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
-    {
-        if (!it->is_regular_file(ec))
-            continue;
-        const std::string ext = Lower(it->path().extension().string());
-        if (ext == ".zip" || ext == ".fxobj")
-            files.push_back(it->path());
-    }
-    std::sort(files.begin(), files.end());
+    auto add = [&](const std::filesystem::path& root, const std::string& prefix) {
+        for (auto it = std::filesystem::recursive_directory_iterator(root, ec); !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+        {
+            if (!it->is_regular_file(ec))
+                continue;
+            const std::string ext = Lower(it->path().extension().string());
+            if (ext == ".zip" || ext == ".fxobj")
+                named.emplace_back(prefix + Lower(std::filesystem::relative(it->path(), root, ec).generic_string()), it->path());
+        }
+        ec.clear();
+    };
+    add(GameDir(), "");
+    for (const auto& package : std::filesystem::directory_iterator(DlcDir(), ec))
+        if (package.is_directory() && std::filesystem::exists(DlcDir() / (package.path().filename().string() + ".license"), ec))
+            add(package.path(), "dlc/" + Lower(package.path().filename().string()) + "/");
+    std::sort(named.begin(), named.end());
+    std::vector<std::filesystem::path> files;
     uint64_t h = 0xCBF29CE484222325ull;
-    for (const auto& f : files)
+    for (const auto& [rel, f] : named)
     {
-        const std::string rel = Lower(std::filesystem::relative(f, GameDir(), ec).generic_string());
         const uint64_t size = std::filesystem::file_size(f, ec);
         h = Fnv(reinterpret_cast<const uint8_t*>(rel.data()), rel.size(), h);
         h = Fnv(reinterpret_cast<const uint8_t*>(&size), sizeof(size), h);
+        files.push_back(f);
     }
     stamp = uint32_t(h ^ (h >> 32));
     return files;
@@ -262,6 +274,8 @@ std::vector<regpu::ScannedShader> StaticShaders()
     const unsigned n = std::max(2u, std::thread::hardware_concurrency());
     for (unsigned t = 0; t < n; t++)
         workers.emplace_back([&] {
+            // Below normal (as FM2's scan): the search may overlap the boot's own threads.
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
             for (size_t i; (i = next++) < g_files.size();)
             {
                 if (Lower(g_files[i].extension().string()) == ".zip")

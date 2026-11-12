@@ -50,6 +50,8 @@ $regpuPatches = @(
     'regpu-draw-thread-memos'        # draw thread: vertex-arena answers memoised per thread/frame, one pass-scale snapshot, timer/overlay recorded (no replay wait)
     'regpu-window-fixup-union'       # REGPU_WINDOW_FIXUP_UNION: predicated per-tile window fixups merged outside a tiling pass (FM3 one guest tile)
     'regpu-cp-idle-sleep'            # REGPU_CP_IDLE_SLEEP_US: the command processor sleeps ~100 us steps on an empty ring (FM3: under a frame cap)
+    'regpu-motion-flag'              # motion-vector pipelines get flag 0x800: flag 4 is also 'no depth clip' (those were built as motion variants)
+    'regpu-seed-coverage'            # log 'seed coverage': pipelines drawn vs the host's pipeline seed
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

@@ -1,7 +1,10 @@
 """Builds src/pipeline_seed.h (regpu::Host::pipelineSeed): every pipeline in the given pipelines.manifest
 files merged, so a first boot builds them behind ReGPU's overlay instead of on first sight in a race.
 
-  python -I tools/pipeline_seed.py <manifest or folder>... [--out src/pipeline_seed.h]
+  python -I tools/pipeline_seed.py <manifest or folder>... [--out src/pipeline_seed.h] [--fresh]
+
+The existing header's lines are kept (merged in) unless --fresh: a manifest may lack lines an
+older seed had (session 28: this PC's manifest had no "V" vertex-variant lines left).
 
 A manifest holds hashes and render state only ("P vs ps blend depth stencilMaskMode flags [bias...]",
 "V ..." vertex-shader variants), no game data. Folders are searched for files named pipelines.manifest.
@@ -28,10 +31,19 @@ def main(argv):
         i = argv.index("--out")
         out = argv[i + 1]
         del argv[i:i + 2]
+    fresh = "--fresh" in argv
+    if fresh:
+        argv.remove("--fresh")
     if not argv:
         print(__doc__)
         return 1
     lines, files = set(), 0
+    if not fresh and os.path.exists(out):
+        with open(out, encoding="ascii", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('"P ') or line.startswith('"V '):
+                    lines.add(" ".join(line[1:].replace("\\n", "").rstrip('",').split()))
     for m in manifests(argv):
         files += 1
         with open(m, encoding="ascii", errors="replace") as f:
