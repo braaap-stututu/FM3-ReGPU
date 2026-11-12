@@ -59,8 +59,17 @@ writes into write-combined memory, not slow GPU reads. Frozen grid, `Test-Live`,
 | 720p 1x (CPU-bound; off side at the 360 cap) | 349.7 | 331.8 | **-5.1%** | 1/6 | 0 pixels |
 
 So: GPU-bound wins big (the GPU reads ~26 MB of constants a frame from VRAM instead of over PCIe), CPU-bound loses
-(the CPU writes them over PCIe into VRAM). Split idea for both: constants in VRAM, bulk vertex/texture uploads in
-system memory (two rings).
+(the CPU writes them over PCIe into VRAM).
+
+**Later the same day (grid recheck and the user's drives):** grid recheck 264.2 -> 314.7 fps **+19.1%** (8/8, 0 px);
+race released on the grid (AI cars driving, camera still) +11-18% at ~2,200-2,450 draws. **The user's drives** (1440p 4x,
+perf log on in both, same start, first ~20 s of the race at ~2,450-2,750 draws; logs `out/run/fm3.drive-ringon.log`,
+`fm3.drive-ringoff.log`): ring in VRAM **~223 fps**, draw thread 3.9-4.3 ms a frame (~1.52 us a draw); ring in system
+memory **~252 fps**, draw thread 3.5-3.8 ms (~1.41 us a draw): **-13% in the race.** Racing is draw-thread (CPU)
+bound on this PC, and the same constants that the GPU reads faster from VRAM cost the CPU more to write there, so
+splitting the ring would not help. Lead instead: fewer bytes written per draw (the non-float parts of each constant
+block, ~2-3 KB, are written whole every draw). **Kept off by default; launcher tooltip says to use it only when the
+graphics card is clearly the limit.**
 
 ## Session 26 (2026-11-11): L38 timer, L36 one guest tile
 | Test | Setting | Before | After | Picture |

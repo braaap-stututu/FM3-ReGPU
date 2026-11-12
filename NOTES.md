@@ -39,8 +39,11 @@
   off: S18's -21% was CPU writes; the GPU always read constants from the ring. **User's decision: a launcher toggle**
   (Settings > Testing "Upload ring in VRAM" = settings.ini `vram_upload_ring=1`, read by the game in `gpu_host.cpp`,
   so `play.cmd` too; off by default; log `gpu: upload ring in VRAM on`). Verified: the key puts the ring in VRAM from
-  the first frame. The one-tile tooltip now says photo mode breaks with it. Possible later: split constants / bulk
-  uploads into two rings to keep the CPU-bound case.
+  the first frame. The one-tile tooltip now says photo mode breaks with it.
+  **User's drive test (same start, perf log on): ring in VRAM ~223 fps vs ~252 off = -13% while racing** (draw thread
+  ~1.52 vs ~1.41 us a draw; racing is draw-thread bound here), while the frozen grid gains +19%. Stays off by default;
+  tooltip updated. A split ring would not help (the constants are both the GPU win and the CPU cost); lead: write fewer
+  bytes per draw (non-float constant-block parts written whole each draw), which helps both settings.
 
 ### ▶ Start here (session 29): state after session 28 (2026-11-12)
 - **Shader and pipeline discovery, steps 1 and 3 done (step 2, the automated tour, is next):**
