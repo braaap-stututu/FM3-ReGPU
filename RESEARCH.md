@@ -1739,6 +1739,13 @@ every frame. That is the most likely vendor-specific loss in a translated render
    resizable BAR / Smart Access Memory the CPU writes constants, the vertex arena (`regpu-vertex-arena`) and texture
    uploads straight into VRAM, skipping a copy. Vendor-neutral, but only with ReBAR on (check the user's BIOS setting).
    Write-only from the CPU (uncached reads are very slow). Helps CPU-bound and copy-queue time more than GPU-bound fps.
+   **Session 29 follow-up (user: ReBAR gives 20-30% in the latest Forza):** that gain comes from a modern engine streaming
+   large assets and per-frame data; FM3's uploads are smaller. But our own data says placement matters on the GPU side:
+   S18's `REGPU_CONSTANTS_IN_RING` (shaders reading per-draw constants from the upload ring in system memory) cost
+   **-21%**. Test plan: (a) log `D3D12_FEATURE_DATA_D3D12_OPTIONS16.GPUUploadHeapSupported` and whether ReBAR is on
+   (GPU-Z or Adrenalin); (b) put that ring in a `GPU_UPLOAD` heap and A/B `REGPU_CONSTANTS_IN_RING` live again (it's a live
+   switch); (c) if it wins, move the default path's upload buffers there too and measure the copies saved. Check that
+   ReGPU builds with an Agility SDK new enough (1.614+) and that Windows has it (GPU upload heaps need a recent Windows 11).
 4. **Wave size** of ReGPU's compute passes (untiling, resolves, format conversions): RDNA runs wave32 or wave64 and one
    can be clearly faster; `[WaveSize(N)]` needs SM 6.6, i.e. **DXC instead of FXC**. That move also gives wave
    intrinsics and real 16-bit types (PERF-PLAN I7), so it serves several items.
