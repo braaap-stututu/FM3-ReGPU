@@ -67,8 +67,8 @@ perf log on in both, same start, first ~20 s of the race at ~2,450-2,750 draws; 
 `fm3.drive-ringoff.log`): ring in VRAM **~223 fps**, draw thread 3.9-4.3 ms a frame (~1.52 us a draw); ring in system
 memory **~252 fps**, draw thread 3.5-3.8 ms (~1.41 us a draw): **-13% in the race.** Racing is draw-thread (CPU)
 bound on this PC, and the same constants that the GPU reads faster from VRAM cost the CPU more to write there, so
-splitting the ring would not help. Lead instead: fewer bytes written per draw (the non-float parts of each constant
-block, ~2-3 KB, are written whole every draw). **Kept off by default; launcher tooltip says to use it only when the
+splitting the ring would not help. Lead instead (PERF-PLAN L57): reuse a draw's constant block when it is unchanged
+from the previous draw's (ReGPU already writes only the parts each shader reads). **Kept off by default; launcher tooltip says to use it only when the
 graphics card is clearly the limit.**
 
 ## Session 26 (2026-11-11): L38 timer, L36 one guest tile

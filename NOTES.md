@@ -25,6 +25,43 @@
   pipeline from the user before reverse-engineering anything ourselves. Related: "FM4 Imported" (446 FM4 cars in FH1,
   moddb) shows the 360-era car path; Reddit counts 243 FM4 cars missing in FM3.
 
+### ▶ Start here (session 30): state at the end of session 29 (2026-11-12)
+- **Next (user's request): L57, cut the bytes the draw thread writes per draw.** Why: racing on the user's PC is
+  bound by ReGPU's draw thread (~1.41 us a draw, ~2,500-2,750 draws, 3.5-3.8 ms of a ~4 ms frame; user's drive logs
+  `out/run/fm3.drive-ringoff.log` / `fm3.drive-ringon.log`, perf log on). Every byte it writes into the upload ring
+  costs it time, and more so with the ring in VRAM (L47: -13% in the race, +12-19% on the frozen grid).
+  - **What is written per draw today** (`thirdparty/ReGPU/src/gpu/renderer.cpp`, our patched tree): `VSConstants` /
+    `PSConstants` structs (~11171); `RingAlloc` of both blocks (~11197); the float constants copied straight to the ring,
+    **only those the shader reads** (`constantMask`, ~11218-11260; A/B `REGPU_CONSTANTS_BY_COUNT`, `REGPU_ALL_CONSTANTS`);
+    the rest built in a cached stage and copied in pieces, **only the used fetch/layout/texture entries**
+    (~12075-12116, A/B `REGPU_FULL_CONSTANT_BLOCKS`): VS b/l (160 B), used `vf`, info..vte, used `vfl`, vuser..vjitter
+    (112 B); PS b/l/info/info2, `tinfo`/`tbias` up to the highest used slot. Then root CBVs at the two ring offsets.
+    (My first guess, "non-float parts written whole", was wrong: that was fixed long ago for PGR4.)
+  - **The lever: reuse instead of rewrite.** When a draw's VS (or PS) block would be byte-identical to the previous
+    draw's (same shader, no constant/fetch/bool/loop/texture register written since), bind the previous draw's ring
+    offset and write nothing. Plan:
+    1. **Measure first** on the frozen grid (720p 1x = CPU-bound, settings.ini backed up and restored) and if possible in
+       a race: `Fm3 "switch REGPU_TRACE_CONSTANTS_USED 1"` (live: average constants per draw), plus a temporary counter
+       of bytes written to the ring per frame (constants vs uploads) and of how many draws' blocks equal the previous
+       draw's (compare against the previous draw's written bytes, per block). This says how much reuse can save.
+    2. **Build** behind a live switch (e.g. `REGPU_CONSTANT_REUSE`): dirty tracking on the register writes that feed
+       each block (ALU constants, fetch constants, bool/loop, texture state) plus shader identity; on no change, reuse the
+       last offset (valid within one frame's ring and one command list: reset at list/piece/frame boundaries and with
+       draw workers). Cheaper than hashing the bytes. Keep the hooked (`onDraw`) and motion-vector paths writing.
+    3. **A/B:** `Test-Live` on the grid at 720p 1x and 1440p 4x, both ring locations (`REGPU_GPU_UPLOAD_RING` 0/1),
+       0-pixel check; then ask the user for a race drive (same start, perf log on, one boot each) as in session 29.
+  - New ReGPU patch for it (scratch-index method in CLAUDE.md), row in `patches/README.md`, PERF-PLAN L57.
+- **Session 29 in short (details below and in PERF-RESULTS "Session 29"):** L45 RGP capture (barriers 0.72%, no
+  decompress, L46 parked; leads L54 fast clears, L55 end-of-frame barrier chain, L56 render-target format); **L47 built**
+  (ReGPU patch 34, launcher toggle "Upload ring in VRAM" = `vram_upload_ring=1`, off by default): +12-19% frozen grid,
+  **-13% in the user's race** (draw-thread bound). The user should leave it off for driving. Launcher not rebuilt since
+  the tooltip change (it was open): `dotnet build launcher\FM3Launcher -c Release` first.
+- **Paused by the user:** photo mode with one guest tile (OPEN-ISSUES D, `out/wip/photo-mode-session28.diff`).
+  User's settings.ini now: 2560x1440, msaa 4, cap 360, perf_log 1, one_tile 1, mirror_rate 2, vram_upload_ring 1
+  (the user may turn it off after the drive test).
+- RGP tools: `G:/claude code projects/tools/RadeonDeveloperToolSuite-2026-10-02-1872` (headless capture method in
+  PERF-RESULTS "Session 29": useful to see whether L57 shortens the draw thread's gaps on the GPU timeline).
+
 ### Session 29 (main PC, 2026-11-12): L45 RGP capture done
 - Radeon Developer Tool Suite 2026-10-02 downloaded (user OK) to `G:/claude code projects/tools/RadeonDeveloperToolSuite-2026-10-02-1872`.
   Headless capture: `RadeonDeveloperPanelCLI.exe -m profiling -p fm3 -a frame:12000 -o <file>.rgp` started before
@@ -42,8 +79,8 @@
   the first frame. The one-tile tooltip now says photo mode breaks with it.
   **User's drive test (same start, perf log on): ring in VRAM ~223 fps vs ~252 off = -13% while racing** (draw thread
   ~1.52 vs ~1.41 us a draw; racing is draw-thread bound here), while the frozen grid gains +19%. Stays off by default;
-  tooltip updated. A split ring would not help (the constants are both the GPU win and the CPU cost); lead: write fewer
-  bytes per draw (non-float constant-block parts written whole each draw), which helps both settings.
+  tooltip updated. A split ring would not help (the constants are both the GPU win and the CPU cost); lead L57: reuse
+  unchanged constant blocks instead of rewriting them (see "Start here (session 30)").
 
 ### ▶ Start here (session 29): state after session 28 (2026-11-12)
 - **Shader and pipeline discovery, steps 1 and 3 done (step 2, the automated tour, is next):**
