@@ -45,6 +45,23 @@ chain** (merge the per-quad barrier pairs, drop full-cache flushes the next pass
 large change, check FM3's main scene format first). L47 upload heaps is not touched by this capture (no copy queue in
 use; still open).
 
+## Session 29 (2026-11-12): L47 upload ring in a GPU upload heap (resizable BAR)
+ReGPU patch `regpu-gpu-upload-ring`, live switch `REGPU_GPU_UPLOAD_RING`. The driver reports **GPU upload heaps
+supported, resizable BAR on** (log line). Correction to the session 29b study: the GPU always reads every draw's
+constants (~10 KB a draw) straight from the upload ring; S18's `REGPU_CONSTANTS_IN_RING` -21% was the CPU's scattered
+writes into write-combined memory, not slow GPU reads. Frozen grid, `Test-Live`, alternating rounds, user's settings
+(one tile, half-rate mirror; the draw count alternates 2,467 / ~2,620 with the mirror in both states, 0 skipped):
+
+| Setting | Off (system memory) | On (VRAM) | Change | Rounds | Picture |
+|---|---|---|---|---|---|
+| 1440p 4x | 295.0 | 333.1 | **+12.9%** | 6/6 | 0 pixels |
+| 1440p 4x (second run) | 297.1 | 332.5 | **+11.9%** | 8/8 | 0 pixels |
+| 720p 1x (CPU-bound; off side at the 360 cap) | 349.7 | 331.8 | **-5.1%** | 1/6 | 0 pixels |
+
+So: GPU-bound wins big (the GPU reads ~26 MB of constants a frame from VRAM instead of over PCIe), CPU-bound loses
+(the CPU writes them over PCIe into VRAM). Split idea for both: constants in VRAM, bulk vertex/texture uploads in
+system memory (two rings).
+
 ## Session 26 (2026-11-11): L38 timer, L36 one guest tile
 | Test | Setting | Before | After | Picture |
 |---|---|---|---|---|
