@@ -17,6 +17,11 @@
   mod. Later, as an option: **FM4 content / career / handling in FM3** (user's idea, FM3 is lighter): study feasibility
   per part first (one FM4 car's file versions and shaders vs FM3's; career = DB rows + UI flows; handling = data vs
   FM4's tyre-model code). Never commit game data: a mod made from the user's discs is a recipe applied at install.
+  **User correction:** car and track ports are solved problems in the Forza modding community, and the FM4 sibling
+  recomp's lead has backported Forza Horizon 6 cars into FM4. So the mod system should carry whole new cars and tracks
+  (new DLC-style packages + DB rows), not only file swaps. Get the community's tools/method and the FM4 lead's car
+  pipeline from the user before reverse-engineering anything ourselves. Related: "FM4 Imported" (446 FM4 cars in FH1,
+  moddb) shows the 360-era car path; Reddit counts 243 FM4 cars missing in FM3.
 
 ### ▶ Start here (session 29): state after session 28 (2026-11-12)
 - **Shader and pipeline discovery, steps 1 and 3 done (step 2, the automated tour, is next):**
