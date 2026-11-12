@@ -2,6 +2,29 @@
 
 ## ▶ Current status / next step  (updated 2026-11-12, session 28)
 
+### Session 29b (2026-11-12, cloud, research only, no code): Project Forza Plus 3 as an option
+- User asked how to add **Project Forza Plus 3** (PFP3) as an option. Study: [RESEARCH.md](RESEARCH.md#project-forza-plus-3-as-an-option-session-29-2026-11-12).
+  The mod is all data (`Media` overrides, 18 pre-extracted DLC packs, 4 career-mode `gamedb.slt`s); its xex is not needed.
+  **Blockers in our build:** Q9 protected-file re-signing is not ported (any changed `gamedb.slt`/`.ini` = disc read error);
+  mods can't replace a whole `.zip` or DLC files; PFP3's DLC needs licence mask FFFFFFFF; long paths (no `longPathAware`).
+  Plan: re-signing in `loader.cpp` -> mod overlay fixes -> separate DLC root `dlc-pfp3` -> launcher tile installing from the
+  player's own zip (career mode dropdown, FOV) -> separate profile. **First local step:** put the PFP3 zip(s) in the project
+  root, list the layout, and check the xex MD5 (sources disagree whether the mod's xex is UC-based); ask the user.
+- **Next on the main PC (user's choice):** PFP3 datamine, the ReBAR log line + L47 A/B, an RGP capture (L45), Proton boot
+  on the main PC's Linux (the user runs it). Merge this cloud branch into `main` first.
+- **User's follow-up plan (agreed direction):** on the project PC, **datamine PFP3 vs the stock files** (file trees by
+  hash, zip members, `gamedb.slt` schema + row diff with Python's sqlite3, ini/xml text diffs, DLC packs vs Disc 2) and
+  build a **general mod system** from it (manifest per mod with options, load order, game/update/dlc overlays, Q9
+  re-signing, conflict report, launcher Mods tab, DB changes as SQL patches where possible so mods combine). PFP3 = first
+  mod. Later, as an option: **FM4 content / career / handling in FM3** (user's idea, FM3 is lighter): study feasibility
+  per part first (one FM4 car's file versions and shaders vs FM3's; career = DB rows + UI flows; handling = data vs
+  FM4's tyre-model code). Never commit game data: a mod made from the user's discs is a recipe applied at install.
+  **User correction:** car and track ports are solved problems in the Forza modding community, and the FM4 sibling
+  recomp's lead has backported Forza Horizon 6 cars into FM4. So the mod system should carry whole new cars and tracks
+  (new DLC-style packages + DB rows), not only file swaps. Get the community's tools/method and the FM4 lead's car
+  pipeline from the user before reverse-engineering anything ourselves. Related: "FM4 Imported" (446 FM4 cars in FH1,
+  moddb) shows the 360-era car path; Reddit counts 243 FM4 cars missing in FM3.
+
 ### ▶ Start here (session 29): state after session 28 (2026-11-12)
 - **Shader and pipeline discovery, steps 1 and 3 done (step 2, the automated tour, is next):**
   - **Disc 2 in the boot scan** (`src/static_shaders.cpp`): installed packages (`<user>/dlc/<pkg>` with a `.license`)
@@ -971,6 +994,9 @@ python -I tools/dumpdecode.py diff   dumps/hl360/runA/r01_grid_paused dumps/hl36
 
 ## Host machine
 - Windows 11 Home 10.0.26200; GPU AMD Radeon RX 7900 XTX (driver 32.0.32015.7029) + iGPU; G: has ~205 GB free.
+- **Test machines (session 29, user):** (1) the main PC above, dual boot with Linux; (2) Ryzen 5 5600 + RX 6650 XT
+  (RDNA2, 8 GB, PCIe 4.0 x8), dual boot with Linux; (3) **Steam Deck OLED** (SteamOS, plus Windows 11 on an SD card).
+  Each can run Windows and Linux/Proton on the same hardware: see RESEARCH.md "Linux, Proton and the Steam Deck".
 
 ## Toolchain audit (2026-11-06)
 | Tool | Needed by | Status |
@@ -1142,6 +1168,14 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
 
 ## Session log
+### 2026-11-12 — session 29b (cloud: Project Forza Plus 3 research)
+- User: "research how to add Project Forza Plus 3 as an option". No code; RESEARCH.md section + NOTES top. Found
+  that loose-file mods skip `.zip` paths, mods don't reach DLC files, and Q9 re-signing is missing.
+- Then four more studies on the user's questions (all RESEARCH.md, index rows at the top): **ray tracing** (screen-space
+  AO/reflections first, RT shadows later; no path tracing), **vendor-specific speed-ups** (PERF-PLAN L45-L50: RGP capture
+  for decompress barriers first; **ReBAR/GPU upload heaps need code in ReGPU**, lead = S18's constants-in-ring -21%),
+  **Linux/Proton/Steam Deck** (PERF-PLAN L51-L53; the user's 3 dual-boot test machines in "Host machine"). The user wants
+  these written up for the other 360 recomps once measured. Branch `ccr-d85d3ffd-fbzvco`, not merged into `main`.
 ### 2026-11-11/12 — session 27 (mirror analysis, L37/L39/L40/L14, audit)
 - User: two-colour mirror question -> mirror captures on the user's Catalunya quick-race grids: cars are most of the
   mirror's cost; shadow blobs, car detail level, separate shadows: no gain. Experiment switches in `mirror.cpp`.

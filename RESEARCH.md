@@ -21,6 +21,10 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Engine sound](#engine-sound-smoothing-the-cuts-session-22-2026-11-10) | FM2's fix is universal (12,541 of 18,292 engine sounds): exact trims + an offline seamless-loop table. We apply no XMA trims at all: prime suspect for the sweep; port trims first, then compare hl360 |
 | [MCLA-Recomp](#midnight-club-la-recomp-mcla-recomp-performance-leads-session-25-2026-11-11) (session 25) | One guest tile instead of merging tiles (the game's tile count forced to 1 + a larger EDRAM: frames -9 to -20%, CP -28 to -35%); rectangle clears made real clears (the missing piece of our L10); Windows 11 drops `timeBeginPeriod` for hidden windows (our minimized test boots!); lock-free guest atomics; per-core-count defaults and a 4-core test method; sleeps only under a frame cap; per-frame pipeline wait budget |
 | [VR](#vr-after-fh1rs-design-session-22-2026-11-10) | FH1R: virtual screen → head pose into the camera director's view matrix (two readers hooked: renderer camera + frustum) → HUD panel → true stereo by replaying the scene segment per eye with clip.x −= P00·d (+2–3 ms GPU). For FM3: OpenXR on ReGPU's D3D12 first, then find FM3's view matrix (shared RE with telemetry/ultrawide). Splash addendum: legal/ESRB likely cover the startup load |
+| [Project Forza Plus 3](#project-forza-plus-3-as-an-option-session-29-2026-11-12) (session 29) | Data-only mod (18 pre-extracted DLC folders, `Media` overrides, 4 career DBs); its `default.xex` is not used. **Blockers:** Q9 re-signing (not ported), mods can't replace a whole zip or DLC files, licence masks must be FFFFFFFF. Plan: launcher installs from the player's own zip into a separate mod folder + DLC root, career-mode dropdown, separate profile; ~5 steps |
+| [Ray tracing](#ray-tracing-and-screen-space-effects-session-29-2026-11-12) (session 29) | No full ray tracing or path tracing (ReGPU sees draws and shaders, not a scene; hits would need the game's pixel shaders). Realistic, all opt-in: (1) screen-space AO + reflections from depth, (2) ray-traced shadows/AO from captured vertex positions, (3) ray-traced reflections with simplified hit colour. Prerequisites: camera/projection matrices (shared with VR/telemetry/ultrawide), the scene/HUD split ReGPU already finds |
+| [Vendor-specific speed-ups](#vendor-specific-speed-ups-amd-nvidia-intel-session-29-2026-11-12) (session 29) | AMD first (testable here): an RGP capture of the frozen grid for **decompress barriers** (RDNA colour/depth compression lost to copies, barriers or UAV flags), then GPU upload heaps (ReBAR), compute wave size (needs DXC), async compute, AFMF 2. NVIDIA/Intel: mostly features (DLSS/Reflex/Smooth Motion, XeSS); Arc needs ReBAR. As far as we know untried in any 360 recomp: write results up for the sibling ports. PERF-PLAN L45-L50 |
+| [Linux, Proton and the Steam Deck](#linux-proton-and-the-steam-deck-session-29-2026-11-12) (session 29) | Run through Proton (vkd3d-proton on RADV), no native port. Launcher (WebView2) likely broken under Wine: run `fm3.exe` with `settings.ini` or port the launcher natively. Per-platform defaults under Wine (vertex arena write watch, sleeps, workers), Deck preset, gamescope for caps/FSR. **User has 3 dual-boot machines** (7900 XTX, 6650 XT, Deck OLED + Win11 SD): same-hardware Windows vs Proton A/Bs. PERF-PLAN L51-L53 |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -1606,3 +1610,217 @@ uploads, direct resolve, Vulkan) don't apply to ReGPU and are left out.
 - V4/iGPU: memory placement changes moved < 5%; copies and barriers were 37-46% of their iGPU frame.
 - Test method: compare only adjacent off-on-on-off runs (their iGPU had "slow hours" up to 1.4x); figures of merit =
   CPU time per frame of the limiting thread and time per draw on it.
+
+## Project Forza Plus 3 as an option (session 29, 2026-11-12)
+Cloud session, no game files or mod zip available: from the repo's notes (FM3-QUIRKS Q9-Q14 and §9, written from
+hl360), hl360's public README, and the community guides listed at the end. Nothing is built yet.
+
+### What the mod is
+- **Project Forza Plus 3** (by Gas-and-Games, distributed as zips on Google Drive via r/ProjectForzaPlus):
+  `Project Forza Plus 3 v1.2.zip` (+ `v1.2 Update.zip`); hl360 already mentions a **v1.3** zip. Car stats/physics
+  rebalance (`Media/Physics/PI.xml`, tyre physics, X class), career changes, all Disc 2 content and 14 more DLC packs
+  (114 cars). It was made for Xenia.
+- Layout of the zip: `Main Game Changes/` (`default.xex` + `Media/...` overriding the disc), `Disc 2 and DLCs/00000002/`
+  (**18 pre-extracted content packages**, ~9.2 GB, which replace the UC's 8 because "using my versions of the DLC is
+  necessary for the changes to be applied"), `Game Mode DBs/<Mode> Mode/gamedb.slt` (+ `DLC DBs/*`, files overlaid onto
+  the DLC pack folders for the non-Normal modes), and a Xenia config `.toml`.
+- **Career modes** = which `Media/DB/gamedb.slt` is used: **Normal** (all events/cars unlocked, no reward cars, AI braking
+  and cornering stronger), **Hard** (start in F class, one class per 5 levels, events 50% longer, half earnings),
+  **Sandbox** (everything costs 1 credit), **Vanilla** (stock career, car stats kept); hl360 also offers "harder AI"
+  (more DB variants) and an FOV option (`Media/Camera/CameraSettings.ini`, `<Cam>\FOV\FOV0..2`).
+- Known mod issues (its own list): the GameStop Evo X pre-order car has broken panels and an **endless load** (never
+  pick it), wheel thumbnails missing, buy-menu stats off.
+
+### Which xex: the mod's `default.xex` is not needed
+- hl360 ships PFP3 support and **ignores the mod's xex** (its README: "the original 2009 edition, not used by the port").
+  A Linux/Xenia guide instead says it is built on the **UC xex** (MD5 `f0873d4e3c1dfc36d77bc92e174f37dc`; non-UC retail
+  `d3282839…`). These disagree. Either way, all the mod's content is in data, and a static recompilation can only run our
+  xex anyway. **First local check:** MD5 of our `game/default.xex` vs `f0873d4e…`; if the mod's xex is UC-based, dump both
+  with `build/tools/xexdump` and diff the images. Expect only the protected-file table (Q9) or a hash-check bypass; any
+  **code** difference has to become a hook in `src/hooks/` (we can't load another xex).
+
+### What our build already has
+| Need | State |
+|---|---|
+| Overriding disc files | **Partly.** Loose-file mods `<user>/mods/<mod>/game/<path>` (`imports_io.cpp`) and zip-member mods `<mod>/game/<zip path>/<member>` (`zip_overlay.cpp`). **Gap 1:** a whole `.zip` in a mod is never used (a `.zip` path goes to `ZipOverlay`, which only takes members; the loose check is the `else` branch). PFP3's `Media` probably replaces whole zips, so either unpack its zips into member folders at install time (they become zip overlays; only changed members count) or check the loose replacement first for zips. **Gap 2:** mods cover `game:` only, not DLC files (`\Device\Dlc`), which the non-Normal modes' `DLC DBs` need. |
+| DLC packages | Runtime mounts `<user>/dlc/<pkg>` folders that have a `<pkg>.license` (written last) and `<pkg>.title` (`imports_xam.cpp`). PFP3's packages are already extracted, so install = copy/hard-link plus those two files (title from the package's `Headers/…` file or the folder name). |
+| Licence mask (Q12) | `FM3_DLC_LICENSE_MASK=<hex>` override exists, default = each package's `.license` (Disc 2: 0). **PFP3 needs all bits**: FM3 runs `Media/LicenseMasks/<bit>.sql` per granted bit to make the mod's DLC cars appear. Write `FFFFFFFF` into the PFP3 packages' `.license` files. This is the same DB-patch system as crash C1's lead, so expect C1 to behave differently with PFP3. |
+| Header check (Q13), name cut (Q14) | Done (session 17). |
+| Protected-file re-signing (Q9) | **Missing: the main blocker.** The table at `0x82CF0000` (block size 0x8000, count, {offset,size}, then name + SHA-1 per 0x8000 block) covers 27 files incl. `gamedb.slt`, `PhysicsSettings.ini`, `CameraSettings.ini`; any changed one = disc read error. Port hl360's `file_signatures.cpp` idea into `src/loader.cpp` after the sections are copied: for each entry resolve the file **through the VFS with the mod overlay**, re-hash, rewrite in guest memory. No-op for the stock game. Also unblocks our own `mods/` (e.g. FOV or physics edits). |
+| Long paths (Q10) | hl360 needs a user root of ≤53 chars for v1.3's deepest file. Our host paths are plain (`StripPrefix` removes `\\?\`) and `fm3.exe` has no `longPathAware` manifest. Either add `longPathAware` to the exe manifest (+ the Windows LongPathsEnabled setting) or `\\?\`-prefix in `VfsResolve`, or have the launcher refuse long user folders like hl360. |
+| Shader scan / pipeline seed | `static_shaders.cpp` scans `<user>/dlc/*` with `.license`, so PFP3's packs are scanned if installed there; a mod overlay's `.fxobj` aren't. PFP3's new cars will add pipelines: run `tools/tour.ps1` on a PFP3 install and merge the manifest. |
+
+### Proposed design (each step can be tested alone)
+1. **Q9 re-signing** in `loader.cpp` (with `FM3_NO_RESIGN=1` off): read the table, hash through `VfsResolve`, log `resign: N of 27 files changed`. Test: stock game = 0 changed; a loose-mod `CameraSettings.ini` FOV edit loads without the disc error.
+2. **Mod overlay fixes:** whole-zip replacement (or unpack at install), and `\Device\Dlc\<pkg>\...` overrides from `<mod>/dlc/<pkg>/<path>`. Also: `ModFiles()` walks *every* mod folder recursively on each zip open, so keep PFP3's 9 GB of DLC **out of `mods/`**.
+3. **Separate DLC root:** `DlcDir()` = `<user>/dlc` normally, `<user>/dlc-pfp3` with the mod on (setting `mod=pfp3` in `settings.ini`, env `FM3_DLC_DIR`). UC's 8 packages stay untouched; hl360 instead backs them up and swaps.
+4. **Launcher "Project Forza Plus 3" tile** (like Disc 2): pick the player's own zip(s) (never bundled or downloaded by us: no licence known), check the layout, extract `Media` to `<user>/mods/pfp3/game/Media`, DLC to `<user>/dlc-pfp3` with `.license` = FFFFFFFF and `.title`; skip `default.xex` and the Xenia toml; apply the Update zip on top; on/off switch (folder `_pfp3` = off, DLC root swap) and remove. Options: career mode dropdown (copies `Game Mode DBs/<mode>/gamedb.slt` into a small `mods/pfp3-mode/` that sorts after `pfp3`, plus its `DLC DBs` under `mods/pfp3-mode/dlc/`), FOV, "harder AI".
+5. **Saves:** a career made on one DB doesn't fit another (unlocks, credits, prices). Use a **separate profile** for PFP3 (or a separate user folder), back up `out/user` saves on the first PFP3 boot, and warn when the mode changes on a profile that has progress.
+
+### Our own code that assumes the stock game
+- `src/hooks/ai_drivers.cpp` (C1 workaround) queries `AIPlayers` (`DriverTypeID`, `isUsed`, `Name`): check the PFP3 DBs keep those columns.
+- `grid_test.cpp` and `quick_race` press A along the stock career route to CrownJewel; PFP3's Normal/Hard careers change the menus, so the test grid route is stock-only (or needs a PFP3 route).
+- Pipeline seed, static shader list, `tools/tour.ps1` stops: built from stock content.
+- Perf results and frozen-grid A/Bs: keep on the stock game.
+
+### First steps on the user's PC
+1. Put the PFP3 zip(s) in the project root (gitignored like the ISOs) and list them: actual layout, whether `Media` holds whole zips, the DLC folder names, headers.
+2. MD5 of `game/default.xex` vs the guide's `f0873d4e…`; xex image diff if they match.
+3. Read hl360's PFP3 installer locally (`reference/.../hl360-forza3`, its launcher's "plus" tab and `file_signatures.cpp`); read only, don't run it.
+4. Then build steps 1–5 in order; the user tests a PFP3 career race and the DLC car count.
+
+Sources: hl360-forza3 README (github.com/0herculabs/hl360-forza3); akitaonrails/distrobox-gaming `docs/project-forza.md`
+(PFP3 v1.2 layout, modes, xex MD5s, known issues); DustinEdenYT's Xenia setup gist (PFP2/PFP4 layout, no FM3);
+r/ProjectForzaPlus threads (Xenia DLC count problems, PAL/NTSC DLC questions).
+
+## Ray tracing and screen-space effects (session 29, 2026-11-12)
+User question ("far fetched, but could we do real-time ray tracing?"). Cloud session, no code, nothing measured.
+
+### Why not full ray tracing / path tracing
+- ReGPU translates Xenos command streams into D3D12 draws. It has no scene: no object list, materials, lights or
+  matrices, only vertex buffers, shader microcode and constants. FM3's shaders (custom, no fixed function) turn those
+  into clip-space positions and colours.
+- RTX Remix-style rebuilding works for DX8/9 fixed-function games because the API names lights, materials and
+  transforms. For FM3 every draw's role would have to be guessed.
+- Shading a ray hit needs the hit surface's colour, i.e. running the game's own pixel shader at the hit point with the
+  right constants and textures. A research project, not a feature.
+
+### What is realistic, easiest first (all opt-in, launcher switch, picture stays stock by default)
+1. **Screen-space effects (no ray tracing):** ambient occlusion (GTAO/CACAO) and screen-space reflections on road and
+   paint. Inputs: the scene's depth buffer, normals reconstructed from depth (FM3 is forward-rendered: no normal
+   buffer), the projection. Most visible gain per cost; fits "lighter than FM4". **Check locally:** whether our
+   FidelityFX SDK 2.1 (`thirdparty/fidelityfx`) still ships CACAO/SSSR (FidelityFX 1.x had them) or they need porting.
+2. **Ray-traced shadows / AO (DXR 1.1 inline ray queries):** occlusion only, no hit shading. Geometry: capture each
+   draw's vertex-shader output positions (a stream-out / compute pass over the translated vertex shader), map clip space
+   back to view space with the inverse projection, build BLAS per draw per frame (or refit for static track draws;
+   ~1,000-2,000 draws per frame) and a TLAS. One ray-query pass after the main scene, before the HUD. Needs the sun
+   direction (shader constants of the shadow pass). FM3 draws 720p in two EDRAM tiles: capture once per frame, not per
+   tile (one-tile mode, L36, simplifies this). Exclude alpha-tested foliage/fences or handle any-hit alpha.
+3. **Ray-traced reflections:** the hit needs a colour; possible with a simplified per-draw colour (one texture sample
+   or a captured average). Would likely look worse than FM3's own cube-map reflections: low priority.
+4. **Path tracing / RT global illumination:** no.
+
+### Prerequisites (shared with other studies)
+- **FM3's camera view and projection matrices**: the same reverse-engineering as VR, telemetry and ultrawide (see those
+  sections); find them in the scene pass's vertex-shader constants.
+- **The scene/HUD boundary**: ReGPU already finds it for scene-only upscaling (Upscalers section); effects slot in there.
+- **Draw classification** for exclusions (sky, glass, particles, HUD in the scene, mirror scene): capture-based lists of
+  shader hashes, as in the alpha-test and car-material work.
+
+### Cost
+- The user's RX 7900 XTX (RDNA3) is weaker at ray tracing than NVIDIA cards; at 1440p 4x MSAA the game is already
+  GPU-bound (~180-300 fps), so ray-traced shadows would take a clear share. Screen-space AO/SSR at half resolution is
+  cheap. MSAA: run the effects on the resolved (or sample-0) depth.
+
+### Suggested order
+Screen-space AO + reflections as opt-in switches, getting the camera matrices on the way; if they look good, ray-traced
+shadows on the same groundwork.
+
+## Vendor-specific speed-ups: AMD, NVIDIA, Intel (session 29, 2026-11-12)
+User question; cloud session, ReGPU's submodule not checked out here, so how ReGPU creates its resources and barriers
+is **not verified**: every AMD point below is a measurement to make, not a known win. As far as we know none of this has
+been tried in an Xbox 360 recomp (FM2, FM4, FH1R, MCLA, Unleashed): **write the results up so the sibling ports can
+reuse them** (method, numbers, the ReGPU patch). PERF-PLAN rows L45-L50.
+
+### Why AMD first
+The user's RX 7900 XTX is GPU-bound at 1440p 4x MSAA (~96% busy on the grid), and FM3 moves a lot of render-target data
+(EDRAM emulation, two tiles, many resolves and copies). RDNA keeps colour (DCC, and FMask for MSAA) and depth (HTILE)
+compressed; some barriers, copies and resource flags force a **decompress** or disable compression, which costs bandwidth
+every frame. That is the most likely vendor-specific loss in a translated renderer, and it is invisible in RGA (L6).
+
+### AMD (testable on the user's PC)
+1. **Radeon GPU Profiler (RGP) capture** of the frozen test grid (`FM3_GRID_TEST=1`, 1440p 4x, perf log off). Read:
+   the barrier list (any "DCC decompress", "FMask decompress", "depth decompress", "fast clear eliminate"), wave
+   occupancy per pass, cache hit rates, idle gaps between passes. Start the game with Radeon Developer Panel attached
+   (RGP needs the developer-mode driver path; read the tool's docs first). One session, no code. Decides 2-4.
+2. **Keep compression:** no `ALLOW_UNORDERED_ACCESS` on render targets/depth that never take a UAV; barrier states that
+   don't need a decompress (e.g. copy source states, typeless aliasing); fast clears left as fast clears; **enhanced
+   barriers** (Agility SDK) for finer layouts. Pixel-diff the grid after each change (a missing barrier = corruption).
+3. **GPU upload heaps** (`D3D12_HEAP_TYPE_GPU_UPLOAD`, Agility SDK 1.614+, check `GPUUploadHeapSupported`): with
+   resizable BAR / Smart Access Memory the CPU writes constants, the vertex arena (`regpu-vertex-arena`) and texture
+   uploads straight into VRAM, skipping a copy. Vendor-neutral, but only with ReBAR on (check the user's BIOS setting).
+   Write-only from the CPU (uncached reads are very slow). Helps CPU-bound and copy-queue time more than GPU-bound fps.
+   **Session 29 follow-up (user: ReBAR gives 20-30% in the latest Forza):** that gain comes from a modern engine streaming
+   large assets and per-frame data; FM3's uploads are smaller. But our own data says placement matters on the GPU side:
+   S18's `REGPU_CONSTANTS_IN_RING` (shaders reading per-draw constants from the upload ring in system memory) cost
+   **-21%**. Test plan: (a) log `D3D12_FEATURE_DATA_D3D12_OPTIONS16.GPUUploadHeapSupported` and whether ReBAR is on
+   (GPU-Z or Adrenalin); (b) put that ring in a `GPU_UPLOAD` heap and A/B `REGPU_CONSTANTS_IN_RING` live again (it's a live
+   switch); (c) if it wins, move the default path's upload buffers there too and measure the copies saved. Check that
+   ReGPU builds with an Agility SDK new enough (1.614+) and that Windows has it (GPU upload heaps need a recent Windows 11).
+4. **Wave size** of ReGPU's compute passes (untiling, resolves, format conversions): RDNA runs wave32 or wave64 and one
+   can be clearly faster; `[WaveSize(N)]` needs SM 6.6, i.e. **DXC instead of FXC**. That move also gives wave
+   intrinsics and real 16-bit types (PERF-PLAN I7), so it serves several items.
+5. **Async compute:** those compute passes on a compute queue overlapping graphics; RDNA benefits most. Needs fences
+   per pass to keep EDRAM/resolve order.
+6. **AMD Fluid Motion Frames 2** (driver frame generation, no code): check it engages with our window/swapchain mode.
+7. Already studied: FSR 4 upscaling (RESEARCH "Upscalers", the biggest fps lever if rendering below 1440p is
+   acceptable), Anti-Lag 2 (RESEARCH "Input latency": latency, not fps). AGS (AMD GPU Services): useful to detect the
+   GPU generation and driver for per-architecture defaults; its shader intrinsics add little for translated shaders.
+
+### NVIDIA
+Mostly features, not speed: DLSS/DLAA (code in ReGPU, needs the SDK and a build switch), Reflex (latency), the driver's
+Smooth Motion frame generation. NVAPI shader extensions add little to translated shaders; Shader Execution Reordering
+only helps ray tracing. Upload heaps and enhanced barriers help here too. Needs an NVIDIA tester.
+
+### Intel Arc
+XeSS (one file, RESEARCH "Upscalers"), XeLL (latency). Arc depends heavily on resizable BAR (upload heaps, item 3) and
+is slower on some D3D12 patterns (e.g. ExecuteIndirect, many small barriers); weak driver compiler, so
+`REGPU_OPTIMIZE_SHADERS` (L3) matters more there. Needs an Arc tester.
+
+### Order
+L45 RGP capture -> L46 (decompress barriers/flags) or L47 (upload heaps), by what it shows -> L50 AFMF 2 as a 5-minute
+check -> FSR 4 if the user wants upscaling. DXC (L48 + I7) as one larger step later. Results go into PERF-RESULTS.md
+with the method, for the other recomps.
+
+## Linux, Proton and the Steam Deck (session 29, 2026-11-12)
+User question; cloud session, nothing run. ReGPU isn't checked out here, so its Vulkan support is unknown (assume D3D12 only).
+
+### How it would run
+`fm3.exe` is Windows x64 + D3D12, so **Proton**: Wine for the system calls, **vkd3d-proton** for D3D12 -> Vulkan, Mesa
+**RADV** as the driver on all three AMD machines. A native Linux build is large (the runtime is Win32 throughout: events,
+`VirtualAlloc`/`VirtualProtect`, write watch, Win32 threads, file I/O; plus a Vulkan renderer). Unleashed Recompiled ships
+natively on Linux, but its renderer has a Vulkan backend from the start.
+
+### The user's test machines (all can dual boot)
+| Machine | GPU / CPU | What it's good for |
+|---|---|---|
+| Main PC | RX 7900 XTX (RDNA3, 24 GB), Windows 11 + Linux | Proton correctness, Windows vs Proton on the reference machine, RGP on both (Linux: RADV's RGP captures, `MESA_VK_TRACE=rgp`) |
+| Second PC | Ryzen 5 5600 (6C/12T) + RX 6650 XT (RDNA2, 8 GB, **PCIe 4.0 x8**) | Mid-range defaults, RDNA2 shader items (I7 fp16, V2 VRS) on a desktop, 8 GB VRAM items (L17-L22); the x8 link makes it the most sensitive to upload placement (L47 ReBAR) |
+| **Steam Deck OLED** | Van Gogh APU: 4 Zen 2 cores/8 threads, RDNA2 8 CUs, 16 GB LPDDR5 shared; 1280x800 at up to 90 Hz; SteamOS + Windows 11 on an SD card | The Deck preset, power/battery, UMA items (L21), Windows vs SteamOS on the same APU. Windows runs from the SD card: compare fps and frame times, not load times |
+
+### Under Proton (Linux desktop and Deck)
+1. **Launcher:** WebView2 runs badly under Wine. Either run `fm3.exe` directly (non-Steam game, `settings.ini` written
+   by hand or by a small script, Steam launch options for env vars), or build the launcher natively: Photino uses
+   WebKitGTK on Linux and .NET 9 runs there; port its Windows-only parts (process start, paths, ISO/registry bits).
+   `play.cmd` and the PowerShell tools need `.sh`/`pwsh` equivalents; the debug server (TCP 7341) works under Wine.
+2. **Detect Wine** (ntdll exports `wine_get_version`) and use per-platform defaults (PERF-PLAN L51), each re-measured:
+   - **Vertex arena** (`regpu-vertex-arena`, `src/memory.cpp` write watch + `VirtualProtect`): Wine emulates write watch
+     with page faults (mprotect + signal handler), which may make it a loss there.
+   - **Sleeps:** `FM3_RING_WAIT` (~100 us sleeps), L40 CP idle sleep, Present waits: Wine's timers and `NtDelayExecution`
+     behave differently from Windows; spin vs sleep may flip.
+   - **Threads:** draw workers and other counts tuned for many cores; the Deck has 4C/8T (L14 core gating).
+   - Proton's fsync/ntsync covers the heavy guest sync-object use; check that the Proton version in use has it.
+3. **Shaders:** vkd3d-proton converts our DXBC (FXC) to SPIR-V and RADV compiles that, so every shader compiles twice.
+   Our first-boot compile + pipeline seed still help (vkd3d-proton keeps its own pipeline cache in the prefix). Steam's
+   Fossilize pre-caching doesn't cover non-Steam games, so the first-boot warm-up matters more here.
+4. **Frame pacing:** on the Deck, gamescope's limiter and refresh (40/45/60/90) instead of our cap; gamescope's FSR 1
+   as a system-level upscaler. On desktop Linux, MangoHud for fps/frame times (and power on the Deck).
+5. **Input/audio:** Steam Input presents the Deck's controls as XInput (our SDL3/XInput path); audio through Wine's
+   stack: check for cut-outs (OPEN-ISSUES G) separately from Windows.
+
+### Steam Deck preset (PERF-PLAN L52)
+1x scale (720p is close to the panel), MSAA 2x like the console, cap 40/45/60 (90 on the OLED if it holds), worker
+counts for 4C/8T. The panel is 16:10: letterbox the 16:9 picture or fill it with the aspect hook (RESEARCH "Ultrawide").
+Existing items that suit the Deck: V4 iGPU defaults, L21 writing textures in place on shared memory, I7 16-bit shaders
+(RDNA2 runs packed fp16 at double rate), V2 half-rate shading (RDNA2 has VRS tier 2; vkd3d-proton maps it to
+`VK_KHR_fragment_shading_rate`), L40 and ring-wait sleeps for battery (measure watts, not only fps).
+
+### Order
+1. Run it under Proton as it is on the main PC's Linux (log first: `failed to compile`, missing features, crashes),
+   then the Deck. Proton logs: `PROTON_LOG=1`; vkd3d-proton: `VKD3D_DEBUG=warn`.
+2. L53 same-hardware Windows vs Proton fps on the frozen test grid (`grid_test=1`), all three machines.
+3. L51 Wine detection + per-platform defaults from those A/Bs.
+4. L52 Deck preset; then I7/V2/L21 on the Deck and the 6650 XT.
+5. Native Linux launcher when the game side holds.
+Claude sessions run on the Windows PC: Linux/Deck runs are the user's for now (or a Claude Code session on that Linux
+install with the repo checked out).
