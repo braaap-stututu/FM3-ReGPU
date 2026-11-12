@@ -152,6 +152,9 @@ The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch
 | L48 | **Wave size for ReGPU's compute passes** (untile, resolves, conversions; `[WaveSize(32/64)]`, SM 6.6 via DXC instead of FXC) | Not built; shares the DXC move with I7 | GPU-bound AMD RDNA | **Start-time** | Lossless; DXC also opens wave intrinsics and 16-bit types |
 | L49 | **Async compute** for ReGPU's compute passes (a compute queue next to graphics) | Not built | GPU-bound, AMD most | **Start-time** | Synchronisation with EDRAM/resolve order: fences per pass |
 | L50 | **Driver frame generation, no code** (AMD Fluid Motion Frames 2, NVIDIA Smooth Motion) | Not tried | Any GPU-bound, on those drivers | n/a (driver toggle) | Generated frames, input latency; check it engages on our swapchain/window mode |
+| L51 | **Wine/Proton detection + per-platform defaults** (ntdll `wine_get_version`): re-measure vertex arena (write watch is page-fault emulation in Wine), `FM3_RING_WAIT`/L40 sleeps, draw workers, under Proton | Not built (session 29 study, RESEARCH "Linux, Proton and the Steam Deck") | Linux/Deck | **Start-time** | Windows defaults unchanged |
+| L52 | **Steam Deck preset** (1280x800 or 720p letterbox, 1x, MSAA 2x, cap 40/45/60/90 via gamescope, 4C/8T worker counts) | Not built | Steam Deck (OLED: user has one) | **Start-time** | Console-like picture |
+| L53 | **Same hardware, Windows vs Proton** on all three of the user's machines (7900 XTX, 6650 XT, Deck OLED on its Win11 SD card) | Not done | Finds Proton-only losses | n/a | Deck's Windows runs from the SD card: compare fps, not load times |
 
 ## 2. Lossless in intent (needs a numeric picture check and a drive)
 | # | Item | Status | Helps on | Live A/B | Risk / note |

@@ -988,6 +988,9 @@ python -I tools/dumpdecode.py diff   dumps/hl360/runA/r01_grid_paused dumps/hl36
 
 ## Host machine
 - Windows 11 Home 10.0.26200; GPU AMD Radeon RX 7900 XTX (driver 32.0.32015.7029) + iGPU; G: has ~205 GB free.
+- **Test machines (session 29, user):** (1) the main PC above, dual boot with Linux; (2) Ryzen 5 5600 + RX 6650 XT
+  (RDNA2, 8 GB, PCIe 4.0 x8), dual boot with Linux; (3) **Steam Deck OLED** (SteamOS, plus Windows 11 on an SD card).
+  Each can run Windows and Linux/Proton on the same hardware: see RESEARCH.md "Linux, Proton and the Steam Deck".
 
 ## Toolchain audit (2026-11-06)
 | Tool | Needed by | Status |

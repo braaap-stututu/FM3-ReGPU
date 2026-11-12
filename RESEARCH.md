@@ -24,6 +24,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Project Forza Plus 3](#project-forza-plus-3-as-an-option-session-29-2026-11-12) (session 29) | Data-only mod (18 pre-extracted DLC folders, `Media` overrides, 4 career DBs); its `default.xex` is not used. **Blockers:** Q9 re-signing (not ported), mods can't replace a whole zip or DLC files, licence masks must be FFFFFFFF. Plan: launcher installs from the player's own zip into a separate mod folder + DLC root, career-mode dropdown, separate profile; ~5 steps |
 | [Ray tracing](#ray-tracing-and-screen-space-effects-session-29-2026-11-12) (session 29) | No full ray tracing or path tracing (ReGPU sees draws and shaders, not a scene; hits would need the game's pixel shaders). Realistic, all opt-in: (1) screen-space AO + reflections from depth, (2) ray-traced shadows/AO from captured vertex positions, (3) ray-traced reflections with simplified hit colour. Prerequisites: camera/projection matrices (shared with VR/telemetry/ultrawide), the scene/HUD split ReGPU already finds |
 | [Vendor-specific speed-ups](#vendor-specific-speed-ups-amd-nvidia-intel-session-29-2026-11-12) (session 29) | AMD first (testable here): an RGP capture of the frozen grid for **decompress barriers** (RDNA colour/depth compression lost to copies, barriers or UAV flags), then GPU upload heaps (ReBAR), compute wave size (needs DXC), async compute, AFMF 2. NVIDIA/Intel: mostly features (DLSS/Reflex/Smooth Motion, XeSS); Arc needs ReBAR. As far as we know untried in any 360 recomp: write results up for the sibling ports. PERF-PLAN L45-L50 |
+| [Linux, Proton and the Steam Deck](#linux-proton-and-the-steam-deck-session-29-2026-11-12) (session 29) | Run through Proton (vkd3d-proton on RADV), no native port. Launcher (WebView2) likely broken under Wine: run `fm3.exe` with `settings.ini` or port the launcher natively. Per-platform defaults under Wine (vertex arena write watch, sleeps, workers), Deck preset, gamescope for caps/FSR. **User has 3 dual-boot machines** (7900 XTX, 6650 XT, Deck OLED + Win11 SD): same-hardware Windows vs Proton A/Bs. PERF-PLAN L51-L53 |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -1770,3 +1771,56 @@ is slower on some D3D12 patterns (e.g. ExecuteIndirect, many small barriers); we
 L45 RGP capture -> L46 (decompress barriers/flags) or L47 (upload heaps), by what it shows -> L50 AFMF 2 as a 5-minute
 check -> FSR 4 if the user wants upscaling. DXC (L48 + I7) as one larger step later. Results go into PERF-RESULTS.md
 with the method, for the other recomps.
+
+## Linux, Proton and the Steam Deck (session 29, 2026-11-12)
+User question; cloud session, nothing run. ReGPU isn't checked out here, so its Vulkan support is unknown (assume D3D12 only).
+
+### How it would run
+`fm3.exe` is Windows x64 + D3D12, so **Proton**: Wine for the system calls, **vkd3d-proton** for D3D12 -> Vulkan, Mesa
+**RADV** as the driver on all three AMD machines. A native Linux build is large (the runtime is Win32 throughout: events,
+`VirtualAlloc`/`VirtualProtect`, write watch, Win32 threads, file I/O; plus a Vulkan renderer). Unleashed Recompiled ships
+natively on Linux, but its renderer has a Vulkan backend from the start.
+
+### The user's test machines (all can dual boot)
+| Machine | GPU / CPU | What it's good for |
+|---|---|---|
+| Main PC | RX 7900 XTX (RDNA3, 24 GB), Windows 11 + Linux | Proton correctness, Windows vs Proton on the reference machine, RGP on both (Linux: RADV's RGP captures, `MESA_VK_TRACE=rgp`) |
+| Second PC | Ryzen 5 5600 (6C/12T) + RX 6650 XT (RDNA2, 8 GB, **PCIe 4.0 x8**) | Mid-range defaults, RDNA2 shader items (I7 fp16, V2 VRS) on a desktop, 8 GB VRAM items (L17-L22); the x8 link makes it the most sensitive to upload placement (L47 ReBAR) |
+| **Steam Deck OLED** | Van Gogh APU: 4 Zen 2 cores/8 threads, RDNA2 8 CUs, 16 GB LPDDR5 shared; 1280x800 at up to 90 Hz; SteamOS + Windows 11 on an SD card | The Deck preset, power/battery, UMA items (L21), Windows vs SteamOS on the same APU. Windows runs from the SD card: compare fps and frame times, not load times |
+
+### Under Proton (Linux desktop and Deck)
+1. **Launcher:** WebView2 runs badly under Wine. Either run `fm3.exe` directly (non-Steam game, `settings.ini` written
+   by hand or by a small script, Steam launch options for env vars), or build the launcher natively: Photino uses
+   WebKitGTK on Linux and .NET 9 runs there; port its Windows-only parts (process start, paths, ISO/registry bits).
+   `play.cmd` and the PowerShell tools need `.sh`/`pwsh` equivalents; the debug server (TCP 7341) works under Wine.
+2. **Detect Wine** (ntdll exports `wine_get_version`) and use per-platform defaults (PERF-PLAN L51), each re-measured:
+   - **Vertex arena** (`regpu-vertex-arena`, `src/memory.cpp` write watch + `VirtualProtect`): Wine emulates write watch
+     with page faults (mprotect + signal handler), which may make it a loss there.
+   - **Sleeps:** `FM3_RING_WAIT` (~100 us sleeps), L40 CP idle sleep, Present waits: Wine's timers and `NtDelayExecution`
+     behave differently from Windows; spin vs sleep may flip.
+   - **Threads:** draw workers and other counts tuned for many cores; the Deck has 4C/8T (L14 core gating).
+   - Proton's fsync/ntsync covers the heavy guest sync-object use; check that the Proton version in use has it.
+3. **Shaders:** vkd3d-proton converts our DXBC (FXC) to SPIR-V and RADV compiles that, so every shader compiles twice.
+   Our first-boot compile + pipeline seed still help (vkd3d-proton keeps its own pipeline cache in the prefix). Steam's
+   Fossilize pre-caching doesn't cover non-Steam games, so the first-boot warm-up matters more here.
+4. **Frame pacing:** on the Deck, gamescope's limiter and refresh (40/45/60/90) instead of our cap; gamescope's FSR 1
+   as a system-level upscaler. On desktop Linux, MangoHud for fps/frame times (and power on the Deck).
+5. **Input/audio:** Steam Input presents the Deck's controls as XInput (our SDL3/XInput path); audio through Wine's
+   stack: check for cut-outs (OPEN-ISSUES G) separately from Windows.
+
+### Steam Deck preset (PERF-PLAN L52)
+1x scale (720p is close to the panel), MSAA 2x like the console, cap 40/45/60 (90 on the OLED if it holds), worker
+counts for 4C/8T. The panel is 16:10: letterbox the 16:9 picture or fill it with the aspect hook (RESEARCH "Ultrawide").
+Existing items that suit the Deck: V4 iGPU defaults, L21 writing textures in place on shared memory, I7 16-bit shaders
+(RDNA2 runs packed fp16 at double rate), V2 half-rate shading (RDNA2 has VRS tier 2; vkd3d-proton maps it to
+`VK_KHR_fragment_shading_rate`), L40 and ring-wait sleeps for battery (measure watts, not only fps).
+
+### Order
+1. Run it under Proton as it is on the main PC's Linux (log first: `failed to compile`, missing features, crashes),
+   then the Deck. Proton logs: `PROTON_LOG=1`; vkd3d-proton: `VKD3D_DEBUG=warn`.
+2. L53 same-hardware Windows vs Proton fps on the frozen test grid (`grid_test=1`), all three machines.
+3. L51 Wine detection + per-platform defaults from those A/Bs.
+4. L52 Deck preset; then I7/V2/L21 on the Deck and the 6650 XT.
+5. Native Linux launcher when the game side holds.
+Claude sessions run on the Windows PC: Linux/Deck runs are the user's for now (or a Claude Code session on that Linux
+install with the repo checked out).
