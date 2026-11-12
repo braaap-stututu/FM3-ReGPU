@@ -36,7 +36,24 @@
   win: no shader the game used came from them. The three cost a one-time background compile at first sight (the
   vs: 726 ms); their pipelines are in the seed and build when the game makes them (`g_seedLater`). Finding the code
   that builds them (write watch on the shader memory) is possible but not worth it. Experiment code removed.
-- **Next:** step 2, the automated tour (`FM3_TOUR`) over every track incl. Disc 2, showroom, photo mode, livery editor,
+- **Step 2 done: the tour (`tools/tour.ps1`, user request).** A PowerShell driver over the debug server instead of
+  the blind `FM3_TOUR` list: boot (minimized) > Free Play > Quick Race > Acura RSX > every one of the **25
+  environments** (alphabetical list, 0 = Amalfi Coast ... 24 = Twin Ring Motegi; Disc 2's included) > first layout >
+  50 s of the pre-race fly-over > start > 5 camera views (RB) > pause > photo mode > quit > post-race replay >
+  Continue > Track select > B. Each step is checked on a shot by `tools/analysis/tour_state.py` (pixel probes:
+  mainmenu, assists, envselect, trackselect, menu, other), retried, and the tour stops with a `stuck-*` shot rather
+  than pressing on (the first version drifted one screen and wandered; a PowerShell return-value bug hid one stuck
+  stop at Silverstone, fixed with `| Out-Host`). ~2.4 min a stop, ~1 h for all; journal + shots in
+  `out/perf/tour/<run>/`. Menu facts: the pre/post-race menus hide after ~5 s idle and the next press only wakes
+  them (LB wakes without side effects); Quick Race starts with the last car; `track=N` on the dev command line
+  does not steer it.
+  - **Coverage, first run (full1, seed of 2,556):** 1,891 pipelines drawn over the 23 stops, **644 not in the seed
+    (34%)**; new tracks added 20-120 each (Le Mans, New York, Fujimi, Nurburgring most). Menus alone: 217 drawn, 2-4
+    missing. **Seed regenerated: 3,274 pipelines + 91 vertex variants.**
+  - **Photo mode is washed yellow on every track** (OPEN-ISSUES D, session 28 entry): suspect one guest tile.
+- **Next:** a true first-boot test (empty shadercache + pipeline library in a scratch user dir) with the new seed;
+  more layouts / cars per track if coverage shows gaps; the yellow photo mode; report the flag-4 bug upstream (needs
+  the user's OK). Old plan line: step 2, the automated tour (`FM3_TOUR`) over every track incl. Disc 2, showroom, photo mode, livery editor,
   replays, reading the coverage line per stop; and a true first-boot test (empty `shadercache` + pipeline library in
   a scratch user folder) to see what a new player's first race builds. Report the flag-4 bug upstream (needs the user's
   OK: it posts publicly). Then the audit list below.
