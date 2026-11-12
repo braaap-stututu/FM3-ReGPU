@@ -63,6 +63,14 @@
   **User's race drive:** +0..+4% at 2,300+ draws vs the patch-36 drive (edge of noise; `out/run/fm3.drive30-unread.log`).
   Left after it: the float constants (~800 of
   ~1,060 bytes, written as scattered 16-byte stores), index lists, vertex uploads.
+- **Packed float constants (user's pick; ReGPU patch 38 `regpu-packed-constants`, default):** a throwaway test (same
+  bytes written packed) showed the scatter costs ~2-5% of the draw thread, so shaders' literal `vc[N]`/`pc[N]` are
+  renumbered by rank in their constant mask after translation and a draw writes them as one run. Frozen grid with the
+  perf log (draw-thread bound), two boots each: **1.18 vs 1.22 us a draw, 278.6 vs 269.5 fps (+3.4%)**; picture
+  unchanged (packed vs old = old vs old: crowd only), 0 compile failures. First boot after it recompiles every shader
+  (~3 min to the grid). Old numbering: `REGPU_NO_PACKED_CONSTANTS=1` at start. **Live `ps`/`vs` edits and `hlsl` dumps
+  now use the packed numbers** (the capture log's `pc` lines and `REGPU_TRACE_VC` still show the game's).
+  **Next: the user's race drive** (launcher, Crown Jewel two laps; compare with `out/run/fm3.drive30-unread.log`).
 - Launcher rebuilt (session 29's tooltip). settings.ini restored after the 720p runs (vram_upload_ring=0 there now).
 
 ### ▶ Start here (session 30): state at the end of session 29 (2026-11-12)

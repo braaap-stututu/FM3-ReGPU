@@ -1,0 +1,182 @@
+diff --git a/src/gpu/hlsl.h b/src/gpu/hlsl.h
+index 661662e..0048f56 100644
+--- a/src/gpu/hlsl.h
++++ b/src/gpu/hlsl.h
+@@ -44,6 +44,10 @@ struct TranslatedShader
+     // rewrite): bool constants, loop constants, the vertex fetch layout (vfl), the game's vuser constants.
+     // A draw writes the unread ones to the upload ring no more. True (written) until scanned.
+     bool readsBools = true, readsLoops = true, readsFetchLayout = true, readsUser = true;
++    // The float constants the code reads are numbered by their rank in constantMask (PackConstants in
++    // renderer.cpp): a draw writes them packed from c[0], one sequential run instead of a scattered 16-byte store
++    // each (FM3 session 30). Not with relative addressing (the mask is all 256) or a game rewrite hook.
++    bool packedConstants = false;
+ };
+ 
+ TranslatedShader TranslateShader(const ucode::Shader& shader);
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index e0b381f..d3a36cf 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -228,6 +228,45 @@ void ScanBlockUse(TranslatedShader& info)
+     info.readsFetchLayout = has("vfl") || has("VFetchK") || has("VMerge");
+     info.readsUser = has("vuser");
+ }
++// Renumbers the float constants a shader reads (vc[N] / pc[N], literal indices past the preamble) to their rank in
++// its constant mask, so a draw writes them packed (TranslatedShader::packedConstants). A shader with relative
++// addressing reads all 256 (its mask is full) and keeps its numbering. REGPU_NO_PACKED_CONSTANTS=1 (start-time:
++// the shaders are compiled one way) keeps every shader's numbering.
++void PackConstants(TranslatedShader& info, bool pixel)
++{
++    static const bool off = getenv("REGPU_NO_PACKED_CONSTANTS") != nullptr;
++    const auto& m = info.constantMask;
++    if (off || (m[0] & m[1] & m[2] & m[3]) == ~0ull)
++        return;
++    uint8_t rank[256];
++    for (uint32_t i = 0, n = 0; i < 256; i++)
++        rank[i] = uint8_t(n), n += (m[i >> 6] >> (i & 63)) & 1;
++    std::string& h = info.hlsl;
++    const char* name = pixel ? "pc[" : "vc[";
++    std::string out;
++    out.reserve(h.size());
++    size_t from = std::min(info.bodyStart, h.size());
++    out.append(h, 0, from);
++    for (size_t at; (at = h.find(name, from)) != std::string::npos;)
++    {
++        const bool standalone = at == 0 || !(isalnum(uint8_t(h[at - 1])) || h[at - 1] == '_');
++        size_t d = at + 3, e = d;
++        while (e < h.size() && isdigit(uint8_t(h[e])))
++            e++;
++        out.append(h, from, d - from);
++        if (standalone && e > d && e < h.size() && h[e] == ']')
++        {
++            const uint32_t index = uint32_t(atoi(h.c_str() + d)) & 255;
++            out += std::to_string(rank[index]);
++            from = e;
++        }
++        else
++            from = d;
++    }
++    out.append(h, from, std::string::npos);
++    h = std::move(out);
++    info.packedConstants = true;
++}
+ uint32_t BigPassSize() { return PassScales().big; }
+ uint32_t PassWidth() { return PassScales().width; }
+ // Another MSAA view of the tall pass's EDRAM: a title can clear the stencil of its 1x
+@@ -4296,6 +4335,7 @@ const CompiledShader& GetShaderLocked(uint64_t hash, const std::vector<uint32_t>
+                 cs.info.readsLoops = base.info.readsLoops;
+                 cs.info.readsUser = base.info.readsUser;
+                 cs.info.readsFetchLayout = true; // its layout comes from vfl
++                cs.info.packedConstants = base.info.packedConstants; // its code
+                 cs.info.vertexFetchLayout = std::move(layout.vertexFetchLayout);
+                 cs.info.vertexFetchConstants = std::move(layout.vertexFetchConstants);
+                 cs.cacheKey = base.cacheKey;
+@@ -4336,6 +4376,8 @@ const CompiledShader& GetShaderLocked(uint64_t hash, const std::vector<uint32_t>
+     if (const auto rewrite = regpu::GetHost().rewriteShader)
+         cs.tag = rewrite(hash, cs.info.hlsl, pixel);
+     ScanBlockUse(cs.info);
++    if (!cs.tag)
++        PackConstants(cs.info, pixel);
+     if (g_dumpHlsl)
+     {
+         std::filesystem::create_directories("out/hlsl");
+@@ -11337,22 +11379,26 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         // Only the constants each shader reads (by its mask; the game's onDraw hook may read any).
+         // REGPU_CONSTANTS_BY_COUNT copies all up to the highest one again (A/B).
+         LiveSwitch &byCount = g_sw_REGPU_CONSTANTS_BY_COUNT;
+-        auto copy = [&](__m128i* dst, const __m128i* from, const std::array<uint64_t, 4>& mask, uint32_t n, bool all) {
+-            if (all || byCount)
++        // A shader with packed constants (PackConstants) reads them in mask order from c[0]: one sequential run.
++        // The A/B modes that copy all of them (REGPU_ALL_CONSTANTS, REGPU_CONSTANTS_BY_COUNT, a hooked draw) apply
++        // to the others only.
++        auto copy = [&](__m128i* dst, const __m128i* from, const std::array<uint64_t, 4>& mask, uint32_t n, bool all, bool packed) {
++            if (!packed && (all || byCount))
+             {
+                 for (uint32_t i = 0; i < n; i++)
+                     _mm_storeu_si128(dst + i, _mm_shuffle_epi8(_mm_loadu_si128(from + i), swap));
+                 return;
+             }
++            uint32_t at = 0;
+             for (uint32_t w = 0; w < 4; w++)
+                 for (uint64_t bits = mask[w]; bits; bits &= bits - 1)
+                 {
+                     const uint32_t i = w * 64 + uint32_t(_tzcnt_u64(bits));
+-                    _mm_storeu_si128(dst + i, _mm_shuffle_epi8(_mm_loadu_si128(from + i), swap));
++                    _mm_storeu_si128(dst + (packed ? at++ : i), _mm_shuffle_epi8(_mm_loadu_si128(from + i), swap));
+                 }
+         };
+-        copy(dv, src, vs.info.constantMask, nv, allConstants || hooked);
+-        copy(dp, src + 256, ps.info.constantMask, np, allConstants || hooked);
++        copy(dv, src, vs.info.constantMask, nv, allConstants || hooked, vs.info.packedConstants);
++        copy(dp, src + 256, ps.info.constantMask, np, allConstants || hooked, ps.info.packedConstants);
+         if (motion)
+         {
+             // This draw's constants for the next frame, and last frame's for its motion. The
+@@ -12287,6 +12333,19 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+                             return false;
+                     return true;
+                 };
++                // Where the floats sit in the stage: by the mask, or the first ones for packed constants.
++                auto layoutMask = [](const TranslatedShader& info) {
++                    if (!info.packedConstants)
++                        return info.constantMask;
++                    std::array<uint64_t, 4> l{};
++                    uint32_t n = 0;
++                    for (uint64_t w : info.constantMask)
++                        n += uint32_t(__builtin_popcountll(w));
++                    for (uint32_t i = 0; i < n; i++)
++                        l[i >> 6] |= 1ull << (i & 63);
++                    return l;
++                };
++                const std::array<uint64_t, 4> vsFloats = layoutMask(vs.info), psFloats = layoutMask(ps.info);
+                 const VSConstants* vcPrev = &vcStages[stageParity ^ 1];
+                 const PSConstants* pcPrev = &pcStages[stageParity ^ 1];
+                 const bool valid = lastBlocks.ring == f.ringCpu && lastBlocks.frame == g_r.frame && lastBlocks.parity == (stageParity ^ 1);
+@@ -12305,9 +12364,9 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+                     }
+                     return true;
+                 };
+-                const bool vsSame = valid && lastBlocks.vs == &vs && rangesSame(vc, vcPrev, vsRanges) && vfSame() && floatsSame(vc->c, vcPrev->c, vs.info.constantMask);
++                const bool vsSame = valid && lastBlocks.vs == &vs && rangesSame(vc, vcPrev, vsRanges) && vfSame() && floatsSame(vc->c, vcPrev->c, vsFloats);
+                 const bool psSame = valid && lastBlocks.ps == &ps && lastBlocks.psSlots == usedSlots && rangesSame(pc, pcPrev, psRanges) && texSame() &&
+-                                    floatsSame(pc->c, pcPrev->c, ps.info.constantMask);
++                                    floatsSame(pc->c, pcPrev->c, psFloats);
+                 uint64_t written = 0, part[4] = {};
+                 if (vsSame && reuseSwitch)
+                     vsOffset = lastBlocks.vsOffset;
+@@ -12316,7 +12375,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+                     for (const auto& [from, to] : vsRanges)
+                         put(vcRing, vc, from, to), part[1] += to > from ? to - from : 0;
+                     part[1] += vfPut(vcRing);
+-                    part[0] = floatsPut(vcRing->c, vc->c, vs.info.constantMask);
++                    part[0] = floatsPut(vcRing->c, vc->c, vsFloats);
+                 }
+                 if (psSame && reuseSwitch)
+                     psOffset = lastBlocks.psOffset;
+@@ -12325,7 +12384,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+                     for (const auto& [from, to] : psRanges)
+                         put(pcRing, pc, from, to), part[3] += to > from ? to - from : 0;
+                     part[3] += texPut(pcRing);
+-                    part[2] = floatsPut(pcRing->c, pc->c, ps.info.constantMask);
++                    part[2] = floatsPut(pcRing->c, pc->c, psFloats);
+                 }
+                 lastBlocks = { f.ringCpu, g_r.frame, &vs, &ps, usedSlots, stageParity, vsOffset, psOffset };
+                 if (traceBytes)
+@@ -12543,7 +12602,16 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             gpureg::Get(RB_DEPTHCONTROL), gpureg::Get(RB_STENCILREFMASK), gpureg::Get(RB_COLORCONTROL), gpureg::Get(PA_SU_SC_MODE_CNTL));
+         for (uint32_t c = 0; c < 256; c++)
+             if (c == 0 || c == 1 || c == 5 || c == 6 || c == 7 || c == 14 || c == 22 || c == 254 || c == 255 || ((ps.info.constantMask[c >> 6] >> (c & 63)) & 1))
+-                Log("    pc%u = %g %g %g %g", c, pcRing->c[c][0], pcRing->c[c][1], pcRing->c[c][2], pcRing->c[c][3]); // (and every one the pixel shader reads)
++            {
++                // From the register file (the ring holds packed constants for most shaders: PackConstants).
++                float v[4];
++                for (int j = 0; j < 4; j++)
++                {
++                    const uint32_t bits = gpureg::Get(gpureg::AluConstants + (256 + c) * 4 + j);
++                    memcpy(&v[j], &bits, 4);
++                }
++                Log("    pc%u = %g %g %g %g", c, v[0], v[1], v[2], v[3]); // (and every one the pixel shader reads)
++            }
+     }
+     // A draw inside an occlusion query is also drawn with the depth test always passing, in a query of
+     // its own: the samples it covers, the console's Total (a game fades a light flare by the share that
