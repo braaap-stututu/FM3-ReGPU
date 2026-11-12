@@ -23,6 +23,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [VR](#vr-after-fh1rs-design-session-22-2026-11-10) | FH1R: virtual screen → head pose into the camera director's view matrix (two readers hooked: renderer camera + frustum) → HUD panel → true stereo by replaying the scene segment per eye with clip.x −= P00·d (+2–3 ms GPU). For FM3: OpenXR on ReGPU's D3D12 first, then find FM3's view matrix (shared RE with telemetry/ultrawide). Splash addendum: legal/ESRB likely cover the startup load |
 | [Project Forza Plus 3](#project-forza-plus-3-as-an-option-session-29-2026-11-12) (session 29) | Data-only mod (18 pre-extracted DLC folders, `Media` overrides, 4 career DBs); its `default.xex` is not used. **Blockers:** Q9 re-signing (not ported), mods can't replace a whole zip or DLC files, licence masks must be FFFFFFFF. Plan: launcher installs from the player's own zip into a separate mod folder + DLC root, career-mode dropdown, separate profile; ~5 steps |
 | [Ray tracing](#ray-tracing-and-screen-space-effects-session-29-2026-11-12) (session 29) | No full ray tracing or path tracing (ReGPU sees draws and shaders, not a scene; hits would need the game's pixel shaders). Realistic, all opt-in: (1) screen-space AO + reflections from depth, (2) ray-traced shadows/AO from captured vertex positions, (3) ray-traced reflections with simplified hit colour. Prerequisites: camera/projection matrices (shared with VR/telemetry/ultrawide), the scene/HUD split ReGPU already finds |
+| [Vendor-specific speed-ups](#vendor-specific-speed-ups-amd-nvidia-intel-session-29-2026-11-12) (session 29) | AMD first (testable here): an RGP capture of the frozen grid for **decompress barriers** (RDNA colour/depth compression lost to copies, barriers or UAV flags), then GPU upload heaps (ReBAR), compute wave size (needs DXC), async compute, AFMF 2. NVIDIA/Intel: mostly features (DLSS/Reflex/Smooth Motion, XeSS); Arc needs ReBAR. As far as we know untried in any 360 recomp: write results up for the sibling ports. PERF-PLAN L45-L50 |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -1713,3 +1714,52 @@ User question ("far fetched, but could we do real-time ray tracing?"). Cloud ses
 ### Suggested order
 Screen-space AO + reflections as opt-in switches, getting the camera matrices on the way; if they look good, ray-traced
 shadows on the same groundwork.
+
+## Vendor-specific speed-ups: AMD, NVIDIA, Intel (session 29, 2026-11-12)
+User question; cloud session, ReGPU's submodule not checked out here, so how ReGPU creates its resources and barriers
+is **not verified**: every AMD point below is a measurement to make, not a known win. As far as we know none of this has
+been tried in an Xbox 360 recomp (FM2, FM4, FH1R, MCLA, Unleashed): **write the results up so the sibling ports can
+reuse them** (method, numbers, the ReGPU patch). PERF-PLAN rows L45-L50.
+
+### Why AMD first
+The user's RX 7900 XTX is GPU-bound at 1440p 4x MSAA (~96% busy on the grid), and FM3 moves a lot of render-target data
+(EDRAM emulation, two tiles, many resolves and copies). RDNA keeps colour (DCC, and FMask for MSAA) and depth (HTILE)
+compressed; some barriers, copies and resource flags force a **decompress** or disable compression, which costs bandwidth
+every frame. That is the most likely vendor-specific loss in a translated renderer, and it is invisible in RGA (L6).
+
+### AMD (testable on the user's PC)
+1. **Radeon GPU Profiler (RGP) capture** of the frozen test grid (`FM3_GRID_TEST=1`, 1440p 4x, perf log off). Read:
+   the barrier list (any "DCC decompress", "FMask decompress", "depth decompress", "fast clear eliminate"), wave
+   occupancy per pass, cache hit rates, idle gaps between passes. Start the game with Radeon Developer Panel attached
+   (RGP needs the developer-mode driver path; read the tool's docs first). One session, no code. Decides 2-4.
+2. **Keep compression:** no `ALLOW_UNORDERED_ACCESS` on render targets/depth that never take a UAV; barrier states that
+   don't need a decompress (e.g. copy source states, typeless aliasing); fast clears left as fast clears; **enhanced
+   barriers** (Agility SDK) for finer layouts. Pixel-diff the grid after each change (a missing barrier = corruption).
+3. **GPU upload heaps** (`D3D12_HEAP_TYPE_GPU_UPLOAD`, Agility SDK 1.614+, check `GPUUploadHeapSupported`): with
+   resizable BAR / Smart Access Memory the CPU writes constants, the vertex arena (`regpu-vertex-arena`) and texture
+   uploads straight into VRAM, skipping a copy. Vendor-neutral, but only with ReBAR on (check the user's BIOS setting).
+   Write-only from the CPU (uncached reads are very slow). Helps CPU-bound and copy-queue time more than GPU-bound fps.
+4. **Wave size** of ReGPU's compute passes (untiling, resolves, format conversions): RDNA runs wave32 or wave64 and one
+   can be clearly faster; `[WaveSize(N)]` needs SM 6.6, i.e. **DXC instead of FXC**. That move also gives wave
+   intrinsics and real 16-bit types (PERF-PLAN I7), so it serves several items.
+5. **Async compute:** those compute passes on a compute queue overlapping graphics; RDNA benefits most. Needs fences
+   per pass to keep EDRAM/resolve order.
+6. **AMD Fluid Motion Frames 2** (driver frame generation, no code): check it engages with our window/swapchain mode.
+7. Already studied: FSR 4 upscaling (RESEARCH "Upscalers", the biggest fps lever if rendering below 1440p is
+   acceptable), Anti-Lag 2 (RESEARCH "Input latency": latency, not fps). AGS (AMD GPU Services): useful to detect the
+   GPU generation and driver for per-architecture defaults; its shader intrinsics add little for translated shaders.
+
+### NVIDIA
+Mostly features, not speed: DLSS/DLAA (code in ReGPU, needs the SDK and a build switch), Reflex (latency), the driver's
+Smooth Motion frame generation. NVAPI shader extensions add little to translated shaders; Shader Execution Reordering
+only helps ray tracing. Upload heaps and enhanced barriers help here too. Needs an NVIDIA tester.
+
+### Intel Arc
+XeSS (one file, RESEARCH "Upscalers"), XeLL (latency). Arc depends heavily on resizable BAR (upload heaps, item 3) and
+is slower on some D3D12 patterns (e.g. ExecuteIndirect, many small barriers); weak driver compiler, so
+`REGPU_OPTIMIZE_SHADERS` (L3) matters more there. Needs an Arc tester.
+
+### Order
+L45 RGP capture -> L46 (decompress barriers/flags) or L47 (upload heaps), by what it shows -> L50 AFMF 2 as a 5-minute
+check -> FSR 4 if the user wants upscaling. DXC (L48 + I7) as one larger step later. Results go into PERF-RESULTS.md
+with the method, for the other recomps.

@@ -146,6 +146,12 @@ The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch
 | L42 | **Mirror `VisibilityThreshold`** (per-track TrackSettings.xml; 32 on most tracks) | Tested session 26: 2000 = -2.7% draws, +3.5% fps in cockpit; **rejected by the user** (mirror draw distance short already). Mod `out/user/mods/_mirror2000` (disabled) | Cockpit view | Start (track load) | Visible |
 | L43 | **Lower-resolution mirror** (`REGPU_HELPER_SCALE` on the mirror's 400-pitch surface only) | Tested session 26: **no gain** (fps/GPU same at 1/2, 1/4; mirror blurrier); filter not kept | - | Start | Visible |
 | L44 | **Mirror: skip car shadow blobs / lower car LOD** (session 27 capture: mirror = 30% of a race grid's draws; cars 369, shadow blobs 128 of 964) | Shadow blobs tested session 27 (live `REGPU_SKIP_SHADERS`): -125 draws, +0.5-1% = noise, **rejected**; car LOD built as live `FM3_MIRROR_CAR_LOD` (session 27): -50 draws, fps unchanged, **rejected**. Measured: mirror cars +40% if skipped, glass only +10%, scenery +8% | Cockpit view, CPU-bound | Live | Visible (small) |
+| L45 | **Radeon GPU Profiler capture of the frozen grid** (1440p 4x; waves, cache hits, **barriers that decompress colour/depth**; RESEARCH.md "Vendor-specific speed-ups") | Not done (session 29 study); only RGA offline so far (L6) | GPU-bound AMD | n/a (one capture, no code) | None. Decides between L46-L49 |
+| L46 | **Keep AMD's render-target compression** (DCC/HTILE/FMask): barriers and copies that don't force a decompress; no UAV flag on render targets that never use it; enhanced barriers (Agility SDK) | Not built; needs L45 to show decompress barriers | GPU-bound AMD (bandwidth at 1440p 4x); NVIDIA/Intel a little | **Start-time** (resource flags) | Lossless if done right; a missing barrier shows as corruption, so pixel-diff the grid |
+| L47 | **GPU upload heaps** (D3D12 `GPU_UPLOAD` heap, Agility SDK 1.614+, needs resizable BAR / SAM): constants, vertex arena and texture uploads written straight into VRAM | Not built | CPU-bound + copy queue, any vendor with ReBAR; Intel Arc most | **Start-time** | Fall back when the heap type isn't supported; uncached CPU writes must stay write-only (no reads back) |
+| L48 | **Wave size for ReGPU's compute passes** (untile, resolves, conversions; `[WaveSize(32/64)]`, SM 6.6 via DXC instead of FXC) | Not built; shares the DXC move with I7 | GPU-bound AMD RDNA | **Start-time** | Lossless; DXC also opens wave intrinsics and 16-bit types |
+| L49 | **Async compute** for ReGPU's compute passes (a compute queue next to graphics) | Not built | GPU-bound, AMD most | **Start-time** | Synchronisation with EDRAM/resolve order: fences per pass |
+| L50 | **Driver frame generation, no code** (AMD Fluid Motion Frames 2, NVIDIA Smooth Motion) | Not tried | Any GPU-bound, on those drivers | n/a (driver toggle) | Generated frames, input latency; check it engages on our swapchain/window mode |
 
 ## 2. Lossless in intent (needs a numeric picture check and a drive)
 | # | Item | Status | Helps on | Live A/B | Risk / note |
@@ -182,6 +188,8 @@ The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch
 - Thread pinning/affinity: FH1R measured −1.3%.
 
 ## Suggested order
+0. **Vendor-specific (session 29 study, user: "research material for the other recomps"):** L45 RGP capture first, then
+   L46 or L47 by what it shows, L50 as a 5-minute test; FSR 4 (RESEARCH "Upscalers") if the user accepts upscaling.
 1. **Free live measurements on the race grid, one game session:** L1 vertex arena, I1 draw cull (1 px, shot burst),
    I4, I5, L2 on another track. Tool: `tools/fm3_ab.ps1` + `pngdiff.py`.
 2. **Start-time A/Bs (restarts, user back on the grid):** L3 `REGPU_OPTIMIZE_SHADERS`, I2 lean fetch, I3 plain
