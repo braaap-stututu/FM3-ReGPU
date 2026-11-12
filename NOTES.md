@@ -43,8 +43,18 @@
   ring at 720p 1x still -5.3% (my earlier +0.1% was one noisy boot). The only route left to the VRAM ring's GPU gain
   without BAR writes: packed constant allocation (blocks are allocated whole, 30 MB a frame for 3.7 MB written), then
   a GPU copy of each segment's constants into VRAM. Not built.
-- **Next candidates:** (1) profile the draw thread in a race (`FM3_SAMPLE_THREAD=name:gpu draw worker`,
-  `FM3_SAMPLE_CALLERS`) for the next cut; (2) packed constants + GPU copy (above), bigger work; ask the user.
+- **Packed constants: not built** (user agreed after the cost/gain: shader translator remap + GPU copy, several
+  sessions, gain only when GPU-bound; racing here is draw-thread bound).
+- **Draw-thread profile (PERF-RESULTS "Draw-thread profile (session 30)"):** a 16-byte store at `DrawImpl`'s end
+  is 6-7% = the write-combined ring writes draining (13% with the VRAM ring). Tried the ring in cached system memory:
+  stall gone, but the user's race -3..-6%: removed. My ring-kind counters cost 2.2% (now only while traced).
+  Remaining targets: `PassScales` ~7% (its memo check runs ~25 times a draw), content hashing ~6% (upload safety
+  net, I5's risk), GetIndexBuffer ~2.5%.
+- **Next candidates (ask the user):** (1) `PassScales`: compute once per draw instead of checking the memo ~25
+  times (needs proof the surface state can't change inside a draw); (2) fewer WC stores per draw (merge the index
+  list and constant writes into fewer, larger contiguous copies); (3) the cockpit/other open items.
+- The fm3.exe on disk was not relinked after removing the cached-ring experiment (the game was open): run
+  `tools\vcenv.cmd ninja -C build/rel fm3` first (the source and patch 35 are clean).
 - Launcher rebuilt (session 29's tooltip). settings.ini restored after the 720p runs (vram_upload_ring=0 there now).
 
 ### ▶ Start here (session 30): state at the end of session 29 (2026-11-12)

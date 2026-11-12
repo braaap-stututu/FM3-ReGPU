@@ -85,6 +85,23 @@ without the CPU's BAR writes would be a GPU copy of each segment's constants fro
 its draws, but blocks are allocated whole (30 MB a frame for 3.7 MB written): it needs compact (packed) constant
 allocation first. Not built.
 
+### Draw-thread profile (session 30, user's pick)
+`FM3_SAMPLE_THREAD=name:gpu draw worker`, frozen grid and race running, 1440p 4x, perf log off: waits ~23% (that
+scene is partly GPU-bound), `DrawImpl` body ~20%, **one 16-byte store at `DrawImpl`'s end 6-7%** (session 24's
+"closing brace" sample: `~PsAlias` restoring the context's shader hashes), pass-scale lookups ~7% (`PassScales`,
+called from DrawImpl, WindowScissor, ToHost), content hashing ~6% (UploadGuest 3.1%, GetIndexBuffer 1.8%),
+GetIndexBuffer 2.3%, and **2.2% from the new ring-kind counters** (atomic adds in `RingAlloc`; now counted only while
+`REGPU_TRACE_RING_KINDS` is on).
+- **The 6-7% store pays for the write-combined ring writes**: a store stalls until earlier WC stores drain. With the
+  ring in VRAM its share doubles (6.9% -> 13.3%) and the draw thread stops waiting at all: the VRAM ring's race
+  penalty in one place. The old full fetch table did not change it (contiguous bytes drain cheaply).
+- **Experiment: the ring in cached system memory** (custom heap, write-back CPU pages, L0; GPU reads snooped over
+  PCIe): the store's share 7.4% -> 0.9% on the 720p 1x grid, but fps -0.5% there and -0.5% at 1440p 4x (0 pixels).
+  **User's race drive (Crown Jewel, two laps, `out/run/fm3.drive30-cached.log`): -3..-6% at equal draw counts vs the
+  session-30 ring-off drive** (e.g. 2,200 draws 283.5 vs 295.8, 2,600: 244.0 vs 258.5; draw thread ~1.37 vs ~1.31 us a
+  draw). Removed: cached CPU writes cost the draw thread more than the WC stall did (and GPU reads of snooped
+  memory are slower).
+
 ## Session 29 (2026-11-12): L45 Radeon GPU Profiler capture of the frozen grid
 **Method (reusable by the other ReGPU recomps):** Radeon Developer Tool Suite 2026-10-02 (RGP 2.7.1, panel 3.5.1;
 GPUOpen zip, AMD-signed; unpacked to `G:/claude code projects/tools/RadeonDeveloperToolSuite-2026-10-02-1872`, outside
