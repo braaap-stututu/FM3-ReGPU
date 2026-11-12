@@ -25,6 +25,21 @@
   pipeline from the user before reverse-engineering anything ourselves. Related: "FM4 Imported" (446 FM4 cars in FH1,
   moddb) shows the 360-era car path; Reddit counts 243 FM4 cars missing in FM3.
 
+### ▶ Start here (session 31): state at the end of session 30 (2026-11-12)
+- **L57 done on the grid (details PERF-RESULTS "Session 30"):** measured first with the new live trace
+  `REGPU_TRACE_CONSTANT_BYTES`: 2,996 constant bytes a draw, of which 1,796 "vs rest" = the vertex fetch table written
+  from entry 0 up to the highest used one (FM3's fetch constants sit near 95). **ReGPU patch 35
+  `regpu-sparse-fetch-table` (default): fetch and texture entries written one by one, ~1,470 bytes a draw (7.8 ->
+  ~3.8 MB a frame), byte-identical.** Frozen grid fps neutral (system ring: write-combining hides the bytes); the VRAM
+  ring at 720p 1x now ties the system ring (+0.1%, was -5.1%). **Block reuse** (`REGPU_CONSTANT_REUSE`, live) built
+  as planned but **off**: vs repeats 28.5%, ps 42.2%, 1,144 bytes a draw, but fps -1.4..+0.6% (compares cost what
+  they save). A/B of the new default: `REGPU_FETCH_TABLE_BY_RANGE=1` (live) = old.
+- **Next: the user's race drive** (same start as session 29, perf log on, one boot each): ring in VRAM off, then on
+  (`vram_upload_ring` in the launcher). Session 29: ~252 off vs ~223 on (-13%). If VRAM no longer loses, the toggle's
+  tooltip changes; if racing fps did not move at all, the draw thread's limit is elsewhere: profile it in a race
+  (`FM3_SAMPLE_THREAD=name:gpu draw worker`, `FM3_SAMPLE_CALLERS`) rather than cut more bytes.
+- Launcher rebuilt (session 29's tooltip). settings.ini restored after the 720p runs (vram_upload_ring=0 there now).
+
 ### ▶ Start here (session 30): state at the end of session 29 (2026-11-12)
 - **Next (user's request): L57, cut the bytes the draw thread writes per draw.** Why: racing on the user's PC is
   bound by ReGPU's draw thread (~1.41 us a draw, ~2,500-2,750 draws, 3.5-3.8 ms of a ~4 ms frame; user's drive logs

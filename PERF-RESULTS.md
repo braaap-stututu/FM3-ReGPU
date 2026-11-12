@@ -13,6 +13,36 @@ Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleave
 `tools/perf/session23/s23_*.ps1` (copies of `out/perf/s23_*.ps1`).
 
 
+## Session 30 (2026-11-12): L57 bytes written per draw
+Frozen grid, `perf_log=0`, 2,661 draws a frame. Live trace `REGPU_TRACE_CONSTANT_BYTES` (new, patch 35) splits what
+the draw thread writes to the upload ring for constants:
+
+| | bytes a draw | KB a frame |
+|---|---|---|
+| Before (session 29 code) | 2,996 = vs floats 388, **vs rest 1,796**, ps floats 406, ps rest 406 | 7,786 |
+| Fetch table + texture entries one by one (now default) | ~1,470 (vs rest ~370, ps rest ~300; computed from the reuse run) | ~3,800 |
+| + block reuse (`REGPU_CONSTANT_REUSE=1`) | 1,144 (vs blocks repeat 28.5%, ps 42.2%) | 2,974 |
+
+"vs rest" was the `vf` table written from entry 0 to the highest used fetch constant: FM3's vertex fetch constants
+sit near the top of the 96, so ~1.4 KB of unread entries went out per draw. Repeats of the whole block before the
+change: vs 5.2% (the unread stale entries made equal blocks look different), ps 42.2%.
+
+Live A/Bs (6 rounds, all **0 pixels differ**):
+
+| Test | Ring in | Result |
+|---|---|---|
+| sparse table, 1440p 4x | system | +2% (2/4, GPU-bound noise) |
+| sparse table, 720p 1x | system | -0.3% (326 vs 325 fps) |
+| block reuse, 720p 1x | system | +0.6% (4/6) |
+| sparse table, 720p 1x | VRAM | +0.7% (4/6) |
+| block reuse, 720p 1x | VRAM | -1.4% (1/6) |
+| VRAM vs system ring, sparse table on, 720p 1x | | **+0.1%** (session 29, old code: -5.1%) |
+
+Reading: on the frozen grid the ring writes are not the draw thread's limit in system memory (write-combining absorbs
+them); block reuse costs its compares. The sparse table stays (fewer bytes, identical picture, no loss), reuse stays
+off. Open: whether the user's race (draw-thread bound, VRAM ring -13% in session 29) changes: same drive as session
+29, ring in VRAM on and off.
+
 ## Session 29 (2026-11-12): L45 Radeon GPU Profiler capture of the frozen grid
 **Method (reusable by the other ReGPU recomps):** Radeon Developer Tool Suite 2026-10-02 (RGP 2.7.1, panel 3.5.1;
 GPUOpen zip, AMD-signed; unpacked to `G:/claude code projects/tools/RadeonDeveloperToolSuite-2026-10-02-1872`, outside
