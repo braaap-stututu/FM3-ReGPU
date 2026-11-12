@@ -40,8 +40,27 @@ Live A/Bs (6 rounds, all **0 pixels differ**):
 
 Reading: on the frozen grid the ring writes are not the draw thread's limit in system memory (write-combining absorbs
 them); block reuse costs its compares. The sparse table stays (fewer bytes, identical picture, no loss), reuse stays
-off. Open: whether the user's race (draw-thread bound, VRAM ring -13% in session 29) changes: same drive as session
-29, ring in VRAM on and off.
+off.
+
+**User's race drives (same start as session 29, perf log on, one boot each; logs `out/run/fm3.drive30-ringoff.log`,
+`fm3.drive30-ringon.log`), fps by draws a frame:**
+
+| Draws | S29 ring off | **S30 ring off** | S29 ring in VRAM | S30 ring in VRAM |
+|---|---|---|---|---|
+| 2,200 | 280.6 | **295.8** | 179.9 (1 line) | 261.2 |
+| 2,300 | 265.7 | **277.5** | 247.4 | 249.1 |
+| 2,400 | 245.9 | **278.5** | 238.6 | 242.9 |
+| 2,500 | 252.0 | **264.0** | 225.8 | 233.6 |
+| 2,600 | 244.7 | **258.5** | 222.3 | 228.3 |
+| 2,700 | 238.4 | **250.7** | 215.7 | 215.3 |
+| whole drive | 255.8 | **280.2** | 230.4 | 251.3 |
+| draw thread a draw | ~1.40 us | **~1.30-1.37 us** | ~1.53 us | ~1.50 us |
+
+**With the ring in system memory (the default) racing gained ~+5% at equal draw counts** (+4..+13% per bucket):
+there the draw thread is the limit, and it writes half the bytes. The VRAM ring barely moved (+1..+3%) and still
+loses ~-11.5% to the system ring at equal draws, so its CPU cost is not mainly the constant bytes (left: index lists
+and vertex/texture uploads in the same ring, or the BAR write cost per store). The launcher toggle stays off by
+default; its tooltip (-13% racing) still holds roughly.
 
 ## Session 29 (2026-11-12): L45 Radeon GPU Profiler capture of the frozen grid
 **Method (reusable by the other ReGPU recomps):** Radeon Developer Tool Suite 2026-10-02 (RGP 2.7.1, panel 3.5.1;

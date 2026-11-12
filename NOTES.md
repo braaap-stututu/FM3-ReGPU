@@ -34,10 +34,13 @@
   ring at 720p 1x now ties the system ring (+0.1%, was -5.1%). **Block reuse** (`REGPU_CONSTANT_REUSE`, live) built
   as planned but **off**: vs repeats 28.5%, ps 42.2%, 1,144 bytes a draw, but fps -1.4..+0.6% (compares cost what
   they save). A/B of the new default: `REGPU_FETCH_TABLE_BY_RANGE=1` (live) = old.
-- **Next: the user's race drive** (same start as session 29, perf log on, one boot each): ring in VRAM off, then on
-  (`vram_upload_ring` in the launcher). Session 29: ~252 off vs ~223 on (-13%). If VRAM no longer loses, the toggle's
-  tooltip changes; if racing fps did not move at all, the draw thread's limit is elsewhere: profile it in a race
-  (`FM3_SAMPLE_THREAD=name:gpu draw worker`, `FM3_SAMPLE_CALLERS`) rather than cut more bytes.
+- **User's race drives done (PERF-RESULTS "Session 30"):** ring in system memory **~+5% at equal draw counts**
+  (whole drive 256 -> 280 fps; draw thread ~1.40 -> ~1.33 us a draw). Ring in VRAM barely moved and still loses
+  ~-11.5% to it: its CPU cost is not mainly the constants. Toggle stays off by default, tooltip unchanged.
+- **Next candidates:** (1) find what the VRAM ring's CPU cost is (bytes per frame of index lists / vertex and texture
+  uploads vs constants; a split ring with only the constants in VRAM would keep the frozen grid's GPU gain if the
+  uploads are the cost); (2) profile the draw thread in a race (`FM3_SAMPLE_THREAD=name:gpu draw worker`,
+  `FM3_SAMPLE_CALLERS`) for the next cut; ask the user.
 - Launcher rebuilt (session 29's tooltip). settings.ini restored after the 720p runs (vram_upload_ring=0 there now).
 
 ### ▶ Start here (session 30): state at the end of session 29 (2026-11-12)
