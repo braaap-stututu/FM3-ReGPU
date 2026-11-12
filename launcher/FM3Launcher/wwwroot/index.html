@@ -373,7 +373,11 @@
         <div><div class="toggle-title">Asynchronous present</div><div class="toggle-sub">Performance (L12), on by default</div></div>
         <button class="switch" id="asyncPresent" role="switch"></button>
       </div>
-      <div class="toggle-row" data-tip="Draws the scene in one piece instead of the two halves the Xbox 360's 10 MB video memory needed, so about a fifth of the draws are no longer done twice. Session 26: +9% fps where the CPU is the limit, same picture on the race grid. Experimental: menus, showroom, photo mode and liveries not checked yet. Read when the game starts.">
+      <div class="toggle-row" data-tip="Keeps ReGPU's upload ring (every draw's shader constants, plus vertex and texture uploads) in video memory instead of system memory, so the GPU reads it locally. Needs resizable BAR (Smart Access Memory) on in the BIOS; without it the game falls back to system memory. Session 29 on a paused race grid, same picture: +12% fps at 1440p 4x MSAA (graphics card is the limit), but -5% at 720p (processor is the limit), because the processor then writes across PCIe. Turn on when the graphics card limits your frame rate. Read when the game starts.">
+        <div><div class="toggle-title">Upload ring in VRAM</div><div class="toggle-sub">Performance (L47), needs resizable BAR, off by default</div></div>
+        <button class="switch" id="vramUploadRing" role="switch"></button>
+      </div>
+      <div class="toggle-row" data-tip="Draws the scene in one piece instead of the two halves the Xbox 360's 10 MB video memory needed, so about a fifth of the draws are no longer done twice. Session 26: +9% fps where the CPU is the limit, same picture on the race grid. Experimental: photo mode comes out wrong with it on (washed yellow, session 28), so turn it off for photo mode. Read when the game starts.">
         <div><div class="toggle-title">One guest tile</div><div class="toggle-sub">Performance (L36), experimental, off by default</div></div>
         <button class="switch" id="oneTile" role="switch"></button>
       </div>

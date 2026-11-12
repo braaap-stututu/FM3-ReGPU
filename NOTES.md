@@ -36,8 +36,11 @@
 - **L47 built (user chose it next):** ReGPU patch 34 `regpu-gpu-upload-ring`: OPTIONS16 log line (here: GPU upload heaps
   supported, ReBAR on) and a VRAM twin of the upload ring per frame slot, live `REGPU_GPU_UPLOAD_RING`. Frozen grid,
   byte-identical: **1440p 4x +12.9% / +11.9%** (6/6, 8/8), **720p 1x -5.1%** (CPU-bound). The premise in RESEARCH was
-  off: S18's -21% was CPU writes; the GPU always read constants from the ring. **Open: the user's call on the default**
-  (on for the user's 1440p 4x; or split constants/bulk uploads into two rings to keep the CPU-bound case).
+  off: S18's -21% was CPU writes; the GPU always read constants from the ring. **User's decision: a launcher toggle**
+  (Settings > Testing "Upload ring in VRAM" = settings.ini `vram_upload_ring=1`, read by the game in `gpu_host.cpp`,
+  so `play.cmd` too; off by default; log `gpu: upload ring in VRAM on`). Verified: the key puts the ring in VRAM from
+  the first frame. The one-tile tooltip now says photo mode breaks with it. Possible later: split constants / bulk
+  uploads into two rings to keep the CPU-bound case.
 
 ### ▶ Start here (session 29): state after session 28 (2026-11-12)
 - **Shader and pipeline discovery, steps 1 and 3 done (step 2, the automated tour, is next):**
