@@ -69,8 +69,8 @@
   1000, no blinking in consecutive frames; **1440p 4x under the full perf log (draw-thread bound): +8.2% at rate 2
   (255 -> 276, 4/4 rounds), +9.3% at rate 3**; 4K: +2.2% (rate 2), +4.7% (1000); draws 2,673 -> ~2,140 when off.
   Without the perf log this PC is at the 360 cap at 1440p either way (grid and 12 s drives 352-360 both). Drive shots
-  at rate 2 (60 km/h) show no visible shadow lag. **Next: the user drives with it on** (shadows a frame late: ~3 ms at
-  360 fps), then decide on a default.
+  at rate 2 (60 km/h) show no visible shadow lag. **User drove it: the lag is not particularly noticeable; keep it
+  off by default (user's decision), as an option.**
 - New live tool kept: **`FM3_SCENE_SKIP=<hex>[,...]`** (`src/hooks/mirror.cpp`) skips scene steps or car-draw call
   sites in the main view too: `8283A8D0` the opaque cars, `8283AB40` their glass/lights, `828379A0` the cars in the
   shadow map, `82592444` the shadow method's car renderer call.
