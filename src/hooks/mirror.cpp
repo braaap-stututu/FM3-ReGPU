@@ -255,3 +255,4 @@ PPC_FUNC(sub_827FDB88)
     __imp__sub_827FDB88(ctx, base);
     g_inMirror = false;
 }
+

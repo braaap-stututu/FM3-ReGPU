@@ -74,6 +74,17 @@
 - New live tool kept: **`FM3_SCENE_SKIP=<hex>[,...]`** (`src/hooks/mirror.cpp`) skips scene steps or car-draw call
   sites in the main view too: `8283A8D0` the opaque cars, `8283AB40` their glass/lights, `828379A0` the cars in the
   shadow map, `82592444` the shadow method's car renderer call.
+- **V8 car reflections at half rate (user's request): BUILT, opt-in.** Launcher Settings > Testing "Half-rate car
+  reflections" = settings.ini `reflect_rate=2` (off by default), live `FM3_REFLECT_RATE=N`; `src/hooks/car_reflections.cpp`.
+  FM3's reflection cube for the cars: six 256x256 faces drawn with 4x MSAA, three a frame (two alternating sets: the
+  4x 256x256 passes that exist only with cars), read by every car material. `sub_827FF238` renders a frame's three
+  faces (per face: set-up, the scene renderer `sub_8283A220` called from 827FF4A0, resolve); found with a temporary
+  trace of the scene renderer's callers (821FC964 = main view, once a frame; 827FDEB4 = mirror; 827FF4A0 = 3 calls a
+  frame). Skipping only the scene draws: faces cleared and resolved empty (2.9% of pixels); skipping the whole
+  function keeps them (0 pixels at rates 2/4). The face alternation lives inside the function: a resolve trace at
+  rate 2 still shows all six faces (each every 4th frame). Dev options `cubemap=0/1`, `fastenvmaprender=1`: no
+  effect. **1440p 4x under the full perf log: +2.1% (rate 2, 4/4 rounds), +2.0% (rate 4); 4K: GPU 4.04 -> 3.94 ms
+  (rate 2, +2.3% fps), 3.90 ms (rate 4, +3.4%).** Next: the user drives with it on (reflections lag a little).
 - **Post-processing at 4K (user: "do both"):** per-shader GPU times (4K, `out/perf/s32post/shaders4k.log`) mapped to
   passes (capture `out/logs/s32_post_capture.log`): main scene draws ~1.5 ms; the three 1280x720 colour resolves
   0.63 ms (`17F96000` 0.36: the scene, to 10:10:10:2 with exponent bias 0.25, clamp, 2-bit alpha; `17866000`,
