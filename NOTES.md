@@ -25,6 +25,17 @@
   pipeline from the user before reverse-engineering anything ourselves. Related: "FM4 Imported" (446 FM4 cars in FH1,
   moddb) shows the 360-era car path; Reddit counts 243 FM4 cars missing in FM3.
 
+### ▶ Session 32 (2026-11-13 evening, in progress)
+- The user's settings.ini is now **3840x2160, msaa 4, light log on** (set by the user for the GPU tests; leave it).
+- **L56 closed without code:** a grid `capture` (`out/logs/s32_grid_capture.log`) shows the main scene pass (1,804 of
+  2,649 draws) on `2_10_10_10_FLOAT_AS_16_16_16_16` (7e3 float) writing alpha on every draw, 51 draws reading it; no
+  32-bit host format holds 7e3 + alpha without a picture change. Table in PERF-RESULTS "Session 32".
+- **4K re-check of start-time GPU leads** (2 boots each, `out/perf/s32k4/`): I2 `LEAN_FETCH=2` GPU +1.6% (slower),
+  `LEAN_VFETCH` +0.2%: no; **I8 anisotropy from the fetch GPU -3.8% (fps 227 -> 235), 9.3% of pixels** (softer
+  distant textures, as the game asks: the user's call); **I3 plain multiply GPU -2.5%**, but the crowd's flags turn
+  black (session 23): would need the per-shader version (PERF-PLAN I3).
+- Next on the list: AI-car material cost at 4K (per-shader price list), then V2 VRS.
+
 ### ▶ Start here (session 32): state at the end of session 31 (2026-11-13)
 - **In short:** session 31 made the **upload ring in VRAM the default** (L47: frozen grid 1440p 4x +26%, 12 s
   drives +18% to the 360 cap, 4K +22%, 0 pixels; the user's races with the perf log off clearly faster), built the

@@ -13,6 +13,38 @@ Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleave
 `tools/perf/session23/s23_*.ps1` (copies of `out/perf/s23_*.ps1`).
 
 
+## Session 32 (2026-11-13): L56 measured and closed; 4K re-check of start-time GPU leads
+**L56 render-target formats (no code):** a `capture` of the frozen grid (one tile, 4K 4x; `out/logs/s32_grid_capture.log`),
+each pass's colour format read from `color info` (RB_COLOR_INFO bits 16-19) on its ending resolve:
+
+| Colour surface format | Draws | Passes |
+|---|---|---|
+| `2_10_10_10_FLOAT_AS_16_16_16_16` (7e3) | 1,872 | main scene 1280x720 (1,804), 256x256 (68) |
+| `8888` | 588 | 256x256 (458), 1280x720 (117), small ones |
+| `16_16` | 96 | 512x512, 256x256 |
+| `2_10_10_10_FLOAT` | 92 | small 256x256 and smaller passes |
+| `32_FLOAT` | 1 | 32x32 |
+
+The main scene pass: all 1,804 draws write alpha (mask `0xf`), 51 read the destination alpha (`ONE_MINUS_DST_ALPHA`
+in the alpha blend), 96 multiply by the destination colour. A 32-bit host format would need 7e3 RGB plus alpha:
+R11G11B10_FLOAT has no alpha and fewer mantissa bits than 7e3 (6/6/5 vs 7), R10G10B10A2_UNORM loses the range above 1
+(7e3 reaches 31.875). The 8888 passes are small (~22% of draws, mostly 256x256). **Closed: no lossless gain.**
+
+**Start-time GPU leads at 4K 4x** (frozen grid, light log, two boots per variant interleaved, GPU ms/frame = average of
+6 `perf lite:` lines; picture = `pngdiff_mask.py` against the base boot, crowd blocks masked (30% of the frame);
+results `out/perf/s32k4/`):
+
+| Lead | GPU ms/frame | vs base | fps | Picture |
+|---|---|---|---|---|
+| base (defaults: `REGPU_LEAN_FETCH=1`) | 4.138, 4.108 | - | 226.2, 227.8 | - |
+| I2 `REGPU_LEAN_FETCH=2` | 4.183, 4.190 | **+1.6% (slower)** | 223.8, 223.8 | 0.001-0.003% |
+| I2 `REGPU_LEAN_VFETCH=1` | 4.143, 4.123 | +0.2% (noise) | 226.0, 226.5 | 0.003-0.010% |
+| I8 `REGPU_ANISO_FROM_FETCH=1` | 3.973, 3.963 | **-3.8%** | 235.2, 234.5 | 9.3% of pixels (filtering as the game asks) |
+| I3 `REGPU_PLAIN_MUL_PS=1` | 4.020, 4.022 | -2.5% | 232.6, 232.1 | masked 0.003-0.009%, but the known black flags are in the masked crowd |
+
+I2 is no gain at 4K either (`LEAN_FETCH=2` is slower; both stay preset-only). I8 and I3 are the only GPU gains left
+among the built switches; both change the picture (I8 by design, I3 a bug).
+
 ## Session 31 (2026-11-13): the VRAM ring again, after session 30's byte cuts
 Frozen grid, 1440p 4x, user's settings (one tile, half-rate mirror), perf log off. "Drive" = `Test-Drive` in
 `tools/perf_suite.ps1`: the frozen race released with the right trigger held for 12 s (automatic gearbox; ~6 s of
