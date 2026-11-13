@@ -54,6 +54,9 @@
   one tile on; `fm3.drive31-vramring-noperf.log`, no fps lines in it): user saw **300-360 fps, 99th percentile ~270 at
   worst** (vs ~285 average with the perf log). Still open: a ring-off drive with the perf log off, fps recorded through
   the debug server (`status` once a second, no cost), to tell the ring's share from the perf log's.
+  **Done by the user: perf log off, ring off: fps "definitely worse" than with the ring on.** So in real play
+  (no perf log) the ring in VRAM wins, as the 12 s drives showed (+18%). Next: make it the default where resizable
+  BAR is on (`src/gpu_host.cpp` reads `vram_upload_ring`; launcher `Install.cs` default + tooltip): user's go-ahead.
 - Not built, decided: **L54 fast clears** (per frame two full-screen colour clears 2560x1440 on the 2560x2048
   EDRAM surface + ~38 small ones; a fast clear needs the whole resource, whose lower rows may hold aliased EDRAM:
   risky, ceiling ~2-3%). GPU-side leads (I8, L55) matter only with the ring off now.
