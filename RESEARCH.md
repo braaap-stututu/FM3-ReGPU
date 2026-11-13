@@ -25,6 +25,8 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Ray tracing](#ray-tracing-and-screen-space-effects-session-29-2026-11-12) (session 29) | No full ray tracing or path tracing (ReGPU sees draws and shaders, not a scene; hits would need the game's pixel shaders). Realistic, all opt-in: (1) screen-space AO + reflections from depth, (2) ray-traced shadows/AO from captured vertex positions, (3) ray-traced reflections with simplified hit colour. Prerequisites: camera/projection matrices (shared with VR/telemetry/ultrawide), the scene/HUD split ReGPU already finds |
 | [Vendor-specific speed-ups](#vendor-specific-speed-ups-amd-nvidia-intel-session-29-2026-11-12) (session 29) | AMD first (testable here): an RGP capture of the frozen grid for **decompress barriers** (RDNA colour/depth compression lost to copies, barriers or UAV flags), then GPU upload heaps (ReBAR), compute wave size (needs DXC), async compute, AFMF 2. NVIDIA/Intel: mostly features (DLSS/Reflex/Smooth Motion, XeSS); Arc needs ReBAR. As far as we know untried in any 360 recomp: write results up for the sibling ports. PERF-PLAN L45-L50 |
 | [Linux, Proton and the Steam Deck](#linux-proton-and-the-steam-deck-session-29-2026-11-12) (session 29) | Run through Proton (vkd3d-proton on RADV), no native port. Launcher (WebView2) likely broken under Wine: run `fm3.exe` with `settings.ini` or port the launcher natively. Per-platform defaults under Wine (vertex arena write watch, sleeps, workers), Deck preset, gamescope for caps/FSR. **User has 3 dual-boot machines** (7900 XTX, 6650 XT, Deck OLED + Win11 SD): same-hardware Windows vs Proton A/Bs. PERF-PLAN L51-L53 |
+| [Benchmark data: laps, cars, positions](#benchmark-data-laps-car-positions-and-cars-on-screen-session-32-2026-11-13) (session 32) | None found yet, all likely findable without a recording: lap counter and car position/rotation by a value search + write watch (a "find value" debug-server command first); cars on screen counted by ReGPU from the car-paint draws (no RE); fps logged by lap distance, lap 1 and 2 apart, median of interleaved runs; test the dev option `engageaionstart` first |
+| [A Vulkan ReGPU](#a-vulkan-regpu-session-32-2026-11-13) (session 32) | Mainly portability (Linux/Deck without vkd3d-proton); small CPU gains at most: our limits (per-draw translation, bytes through the BAR, GPU shading) carry over to any API |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -1824,3 +1826,67 @@ Existing items that suit the Deck: V4 iGPU defaults, L21 writing textures in pla
 5. Native Linux launcher when the game side holds.
 Claude sessions run on the Windows PC: Linux/Deck runs are the user's for now (or a Claude Code session on that Linux
 install with the repo checked out).
+
+## Benchmark data: laps, car positions and cars on screen (session 32, 2026-11-13)
+**Asked (user):** for the AI-driven benchmark (the player's car driven by the AI, [Benchmark tools](#benchmark-tools-the-players-car-driven-by-the-games-ai-and-a-frozen-grid-session-21-2026-11-10)):
+can we read how many laps are done, how many cars are on screen, and the cars' position and rotation, without a
+recording? The user can give the benchmark **two laps** (more would mean redoing the automatic route into Crown Jewel).
+Cloud session: no `out/ppc` or game files, so nothing below is checked against FM3 yet; no addresses known so far.
+
+### What is known
+- **None of these values have an address yet.** Known race-side code: the race-start sequence `sub_822E6AD0` ("321Tuning",
+  `src/hooks/grid_test.cpp`: phase byte +4, flags +24..+26, clock +16), AI driver set-up `sub_822A1150`
+  (`src/hooks/ai_drivers.cpp`).
+- **The developer command line** (`src/hooks/boot_options.cpp`, options object `0x82C21C60`) has `numlaps` (+1168),
+  `numaicars` (+1184), `startpos` (+1444), `aiskill` (+1452) and **`engageaionstart`**: possibly the AI taking the
+  player's car at the start, i.e. the takeover itself. FM3's `launch` stalls in retail, so it may only work on that
+  path, but it is a five-minute test (`FM3_CMDLINE=engageaionstart`, then a normal race; `xref.py readers engageaionstart`
+  shows whether anything still reads it).
+- **FH1R (FM4 engine)** found the car-dynamics object (controls at +3904, speed +3128; RESEARCH "Controlling the AI cars'
+  throttle"): FM3's layout differs, but it shows what to look for.
+
+### How to find each (local, ~1 session for all three)
+1. **Lap counter (likely easy):** the HUD shows it and the race object holds the total (`numlaps`). Value search while
+   driving: a 32-bit (or byte) value that is 1 on lap 1 and 2 after the line, unchanged while paused; confirm with
+   `FM3_WATCHW` on it (the writer = the timing code; the same object should hold race position and lap times).
+   **Needs a small debug-server addition:** a "find value" command (today `find` searches text only): search guest
+   memory for a value, then narrow the hits on later calls ("changed to 2", "unchanged").
+2. **Car position and rotation:** the same value search on floats (speed in m/s against the HUD, or a position float
+   that changes while driving and freezes with `FM3_FREEZE_TIME 1`), then `peek` around the hit for a 3x3/4x4 matrix
+   (rotation) and the object's vtable; AI cars have the same object, reached from the race's car list (as FH1R's
+   container list).
+3. **Cars on screen, two ways:**
+   - **From ReGPU (no reverse engineering, recommended first):** each car body is drawn with known car-paint
+     shaders (session 20's AI-car material shaders), and each draw's vertex constants carry its world transform.
+     ReGPU can count car-body draws a frame (and log their world positions) and add the count to the light perf log
+     line (`perf lite:`, patch 39). This measures what costs frame time: cars drawn, not cars nearby. Check with
+     `REGPU_TRACE_VC` captures which shader hashes and constant rows those are.
+   - From the game: every car's position against the camera's view (needs the camera matrix too: more RE).
+
+### Benchmark consistency with two laps
+- Log samples by **lap distance** (position along the lap), not time: a slower run's numbers still line up corner by
+  corner. Without a track position, a cumulative distance from the car's speed works too.
+- Report **lap 1** (start, cars bunched, heaviest) and **lap 2** separately.
+- Put **cars drawn** next to each sample, so a difference can be told apart: code vs traffic.
+- The AI varies run to run (FH1R saw it): interleave A and B runs and use the median.
+
+### Suggested order (next session on the main PC)
+1. Test `engageaionstart`. 2. Car-draw counter in the light perf log. 3. "Find value" command, then the lap counter
+and the player car's position. 4. The AI takeover (RESEARCH "Benchmark tools" option 1) if the option does nothing.
+
+## A Vulkan ReGPU (session 32, 2026-11-13)
+**Asked (user):** would a Vulkan-based ReGPU (one is in testing) have more optimization potential? Not read yet (no
+link); answer from what limits us now.
+- **Unchanged by the API:** the per-draw translation in `DrawImpl` (registers, constant blocks, upload hashing, pass
+  scales, texture binding) is the bulk of the draw thread; the bytes written per draw go through the same PCIe BAR
+  with write-combining (`docs/VRAM-UPLOAD-RING.md` already has a "For a Vulkan port" section); GPU shading and the
+  64-bit 4x MSAA targets are the same (4K is GPU-bound). D3D12 driver overhead is already off the draw thread (the
+  recorder replays the calls on its own thread since sessions 13-14).
+- **Where Vulkan could help:** push descriptors and dynamic state (a few % of binding/pipeline overhead at most);
+  multi-threaded recording (possible on D3D12 too; ReGPU's draw workers lost to the serial draw thread here);
+  drivers other than AMD's D3D12 one (some NVIDIA/Intel setups); **native Linux / Steam Deck** without vkd3d-proton
+  (the biggest real gain).
+- **FH1R's 36 vs 52 fps** (laptop benchmark, RESEARCH "FH1R latest") compared ReGPU with their Xenia-derived Vulkan
+  renderer, a different design: the gap was ReGPU's CPU side, not D3D12.
+- **Next:** if the user shares the Vulkan ReGPU's branch, read how it records and uploads for ideas worth bringing back
+  to the D3D12 build (they would apply to both).

@@ -57,6 +57,10 @@
   4. If it wins: `Test-Drive` 12 s per variant, then the user's race drive with the light log; then make it FM3's
      default in `src/gpu_host.cpp` (as the other draw-thread switches) with an `FM3_*` undo.
   5. If it's even or worse: drop the patch (remove it from `setup.ps1`'s list, restore the files from the stack).
+- **Also this session (research, no code):** RESEARCH.md "Benchmark data: laps, car positions and cars on screen" (for the
+  AI-driven benchmark, two laps: none found yet; lap counter and car position by a value search + write watch, cars
+  on screen counted by ReGPU from the car-paint draws, fps by lap distance; first test the dev option
+  `engageaionstart`) and "A Vulkan ReGPU" (mainly portability; our limits carry over to any API).
 
 ### ▶ Start here (session 32): state at the end of session 31 (2026-11-13)
 - **In short:** session 31 made the **upload ring in VRAM the default** (L47: frozen grid 1440p 4x +26%, 12 s
