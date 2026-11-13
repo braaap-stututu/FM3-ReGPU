@@ -32,6 +32,22 @@ Threads (`tools/perf/threads.ps1`, grid): ring off: command list replay 98%, dra
 `ExecuteCommandLists` (sampled: ~85% `SleepEx`/QPC under `amdxc64` `SubmitLists`), so the grid is GPU-bound. Ring on:
 draw worker 96.5% (2.72 ms a frame vs 2.62 ms off), CP 75%, replay 22%: draw-thread bound again, near the cap.
 
+### Session 31 later: light performance log and draw-thread leads (ring in VRAM)
+| Test | A | B | Change | Picture |
+|---|---|---|---|---|
+| Logs, grid (separate boots) | none 346.9 | light 352.9 / full 259.5 | light = noise, full -25% | - |
+| Logs, 12 s drive | none 353.9 | light 353.8 / full 289.0 | full -18% | - |
+| Patch 40 PassScales per draw, live 5 rounds, full log as load | 257.8 | 267.6 | **+3.8%** (5/5) | 0 pixels |
+| Patch 40, live 5 rounds, no log | 342.6 | 358.3 (cap) | **+4.6%** (5/5) | 0 pixels |
+| `REGPU_CONSTANT_REUSE`, under load | 259.8 | 253.6 | -2.4% (0/4) | 0 pixels |
+| `REGPU_INDEX_HASH_ONCE`, under load | 260.6 | 258.6 | -0.8% (0/4) | 0 pixels |
+| `REGPU_UPLOAD_STABLE_REUSE`, under load | 259.9 | 261.6 | +0.7% (2/4) | 0 pixels |
+| Index buffers by write watch (removed), under load / no log | 267.0 / 358.6 | 268.6 / 359.3 | +0.6% / +0.2% | 0 pixels; verified drive clean |
+| I8 `REGPU_ANISO_FROM_FETCH`, GPU ms/frame (light log), 2 boots each | 2.517, 2.510 | 2.388, 2.435 | GPU -3..-5% | 12.9% of pixels (mean 3.9), noise 0.5% |
+
+Draw-thread profile, ring in VRAM, no log (1 ms samples): DrawImpl 29.3%, PassScales 7.5% (from DrawImpl 4%, ToHost
+1.5%, WindowScissor 1.3%), FullHashAvx2 5.6% (UploadGuest 3.5%, GetIndexBuffer 1.4%), GetIndexBuffer 3.2%, memcpy 2.7%.
+
 ## Session 30 (2026-11-12): L57 bytes written per draw
 Frozen grid, `perf_log=0`, 2,661 draws a frame. Live trace `REGPU_TRACE_CONSTANT_BYTES` (new, patch 35) splits what
 the draw thread writes to the upload ring for constants:

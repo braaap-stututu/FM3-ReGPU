@@ -61,6 +61,26 @@
   settings.ini says `vram_upload_ring=0`; launcher default on, tooltip rewritten (session 31 numbers, perf-log caveat).
   Checked on the grid: key absent -> "on", 348.7 fps; `vram_upload_ring=0` -> "off", 280.2 fps. **Perf tests now run
   with the ring on** (the old baseline was ring off): set `REGPU_GPU_UPLOAD_RING=0` for ring-off comparisons.
+- **Light performance log (user's request; ReGPU patch 39 `regpu-perf-lite`, launcher Testing "Light performance
+  log" = `perf_log_light=1`, read by the game so play.cmd too):** one line a second
+  (`perf lite: fps, ms/frame (p99, max) | draws/frame | GPU ms/frame | draw thread N% busy`), no per-draw timing:
+  the draw thread pushes one record a frame into a lock-free single-producer/single-consumer ring and a "perf lite
+  log" thread does the sums and the writing (the ReGPU developer's suggestion). Grid: none 346.9, light 352.9 (noise),
+  full `REGPU_PERF` 259.5 (-25%); drives 353.9 / 353.8 / 289.0. The full log stays as the deliberate load (launcher
+  tooltip says so). `drives.py` reads both kinds. **Use the light log for race drives from now on.**
+- **Leads tested after that (ring in VRAM, grid; "under load" = full perf log on, which makes the draw thread the
+  limit at ~260 fps):** draw-thread profile (no log): DrawImpl 29%, PassScales 7.5%, hashing ~8% (vertex uploads
+  3.5%, index buffers ~3%), GetIndexBuffer 3.2%.
+  - **Built and default: ReGPU patch 40 `regpu-pass-per-draw`:** later PassScales asks in a draw compare only the
+    epoch; ToHost asks once. **+3.8% under load (257.8 -> 267.6), +4.6% without (342.6 -> 358.3, at the cap)**, 5/5,
+    0 pixels; drive 356.6 (cap). A/B `REGPU_PASS_SNAPSHOT_PER_CALL=1` (live).
+  - Existing switches, live under load: `REGPU_CONSTANT_REUSE` -2.4%, `REGPU_INDEX_HASH_ONCE` -0.8%,
+    `REGPU_UPLOAD_STABLE_REUSE` +0.7%: none adopted.
+  - **Index buffers via the vertex arena's write watch** (skip the hash while no page was written): built, +0.6% under
+    load (2/5), +0.2% without; a 20 s verified drive found no stale buffer. Not worth it: removed (not in a patch).
+  - **I8 `REGPU_ANISO_FROM_FETCH=1`** (start-time; measured as GPU ms/frame from the light log, 2 boots each): GPU
+    2.51 -> 2.39-2.44 ms (-3..-5%), fps at the cap either way; 12.9% of pixels differ (mean 3.9/255; same-boot noise
+    0.5%), not visible side by side at normal size (distant texture filtering). Left off: this GPU is not the limit.
 - Not built, decided: **L54 fast clears** (per frame two full-screen colour clears 2560x1440 on the 2560x2048
   EDRAM surface + ~38 small ones; a fast clear needs the whole resource, whose lower rows may hold aliased EDRAM:
   risky, ceiling ~2-3%). GPU-side leads (I8, L55) matter only with the ring off now.
