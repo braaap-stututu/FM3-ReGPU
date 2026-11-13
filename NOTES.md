@@ -84,7 +84,8 @@
   function keeps them (0 pixels at rates 2/4). The face alternation lives inside the function: a resolve trace at
   rate 2 still shows all six faces (each every 4th frame). Dev options `cubemap=0/1`, `fastenvmaprender=1`: no
   effect. **1440p 4x under the full perf log: +2.1% (rate 2, 4/4 rounds), +2.0% (rate 4); 4K: GPU 4.04 -> 3.94 ms
-  (rate 2, +2.3% fps), 3.90 ms (rate 4, +3.4%).** Next: the user drives with it on (reflections lag a little).
+  (rate 2, +2.3% fps), 3.90 ms (rate 4, +3.4%).** **User drove it: not noticeable at their frame rates; keep it as an
+  option, off by default (user's decision).**
 - **Post-processing at 4K (user: "do both"):** per-shader GPU times (4K, `out/perf/s32post/shaders4k.log`) mapped to
   passes (capture `out/logs/s32_post_capture.log`): main scene draws ~1.5 ms; the three 1280x720 colour resolves
   0.63 ms (`17F96000` 0.36: the scene, to 10:10:10:2 with exponent bias 0.25, clamp, 2-bit alpha; `17866000`,
