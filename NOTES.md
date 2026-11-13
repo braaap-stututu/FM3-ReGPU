@@ -70,7 +70,11 @@
   unchanged (packed vs old = old vs old: crowd only), 0 compile failures. First boot after it recompiles every shader
   (~3 min to the grid). Old numbering: `REGPU_NO_PACKED_CONSTANTS=1` at start. **Live `ps`/`vs` edits and `hlsl` dumps
   now use the packed numbers** (the capture log's `pc` lines and `REGPU_TRACE_VC` still show the game's).
-  **Next: the user's race drive** (launcher, Crown Jewel two laps; compare with `out/run/fm3.drive30-unread.log`).
+  **User's race drive: no change** (`out/run/fm3.drive30-packed.log`). The draw thread's busy share in races fell
+  96% -> 92% over today's cuts while fps stayed ~280-285: the race is no longer limited by the draw thread alone.
+- **Next (ask the user):** find the race's new limit: per-thread CPU during a drive (`tools/perf/threads.ps1`,
+  no cost: CP t9, game render thread t7, draw thread) and GPU frame time (`REGPU_GPU_PASSES=1` or RGP) while the
+  user drives; then cut there. More draw-thread byte cuts will not show in races now.
 - Launcher rebuilt (session 29's tooltip). settings.ini restored after the 720p runs (vram_upload_ring=0 there now).
 
 ### ▶ Start here (session 30): state at the end of session 29 (2026-11-12)
