@@ -1,6 +1,6 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-12, session 28)
+## ▶ Current status / next step  (updated 2026-11-13, session 30)
 
 ### Session 29b (2026-11-12, cloud, research only, no code): PFP3, ray tracing, vendor speed-ups, Linux/Steam Deck
 - User asked how to add **Project Forza Plus 3** (PFP3) as an option. Study: [RESEARCH.md](RESEARCH.md#project-forza-plus-3-as-an-option-session-29-2026-11-12).
@@ -25,7 +25,26 @@
   pipeline from the user before reverse-engineering anything ourselves. Related: "FM4 Imported" (446 FM4 cars in FH1,
   moddb) shows the 360-era car path; Reddit counts 243 FM4 cars missing in FM3.
 
-### ▶ Start here (session 31): state at the end of session 30 (2026-11-12)
+### ▶ Start here (session 31): state at the end of session 30 (2026-11-12/13)
+- **In short:** session 30 cut what ReGPU's draw thread writes per draw and found the race's limit moved.
+  **User's race (Crown Jewel, 1440p 4x, ring in system memory): ~256 fps (session 29) -> ~285 fps (+11%).**
+  Built and on by default (ReGPU patches 35-38, each with an A/B switch, all byte-identical or picture-unchanged):
+  35 sparse fetch table (+5% in the race), 36 PassScales epoch (race 0), 37 unread block parts skipped (race 0..+4%),
+  38 packed float constants (grid +3.4%, race 0). Tried and removed: whole-line writes, ring in cached system memory
+  (race -3..-6%). Not built: GPU copy of constants into VRAM. VRAM ring still ~-11.5% in races: leave it off.
+  New traces: `REGPU_TRACE_CONSTANT_BYTES`, `REGPU_TRACE_RING_KINDS`. New tool: `tools/analysis/drives.py`
+  (race drives compared by draw-count bucket).
+- **Next (user's plan for session 31): find what limits the race now.** The draw thread's busy share in races fell
+  96% -> 92% over session 30 while fps held at ~280-285, so something else sets the pace. Method: while the user
+  drives Crown Jewel (two laps, **started from the launcher**: the perf log is on only then), sample per-thread CPU with
+  `tools/perf/threads.ps1` (no cost: CP t9, the game's render thread t7, "gpu draw worker", replay) and get GPU frame
+  time (perf log `gpu` lines, or `REGPU_GPU_PASSES=1`, or RGP as in session 29); compare with
+  `out/run/fm3.drive30-packed.log` (`python -I tools/analysis/drives.py <logs>`). Then cut where the time is.
+- **How the race drives were compared:** fps and `renderer draw` ms / draws per perf line, bucketed by 100 draws a
+  frame (drives differ in camera and traffic). Logs kept in `out/run/fm3.drive30-*.log` (ringoff, ringon, cached,
+  passepoch, unread, packed). The frozen grid with the perf log on is draw-thread bound (good for draw-thread cuts);
+  without it, it has slack and shows nothing.
+- Details of each step, in order, below.
 - **L57 done on the grid (details PERF-RESULTS "Session 30"):** measured first with the new live trace
   `REGPU_TRACE_CONSTANT_BYTES`: 2,996 constant bytes a draw, of which 1,796 "vs rest" = the vertex fetch table written
   from entry 0 up to the highest used one (FM3's fetch constants sit near 95). **ReGPU patch 35
@@ -43,8 +62,8 @@
   ring at 720p 1x still -5.3% (my earlier +0.1% was one noisy boot). The only route left to the VRAM ring's GPU gain
   without BAR writes: packed constant allocation (blocks are allocated whole, 30 MB a frame for 3.7 MB written), then
   a GPU copy of each segment's constants into VRAM. Not built.
-- **Packed constants: not built** (user agreed after the cost/gain: shader translator remap + GPU copy, several
-  sessions, gain only when GPU-bound; racing here is draw-thread bound).
+- **Packed constants + GPU copy into VRAM: not built** (user agreed after the cost/gain: gain only when GPU-bound).
+  (The packed float numbering alone was built later: patch 38 below.)
 - **Draw-thread profile (PERF-RESULTS "Draw-thread profile (session 30)"):** a 16-byte store at `DrawImpl`'s end
   is 6-7% = the write-combined ring writes draining (13% with the VRAM ring). Tried the ring in cached system memory:
   stall gone, but the user's race -3..-6%: removed. My ring-kind counters cost 2.2% (now only while traced).
