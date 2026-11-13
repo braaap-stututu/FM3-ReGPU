@@ -17,6 +17,7 @@
 // never = +4.7%, pictures 0 pixels different (the grid's mirror shows empty track; driving it holds ~2x the draws).
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -193,6 +194,38 @@ PPC_FUNC(sub_828329C8)
     {
         ctx.r3.u64 = 0;
         return;
+    }
+    // Session 32 experiment: FM3_CAR_LOD_FAR=N (live): in the main view (call site 82837F0C), cars the game already
+    // draws at a reduced level (>= FM3_CAR_LOD_FROM, default 1: beyond the nearest one or two) are drawn at level N.
+    static int farLod = 0, fromLod = 1;
+    {
+        static int64_t next = 0;
+        const int64_t now = std::chrono::steady_clock::now().time_since_epoch().count();
+        if (now >= next)
+        {
+            next = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::milliseconds(250)).count();
+            char l[4] = {};
+            const int lod = GetEnvironmentVariableA("FM3_CAR_LOD_FAR", l, sizeof(l)) && l[0] ? atoi(l) : 0;
+            char f[4] = {};
+            fromLod = GetEnvironmentVariableA("FM3_CAR_LOD_FROM", f, sizeof(f)) && f[0] ? std::max(1, atoi(f)) : 1;
+            if (lod != farLod)
+            {
+                farLod = lod;
+                Log("cars: distant cars drawn at detail level %d%s", lod, lod ? "" : " (as the game does)");
+            }
+        }
+    }
+    if (farLod > 0 && uint32_t(ctx.lr) == 0x82837F0C)
+    {
+        const uint32_t field = ctx.r10.u32 + 596;
+        const uint32_t old = LoadBE32(field);
+        if (int(old) >= fromLod && old < 16)
+        {
+            StoreBE32(field, uint32_t(farLod));
+            __imp__sub_828329C8(ctx, base);
+            StoreBE32(field, old);
+            return;
+        }
     }
     if (g_inMirror && g_carLod > 0 && uint32_t(ctx.lr) == 0x828380BC)
     {

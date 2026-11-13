@@ -74,8 +74,24 @@
 - New live tool kept: **`FM3_SCENE_SKIP=<hex>[,...]`** (`src/hooks/mirror.cpp`) skips scene steps or car-draw call
   sites in the main view too: `8283A8D0` the opaque cars, `8283AB40` their glass/lights, `828379A0` the cars in the
   shadow map, `82592444` the shadow method's car renderer call.
-- Other lead left: the full-screen passes after the scene (what they are, resolution, sample count at 4x MSAA): the
-  per-pass table puts the segment after the main colour resolve at ~1.6 ms of GPU, the largest after the scene.
+- **Post-processing at 4K (user: "do both"):** per-shader GPU times (4K, `out/perf/s32post/shaders4k.log`) mapped to
+  passes (capture `out/logs/s32_post_capture.log`): main scene draws ~1.5 ms; the three 1280x720 colour resolves
+  0.63 ms (`17F96000` 0.36: the scene, to 10:10:10:2 with exponent bias 0.25, clamp, 2-bit alpha; `17866000`,
+  `17BFE000` 0.135 each: 16F samples to 8888); FM3's clear rectangles (`8be0d463...` + vs `b368b2cc`, 2 per pass)
+  0.26 ms (L54, closed); the game's post shaders are small (`b0c87a00` 0.14, the rest < 0.07). The big full-screen
+  shaders of the price list (`fd6b...`, `9e50...`) are the ground shadows inside the main pass. **Hardware resolve
+  tried** (`ResolveSubresourceRegion` AVERAGE behind a switch, through a new RecordedList op): byte-identical but it
+  applies to none of the big resolves (all convert formats), GPU unchanged: removed. **New lead (L59, not built):**
+  with one guest tile the game draws every pass without MSAA, yet ReGPU draws all of them on its one 4x surface: the
+  full-screen post passes pay 4x the sample writes and the resolves; the post segment is ~1.6 ms of 4.2 at 4K. Needs
+  per-pass sample counts in ReGPU (surfaces alias EDRAM at one count): large.
+- **Car detail levels in the main view (live experiment `FM3_CAR_LOD_FAR=N`, `FM3_CAR_LOD_FROM=M`,
+  `src/hooks/mirror.cpp`):** the game ranks the cars by distance and sets each one's detail (+596): 0 for the nearest
+  1-2, 1 to rank 3-4, 2 beyond; levels go to 4. Cars at level >= M are drawn at N. 1440p 4x, full perf log as the
+  draw-thread load, interleaved 3 rounds: from 2 to 3: +1.9%, to 4: +1.2% (0.008% of pixels: only the furthest
+  cars); **from 1 to 3: +4.1% (-89 draws, 0.15% of pixels), to 4: +5.1% (-119 draws, 0.25%: visible on the
+  mid-distance cars: mirrors, badges, tail-light detail gone).** Not an option yet: the user's call (a launcher toggle
+  "lower detail for distant AI cars", from 2 or from 1 to 3).
 
 ### ▶ Start here (session 32): state at the end of session 31 (2026-11-13)
 - **In short:** session 31 made the **upload ring in VRAM the default** (L47: frozen grid 1440p 4x +26%, 12 s
