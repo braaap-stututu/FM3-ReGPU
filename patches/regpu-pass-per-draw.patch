@@ -1,0 +1,76 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 4a50383..fee9fe9 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -211,6 +211,7 @@ uint32_t BigPassSizeUncached()
+ struct PassScaleSnapshot
+ {
+     uint32_t surface = ~0u, color = ~0u, generation = ~0u, tallInfo = ~0u, tallHeight = ~0u, tallKey = ~0u, outW = ~0u, outH = ~0u, epoch = ~0u;
++    uint64_t drawId = 0; // the draw (t_passDrawId) it was last checked in
+     float scene = -1;
+     uint32_t big = 0, width = 0, height = 0;
+     float passScale = 1, scaleY = 1, scaleWide = 1, scaleX = 1;
+@@ -352,22 +353,37 @@ float HelperPassScale(float passScale, uint32_t big)
+ bool WidePass() { return (gpureg::Get(0x2000 /* RB_SURFACE_INFO */) & 0x3FFF) == kWidth; }
+ // REGPU_NO_PASS_SNAPSHOT=1: worked out at every call (A/B, live).
+ LiveSwitch g_passNoSnapshot("REGPU_NO_PASS_SNAPSHOT"), g_passFullCheck("REGPU_PASS_SNAPSHOT_FULL_CHECK");
++// Inside DrawImpl: a number for the draw this thread is translating (0 outside one). A draw's surface registers can't
++// change while it is translated (the draw thread reads its own register copy, written between draws), so once the
++// memo is checked in a draw, later asks in it compare only the pass epoch (FM3 session 31: PassScales ~7.5% of the
++// draw thread at ~25 asks a draw). REGPU_PASS_SNAPSHOT_PER_CALL=1: the registers are read at every ask (A/B, live).
++thread_local uint64_t t_passDrawId = 0;
++LiveSwitch g_passPerCall("REGPU_PASS_SNAPSHOT_PER_CALL");
+ const PassScaleSnapshot& PassScales()
+ {
+     thread_local PassScaleSnapshot s, fresh;
++    if (t_passDrawId && s.drawId == t_passDrawId && s.epoch == g_passEpoch.load(std::memory_order_relaxed) && !g_passPerCall)
++        return s;
+     // Asked ~25 times a draw: the memo is checked against the surface registers and the pass epoch (g_passEpoch:
+     // every other input bumps it), not each input (that check was ~7% of the draw thread, FM3 session 30).
+     // REGPU_PASS_SNAPSHOT_FULL_CHECK=1 compares every input again (A/B, live).
+     const uint32_t surface = gpureg::Get(0x2000), color = gpureg::Get(0x2001) & 0xFFF, epoch = g_passEpoch.load(std::memory_order_relaxed);
+     if (!g_passFullCheck && !g_passNoSnapshot && surface == s.surface && color == s.color && epoch == s.epoch && s.outH)
++    {
++        s.drawId = t_passDrawId;
+         return s;
++    }
+     const uint32_t generation = g_nativeMsaaGeneration.load(std::memory_order_relaxed);
+     const uint32_t outW = g_outputWidth.load(std::memory_order_relaxed), outH = g_outputHeight.load(std::memory_order_relaxed);
+     if (!g_passNoSnapshot && surface == s.surface && color == s.color && generation == s.generation && g_tallInfo == s.tallInfo &&
+         g_tallHeight == s.tallHeight && g_tallKey == s.tallKey && outW == s.outW && outH == s.outH && outH && g_sceneScale == s.scene)
++    {
++        s.epoch = epoch, s.drawId = g_passFullCheck ? 0 : t_passDrawId;
+         return s;
++    }
+     PassScaleSnapshot& n = g_passNoSnapshot ? fresh : s;
+     n.epoch = epoch;
++    n.drawId = g_passNoSnapshot || g_passFullCheck ? 0 : t_passDrawId;
+     n.surface = surface, n.color = color, n.generation = generation, n.tallInfo = g_tallInfo, n.tallHeight = g_tallHeight, n.tallKey = g_tallKey;
+     n.outW = OutputWidth(), n.outH = OutputHeight(), n.scene = g_sceneScale;
+     n.big = BigPassSizeUncached();
+@@ -387,7 +403,10 @@ LONG HostX(LONG v) { return LONG(std::lround(double(v) * ScaleX())); }
+ LONG HostY(LONG v) { return LONG(std::lround(double(v) * ScaleY())); }
+ D3D12_RECT ToHost(const D3D12_RECT& r)
+ {
+-    return { HostX(r.left), HostY(r.top), HostX(r.right), HostY(r.bottom) };
++    const PassScaleSnapshot& p = PassScales(); // (one ask, not four)
++    auto x = [&](LONG v) { return LONG(std::lround(double(v) * p.scaleX)); };
++    auto y = [&](LONG v) { return LONG(std::lround(double(v) * p.scaleY)); };
++    return { x(r.left), y(r.top), x(r.right), y(r.bottom) };
+ }
+ 
+ // Wider than 16:9: the output is `wide` times as wide as 16:9 for its height. The view
+@@ -10985,6 +11004,13 @@ void EndFrame()
+ 
+ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+ {
++    // (PassScales: asks in this draw after the first skip the register reads; 0 again when the draw returns.)
++    thread_local uint64_t drawCount = 0;
++    t_passDrawId = ++drawCount;
++    struct PassDrawEnd
++    {
++        ~PassDrawEnd() { t_passDrawId = 0; }
++    } passDrawEnd;
+     Section(0);
+     if (DebugSkipDraw(initiator, dmaBase, dmaSize))
+         return;
