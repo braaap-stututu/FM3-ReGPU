@@ -1,0 +1,257 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index fee9fe9..e7126df 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -8936,6 +8936,171 @@ ID3D12Resource* PrepareTimer()
+     });
+ }
+ 
++// ---- Fps panel: REGPU_FPS_PANEL=1 (live) shows fps and frame times at the top centre of the picture: a text line
++// (fps, average and 99th-percentile frame time over the last half second, updated 4 times a second) over a graph of
++// the last kFpsW frames' times (one column a frame, newest on the right; guide lines at 360/240/144/60 fps; green,
++// yellow over 1.5x the average, red over 2x). Each frame's time is the interval between frame ends on the draw
++// thread. Like the timer it is copied onto the back buffer after the game's frame (never in the guest's images).
++constexpr UINT kFpsW = 400, kFpsTextH = 30, kFpsGraphH = 80, kFpsH = kFpsTextH + kFpsGraphH;
++struct FpsPanel
++{
++    ComPtr<ID3D12Resource> texture;
++    D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COPY_DEST;
++    std::vector<uint32_t> text; // kFpsW x kFpsTextH, re-rendered 4 times a second
++    float times[kFpsW] = {};    // frame times in ms, ring
++    UINT head = 0, count = 0;
++    std::chrono::steady_clock::time_point last{}, lastText{};
++    float scale = 10.0f;        // ms at the graph's top
++} g_fps;
++
++void RenderFpsText(const std::string& text, std::vector<uint32_t>& pixels)
++{
++    BITMAPINFO bi{};
++    bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
++    bi.bmiHeader.biWidth = kFpsW;
++    bi.bmiHeader.biHeight = -int(kFpsTextH);
++    bi.bmiHeader.biPlanes = 1;
++    bi.bmiHeader.biBitCount = 32;
++    bi.bmiHeader.biCompression = BI_RGB;
++    HDC dc = CreateCompatibleDC(nullptr);
++    void* bits = nullptr;
++    HBITMAP bitmap = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
++    HGDIOBJ oldBitmap = SelectObject(dc, bitmap);
++    RECT all{ 0, 0, LONG(kFpsW), LONG(kFpsTextH) };
++    FillRect(dc, &all, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
++    HFONT font = CreateFontW(24, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
++        FIXED_PITCH | FF_MODERN, L"Consolas");
++    HGDIOBJ oldFont = SelectObject(dc, font);
++    SetBkMode(dc, TRANSPARENT);
++    SetTextColor(dc, RGB(255, 255, 255));
++    DrawTextA(dc, text.c_str(), int(text.size()), &all, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
++    GdiFlush();
++    pixels.resize(size_t(kFpsW) * kFpsTextH);
++    const uint32_t* src = static_cast<const uint32_t*>(bits);
++    for (size_t i = 0; i < pixels.size(); i++)
++    {
++        const uint32_t px = src[i];
++        pixels[i] = 0xFF000000u | ((px & 0xFF) << 16) | (px & 0xFF00) | ((px >> 16) & 0xFF);
++    }
++    SelectObject(dc, oldFont);
++    SelectObject(dc, oldBitmap);
++    DeleteObject(font);
++    DeleteObject(bitmap);
++    DeleteDC(dc);
++}
++
++template <typename List>
++ID3D12Resource* PrepareFpsOn(List* list, const std::function<OverlayUpload(UINT64)>& upload)
++{
++    static LiveSwitch on("REGPU_FPS_PANEL");
++    const auto now = std::chrono::steady_clock::now();
++    if (!on)
++    {
++        g_fps.count = 0;
++        g_fps.last = {};
++        return nullptr;
++    }
++    if (g_fps.last != std::chrono::steady_clock::time_point{})
++    {
++        g_fps.times[g_fps.head] = float(std::chrono::duration<double, std::milli>(now - g_fps.last).count());
++        g_fps.head = (g_fps.head + 1) % kFpsW;
++        g_fps.count = std::min(g_fps.count + 1, kFpsW);
++    }
++    g_fps.last = now;
++    if (!g_fps.texture)
++    {
++        D3D12_HEAP_PROPERTIES hp{};
++        hp.Type = D3D12_HEAP_TYPE_DEFAULT;
++        D3D12_RESOURCE_DESC td{};
++        td.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
++        td.Width = kFpsW;
++        td.Height = kFpsH;
++        td.DepthOrArraySize = 1;
++        td.MipLevels = 1;
++        td.SampleDesc.Count = 1;
++        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
++        if (FAILED(g_r.device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&g_fps.texture))))
++            return nullptr;
++        g_fps.state = D3D12_RESOURCE_STATE_COPY_DEST;
++    }
++    // Average over the last half second (at least 8 frames).
++    double sum = 0;
++    UINT n = 0;
++    float recent[kFpsW];
++    while (n < g_fps.count && (sum < 500.0 || n < 8))
++    {
++        const float v = g_fps.times[(g_fps.head + kFpsW - 1 - n) % kFpsW];
++        recent[n++] = v;
++        sum += v;
++    }
++    const double avg = n ? sum / n : 0.0;
++    if (g_fps.text.empty() || now - g_fps.lastText > std::chrono::milliseconds(250))
++    {
++        char text[96];
++        if (n)
++        {
++            std::sort(recent, recent + n);
++            const UINT at = std::min<UINT>(n - 1, UINT(std::ceil(n * 0.99)) > 0 ? UINT(std::ceil(n * 0.99)) - 1 : 0);
++            const float p99 = recent[at];
++            snprintf(text, sizeof(text), "%.0f fps  %.2f ms  p99 %.2f ms", avg > 0 ? 1000.0 / avg : 0.0, avg, p99);
++            // The graph's top: 1.6x the 99th percentile, at least 5 ms, eased so it does not jump.
++            const float want = std::max(5.0f, p99 * 1.6f);
++            g_fps.scale = g_fps.scale * 0.5f + want * 0.5f;
++        }
++        else
++            snprintf(text, sizeof(text), "-- fps");
++        RenderFpsText(text, g_fps.text);
++        g_fps.lastText = now;
++    }
++    std::vector<uint32_t> pixels(size_t(kFpsW) * kFpsH, 0xFF181818u);
++    memcpy(pixels.data(), g_fps.text.data(), g_fps.text.size() * 4);
++    uint32_t* graph = pixels.data() + size_t(kFpsW) * kFpsTextH;
++    const float scale = g_fps.scale;
++    for (const float guide : { 1000.0f / 360, 1000.0f / 240, 1000.0f / 144, 1000.0f / 60 })
++        if (guide < scale)
++        {
++            const int y = int(kFpsGraphH) - 1 - int(guide / scale * float(kFpsGraphH - 1));
++            for (UINT x = 0; x < kFpsW; x += 2)
++                graph[size_t(y) * kFpsW + x] = 0xFF505050u;
++        }
++    // R8G8B8A8 in memory = 0xAABBGGRR: green 0xFF40D040, yellow 0xFF20D0E0, red 0xFF3030F0.
++    for (UINT i = 0; i < g_fps.count; i++)
++    {
++        const float v = g_fps.times[(g_fps.head + kFpsW - g_fps.count + i) % kFpsW];
++        const UINT x = kFpsW - g_fps.count + i;
++        const int h = std::clamp(int(v / scale * float(kFpsGraphH - 1)), 1, int(kFpsGraphH));
++        const uint32_t colour = avg > 0 && v > avg * 2 ? 0xFF3030F0u : avg > 0 && v > avg * 1.5 ? 0xFF20D0E0u : 0xFF40D040u;
++        for (int y = int(kFpsGraphH) - h; y < int(kFpsGraphH); y++)
++            graph[size_t(y) * kFpsW + x] = colour;
++    }
++    // REGPU_FPS_PANEL_DUMP=1 (live): the panel to fps_panel.png in the working directory (to look at it without a
++    // window screenshot).
++    static LiveSwitch dump("REGPU_FPS_PANEL_DUMP");
++    if (dump)
++    {
++        std::vector<uint8_t> rgba(pixels.size() * 4);
++        memcpy(rgba.data(), pixels.data(), rgba.size());
++        WritePng("fps_panel.png", kFpsW, kFpsH, rgba);
++    }
++    if (!UploadPanelPixels(list, g_fps.texture.Get(), g_fps.state, kFpsW, kFpsH, pixels, upload(PanelUploadBytes(kFpsW, kFpsH))))
++        return nullptr;
++    return g_fps.texture.Get();
++}
++
++ID3D12Resource* PrepareFps()
++{
++    return PrepareFpsOn(C().list, [](UINT64 bytes) {
++        OverlayUpload u;
++        const UINT64 offset = RingAlloc(bytes, 512);
++        if (offset == ~0ull)
++            return u;
++        u.resource = Frame().ring.Get();
++        u.cpu = Frame().ringCpu;
++        u.offset = offset;
++        return u;
++    });
++}
++
+ // The frame path stages through the frame's upload ring.
+ ID3D12Resource* PrepareOverlay()
+ {
+@@ -13553,6 +13718,7 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         g_hold.image = it->second.resource;
+     ID3D12Resource* overlay = fromResolve ? PrepareOverlay() : nullptr;
+     ID3D12Resource* timer = fromResolve ? PrepareTimer() : nullptr;
++    ID3D12Resource* fps = fromResolve ? PrepareFps() : nullptr;
+     ID3D12Resource* shown = graded ? graded : image;
+     if (fromResolve)
+         if (ID3D12Resource* enhanced = EnhanceFrontBuffer(shown))
+@@ -13568,14 +13734,15 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         bool copy = false;
+         ID3D12Resource *shown = nullptr, *overlay = nullptr, *timer = nullptr;
+         UINT64 fence = 0;
++        ID3D12Resource* fps = nullptr;
+     };
+     static AsyncEnd asyncEnds[kFrames];
+     AsyncEnd& asyncEnd = asyncEnds[g_r.frameIndex];
+     bool presenting = false;
+     if (asyncPresent)
+-        asyncEnd = { fromResolve, shown, overlay, timer, 0 };
++        asyncEnd = { fromResolve, shown, overlay, timer, 0, fps };
+     else
+-        presenting = fromResolve && PresenterRecordCopy(C().list->Real(), shown, overlay, kOverlayW, kOverlayH, timer, kTimerW, kTimerH);
++        presenting = fromResolve && PresenterRecordCopy(C().list->Real(), shown, overlay, kOverlayW, kOverlayH, timer, kTimerW, kTimerH, fps, kFpsW, kFpsH);
+     {
+         const uint64_t traceFrame = TraceFrame();
+         if (traceFrame && g_r.frame + 1 == traceFrame)
+@@ -13763,7 +13930,7 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         C().list->Call(
+             [](ID3D12GraphicsCommandList* l, void* ctx) {
+                 const AsyncEnd& e = *static_cast<const AsyncEnd*>(ctx);
+-                const bool show = e.copy && PresenterRecordCopy(l, e.shown, e.overlay, kOverlayW, kOverlayH, e.timer, kTimerW, kTimerH);
++                const bool show = e.copy && PresenterRecordCopy(l, e.shown, e.overlay, kOverlayW, kOverlayH, e.timer, kTimerW, kTimerH, e.fps, kFpsW, kFpsH);
+                 l->Close();
+                 ID3D12CommandList* lists[] = { l };
+                 SubmitLists(1, lists);
+diff --git a/src/render/presenter.cpp b/src/render/presenter.cpp
+index de96070..9d17135 100644
+--- a/src/render/presenter.cpp
++++ b/src/render/presenter.cpp
+@@ -441,7 +441,7 @@ void PresenterUseRenderer()
+ }
+ 
+ bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, ID3D12Resource* overlay, uint32_t overlayW, uint32_t overlayH,
+-    ID3D12Resource* timer, uint32_t timerW, uint32_t timerH)
++    ID3D12Resource* timer, uint32_t timerW, uint32_t timerH, ID3D12Resource* fps, uint32_t fpsW, uint32_t fpsH)
+ {
+     if (!g_p.ready)
+         return false;
+@@ -499,6 +499,17 @@ bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, I
+         from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+         list->CopyTextureRegion(&dst, offsetX, offsetY, 0, &from, nullptr);
+     }
++    if (fps && fpsW <= std::min<UINT64>(sd.Width, bd.Width) && fpsH + 12 <= bd.Height)
++    {
++        // Top centre of the picture.
++        D3D12_TEXTURE_COPY_LOCATION dst{}, from{};
++        dst.pResource = backBuffer;
++        dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++        from.pResource = fps;
++        from.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++        const UINT shownW = UINT(std::min(sd.Width, bd.Width));
++        list->CopyTextureRegion(&dst, offsetX + (shownW - fpsW) / 2, offsetY + 12, 0, &from, nullptr);
++    }
+     b.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+     b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+     std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
+diff --git a/src/render/presenter.h b/src/render/presenter.h
+index 843e1d9..e9aaf61 100644
+--- a/src/render/presenter.h
++++ b/src/render/presenter.h
+@@ -30,8 +30,9 @@ ID3D12CommandQueue* RenderQueue();
+ // after executing the list.
+ // overlay (COPY_SOURCE RGBA8, overlayW x overlayH) is copied over the top-left corner when given.
+ // timer (same kind, timerW x timerH) goes in the very corner, the overlay below it.
++// fps (same kind, fpsW x fpsH: the fps panel) goes at the top centre.
+ bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, ID3D12Resource* overlay = nullptr, uint32_t overlayW = 0, uint32_t overlayH = 0,
+-    ID3D12Resource* timer = nullptr, uint32_t timerW = 0, uint32_t timerH = 0);
++    ID3D12Resource* timer = nullptr, uint32_t timerW = 0, uint32_t timerH = 0, ID3D12Resource* fps = nullptr, uint32_t fpsW = 0, uint32_t fpsH = 0);
+ void PresenterPresent();
+ // The swap chain to a new output size (host GPU idle; renderer.cpp ApplyOutputSize).
+ void PresenterResize(uint32_t width, uint32_t height);

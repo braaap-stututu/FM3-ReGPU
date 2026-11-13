@@ -74,6 +74,13 @@
 - New live tool kept: **`FM3_SCENE_SKIP=<hex>[,...]`** (`src/hooks/mirror.cpp`) skips scene steps or car-draw call
   sites in the main view too: `8283A8D0` the opaque cars, `8283AB40` their glass/lights, `828379A0` the cars in the
   shadow map, `82592444` the shadow method's car renderer call.
+- **Fps counter and frame-time graph (user's request):** ReGPU patch 41 `regpu-fps-panel` (live `REGPU_FPS_PANEL`),
+  launcher Graphics "Fps counter and frame-time graph" = settings.ini `fps_panel=1` (off by default; `src/gpu_host.cpp`).
+  A 400x110 panel at the top centre: "N fps, avg ms, p99 ms" (last half second, text 4x a second) over the last 400
+  frames' times (guide lines 360/240/144/60 fps; yellow > 1.5x average, red > 2x). Copied onto the back buffer like
+  the timer, so debug-server shots don't show it: `REGPU_FPS_PANEL_DUMP=1` writes `fps_panel.png` (checked: grid
+  "335 fps 2.98 ms p99 4.43 ms", drive "338 fps"). Cost under the full perf log load -0.8% (1/3 rounds, noise).
+  The PGO profile predates this patch (its functions just have no profile data).
 - **L23 PGO build of ReGPU (user's request): BUILT, our build uses it.** CMake `FM3_PGO=off|gen|use` (only the
   `regpu` target changes); profile `pgo/regpu.profdata` recorded with the instrumented build (`gen`) on the frozen
   grid, the cockpit camera and a 12 s drive (`src/pgo.cpp` writes it on `Fm3 "env FM3_PGO_WRITE 1"`: the game's

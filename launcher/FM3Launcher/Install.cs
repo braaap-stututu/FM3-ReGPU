@@ -73,6 +73,7 @@ public sealed class GameSettings
     public bool CarLodFar { get; set; }            // car_lod_far: AI cars past the nearest 1-2 at detail level 3 (session 32, L60; read by the game)
     public bool AnisoFromGame { get; set; }        // aniso_from_game: REGPU_ANISO_FROM_FETCH, each texture's own anisotropy instead of 16x (session 32, I8: GPU -3.8% at 4K; read by the game, so play.cmd too)
     public bool HideShaderOverlay { get; set; }    // REGPU_NO_OVERLAY
+    public bool FpsPanel { get; set; }             // fps_panel: fps counter and frame-time graph, top centre (session 32; read by the game)
     public bool Timer { get; set; } = true;        // the test timer, top left (off: FM3_NO_TIMER)
     public bool PerfLog { get; set; }              // REGPU_PERF: frame timings in fm3.log (times every draw: costs the draw thread)
     public bool PerfLogLight { get; set; }         // perf_log_light: REGPU_PERF_LITE, one line a second, no per-draw work (session 31; read by the game, so play.cmd too)
@@ -89,7 +90,7 @@ public sealed class GameSettings
     public string GameFolder { get; set; } = "";
 
     // The racing wheel's wheel_* keys are the Wheel stuff tab's (Wheel.cs); Save keeps them like any other key it doesn't know.
-    static readonly string[] Known = ["profile", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
+    static readonly string[] Known = ["profile", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
 
     public static GameSettings Load()
     {
@@ -120,6 +121,7 @@ public sealed class GameSettings
                 case "car_lod_far": s.CarLodFar = v == "1"; break;
                 case "hide_shader_overlay": s.HideShaderOverlay = v == "1"; break;
                 case "timer": s.Timer = v != "0"; break;
+                case "fps_panel": s.FpsPanel = v == "1"; break;
                 case "perf_log": s.PerfLog = v == "1"; break;
                 case "perf_log_light": s.PerfLogLight = v == "1"; break;
                 case "draw_workers": s.DrawWorkers = v == "1"; break;
@@ -149,7 +151,7 @@ public sealed class GameSettings
         sb.Append($"language={Language}\n");
         sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n"); // (session 23: these three were read but never saved)
         sb.Append($"perf_preset={(PerfPresets.Contains(PerfPreset) ? PerfPreset : "off")}\n");
-        sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\ndebug_server={B(DebugServer)}\n");
+        sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\ndebug_server={B(DebugServer)}\n");
         sb.Append($"game_folder={Clean(GameFolder)}\n");
         foreach (var (k, v) in keep) sb.Append($"{k}={v}\n");
         Directory.CreateDirectory(Paths.User);

@@ -493,6 +493,11 @@ void GpuStart()
     // it; live: Fm3 "switch REGPU_TIMER 0|1".
     if (!getenv("FM3_NO_TIMER"))
         DefaultEnv("REGPU_TIMER", "1");
+    // Fps panel (session 32, our ReGPU patch regpu-fps-panel): fps, frame times and a frame-time graph at the top
+    // centre. settings.ini fps_panel=1 (launcher Graphics "Fps counter and frame-time graph"); live:
+    // Fm3 "switch REGPU_FPS_PANEL 0|1".
+    if (GetSettings().Extra("fps_panel") == "1")
+        DefaultEnv("REGPU_FPS_PANEL", "1");
 
     // Q24: the main loop runs on guest vblanks (src/hooks/frame_time.cpp). At the frame cap's 60
     // (the default) one vblank per frame, as before; at other caps (max_fps, or the display's
