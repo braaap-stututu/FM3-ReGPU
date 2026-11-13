@@ -11,7 +11,7 @@ No game data is in this repository. You need your own disc dump.
 
 ## Status
 
-**"Playable."** The game boots, can run and finish the audi r8 race and do career races. Performance on my 9800X3D and 7900XTX at 1440p native with 4x MSAA currently hovers around 300-360fps in races when around ai cars and maxes out at around 360fps in time trial or if no ai cars are visible/near (360 is the games tick rate, going higher is not possible). The difference is GPU time for drawing the AI cars' paint and materials (about 0.19 ms per car), which is being worked on. Controller and keyboard work. Wheel support integrated from my FM4 fork but not yet tested. The random crash on some race loads (an AI driver with an empty name) has a workaround and hasn't come back; its cause is still being looked into. Vinyls cover nearly the whole car now, with small gaps at the edges of some cars. Disc 2 (the Content Install Disc: 6 car packs, 2 track packs) installs from its disc image and works in game; since session 18 the DLC packs' database patches are applied too (they never ran before: the game looks for them as loose files). Music now plays in menus and races. Optional: skip the intro, or start straight into a quick race. Always make regular backups. Running log and roadmap: [NOTES.md](NOTES.md);
+**"Playable."** The game boots, can run and finish the audi r8 race and do career races. Performance on my 9800X3D and 7900XTX at 1440p native with 4x MSAA currently hovers around 300-360fps in races when around ai cars and maxes out at around 360fps in time trial or if no ai cars are visible/near (360 is the games tick rate, going higher is not possible). Below the cap, the limit near AI cars is now ReGPU's draw thread (the CPU side); at 4K it is the GPU (about 229 fps on a frozen race grid). Since session 31 the per-frame upload ring sits in VRAM (needs resizable BAR / Smart Access Memory; on by default, launcher toggle "Upload ring in VRAM"): +18-26% at 1440p 4x MSAA, picture identical ([docs/VRAM-UPLOAD-RING.md](docs/VRAM-UPLOAD-RING.md)). Controller and keyboard work. Wheel support integrated from my FM4 fork but not yet tested. The random crash on some race loads (an AI driver with an empty name) has a workaround and hasn't come back; its cause is still being looked into. Vinyls cover nearly the whole car now, with small gaps at the edges of some cars. Disc 2 (the Content Install Disc: 6 car packs, 2 track packs) installs from its disc image and works in game; since session 18 the DLC packs' database patches are applied too (they never ran before: the game looks for them as loose files). Music now plays in menus and races. Optional: skip the intro, or start straight into a quick race. Always make regular backups. Running log and roadmap: [NOTES.md](NOTES.md);
 game-specific quirks: [FM3-QUIRKS.md](FM3-QUIRKS.md).
 
 Fixed so far (all confirmed in game):
@@ -75,10 +75,12 @@ The first boot compiles shaders, so expect stutter until the cache is built.
 **Launcher** (`launcher/FM3Launcher`, ported from the FM4 ReGPU launcher; needs the .NET 9 SDK to build):
 `dotnet build launcher\FM3Launcher -c Release`, or double-click `launcher.cmd`, which builds it if needed and
 uses the same folders as `play.cmd`. Tabs: **Play** (game folder, `default.xex` check, Disc 2 content install,
-language, skip intro, start in a quick race, Play),
+language, skip intro, start in a quick race, start on the test grid, Play),
 **Profiles** (switch, create, duplicate, rename, back up, restore, export, import, delete), **Graphics**
-(resolution, aspect, fullscreen, frame cap, VSync, MSAA, FSR 1/3, anisotropy) and **Settings** (shader cache,
-folders, test timer, debug server, performance log, and A/B toggles: draw workers, engine sound crossfade). It edits `settings.ini` in the user folder and starts
+(resolution, aspect, fullscreen, frame cap, VSync, MSAA, FSR 1/3, anisotropy, speed preset), **Wheel stuff** (steering,
+force feedback, pedals, shifter, handbrake) and **Settings** (shader cache, folders, test timer, debug server, full and
+light performance logs, and toggles: draw workers, asynchronous present, upload ring in VRAM, one guest tile,
+half-rate mirror, engine sound crossfade). It edits `settings.ini` in the user folder and starts
 `fm3.exe` from `out\run`. `FM3Launcher.exe --play` starts the game with the saved settings, without the window.
 
 **Disc 2:** on the launcher's Play tab, "Disc 2 content" > "Install from .iso…" (or "From folder…" for an
@@ -100,7 +102,7 @@ W / S = throttle / brake, A / D = steer, Q / E = LB / RB, J L I K = right stick.
 |---|---|
 | `CMakeLists.txt` | The game build (needs `out/ppc`, `thirdparty/fidelityfx`, `thirdparty/ffmpeg`) |
 | `config/` | XenonRecomp config and switch tables for `default.xex` |
-| `patches/` | 5 XenonRecomp + 18 ReGPU patches, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
+| `patches/` | 5 XenonRecomp + 40 ReGPU patches, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
 | `src/` | Runtime: kernel/XAM, loader, threads, fibers, audio, ReGPU host glue ([src/README.md](src/README.md)) |
 | `install-disc2.cmd` | Installs Disc 2's content packages from the disc image (same as the launcher's Disc 2 tile) |
 | `play.cmd` | Development launcher (debug server on, saves in `out/user`, log in `out/run`) |
