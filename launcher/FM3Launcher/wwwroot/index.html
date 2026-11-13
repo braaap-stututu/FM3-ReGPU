@@ -393,6 +393,10 @@
         <div><div class="toggle-title">Half-rate mirror</div><div class="toggle-sub">Performance (cockpit view), for high frame rates, off by default</div></div>
         <button class="switch" id="halfRateMirror" role="switch"></button>
       </div>
+      <div class="toggle-row" data-tip="Redraws the cars' shadows on the track on every second frame and keeps the previous shadows in between. Every car is drawn a second time from the sun's direction for its shadow (about 70 draws a car), which costs ReGPU's draw thread about a fifth of its time on a race grid. The shadows lag one frame (about 3 ms at 360 fps). Best with a high frame rate. Read when the game starts.">
+        <div><div class="toggle-title">Half-rate car shadows</div><div class="toggle-sub">Performance (races with AI cars), for high frame rates, off by default</div></div>
+        <button class="switch" id="halfRateShadows" role="switch"></button>
+      </div>
       <div class="toggle-row" data-tip="Blends the end of each piece of engine sound into the next (about 9 ms) where the sound jumps, after the FM2 port's fix for rev hitches, and keeps the end of the piece that was dropped there. Experimental: compare with it off. Read when the game starts.">
         <div><div class="toggle-title">Engine sound crossfade</div><div class="toggle-sub">Audio A/B, off by default</div></div>
         <button class="switch" id="engineCrossfade" role="switch"></button>

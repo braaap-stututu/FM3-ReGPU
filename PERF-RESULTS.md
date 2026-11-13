@@ -92,6 +92,17 @@ FM3's shadow options at boot (2 boots each, picture vs base masked): `fastcastsh
 2.71 vs 2.80 ms, GPU 4.12 vs 4.12, 0.013% of pixels; `fastdropshadows=1` same draws, no change, 0.006-0.011%. Neither
 is a lever.
 
+**L58 car shadows at half rate (`src/hooks/car_shadows.cpp`, `FM3_SHADOW_RATE`; `out/perf/s32shadow/`):**
+
+| Test | Rate 1 | Rate 2 | Rate 3 | Picture |
+|---|---|---|---|---|
+| 1440p 4x, full perf log (draw-thread bound), live 4 rounds | 255.0 | 276.0 (**+8.2%**, 4/4) | 280.8 (+9.3%, 2 rounds) | 0 pixels |
+| 4K 4x, light log, live | 196.5 | 200.8 (+2.2%) | 201.8 | 0 pixels (rate 1000: 205.7, +4.7%) |
+| 1440p grid / 12 s drive, no log (cap 360) | 326.5-357.7 / 352.4-359.0 | 345-360 / 355.2-356.6 | - | - |
+
+Skipping only the drop-shadow method (first try) left the passes cleared and resolved empty: the shadows blinked on
+every skipped frame. The whole pass (begin `sub_827B4D30`, method, end `sub_827B4E40`) must go.
+
 ## Session 31 (2026-11-13): the VRAM ring again, after session 30's byte cuts
 Frozen grid, 1440p 4x, user's settings (one tile, half-rate mirror), perf log off. "Drive" = `Test-Drive` in
 `tools/perf_suite.ps1`: the frozen race released with the right trigger held for 12 s (automatic gearbox; ~6 s of

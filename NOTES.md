@@ -55,17 +55,22 @@
   the shadow-map render function; ~0.22 ms a frame of draw thread = ~8% below the cap; risk: shadows a frame late,
   ~0.2 m at 300 km/h at 360 fps); (b) shadow map only for cars near the camera (fewer draws, distant cars' shadows
   are tiny); (c) per-draw cost on the draw thread (1.02 us; no cheap cut left, NOTES session 31).
-- **(a) half-rate car shadow map: tried, does not work as a simple skip (user said build it; nothing shipped).**
-  The car shadow map comes from the drop-shadow effect's method `sub_82592168` (virtual call; traced: it calls the car
-  renderer from 82592444, whose shadow loop draws from 828379A0). It runs twice a frame from `sub_827B5088`
-  (827B5164 with r4=1, 827B51A4 with r4=0; the object's +720 set 1, 0, then -1). Phase 1 draws the cars' depth from the
-  sun and resolves it (`18946000`, a depth copy; ~500 draws); phase 0 (~96 draws) processes it (`18708000` resolved
-  twice, `152FA000`, `05ABB000`, three 4x 256x256 passes). **Skipping either phase loses that frame's car shadows**
-  (rate 2 blinks every other frame: 3.8% of pixels; counting calls across both call sites first skipped the main
-  map every time), although no other resolve writes those images; `REGPU_FREEZE_RESOLVES` with `18708000` brings most
-  back (0.6% left), so the game needs more from the chain each frame than its images. Draws at rate 1000: 2,673 ->
-  ~2,170. The car detail field +596 does nothing in the shadow loop (0 pixels, same draws at levels 1-3). The hook
-  (`src/hooks/car_shadows.cpp`) and the detail-level test were removed; PERF-PLAN L58 has the details and a next step.
+- **Half-rate car shadows (L58): BUILT, opt-in** (user: "build it", then "keep digging"). Launcher Settings > Testing
+  "Half-rate car shadows" = settings.ini `shadow_rate=2` (off by default), live `FM3_SHADOW_RATE=N`;
+  `src/hooks/car_shadows.cpp`. How the car shadows work: `sub_827B5088` drives them once a frame in two phases
+  (r4 = 1, then 0; object +720 = phase): `sub_827B4D30` begins the pass (target, clear), the drop-shadow method
+  `sub_82592168` (virtual slot +20) draws the cars (car renderer from 82592444, its shadow loop from 828379A0),
+  `sub_827B4E40` ends it (two D3D resolves via `sub_824C3CF0`, which forms RB_COPY_CONTROL). Phase 1 = the cars' depth
+  from the sun (256x256 depth copy), phase 0 = blur/projection into the images the ground-shadow passes
+  (`fd6b3d2a...`, `9e50ba14...`, a 512x512 image filled in its lower half) and every car material (t2-t6, a 4x
+  256x256 image) read. **First try skipped only the method: the passes were still cleared and resolved, empty, so the
+  shadows blinked** (rate 2: every other frame 3.8% of pixels). **Skipping begin + method + end** leaves no clear and
+  no resolve: ReGPU keeps last frame's images. Results (`out/perf/s32shadow/`): frozen grid 0 pixels at rates 2, 3,
+  1000, no blinking in consecutive frames; **1440p 4x under the full perf log (draw-thread bound): +8.2% at rate 2
+  (255 -> 276, 4/4 rounds), +9.3% at rate 3**; 4K: +2.2% (rate 2), +4.7% (1000); draws 2,673 -> ~2,140 when off.
+  Without the perf log this PC is at the 360 cap at 1440p either way (grid and 12 s drives 352-360 both). Drive shots
+  at rate 2 (60 km/h) show no visible shadow lag. **Next: the user drives with it on** (shadows a frame late: ~3 ms at
+  360 fps), then decide on a default.
 - New live tool kept: **`FM3_SCENE_SKIP=<hex>[,...]`** (`src/hooks/mirror.cpp`) skips scene steps or car-draw call
   sites in the main view too: `8283A8D0` the opaque cars, `8283AB40` their glass/lights, `828379A0` the cars in the
   shadow map, `82592444` the shadow method's car renderer call.
