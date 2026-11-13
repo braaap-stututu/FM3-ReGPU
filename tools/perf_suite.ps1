@@ -110,6 +110,17 @@ function Set-Live([string]$Kind, [string]$Name, [string]$Value) {
     if ($Kind -eq 'switch') { Fm3 "switch $Name $Value" | Out-Null } else { Fm3 "env $Name $Value" | Out-Null }
 }
 
+# GPU ms a frame (and fps) from the light performance log (boot with REGPU_PERF_LITE=1; session 31): waits N+1 s,
+# then averages the last N `perf lite:` lines. For GPU-side leads at 4K, where fps alone may sit at a limit.
+function Get-LiteGpu([int]$N = 4) {
+    Start-Sleep ($N + 1)
+    $l = Select-String -Path $Suite.Log -Pattern 'perf lite: ([\d.]+) fps.*GPU ([\d.]+) ms/frame' | Select-Object -Last $N
+    [pscustomobject]@{
+        Gpu = [math]::Round(($l | ForEach-Object { [double]$_.Matches[0].Groups[2].Value } | Measure-Object -Average).Average, 3)
+        Fps = [math]::Round(($l | ForEach-Object { [double]$_.Matches[0].Groups[1].Value } | Measure-Object -Average).Average, 1)
+    }
+}
+
 # Let the frozen grid's race go with the throttle held for $Seconds (session 31: fps with moving cars; automatic
 # gearbox). Once per boot: the race can't be put back on the grid. fps = 1 s `status` samples; frame times
 # (average, p99) from `frametimes` over the same stretch. Leaves the race running.

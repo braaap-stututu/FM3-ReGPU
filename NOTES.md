@@ -25,7 +25,43 @@
   pipeline from the user before reverse-engineering anything ourselves. Related: "FM4 Imported" (446 FM4 cars in FH1,
   moddb) shows the 360-era car path; Reddit counts 243 FM4 cars missing in FM3.
 
-### ▶ Start here (session 32): state at the end of session 31 (2026-11-13, hands-off hour while the user was AFK)
+### ▶ Start here (session 32): state at the end of session 31 (2026-11-13)
+- **In short:** session 31 made the **upload ring in VRAM the default** (L47: frozen grid 1440p 4x +26%, 12 s
+  drives +18% to the 360 cap, 4K +22%, 0 pixels; the user's races with the perf log off clearly faster), built the
+  **light performance log** (ReGPU patch 39, near-free; the full log costs -18..-25% and is kept as a deliberate
+  draw-thread load) and **PassScales per draw** (patch 40, +3.8% under load). Tested and dropped: constant reuse,
+  index hash once, stable uploads, index buffers by write watch, **L55** barrier batching, **L54** fast clears; I8 left
+  off (GPU -3..-5%, slight filtering change). 40 ReGPU patches. Write-up of the VRAM ring for other ports (asked by
+  the FH1R lead): [docs/VRAM-UPLOAD-RING.md](docs/VRAM-UPLOAD-RING.md).
+- **Where the limits are now (RX 7900 XTX):** 1440p 4x: the grid and drives sit at the user's 360 cap; ReGPU's draw
+  thread ~94% busy is the limit underneath (GPU 2.5 of 2.8 ms). 4K 4x: grid 228.7 fps, GPU 4.10 of 4.38 ms =
+  GPU-bound (draw thread ~60%).
+- **How to test (agreed this session):**
+  - **GPU-side leads at 4K 4x:** back up `out/user/settings.ini`, set `resolution=3840x2160`, boot the frozen grid with
+    `REGPU_PERF_LITE=1`, read `perf lite:` GPU ms/frame (6 alternating live rounds, or 2 boots per side for start-time
+    switches), restore settings.ini.
+    `Get-LiteGpu` in `tools/perf_suite.ps1` (average GPU ms of the last N `perf lite:` lines).
+  - **Draw-thread leads at 1440p 4x with the full perf log (`REGPU_PERF=1`) as the load:** the grid then runs ~267
+    fps, draw-thread bound, below the cap: `Test-Live` A/B.
+  - **Moving cars:** `Test-Drive <id> <variant> 12` after the grid numbers (one per boot).
+  - **User drives:** launcher "Light performance log" on (settings.ini `perf_log_light=1`; it is 0 now), compare with
+    `python -I tools/analysis/drives.py <logs>` (reads `perf lite:` lines).
+  - Every lead stays behind a switch; check the picture with `Get-PixelDiff` (live) or `pngdiff_mask.py` (boots).
+- **Next (ask the user which):**
+  1. **L56 render-target formats** (the one real GPU lead left): every EDRAM surface is RGBA16F, 8 bytes a sample at
+     4x MSAA. First measure, no code: which guest formats FM3's passes use (`Fm3 "capture"` on the grid, the
+     `RB_COLOR_INFO` format per pass; `tools/analysis/passes.py`) and how much of the 4K GPU frame the main pass
+     (base 500000, ~68% of GPU time) spends on bandwidth (RGP at 4K, method in PERF-RESULTS "Session 29"). Only if the
+     main scene is 8888 / 2_10_10_10 (not 2_10_10_10_FLOAT or 16F) is a 32-bit host format worth the large change.
+  2. **Re-check at 4K** what only ran at 1440p this session: I8 (GPU -3..-5% there) and the leads from session 23 that
+     were GPU-side (I2 lean fetch 2, I3 plain multiply), now with the light log's GPU ms.
+  3. **AI-car material cost** (session 20's open question: ~0.19 ms a car of pixel shading): per-shader price list at 4K
+     (`ps <hash> float4(0,0,0,1)` on the grid, GPU ms per edit), then decide on V2 variable-rate shading.
+  4. Draw thread (matters below the cap and on slower CPUs): DrawImpl itself 29%, upload hashing 3.5%; no cheap cut
+     left that measured, so only with a new idea.
+- **User's settings.ini now:** 2560x1440, msaa 4, cap 360, perf_log 0, perf_log_light 0, vram_upload_ring 1,
+  one_tile 1, mirror_rate 2. Game and launcher built at HEAD.
+- Details of session 31, in order, below.
 - **Main result: the upload ring in VRAM (L47, launcher toggle "Upload ring in VRAM" = `vram_upload_ring=1`) now WINS
   big, 0 pixels differ.** Session 30's byte cuts (2,996 -> ~1,060 constant bytes a draw, written as one run) made
   writing them through resizable BAR cheap. Frozen grid 1440p 4x (user's settings: one tile, half-rate mirror),
