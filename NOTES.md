@@ -37,7 +37,15 @@
 - **I8 is now a launcher option (user's request), off by default:** Graphics "Anisotropy as the game asks" =
   settings.ini `aniso_from_game=1`, read by the game (`src/gpu_host.cpp` -> `REGPU_ANISO_FROM_FETCH=1`, so `play.cmd`
   runs follow it too). Checked: a grid boot with it in settings.ini gave GPU 3.978 ms (I8 boots 3.97, base 4.12).
-- Next on the list: AI-car material cost at 4K (per-shader price list), then V2 VRS.
+- **AI-car material cost at 4K (price list, PERF-RESULTS "Session 32"):** every car material's pixel shading together
+  is ~0.27 ms of a 4.2 ms GPU frame; the paint/livery layer `e41e183a423e6f1b` 0.15-0.18 ms (noise-output check: not
+  colour compression), the player's car ~half of it; AI cars ~0.05-0.1 ms. **V2 (VRS on AI cars) not worth building
+  (< 1%).** Session 20's ~0.19 ms a car must be per-car work elsewhere (shadow maps, reflections, mirror, vertices,
+  draw thread). The largest single GPU items now are full-screen passes (`fd6b...`, `5b7e...`, `9e50...`: ~0.1 ms each).
+- Tool notes: `ps <hash> <expr>` names the pixel input `input` (e.g. `input.pos.xy`); black edits of full-screen post
+  passes can make the frame slower (`8be0...` +0.42 ms): use them only on scene draws.
+- Possible next leads (ask): where AI cars cost outside the main pass (a race grid vs an empty-track grid, per pass with
+  `REGPU_GPU_PASSES=1`); the three full-screen passes (what they are, resolution, sample count at 4x MSAA).
 
 ### ▶ Start here (session 32): state at the end of session 31 (2026-11-13)
 - **In short:** session 31 made the **upload ring in VRAM the default** (L47: frozen grid 1440p 4x +26%, 12 s

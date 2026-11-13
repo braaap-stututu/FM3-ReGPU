@@ -43,7 +43,32 @@ results `out/perf/s32k4/`):
 | I3 `REGPU_PLAIN_MUL_PS=1` | 4.020, 4.022 | -2.5% | 232.6, 232.1 | masked 0.003-0.009%, but the known black flags are in the masked crowd |
 
 I2 is no gain at 4K either (`LEAN_FETCH=2` is slower; both stay preset-only). I8 and I3 are the only GPU gains left
-among the built switches; both change the picture (I8 by design, I3 a bug).
+among the built switches; both change the picture (I8 by design, I3 a bug). I8 is now a launcher option (off).
+
+**AI-car material cost at 4K 4x (PERF-PLAN V2 decision; frozen grid, `REGPU_GPU_SHADERS=1` + light log; results and
+shots `out/perf/s32cars/`):** the 22 most expensive pixel shaders by the per-draw timestamps (2.14 of 4.14 ms), each
+replaced live by black (`ps <hash> float4(0,0,0,1)`), GPU ms from the light log before/after, a shot to see what it
+draws (base drifted 4.16 -> 4.20 ms over the run; each saving is against the base just before):
+
+| Pixel shader | Draws | Timestamp ms | Saved when black | What it draws |
+|---|---|---|---|---|
+| `e41e183a423e6f1b` | 63 | 0.377 | **0.16-0.18** (noise output: 0.15) | car paint/livery layer, all cars (11% of the screen: player 6%, rest 5%) |
+| `fd6b3d2ab76c24bb` | 8 | 0.143 | 0.112 | full-screen pass (86%) |
+| `5b7efac9b0c87a00` | 1 | 0.143 | 0.098 | full-screen pass (97%) |
+| `9e50ba148b27a974` | 9 | 0.068 | 0.060 | full-screen-ish pass (79%) |
+| `d718f5baa482d47c` | 34 | 0.083 | 0.057 | small car lights (0.1% of the screen) |
+| `0e7558eb6ace5e51` | 20 | 0.037 | 0.025 | road surface (56%) |
+| `f7841c0a8245eabf`, `c252f6accc4cf3b6`, `b117fbafcc1fa980` | 68, 11, 171 | 0.09, 0.06, 0.21 | 0.02, 0.02, 0.01 | car tail lights, player-car trim, car glass/lights |
+| `8be0d4632b7d3122`, `c244a21ac3a9be63` | 152, 2 | 0.29, 0.07 | -0.42, 0 | full-screen post passes (black changes what follows) |
+| the rest (10 shaders) | | | <= 0.03 each | track, barriers, crowd, sky |
+
+Checks: the paint shader with a per-pixel noise output instead of black saved 0.15 ms (black 0.18: colour compression
+is only ~0.03 of it). Collapsing the paint layer's vertices (`vs a102319a5aef757b o[0] = float4(2,2,2,1);`) saved only
+0.015 ms: the cars are drawn in layers and the grey layer underneath then shades those pixels. **Conclusion: pixel
+shading of every car material together is ~0.27 ms of 4.2 (6%), the player's car about half of it; the AI cars' share
+is ~0.05-0.1 ms. V2 variable-rate shading on AI cars could save < 1%: not worth building.** Session 20's ~0.19 ms a car
+(race vs time trial, 1440p) must come from per-car work outside the main pass's shading (shadow maps, reflections, the
+mirror, vertices, the draw thread), not from material pixels.
 
 ## Session 31 (2026-11-13): the VRAM ring again, after session 30's byte cuts
 Frozen grid, 1440p 4x, user's settings (one tile, half-rate mirror), perf log off. "Drive" = `Test-Drive` in
