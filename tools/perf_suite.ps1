@@ -110,6 +110,27 @@ function Set-Live([string]$Kind, [string]$Name, [string]$Value) {
     if ($Kind -eq 'switch') { Fm3 "switch $Name $Value" | Out-Null } else { Fm3 "env $Name $Value" | Out-Null }
 }
 
+# Let the frozen grid's race go with the throttle held for $Seconds (session 31: fps with moving cars; automatic
+# gearbox). Once per boot: the race can't be put back on the grid. fps = 1 s `status` samples; frame times
+# (average, p99) from `frametimes` over the same stretch. Leaves the race running.
+function Test-Drive([string]$Id, [string]$Variant, [int]$Seconds = 10) {
+    Fm3 'trigger R 1' | Out-Null
+    Fm3 'env FM3_FREEZE_TIME 0' | Out-Null
+    Fm3 'frametimes' | Out-Null
+    $f = @(); $d = @()
+    for ($i = 0; $i -lt $Seconds; $i++) {
+        Start-Sleep -Milliseconds 1000
+        $s = Fm3 'status' | ConvertFrom-Json
+        $f += $s.fps; $d += $s.draws
+    }
+    $ft = Fm3 'frametimes' | ConvertFrom-Json
+    Fm3 'trigger R 0' | Out-Null
+    $m = [pscustomobject]@{ Fps = [math]::Round(($f | Measure-Object -Average).Average, 1); Samples = ($f -join ' '); Draws = [math]::Round(($d | Measure-Object -Average).Average) }
+    Add-Result $Id "$Variant drive" $m '' "frame avg $($ft.avg) ms p99 $($ft.p99) ms max $($ft.max) ms; draws $($d -join ' ')"
+    Write-Note "$Id $Variant drive ${Seconds}s: $($m.Fps) fps ($($m.Samples)), draws ~$($m.Draws), frame avg $($ft.avg) p99 $($ft.p99) max $($ft.max) ms"
+    $m
+}
+
 # Interleaved live A/B: $Rounds x (off, on), N fps samples each after 3 s settling; shots of round 1's sides and
 # their pixel diff (same game session, frozen: exact). Leaves the switch at $Restore.
 function Test-Live([string]$Id, [string]$Name, [string]$Kind = 'switch', [string]$Off = '0', [string]$On = '1', [int]$Rounds = 4, [string]$Restore = $Off) {

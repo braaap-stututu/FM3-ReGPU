@@ -13,6 +13,25 @@ Scripts: `tools/perf_suite.ps1` (boot to the frozen grid, fps, shots, interleave
 `tools/perf/session23/s23_*.ps1` (copies of `out/perf/s23_*.ps1`).
 
 
+## Session 31 (2026-11-13): the VRAM ring again, after session 30's byte cuts
+Frozen grid, 1440p 4x, user's settings (one tile, half-rate mirror), perf log off. "Drive" = `Test-Drive` in
+`tools/perf_suite.ps1`: the frozen race released with the right trigger held for 12 s (automatic gearbox; ~6 s of
+countdown first, the last seconds hit the 360 cap). Results/journal `out/perf/s31/`.
+
+| Test | Ring in system memory | Ring in VRAM | Change | Picture |
+|---|---|---|---|---|
+| Grid, live A/B 4 rounds | 281.6 | 355.7 | **+26.3%** (4/4) | 0 pixels |
+| Grid, separate boots | 281.2, 282.5 | 355.2, 354.3 | +26% | - |
+| Drive 12 s (fps; p99 frame) | 300.9, 298.4, 296.0; 4.55-4.67 ms | 356.6, 352.9, 352.3; 3.44-3.62 ms | **+18%** (capped) | - |
+| Cockpit grid, live 4 rounds | 283.4 | 354.1 | **+24.9%** (4/4) | 0 pixels |
+| Cockpit drive 12 s | 296.9 | 352.6 | +18.8% (capped) | - |
+| 720p 1x grid, live 4 rounds (CPU-bound) | 354.1 (at the cap) | 351.1 | -0.8% (1/4) | 0 pixels |
+
+Threads (`tools/perf/threads.ps1`, grid): ring off: command list replay 98%, draw worker 74%, CP 65%, t7 41%; GPU
+3.42 ms of 3.54 (`REGPU_GPU_PASSES=1`). The replay thread's 98% is AMD's driver waiting for queue space inside
+`ExecuteCommandLists` (sampled: ~85% `SleepEx`/QPC under `amdxc64` `SubmitLists`), so the grid is GPU-bound. Ring on:
+draw worker 96.5% (2.72 ms a frame vs 2.62 ms off), CP 75%, replay 22%: draw-thread bound again, near the cap.
+
 ## Session 30 (2026-11-12): L57 bytes written per draw
 Frozen grid, `perf_log=0`, 2,661 draws a frame. Live trace `REGPU_TRACE_CONSTANT_BYTES` (new, patch 35) splits what
 the draw thread writes to the upload ring for constants:

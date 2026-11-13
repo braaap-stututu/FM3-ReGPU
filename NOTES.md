@@ -25,6 +25,34 @@
   pipeline from the user before reverse-engineering anything ourselves. Related: "FM4 Imported" (446 FM4 cars in FH1,
   moddb) shows the 360-era car path; Reddit counts 243 FM4 cars missing in FM3.
 
+### ▶ Start here (session 32): state at the end of session 31 (2026-11-13, hands-off hour while the user was AFK)
+- **Main result: the upload ring in VRAM (L47, launcher toggle "Upload ring in VRAM" = `vram_upload_ring=1`) now WINS
+  big, 0 pixels differ.** Session 30's byte cuts (2,996 -> ~1,060 constant bytes a draw, written as one run) made
+  writing them through resizable BAR cheap. Frozen grid 1440p 4x (user's settings: one tile, half-rate mirror),
+  perf log off:
+  - live A/B, 4 rounds: **281.6 -> 355.7 fps (+26.3%)**; cockpit view 283.4 -> 354.1 (+24.9%); 4/4 rounds each, 0 pixels.
+  - separate boots (two each): grid 281.2/282.5 vs 355.2/354.3.
+  - **12 s drives** (new: the race released, right trigger held, automatic gearbox; the first ~6 s are the countdown):
+    ring off 300.9/298.4/296.0 fps, p99 frame 4.55-4.67 ms; ring on 356.6/352.9/352.3, p99 3.44-3.62 ms (the last
+    half sits at the 360 cap). Cockpit drive 296.9 vs 352.6.
+  - 720p 1x (CPU-bound; off side at the cap): 354.1 vs 351.1 (-0.8%; was -5.1% in session 29).
+  - Draw thread a frame: ring off 74% busy at 282 fps = 2.62 ms; ring on 96.5% at 355 = 2.72 ms: the BAR penalty is
+    ~4% now (the session-29 race loss came from it being ~10%+ with 3x the bytes).
+- **Why the grid was stuck at ~282 with the ring off:** not the CPU. `tools/perf/threads.ps1` showed "command list
+  replay" at 98% of a core, but its profile (`FM3_SAMPLE_THREAD=name:command list replay`, callers 4) is ~85% AMD's
+  driver sleeping/polling inside `ExecuteCommandLists` (`SubmitLists`): it waits for GPU queue space. GPU time
+  (`REGPU_GPU_PASSES=1`) 3.42 ms of a 3.54 ms frame = GPU-bound, i.e. the GPU reading ~26 MB of constants a frame
+  over PCIe (what L47 fixes).
+- **Next: the user drives Crown Jewel with "Upload ring in VRAM" on** (launcher, perf log on), compare with
+  `out/run/fm3.drive30-packed.log` via `python -I tools/analysis/drives.py`. If it wins there too: make it the default
+  where resizable BAR is on (and update the launcher tooltip, which still says "only when the graphics card is
+  clearly the limit"). With it on, the draw thread is the limit again (~96%) but near the 360 cap on this PC.
+- Not built, decided: **L54 fast clears** (per frame two full-screen colour clears 2560x1440 on the 2560x2048
+  EDRAM surface + ~38 small ones; a fast clear needs the whole resource, whose lower rows may hold aliased EDRAM:
+  risky, ceiling ~2-3%). GPU-side leads (I8, L55) matter only with the ring off now.
+- New in `tools/perf_suite.ps1`: `Test-Drive <id> <variant> [seconds]` (unfreeze, hold RT, 1 s fps samples +
+  `frametimes`); results `out/perf/s31/`.
+
 ### ▶ Start here (session 31): state at the end of session 30 (2026-11-12/13)
 - **In short:** session 30 cut what ReGPU's draw thread writes per draw and found the race's limit moved.
   **User's race (Crown Jewel, 1440p 4x, ring in system memory): ~256 fps (session 29) -> ~285 fps (+11%).**
