@@ -90,8 +90,10 @@
   1-2, 1 to rank 3-4, 2 beyond; levels go to 4. Cars at level >= M are drawn at N. 1440p 4x, full perf log as the
   draw-thread load, interleaved 3 rounds: from 2 to 3: +1.9%, to 4: +1.2% (0.008% of pixels: only the furthest
   cars); **from 1 to 3: +4.1% (-89 draws, 0.15% of pixels), to 4: +5.1% (-119 draws, 0.25%: visible on the
-  mid-distance cars: mirrors, badges, tail-light detail gone).** Not an option yet: the user's call (a launcher toggle
-  "lower detail for distant AI cars", from 2 or from 1 to 3).
+  mid-distance cars: mirrors, badges, tail-light detail gone).** **Now a launcher option (user's request: barely
+  visible at 720p, good for iGPU users):** Graphics "Lower detail for distant AI cars" = settings.ini `car_lod_far=1`
+  (level 3 from level 1), off by default, read by the game (`src/hooks/mirror.cpp`; `FM3_CAR_LOD_FAR` overrides,
+  0 = off). Checked: a grid boot with it logs `cars: distant cars drawn at detail level 3`, draws 2,673 -> 2,577.
 
 ### ▶ Start here (session 32): state at the end of session 31 (2026-11-13)
 - **In short:** session 31 made the **upload ring in VRAM the default** (L47: frozen grid 1440p 4x +26%, 12 s

@@ -195,8 +195,11 @@ PPC_FUNC(sub_828329C8)
         ctx.r3.u64 = 0;
         return;
     }
-    // Session 32 experiment: FM3_CAR_LOD_FAR=N (live): in the main view (call site 82837F0C), cars the game already
-    // draws at a reduced level (>= FM3_CAR_LOD_FROM, default 1: beyond the nearest one or two) are drawn at level N.
+    // Lower detail for distant AI cars (session 32, PERF-PLAN L60). In the main view (call site 82837F0C) the game ranks
+    // the cars by distance and sets each one's detail level (+596): 0 for the nearest 1-2, 1 to rank 3-4, 2 beyond;
+    // levels go to 4. Cars at level >= FM3_CAR_LOD_FROM (default 1) are drawn at level FM3_CAR_LOD_FAR=N (live).
+    // settings.ini car_lod_far=1 (launcher Graphics "Lower detail for distant AI cars") = level 3 from 1: 1440p 4x,
+    // draw-thread bound: +4.1%, 0.15% of pixels (mid-distance cars lose small details). Env overrides (0 = off).
     static int farLod = 0, fromLod = 1;
     {
         static int64_t next = 0;
@@ -205,7 +208,8 @@ PPC_FUNC(sub_828329C8)
         {
             next = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::milliseconds(250)).count();
             char l[4] = {};
-            const int lod = GetEnvironmentVariableA("FM3_CAR_LOD_FAR", l, sizeof(l)) && l[0] ? atoi(l) : 0;
+            static const int fromSettings = GetSettings().Extra("car_lod_far") == "1" ? 3 : 0;
+            const int lod = GetEnvironmentVariableA("FM3_CAR_LOD_FAR", l, sizeof(l)) && l[0] ? atoi(l) : fromSettings;
             char f[4] = {};
             fromLod = GetEnvironmentVariableA("FM3_CAR_LOD_FROM", f, sizeof(f)) && f[0] ? std::max(1, atoi(f)) : 1;
             if (lod != farLod)

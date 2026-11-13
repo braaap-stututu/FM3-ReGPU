@@ -165,6 +165,10 @@
         <div><div class="toggle-title">Anisotropy as the game asks</div><div class="toggle-sub">Console-like, slightly softer at a distance; ~4% faster on the GPU</div></div>
         <button class="switch" id="anisoFromGame" role="switch"></button>
       </div>
+      <div class="toggle-row" data-tip="AI cars beyond the nearest one or two are drawn with a simpler model (the game's detail level 3 instead of 1 or 2): fewer parts to draw, so less work for the CPU. Small details such as mirrors and badges on mid-distance cars go; hard to see at 1440p and barely at 720p. About 4% faster when the CPU side is the limit (busy race grids, slower CPUs, integrated graphics). Read when the game starts; your own car and the nearest AI cars are unchanged.">
+        <div><div class="toggle-title">Lower detail for distant AI cars</div><div class="toggle-sub">Performance, slight detail loss on mid-distance cars, off by default</div></div>
+        <button class="switch" id="carLodFar" role="switch"></button>
+      </div>
       <div class="toggle-row" data-tip="The box in the top left that shows shaders being compiled. Turning it off doesn't stop the compiling, only hides it.">
         <div><div class="toggle-title">Hide shader compile box</div><div class="toggle-sub">Top left of the screen</div></div>
         <button class="switch" id="hideShaderOverlay" role="switch"></button>
