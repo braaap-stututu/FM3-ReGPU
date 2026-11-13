@@ -161,6 +161,10 @@
         <div><div class="toggle-title">Anisotropic filtering</div><div class="toggle-sub">16x</div></div>
         <button class="switch" id="anisotropy" role="switch"></button>
       </div>
+      <div class="toggle-row" data-tip="Each texture gets the anisotropic filtering the game asks for, as on the console, instead of 16x everywhere. Distant road and ground textures look a little softer (about 9% of the picture changes slightly); the graphics card does less work: about 4% faster when it is the limit (4K). Read when the game starts.">
+        <div><div class="toggle-title">Anisotropy as the game asks</div><div class="toggle-sub">Console-like, slightly softer at a distance; ~4% faster on the GPU</div></div>
+        <button class="switch" id="anisoFromGame" role="switch"></button>
+      </div>
       <div class="toggle-row" data-tip="The box in the top left that shows shaders being compiled. Turning it off doesn't stop the compiling, only hides it.">
         <div><div class="toggle-title">Hide shader compile box</div><div class="toggle-sub">Top left of the screen</div></div>
         <button class="switch" id="hideShaderOverlay" role="switch"></button>

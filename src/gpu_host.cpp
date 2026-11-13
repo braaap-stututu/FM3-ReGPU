@@ -404,6 +404,11 @@ void GpuStart()
     // settings.ini perf_log_light=1 (launcher Settings > Testing "Light performance log"); REGPU_PERF_LITE=1 directly.
     if (GetSettings().Extra("perf_log_light") == "1")
         DefaultEnv("REGPU_PERF_LITE", "1");
+    // Anisotropy as the game asks (session 32, PERF-PLAN I8): each fetch's own anisotropy instead of 16x everywhere.
+    // GPU -3.8% at 4K 4x, ~9% of pixels slightly softer at a distance (closer to the console). Off by default;
+    // settings.ini aniso_from_game=1 (launcher Graphics "Anisotropy as the game asks"); REGPU_ANISO_FROM_FETCH=1 directly.
+    if (GetSettings().Extra("aniso_from_game") == "1")
+        DefaultEnv("REGPU_ANISO_FROM_FETCH", "1");
     if (GetSettings().Extra("vram_upload_ring") != "0")
         DefaultEnv("REGPU_GPU_UPLOAD_RING", "1");
     Log("gpu: upload ring in VRAM %s", getenv("REGPU_GPU_UPLOAD_RING") && strcmp(getenv("REGPU_GPU_UPLOAD_RING"), "0") ? "on (if resizable BAR)" : "off");

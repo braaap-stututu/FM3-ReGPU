@@ -34,6 +34,9 @@
   `LEAN_VFETCH` +0.2%: no; **I8 anisotropy from the fetch GPU -3.8% (fps 227 -> 235), 9.3% of pixels** (softer
   distant textures, as the game asks: the user's call); **I3 plain multiply GPU -2.5%**, but the crowd's flags turn
   black (session 23): would need the per-shader version (PERF-PLAN I3).
+- **I8 is now a launcher option (user's request), off by default:** Graphics "Anisotropy as the game asks" =
+  settings.ini `aniso_from_game=1`, read by the game (`src/gpu_host.cpp` -> `REGPU_ANISO_FROM_FETCH=1`, so `play.cmd`
+  runs follow it too). Checked: a grid boot with it in settings.ini gave GPU 3.978 ms (I8 boots 3.97, base 4.12).
 - Next on the list: AI-car material cost at 4K (per-shader price list), then V2 VRS.
 
 ### ▶ Start here (session 32): state at the end of session 31 (2026-11-13)
