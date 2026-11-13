@@ -1,0 +1,259 @@
+diff --git a/src/gpu/recorded_list.h b/src/gpu/recorded_list.h
+index 23423a6..62f6671 100644
+--- a/src/gpu/recorded_list.h
++++ b/src/gpu/recorded_list.h
+@@ -179,6 +179,38 @@ public:
+         struct A { ID3D12Device* d; ID3D12Resource* r; D3D12_DEPTH_STENCIL_VIEW_DESC desc; D3D12_CPU_DESCRIPTOR_HANDLE h; } a{ d, r, desc, h };
+         Put(kCreateDsv, &a, sizeof(a));
+     }
++    // Bytes for the upload ring (REGPU_REPLAY_RING_WRITES): returns where to put n bytes that belong at
++    // base + offset; the replay thread copies them there, in order with the calls around them (so before the
++    // draws that read them, and before the list is closed and queued). The ring is write-combined (or VRAM
++    // through the PCIe BAR): a store that follows a burst of such writes waits for them to drain, ~6-13% of
++    // the draw thread in FM3. Here they go to this cached buffer instead. The pointer is valid until the next
++    // call on this list. Recorded right away into the ring on a direct list.
++    uint8_t* RingBytes(uint8_t* base, uint32_t offset, uint32_t n)
++    {
++        if (m_direct)
++            return base + offset;
++        // (A large group goes out on its own: earlier segments' bytes are written by now.)
++        if (m_current.size() >= kChunk + kRingChunk)
++            Submit();
++        if (m_ringGroup == kNoGroup || m_ringBase != base)
++        {
++            CloseRing();
++            m_ringGroup = m_current.size();
++            m_ringBase = base;
++            const uint32_t header[2] = { kRingWrite, 0 };
++            m_current.resize(m_ringGroup + sizeof(header) + sizeof(base));
++            memcpy(m_current.data() + m_ringGroup, header, sizeof(header));
++            memcpy(m_current.data() + m_ringGroup + sizeof(header), &base, sizeof(base));
++        }
++        // Segments: offset, size, the bytes padded to 8 (commands stay 8-byte aligned).
++        const size_t at = m_current.size();
++        m_current.resize(at + 8 + ((size_t(n) + 7) & ~size_t(7)));
++        const uint32_t seg[2] = { offset, n };
++        memcpy(m_current.data() + at, seg, sizeof(seg));
++        m_ringBytes += n;
++        return m_current.data() + at + 8;
++    }
++
+     // Close and Reset go straight to the real list after a drain.
+     HRESULT Close() { return Real()->Close(); }
+     HRESULT Reset(ID3D12CommandAllocator* a, ID3D12PipelineState* p) { return Real()->Reset(a, p); }
+@@ -189,9 +221,26 @@ private:
+         kBarrier, kCopyTexture, kRootSignature, kTable, kCbv, kRoot32, kTargets, kPipeline, kViewports, kScissors, kStencilRef, kBlendFactor,
+         kTopology, kHeaps, kDraw, kEndQuery, kResolveQuery, kClearRtv, kClearDsv, kCreateRtv, kCreateDsv, kDrawIndexed, kIndexBuffer, kCopyBuffer,
+         kComputeRootSignature, kComputeTable, kComputeRoot32, kDispatch, kBeginQuery, kHandOff, kComputeSrv, kComputeUav, kPredication,
+-        kCall, kSwitch
++        kCall, kSwitch, kRingWrite
+     };
+     static constexpr size_t kChunk = 64 << 10;
++    // Ring bytes (RingBytes) don't count toward kChunk: a chunk holds up to this much of them on top (else
++    // FM3's ~5 MB a frame would be ~85 hand-overs to the replay thread a frame, each a lock and a wake).
++    static constexpr size_t kRingChunk = 1 << 20;
++    static constexpr size_t kNoGroup = ~size_t(0);
++    size_t m_ringGroup = kNoGroup; // the open kRingWrite command in m_current (RingBytes), or kNoGroup
++    uint8_t* m_ringBase = nullptr;
++    size_t m_ringBytes = 0;        // ring bytes in m_current
++
++    // Ends the open ring write command: its size is the segments it holds (each padded to 8).
++    void CloseRing()
++    {
++        if (m_ringGroup == kNoGroup)
++            return;
++        const uint32_t size = uint32_t(m_current.size() - m_ringGroup - 8);
++        memcpy(m_current.data() + m_ringGroup + 4, &size, sizeof(size));
++        m_ringGroup = kNoGroup;
++    }
+ 
+     ID3D12GraphicsCommandList* m_real = nullptr;
+     bool m_direct = false;
+@@ -209,6 +258,7 @@ private:
+                 g_recordedBarriers.fetch_add(*static_cast<const UINT*>(a), std::memory_order_relaxed);
+             g_recordedOps[op].fetch_add(1, std::memory_order_relaxed);
+         }
++        CloseRing();
+         const size_t at = m_current.size();
+         const uint32_t header[2] = { op, uint32_t((na + nb + 7) & ~size_t(7)) }; // 8-byte aligned commands
+         m_current.resize(at + sizeof(header) + header[1]);
+@@ -222,12 +272,14 @@ private:
+             Replay(m_current.data(), m_current.size());
+             m_current.clear();
+         }
+-        else if (m_current.size() >= kChunk)
++        else if (m_current.size() - m_ringBytes >= kChunk || m_current.size() >= kChunk + kRingChunk)
+             Submit();
+     }
+ 
+     void Submit()
+     {
++        CloseRing();
++        m_ringBytes = 0;
+         if (m_current.empty())
+             return;
+         std::lock_guard lock(m_mutex);
+@@ -346,6 +398,18 @@ private:
+                 break;
+             }
+             case kSwitch: l = m_real = At<ID3D12GraphicsCommandList*>(a); break;
++            case kRingWrite:
++            {
++                uint8_t* base = At<uint8_t*>(a);
++                for (const uint8_t* q = a + sizeof(base); q < p;)
++                {
++                    uint32_t seg[2];
++                    memcpy(seg, q, sizeof(seg));
++                    memcpy(base + seg[0], q + 8, seg[1]);
++                    q += 8 + ((size_t(seg[1]) + 7) & ~size_t(7));
++                }
++                break;
++            }
+             case kHandOff:
+             {
+                 struct A { ID3D12GraphicsCommandList* next; HandOffFn fn; void* ctx; };
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index fee9fe9..212cacf 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -867,6 +867,17 @@ DrawContext g_mainContext;
+ thread_local DrawContext* t_context = nullptr;
+ inline DrawContext& C() { return t_context ? *t_context : g_mainContext; }
+ 
++// REGPU_REPLAY_RING_WRITES (live): a draw's upload-ring bytes (constants, index lists, vertex uploads) go into
++// its recorded command list and the replay thread copies them into the ring (RecordedList::RingBytes), so the
++// draw thread never writes the write-combined (or VRAM) ring itself. Set by DrawImpl for its own writes, on the
++// recording thread only (not on a draw worker, whose list is direct anyway).
++thread_local bool t_replayRing = false;
++// Where n bytes for ring + offset go: the ring itself, or the recorded list (written there by the replay).
++inline uint8_t* RingDst(uint8_t* ring, UINT64 offset, size_t n)
++{
++    return t_replayRing ? C().list->RingBytes(ring, uint32_t(offset), uint32_t(n)) : ring + offset;
++}
++
+ // Holds the texture lock and, on a draw worker, records into the segment's prep list.
+ struct TextureScope
+ {
+@@ -3264,7 +3275,7 @@ UINT64 UploadGuest(uint32_t guest, uint32_t bytes)
+     const UINT64 offset = RingAlloc(std::max<uint32_t>(bytes, 16) + 16, 16, RingVertexUpload);
+     if (offset == ~0ull)
+         return offset;
+-    memcpy(f.ringCpu + offset, src, bytes);
++    memcpy(RingDst(f.ringCpu, offset, bytes), src, bytes);
+     uploads.Put(key, g_r.frame, { offset, sample });
+     return offset;
+ }
+@@ -11299,6 +11310,16 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+ 
+     Section(3);
+     Sub(-1);
++    // REGPU_REPLAY_RING_WRITES (RingDst): this draw's ring bytes go through the recorded list, written into the
++    // ring by the replay thread. Not with the modes that write or read the ring blocks in place (constants in the
++    // ring, block reuse and its byte trace), nor on a draw worker.
++    static LiveSwitch replayRingSwitch("REGPU_REPLAY_RING_WRITES");
++    struct ReplayRing
++    {
++        explicit ReplayRing(bool on) { t_replayRing = on; }
++        ~ReplayRing() { t_replayRing = false; }
++    } replayRing(replayRingSwitch && !C().worker && !g_sw_REGPU_CONSTANTS_IN_RING && !regpu::GetConfig().lowPerformance &&
++                 !g_sw_REGPU_CONSTANT_REUSE && !g_sw_REGPU_TRACE_CONSTANT_BYTES);
+     // Index list.
+     UINT64 listOffset = 0;
+     if (!directIndex)
+@@ -11308,7 +11329,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             indexEntry->offset = RingAlloc(list.size() * 4, 16, RingIndexList);
+             if (indexEntry->offset != ~0ull)
+             {
+-                memcpy(f.ringCpu + indexEntry->offset, list.data(), list.size() * 4);
++                memcpy(RingDst(f.ringCpu, indexEntry->offset, list.size() * 4), list.data(), list.size() * 4);
+                 indexEntry->frame = g_r.frame;
+             }
+         }
+@@ -11423,6 +11444,50 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         // The A/B modes that copy all of them (REGPU_ALL_CONSTANTS, REGPU_CONSTANTS_BY_COUNT, a hooked draw) apply
+         // to the others only.
+         auto copy = [&](__m128i* dst, const __m128i* from, const std::array<uint64_t, 4>& mask, uint32_t n, bool all, bool packed) {
++            // Replayed ring writes (RingDst): packed constants as one run, the others as runs of neighbours.
++            if (t_replayRing && reinterpret_cast<uint8_t*>(dst) >= f.ringCpu && reinterpret_cast<uint8_t*>(dst) < f.ringCpu + f.ringSize)
++            {
++                const UINT64 at = UINT64(reinterpret_cast<uint8_t*>(dst) - f.ringCpu);
++                auto run = [&](uint32_t first, uint32_t count, uint32_t to) {
++                    auto* d = reinterpret_cast<__m128i*>(RingDst(f.ringCpu, at + UINT64(to) * 16, size_t(count) * 16));
++                    for (uint32_t i = 0; i < count; i++)
++                        _mm_storeu_si128(d + i, _mm_shuffle_epi8(_mm_loadu_si128(from + first + i), swap));
++                };
++                if (!packed && (all || byCount))
++                {
++                    if (n)
++                        run(0, n, 0);
++                    return;
++                }
++                uint32_t total = 0;
++                for (uint64_t w : mask)
++                    total += uint32_t(__builtin_popcountll(w));
++                if (packed)
++                {
++                    // In mask order from c[0]: the run's sources are scattered, its destination one block.
++                    if (!total)
++                        return;
++                    auto* d = reinterpret_cast<__m128i*>(RingDst(f.ringCpu, at, size_t(total) * 16));
++                    for (uint32_t w = 0; w < 4; w++)
++                        for (uint64_t bits = mask[w]; bits; bits &= bits - 1)
++                            _mm_storeu_si128(d++, _mm_shuffle_epi8(_mm_loadu_si128(from + w * 64 + uint32_t(_tzcnt_u64(bits))), swap));
++                    return;
++                }
++                for (uint32_t i = 0; i < 256;)
++                {
++                    if (!((mask[i >> 6] >> (i & 63)) & 1))
++                    {
++                        i++;
++                        continue;
++                    }
++                    uint32_t j = i + 1;
++                    while (j < 256 && ((mask[j >> 6] >> (j & 63)) & 1))
++                        j++;
++                    run(i, j - i, i);
++                    i = j;
++                }
++                return;
++            }
+             if (!packed && (all || byCount))
+             {
+                 for (uint32_t i = 0; i < n; i++)
+@@ -12270,9 +12335,11 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         // REGPU_FULL_CONSTANT_BLOCKS=1 copies the whole blocks (A/B).
+         LiveSwitch &fullBlocks = g_sw_REGPU_FULL_CONSTANT_BLOCKS;
+         const size_t vsFrom = hooked ? 0 : offsetof(VSConstants, b), psFrom = offsetof(PSConstants, b);
+-        auto put = [](void* ring, const void* stage, size_t from, size_t to) {
++        // (Through RingDst: with REGPU_REPLAY_RING_WRITES the bytes go into the recorded list.)
++        auto put = [&](void* ring, const void* stage, size_t from, size_t to) {
+             if (to > from)
+-                memcpy(static_cast<uint8_t*>(ring) + from, static_cast<const uint8_t*>(stage) + from, to - from);
++                memcpy(RingDst(f.ringCpu, UINT64(static_cast<uint8_t*>(ring) - f.ringCpu) + from, to - from), static_cast<const uint8_t*>(stage) + from,
++                    to - from);
+         };
+         if (fullBlocks)
+         {
+@@ -12320,7 +12387,8 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+                 uint32_t n = 0;
+                 if (!byRange)
+                     for (uint32_t k : vs.info.vertexFetchConstants)
+-                        memcpy(vd->vf[k], vc->vf[k], sizeof(vc->vf[0])), n += 16;
++                        memcpy(RingDst(f.ringCpu, UINT64(reinterpret_cast<uint8_t*>(vd->vf[k]) - f.ringCpu), sizeof(vc->vf[0])), vc->vf[k], sizeof(vc->vf[0])),
++                            n += 16;
+                 return n;
+             };
+             auto texPut = [&](PSConstants* pd) {
+@@ -12329,8 +12397,10 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+                     for (uint32_t m = usedSlots; m; m &= m - 1, n += 32)
+                     {
+                         const uint32_t s = uint32_t(__builtin_ctz(m));
+-                        memcpy(pd->tinfo[s], pc->tinfo[s], sizeof(pc->tinfo[0]));
+-                        memcpy(pd->tbias[s], pc->tbias[s], sizeof(pc->tbias[0]));
++                        memcpy(RingDst(f.ringCpu, UINT64(reinterpret_cast<uint8_t*>(pd->tinfo[s]) - f.ringCpu), sizeof(pc->tinfo[0])), pc->tinfo[s],
++                            sizeof(pc->tinfo[0]));
++                        memcpy(RingDst(f.ringCpu, UINT64(reinterpret_cast<uint8_t*>(pd->tbias[s]) - f.ringCpu), sizeof(pc->tbias[0])), pc->tbias[s],
++                            sizeof(pc->tbias[0]));
+                     }
+                 return n;
+             };

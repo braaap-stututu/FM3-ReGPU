@@ -25,6 +25,39 @@
   pipeline from the user before reverse-engineering anything ourselves. Related: "FM4 Imported" (446 FM4 cars in FH1,
   moddb) shows the 360-era car path; Reddit counts 243 FM4 cars missing in FM3.
 
+### Session 32 (2026-11-13, cloud, code only: not built or measured): draw thread, ring writes moved to the replay thread
+- **User's ask:** cut ReGPU's draw-thread cost further. Read `DrawImpl` whole (patched tree) against the profiles of
+  sessions 25/30/31. What's left is mostly spread thin (DrawImpl body 29%, PassScales 7.5% after patch 40, hashing ~6%,
+  GetIndexBuffer ~3%) except one item: **the draw thread waiting for its own write-combined ring writes to drain**
+  (the "16-byte store at DrawImpl's end": 6-7% with the ring in system memory, **13% with the ring in VRAM**, which is
+  the default since session 31). The cached-ring experiment (session 30) removed that stall but cost more elsewhere
+  (cache misses on a 128 MB ring; slower GPU reads of snooped memory).
+- **Built: ReGPU patch 41 `regpu-replay-ring-writes`, switch `REGPU_REPLAY_RING_WRITES` (live, off by default).**
+  A draw's ring bytes (constant blocks, index lists, vertex uploads) are written into its recorded command list (a
+  small cached buffer that is reused, so no cache misses on a big ring) and the "command list replay" thread copies them
+  into the ring before it replays the draws that read them. The replay thread ran ~22% busy with the ring in VRAM, so it
+  has room. Safe by order: the ring is reset only after its frame's fence, and the replay thread signals that fence
+  after the writes. Ring bytes go to the replay thread in up to ~1 MB hand-overs (not one per 64 KB) so the extra
+  lock/wake cost stays small. Off for constants-in-ring/low performance mode, `REGPU_CONSTANT_REUSE`,
+  `REGPU_TRACE_CONSTANT_BYTES` and draw workers.
+- **Checked here:** the recorder part was compiled against a stub D3D12 header and tested (20,000 recorded draws with
+  ring writes of random sizes, calls in between, ring switches and drains: each draw found its bytes in place when it
+  was replayed; also in direct mode). The patch stack (41) applies cleanly and matches the working tree.
+  **Not checked:** the renderer part was not compiled (MSVC + D3D12 only on the main PC).
+- **Expected:** at most about the stall's share (~13% of the draw thread with the ring in VRAM), minus the extra copy
+  into the recorded list. Risk: if the draw thread's cache-line traffic to the replay core costs as much as the stall,
+  it comes out even. Only a measurement will tell.
+- **Test on the main PC (next):**
+  1. `tools\setup.ps1 -NoBuild` (applies patch 41), rebuild `tools\vcenv.cmd ninja -C build/rel fm3`, boot and grep the
+     log for `failed to compile` (should be none: no shader change).
+  2. Draw-thread bound grid: `Start-Grid @{REGPU_PERF='1'}` (1440p 4x, the full log as the load, ~267 fps), then
+     `Test-Live s32 REGPU_REPLAY_RING_WRITES -Rounds 6` (0 pixels expected). Also `tools/perf/threads.ps1`
+     with it on and off: the draw worker's share should fall, the replay thread's rise.
+  3. Ring in system memory too (`REGPU_GPU_UPLOAD_RING=0` at start, same A/B): the stall is half as big there.
+  4. If it wins: `Test-Drive` 12 s per variant, then the user's race drive with the light log; then make it FM3's
+     default in `src/gpu_host.cpp` (as the other draw-thread switches) with an `FM3_*` undo.
+  5. If it's even or worse: drop the patch (remove it from `setup.ps1`'s list, restore the files from the stack).
+
 ### ▶ Start here (session 32): state at the end of session 31 (2026-11-13)
 - **In short:** session 31 made the **upload ring in VRAM the default** (L47: frozen grid 1440p 4x +26%, 12 s
   drives +18% to the 360 cap, 4K +22%, 0 pixels; the user's races with the perf log off clearly faster), built the
