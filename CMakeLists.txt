@@ -78,6 +78,13 @@ set(FM3_REGPU_DIR "${CMAKE_SOURCE_DIR}/thirdparty/ReGPU" CACHE PATH "ReGPU sourc
 option(FM3_REGPU_FM4 "FM3_REGPU_DIR is the FM4 port's vendored ReGPU" OFF)
 add_subdirectory("${FM3_REGPU_DIR}" regpu)
 
+# Profile-guided optimisation of ReGPU (session 32, PERF-PLAN L23; FH1R measured +6%): FM3_PGO=gen builds ReGPU
+# instrumented (record a profile: pgo/README.md), FM3_PGO=use builds it with FM3_PGO_PROFILE, off = as before.
+# Only the regpu target changes, so switching rebuilds ReGPU alone.
+set(FM3_PGO "off" CACHE STRING "ReGPU profile-guided optimisation: off, gen or use")
+set_property(CACHE FM3_PGO PROPERTY STRINGS off gen use)
+set(FM3_PGO_PROFILE "${CMAKE_SOURCE_DIR}/pgo/regpu.profdata" CACHE FILEPATH "ReGPU PGO profile (llvm-profdata merge output)")
+
 add_executable(fm3 ${FM3_SOURCES})
 target_include_directories(fm3 PRIVATE src "${FM3_PPC_DIR}" thirdparty/XenonRecomp/thirdparty/simde)
 target_link_libraries(fm3 PRIVATE regpu fm3_ppc XenonUtils synchronization winmm onecore dbghelp xaudio2 bcrypt)
@@ -86,6 +93,23 @@ target_link_libraries(fm3 PRIVATE dinput8 dxguid)
 target_compile_definitions(fm3 PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS FM3_REGPU_FM4=$<BOOL:${FM3_REGPU_FM4}>)
 target_compile_options(fm3 PRIVATE -gline-tables-only)
 target_link_options(fm3 PRIVATE /STACK:0x1000000 /DEBUG)
+if(FM3_PGO STREQUAL "gen")
+    target_compile_options(regpu PRIVATE -fprofile-instr-generate)
+    get_filename_component(FM3_LLVM_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    file(GLOB FM3_PROFILE_RT "${FM3_LLVM_BIN}/../lib/clang/*/lib/windows/clang_rt.profile-x86_64.lib")
+    if(NOT FM3_PROFILE_RT)
+        message(FATAL_ERROR "FM3_PGO=gen: clang_rt.profile-x86_64.lib not found next to ${CMAKE_CXX_COMPILER}")
+    endif()
+    list(GET FM3_PROFILE_RT 0 FM3_PROFILE_RT)
+    target_link_libraries(fm3 PRIVATE "${FM3_PROFILE_RT}")
+    target_compile_definitions(fm3 PRIVATE FM3_PGO_GEN=1)
+elseif(FM3_PGO STREQUAL "use")
+    if(NOT EXISTS "${FM3_PGO_PROFILE}")
+        message(FATAL_ERROR "FM3_PGO=use: no profile at ${FM3_PGO_PROFILE}")
+    endif()
+    target_compile_options(regpu PRIVATE "-fprofile-instr-use=${FM3_PGO_PROFILE}" -Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled
+        -Wno-backend-plugin)
+endif()
 if(REGPU_FSR3)
     add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${FM3_FFX}/signedbin/amd_fidelityfx_loader_dx12.dll" "${FM3_FFX}/signedbin/amd_fidelityfx_upscaler_dx12.dll" $<TARGET_FILE_DIR:fm3>)

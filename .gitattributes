@@ -13,3 +13,4 @@
 *.bin binary
 *.iso binary
 *.xex binary
+*.profdata -text binary

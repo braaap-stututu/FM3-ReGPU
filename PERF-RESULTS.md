@@ -92,6 +92,14 @@ FM3's shadow options at boot (2 boots each, picture vs base masked): `fastcastsh
 2.71 vs 2.80 ms, GPU 4.12 vs 4.12, 0.013% of pixels; `fastdropshadows=1` same draws, no change, 0.006-0.011%. Neither
 is a lever.
 
+**L23 PGO build of ReGPU** (`FM3_PGO=use`, `pgo/regpu.profdata`; exes swapped between boots, `out/perf/s32pgo/`):
+
+| Test | PGO off | PGO use | Change |
+|---|---|---|---|
+| 1440p 4x, full perf log (draw-thread bound), 4 boots each interleaved | 258.9, 263.3, 262.1, 265.8 (262.5) | 256.9, 274.8, 277.2, 274.8 (270.9) | **+3.2%** (3/4) |
+| 4K 4x grid, light log: draw thread a frame (GPU-bound, fps equal) | 2.645, 2.592, 2.775 ms | 2.726, 2.511, 2.551 ms | -2.8% |
+| 4K 4x 12 s drives (GPU-bound) | 244.6, 242.9, 242.0 | 248.3, 242.9, 242.2 | ~0 |
+
 **L58 car shadows at half rate (`src/hooks/car_shadows.cpp`, `FM3_SHADOW_RATE`; `out/perf/s32shadow/`):**
 
 | Test | Rate 1 | Rate 2 | Rate 3 | Picture |

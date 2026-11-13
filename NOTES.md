@@ -74,6 +74,18 @@
 - New live tool kept: **`FM3_SCENE_SKIP=<hex>[,...]`** (`src/hooks/mirror.cpp`) skips scene steps or car-draw call
   sites in the main view too: `8283A8D0` the opaque cars, `8283AB40` their glass/lights, `828379A0` the cars in the
   shadow map, `82592444` the shadow method's car renderer call.
+- **L23 PGO build of ReGPU (user's request): BUILT, our build uses it.** CMake `FM3_PGO=off|gen|use` (only the
+  `regpu` target changes); profile `pgo/regpu.profdata` recorded with the instrumented build (`gen`) on the frozen
+  grid, the cockpit camera and a 12 s drive (`src/pgo.cpp` writes it on `Fm3 "env FM3_PGO_WRITE 1"`: the game's
+  exit may skip the profile runtime's write); `llvm-profdata merge`; how-to `pgo/README.md`. **1440p 4x under the
+  full perf log (draw-thread bound), 4 boots each interleaved (exes swapped: `out/pgo/fm3-off.exe`,
+  `fm3-use.exe`): 262.5 -> 270.9 fps (+3.2%, 3/4 rounds)**; 4K (GPU-bound, the user's settings then): draw thread
+  2.67 -> 2.60 ms a frame, fps the same. build/rel is configured with `FM3_PGO=use`; CMake's default stays off.
+  Re-record after larger ReGPU changes (stale functions just lose their profile).
+- **L59 per-pass MSAA: studied, parked** (user asked to do it). The post passes share EDRAM base 0 and the scene's
+  depth `2D0`; the biggest (pass 25, 117 draws: effects over the scene) depth-tests against the scene's 4x depth.
+  Only the bloom chain and the final composite could be 1x: ~0.15 ms of 4.2 at 4K (~3%) for switching one base
+  between sample counts within a frame. Asked the user whether to build it anyway.
 - **V8 car reflections at half rate (user's request): BUILT, opt-in.** Launcher Settings > Testing "Half-rate car
   reflections" = settings.ini `reflect_rate=2` (off by default), live `FM3_REFLECT_RATE=N`; `src/hooks/car_reflections.cpp`.
   FM3's reflection cube for the cars: six 256x256 faces drawn with 4x MSAA, three a frame (two alternating sets: the
