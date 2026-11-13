@@ -47,6 +47,13 @@
   `out/run/fm3.drive30-packed.log` via `python -I tools/analysis/drives.py`. If it wins there too: make it the default
   where resizable BAR is on (and update the launcher tooltip, which still says "only when the graphics card is
   clearly the limit"). With it on, the draw thread is the limit again (~96%) but near the 360 cap on this PC.
+- **User's drives with the ring in VRAM (Crown Jewel, 2 laps each):** with the perf log on vs yesterday's ring-off
+  drive (`out/run/fm3.drive31-vramring.log` vs `fm3.drive30-packed.log`, `drives.py`): same fps at equal draw counts
+  (+1-2% at 2,000-2,200 draws, -4..-6% at 2,600-2,800), draw thread 97% busy; the user's overlay showed GPU 99% -> 80%.
+  The perf log loads the draw thread itself, so the race was draw-thread bound. **With the perf log off** (ring on,
+  one tile on; `fm3.drive31-vramring-noperf.log`, no fps lines in it): user saw **300-360 fps, 99th percentile ~270 at
+  worst** (vs ~285 average with the perf log). Still open: a ring-off drive with the perf log off, fps recorded through
+  the debug server (`status` once a second, no cost), to tell the ring's share from the perf log's.
 - Not built, decided: **L54 fast clears** (per frame two full-screen colour clears 2560x1440 on the 2560x2048
   EDRAM surface + ~38 small ones; a fast clear needs the whole resource, whose lower rows may hold aliased EDRAM:
   risky, ceiling ~2-3%). GPU-side leads (I8, L55) matter only with the ring off now.
