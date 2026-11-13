@@ -57,6 +57,7 @@ $regpuPatches = @(
     'regpu-pass-epoch'               # PassScales' memo checked against one epoch (REGPU_PASS_SNAPSHOT_FULL_CHECK=1 old)
     'regpu-unread-block-parts'       # bool/loop constants, fetch layout, vuser written only for shaders that read them (REGPU_WRITE_UNREAD_PARTS=1 old)
     'regpu-packed-constants'         # float constants renumbered by rank, written as one run (REGPU_NO_PACKED_CONSTANTS=1 start-time: old)
+    'regpu-perf-lite'                # light performance log: one record a frame through a lock-free queue to a log thread (REGPU_PERF_LITE=1)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

@@ -361,9 +361,13 @@
         <div><div class="toggle-title">Debug server</div><div class="toggle-sub">For tools\fm3ctl.ps1</div></div>
         <button class="switch" id="debugServer" role="switch"></button>
       </div>
-      <div class="toggle-row" data-tip="Writes frame timing lines (CPU and GPU time per part of the frame) to fm3.log. A little extra work per frame.">
-        <div><div class="toggle-title">Performance log</div><div class="toggle-sub">Frame timings in fm3.log</div></div>
+      <div class="toggle-row" data-tip="Writes detailed timing lines (CPU and GPU time per part of the frame, per draw) to fm3.log. It times every draw, which slows ReGPU's draw thread: in races it costs well over 10% fps and can make the processor the limit. Useful as a deliberate load or for the detailed numbers.">
+        <div><div class="toggle-title">Performance log</div><div class="toggle-sub">Detailed frame timings in fm3.log, costs fps</div></div>
         <button class="switch" id="perfLog" role="switch"></button>
+      </div>
+      <div class="toggle-row" data-tip="Writes one line a second to fm3.log: fps, frame-time 99th percentile and worst, draws a frame, GPU time a frame and how busy ReGPU's draw thread is. Nothing is timed per draw: the draw thread hands one small record a frame to a separate log thread through a lock-free queue, so it costs next to nothing. Read when the game starts.">
+        <div><div class="toggle-title">Light performance log</div><div class="toggle-sub">fps, frame times, GPU and draw-thread load; near-free</div></div>
+        <button class="switch" id="perfLogLight" role="switch"></button>
       </div>
       <div class="toggle-row" data-tip="Splits draw translation across ReGPU's draw workers on the draw thread. For comparisons: at 720p it was slower than off (195 vs 216 fps on a paused grid). Read when the game starts.">
         <div><div class="toggle-title">Draw workers</div><div class="toggle-sub">Performance A/B, off by default</div></div>

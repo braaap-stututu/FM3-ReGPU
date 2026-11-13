@@ -400,6 +400,10 @@ void GpuStart()
     // session 31 (user's decision); settings.ini vram_upload_ring=0 (launcher Settings > Testing "Upload ring in
     // VRAM") turns it off; ReGPU falls back to system memory without ReBAR. Live A/B:
     // Fm3 "switch REGPU_GPU_UPLOAD_RING 0|1".
+    // Light performance log (session 31, our ReGPU patch regpu-perf-lite): one line a second, no per-draw timing.
+    // settings.ini perf_log_light=1 (launcher Settings > Testing "Light performance log"); REGPU_PERF_LITE=1 directly.
+    if (GetSettings().Extra("perf_log_light") == "1")
+        DefaultEnv("REGPU_PERF_LITE", "1");
     if (GetSettings().Extra("vram_upload_ring") != "0")
         DefaultEnv("REGPU_GPU_UPLOAD_RING", "1");
     Log("gpu: upload ring in VRAM %s", getenv("REGPU_GPU_UPLOAD_RING") && strcmp(getenv("REGPU_GPU_UPLOAD_RING"), "0") ? "on (if resizable BAR)" : "off");

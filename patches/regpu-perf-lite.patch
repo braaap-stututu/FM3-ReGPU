@@ -1,0 +1,179 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index d3a36cf..4a50383 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -946,6 +946,18 @@ const char* g_waitWhat = "?";
+ thread_local bool g_drawSamplesResolve = false;
+ // REGPU_PERF: GPU time per frame from timestamps at the start and end of each frame's list.
+ ComPtr<ID3D12QueryHeap> g_timestamps;
++// REGPU_PERF_LITE=1 (start-time): the light performance log (PerfLite below). No per-draw work: the draw thread
++// pushes one record a frame into a lock-free queue and a log thread does the sums and the writing. It uses the same
++// two GPU timestamps a frame as REGPU_PERF for the GPU time.
++// (Read on first use, not at static init, so a host can set it from its settings before the first frame.)
++bool PerfLiteOn()
++{
++    static const bool on = getenv("REGPU_PERF_LITE") != nullptr && strcmp(getenv("REGPU_PERF_LITE"), "0") != 0;
++    return on;
++}
++double g_liteGpuMs = 0; // GPU ms summed over timed frames (draw thread only)
++uint64_t g_liteGpuFrames = 0;
++uint64_t g_perfDrawsLogged = 0; // draws counted in g_perf windows already reset (a running total for PerfLite)
+ 
+ // REGPU_GPU_PASSES=1: GPU time per pass (between render target switches and resolves),
+ // summed by pass and logged every 2 s, to find where GPU time goes.
+@@ -2642,7 +2654,7 @@ void BeginFrameIfNeeded()
+         }
+         g_occlusionPending[frameIndex].clear();
+     }
+-    if (perf && !g_timestamps)
++    if ((perf || PerfLiteOn()) && !g_timestamps)
+     {
+         D3D12_QUERY_HEAP_DESC qd{};
+         qd.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+@@ -2772,7 +2784,7 @@ void BeginFrameIfNeeded()
+         }
+     }
+     g_passMarks[frameIndex].clear();
+-    if (perf && f.timed && g_timestampReadback)
++    if ((perf || PerfLiteOn()) && f.timed && g_timestampReadback)
+     {
+         // This slot's previous frame has completed (waited for above).
+         uint64_t* t = nullptr;
+@@ -2789,6 +2801,8 @@ void BeginFrameIfNeeded()
+                 g_gpuFrameMs += ms;
+                 g_gpuFrameMaxMs = std::max(g_gpuFrameMaxMs, ms);
+                 g_gpuFrames++;
++                g_liteGpuMs += ms;
++                g_liteGpuFrames++;
+             }
+         }
+         f.timed = false;
+@@ -2822,7 +2836,7 @@ void BeginFrameIfNeeded()
+             BeginTemporalFrame();
+     }
+     PassMark("frame start %u%u", 0, 0);
+-    if (perf && g_timestamps)
++    if ((perf || PerfLiteOn()) && g_timestamps)
+         C().list->EndQuery(g_timestamps.Get(), D3D12_QUERY_TYPE_TIMESTAMP, frameIndex * 2);
+     // REGPU_TRACE_RING_KINDS: what fills the upload ring, KB a frame by kind (RingKind), every 120 frames.
+     static LiveSwitch traceKinds("REGPU_TRACE_RING_KINDS");
+@@ -12836,6 +12850,102 @@ void BenchmarkWriteReport(const char* path)
+     Log("benchmark: report written to %s", path);
+ }
+ 
++namespace PerfLite
++{
++// The light performance log (REGPU_PERF_LITE, session 31; idea from a ReGPU developer: "don't buffer the logs, have
++// them threaded: push them in a queue, pop the queue in the log thread"). REGPU_PERF times every draw (several clock
++// reads a draw) and formats its lines on the draw thread; this one does nothing per draw. At each swap the draw thread
++// writes one record of running totals into a single-producer/single-consumer ring (two atomics, no mutex: only the
++// draw thread writes `head`, only the log thread writes `tail`); the log thread wakes every 100 ms, pops what is
++// there, and once a second logs fps, frame-time p99/max, draws, GPU time and the draw thread's CPU use (read by the
++// log thread itself with GetThreadTimes, so that costs the draw thread nothing either). A full ring drops records.
++struct Record
++{
++    int64_t ns;        // steady_clock at the swap
++    uint64_t draws;    // draws so far
++    double gpuMs;      // GPU ms so far (timed frames)
++    uint64_t gpuFrames;
++};
++constexpr uint32_t kSize = 8192;
++Record g_ring[kSize];
++std::atomic<uint32_t> g_head{ 0 }, g_tail{ 0 };
++HANDLE g_drawThread = nullptr;
++
++void LogThread()
++{
++    std::vector<float> frameMs;
++    frameMs.reserve(4096);
++    Record last{}, windowFirst{};
++    bool haveLast = false, haveWindow = false;
++    uint64_t cpuFirst = 0;
++    auto threadCpu = [] {
++        FILETIME c, e, k, u;
++        if (!g_drawThread || !GetThreadTimes(g_drawThread, &c, &e, &k, &u))
++            return uint64_t(0);
++        return ((uint64_t(k.dwHighDateTime) << 32 | k.dwLowDateTime) + (uint64_t(u.dwHighDateTime) << 32 | u.dwLowDateTime)) * 100; // ns
++    };
++    for (;;)
++    {
++        Sleep(100);
++        const uint32_t head = g_head.load(std::memory_order_acquire);
++        for (uint32_t tail = g_tail.load(std::memory_order_relaxed); tail != head; tail++)
++        {
++            const Record r = g_ring[tail % kSize];
++            g_tail.store(tail + 1, std::memory_order_release);
++            if (!haveWindow)
++            {
++                windowFirst = r, haveWindow = true, cpuFirst = threadCpu();
++                frameMs.clear();
++            }
++            else if (haveLast)
++                frameMs.push_back(float(double(r.ns - last.ns) / 1e6));
++            last = r, haveLast = true;
++            const double windowS = double(r.ns - windowFirst.ns) / 1e9;
++            if (windowS >= 1.0 && !frameMs.empty())
++            {
++                const size_t n = frameMs.size();
++                double sum = 0, worst = 0;
++                for (float x : frameMs)
++                    sum += x, worst = std::max(worst, double(x));
++                std::vector<float> sorted = frameMs;
++                const size_t k = std::min(n - 1, size_t(double(n) * 0.99));
++                std::nth_element(sorted.begin(), sorted.begin() + ptrdiff_t(k), sorted.end());
++                const uint64_t cpuNow = threadCpu();
++                const double busy = cpuFirst && cpuNow ? 100.0 * double(cpuNow - cpuFirst) / (windowS * 1e9) : -1.0;
++                const uint64_t gpuFrames = r.gpuFrames - windowFirst.gpuFrames;
++                Log("perf lite: %.1f fps, %.2f ms/frame (p99 %.2f ms, max %.2f ms) | %.0f draws/frame | GPU %.2f ms/frame | draw thread %.0f%% busy",
++                    double(n) / windowS, sum / double(n),
++                    double(sorted[k]), worst, double(r.draws - windowFirst.draws) / double(n),
++                    gpuFrames ? (r.gpuMs - windowFirst.gpuMs) / double(gpuFrames) : 0.0, busy);
++                windowFirst = r, cpuFirst = cpuNow;
++                frameMs.clear();
++            }
++        }
++    }
++}
++
++// Called by the draw thread at every swap.
++void Push(std::chrono::steady_clock::time_point now, uint64_t draws)
++{
++    static bool started = false;
++    if (!started)
++    {
++        started = true;
++        DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &g_drawThread, THREAD_QUERY_LIMITED_INFORMATION, FALSE, 0);
++        std::thread([] {
++            SetThreadDescription(GetCurrentThread(), L"perf lite log");
++            LogThread();
++        }).detach();
++        Log("perf lite: light performance log on (REGPU_PERF_LITE): one line a second, no per-draw timing");
++    }
++    const uint32_t head = g_head.load(std::memory_order_relaxed);
++    if (head - g_tail.load(std::memory_order_acquire) >= kSize)
++        return; // full: the log thread is behind
++    g_ring[head % kSize] = Record{ std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count(), draws, g_liteGpuMs, g_liteGpuFrames };
++    g_head.store(head + 1, std::memory_order_release);
++}
++}
++
+ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer);
+ void RendererOnSwap(uint64_t frameNumber, uint32_t frontBuffer)
+ {
+@@ -12844,6 +12954,8 @@ void RendererOnSwap(uint64_t frameNumber, uint32_t frontBuffer)
+     const auto now = std::chrono::steady_clock::now();
+     g_perf.swapSeconds += std::chrono::duration<double>(now - t0).count();
+     g_perf.frames++;
++    if (PerfLiteOn())
++        PerfLite::Push(now, g_perf.draws + g_perfDrawsLogged);
+     static LiveSwitch perf("REGPU_PERF");
+     static auto lastSwap = now;
+     static double frameDraw = 0, lastDrawTotal = 0;
+@@ -12973,6 +13085,7 @@ void RendererOnSwap(uint64_t frameNumber, uint32_t frontBuffer)
+         g_pipelineLibrary.MaybeSave();
+         g_created.clear();
+         g_gpuWaitSeconds = 0;
++        g_perfDrawsLogged += g_perf.draws;
+         g_perf = Perf{};
+     }
+ }

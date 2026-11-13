@@ -16,7 +16,7 @@ const PRESETS = [
   { value: "low", name: "Low", note: "Potato with the 3D scene drawn at 59% (upscaled)." },
   { value: "extreme", name: "Extreme", note: "Potato with the 3D scene drawn at half size and no texture filtering boost. The fastest." },
 ]
-const SWITCHES = ["vsync", "anisotropy", "hideShaderOverlay", "timer", "debugServer", "perfLog", "drawWorkers", "asyncPresent", "vramUploadRing", "oneTile", "halfRateMirror", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
+const SWITCHES = ["vsync", "anisotropy", "hideShaderOverlay", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "oneTile", "halfRateMirror", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
 
 // ---- host calls
 
@@ -226,7 +226,7 @@ function render() {
   line("Anti-aliasing", fsrAa ? "FSR 3" : `MSAA ${named(o.msaa, set.msaa)}`)
   if (set.upscaler !== "off") line("Upscaling", `${named(o.upscalers, set.upscaler)}, ${named(o.upscale, set.upscale)}`)
   if (preset) line("Speed preset", PRESETS[preset].name)
-  const testing = [set.timer ? "timer" : "", set.debugServer ? "debug server" : "", set.perfLog ? "performance log" : ""].filter(Boolean)
+  const testing = [set.timer ? "timer" : "", set.debugServer ? "debug server" : "", set.perfLog ? "performance log" : "", set.perfLogLight ? "light performance log" : ""].filter(Boolean)
   if (testing.length) line("Testing", testing.join(", "))
   line("Language", lang ? lang.name : "English")
 
