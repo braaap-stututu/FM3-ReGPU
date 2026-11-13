@@ -81,6 +81,12 @@
   - **I8 `REGPU_ANISO_FROM_FETCH=1`** (start-time; measured as GPU ms/frame from the light log, 2 boots each): GPU
     2.51 -> 2.39-2.44 ms (-3..-5%), fps at the cap either way; 12.9% of pixels differ (mean 3.9/255; same-boot noise
     0.5%), not visible side by side at normal size (distant texture filtering). Left off: this GPU is not the limit.
+- **L55 end-of-frame barriers (user's pick): built, no gain, removed.** GPU frame (`REGPU_GPU_PASSES=1`, ring in
+  VRAM) 2.53 ms: main scene pass 1.71 ms, all resolve/post passes ~0.8 ms together. Built: each resolve's barriers
+  (colour surface + destination) issued in one call at the start and one at the end instead of two each (live
+  `REGPU_SEPARATE_RESOLVE_BARRIERS`). GPU ms/frame from the light log, 6 alternating rounds: 2.531 -> 2.523 (-0.3%,
+  noise), 0 pixels. AMD's driver already merges back-to-back barriers; the waits in the post chain are real data
+  dependencies (each quad reads the previous resolve), so they can't be skipped. L55 closed.
 - Not built, decided: **L54 fast clears** (per frame two full-screen colour clears 2560x1440 on the 2560x2048
   EDRAM surface + ~38 small ones; a fast clear needs the whole resource, whose lower rows may hold aliased EDRAM:
   risky, ceiling ~2-3%). GPU-side leads (I8, L55) matter only with the ring off now.

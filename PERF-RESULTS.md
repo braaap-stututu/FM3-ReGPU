@@ -43,6 +43,7 @@ draw worker 96.5% (2.72 ms a frame vs 2.62 ms off), CP 75%, replay 22%: draw-thr
 | `REGPU_INDEX_HASH_ONCE`, under load | 260.6 | 258.6 | -0.8% (0/4) | 0 pixels |
 | `REGPU_UPLOAD_STABLE_REUSE`, under load | 259.9 | 261.6 | +0.7% (2/4) | 0 pixels |
 | Index buffers by write watch (removed), under load / no log | 267.0 / 358.6 | 268.6 / 359.3 | +0.6% / +0.2% | 0 pixels; verified drive clean |
+| L55 resolve barriers batched (removed), GPU ms/frame, light log, 6 rounds live | 2.531 | 2.523 | -0.3% (noise) | 0 pixels |
 | I8 `REGPU_ANISO_FROM_FETCH`, GPU ms/frame (light log), 2 boots each | 2.517, 2.510 | 2.388, 2.435 | GPU -3..-5% | 12.9% of pixels (mean 3.9), noise 0.5% |
 
 Draw-thread profile, ring in VRAM, no log (1 ms samples): DrawImpl 29.3%, PassScales 7.5% (from DrawImpl 4%, ToHost
