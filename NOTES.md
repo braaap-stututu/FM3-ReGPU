@@ -34,18 +34,7 @@
   (race -3..-6%). Not built: GPU copy of constants into VRAM. VRAM ring still ~-11.5% in races: leave it off.
   New traces: `REGPU_TRACE_CONSTANT_BYTES`, `REGPU_TRACE_RING_KINDS`. New tool: `tools/analysis/drives.py`
   (race drives compared by draw-count bucket).
-- **User's observation at the end of session 30: the GPU sits at ~99% the whole race** (their overlay). So the race
-  is now most likely **GPU-bound** (fits: draw thread 96% -> 92% busy, fps flat). Session 31 order:
-  1. **Re-drive the VRAM ring** (launcher Testing "Upload ring in VRAM" on, two laps; compare with
-     `out/run/fm3.drive30-packed.log` via `tools/analysis/drives.py`): its gain is GPU-side (+12-19% on the GPU-bound
-     frozen grid) and it lost in races (-13%, -11.5%) only while the draw thread was the limit. If it wins now, consider
-     making it the default on ReBAR machines (and update its launcher tooltip).
-  2. Confirm GPU-bound with numbers (perf log GPU frame ms vs frame ms; per-thread CPU with `tools/perf/threads.ps1`).
-  3. Then the GPU-side leads in PERF-PLAN: L54 fast clears, L55 end-of-frame barrier chain, L56 render-target
-     formats (all RGBA16F 4x now), L24 hardware MSAA resolve, L4 car overdraw, V8 reflection-cube rate, I8 anisotropy
-     from the fetch constant; and the GPU copy of constants into VRAM (session 30, not built) if the VRAM ring's
-     CPU cost still hurts.
-- **Measurement plan (if the GPU reading needs confirming): find what limits the race now.** The draw thread's busy share in races fell
+- **Next (user's plan for session 31): find what limits the race now.** The draw thread's busy share in races fell
   96% -> 92% over session 30 while fps held at ~280-285, so something else sets the pace. Method: while the user
   drives Crown Jewel (two laps, **started from the launcher**: the perf log is on only then), sample per-thread CPU with
   `tools/perf/threads.ps1` (no cost: CP t9, the game's render thread t7, "gpu draw worker", replay) and get GPU frame
