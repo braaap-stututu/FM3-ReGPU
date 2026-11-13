@@ -55,6 +55,20 @@
   the shadow-map render function; ~0.22 ms a frame of draw thread = ~8% below the cap; risk: shadows a frame late,
   ~0.2 m at 300 km/h at 360 fps); (b) shadow map only for cars near the camera (fewer draws, distant cars' shadows
   are tiny); (c) per-draw cost on the draw thread (1.02 us; no cheap cut left, NOTES session 31).
+- **(a) half-rate car shadow map: tried, does not work as a simple skip (user said build it; nothing shipped).**
+  The car shadow map comes from the drop-shadow effect's method `sub_82592168` (virtual call; traced: it calls the car
+  renderer from 82592444, whose shadow loop draws from 828379A0). It runs twice a frame from `sub_827B5088`
+  (827B5164 with r4=1, 827B51A4 with r4=0; the object's +720 set 1, 0, then -1). Phase 1 draws the cars' depth from the
+  sun and resolves it (`18946000`, a depth copy; ~500 draws); phase 0 (~96 draws) processes it (`18708000` resolved
+  twice, `152FA000`, `05ABB000`, three 4x 256x256 passes). **Skipping either phase loses that frame's car shadows**
+  (rate 2 blinks every other frame: 3.8% of pixels; counting calls across both call sites first skipped the main
+  map every time), although no other resolve writes those images; `REGPU_FREEZE_RESOLVES` with `18708000` brings most
+  back (0.6% left), so the game needs more from the chain each frame than its images. Draws at rate 1000: 2,673 ->
+  ~2,170. The car detail field +596 does nothing in the shadow loop (0 pixels, same draws at levels 1-3). The hook
+  (`src/hooks/car_shadows.cpp`) and the detail-level test were removed; PERF-PLAN L58 has the details and a next step.
+- New live tool kept: **`FM3_SCENE_SKIP=<hex>[,...]`** (`src/hooks/mirror.cpp`) skips scene steps or car-draw call
+  sites in the main view too: `8283A8D0` the opaque cars, `8283AB40` their glass/lights, `828379A0` the cars in the
+  shadow map, `82592444` the shadow method's car renderer call.
 - Other lead left: the full-screen passes after the scene (what they are, resolution, sample count at 4x MSAA): the
   per-pass table puts the segment after the main colour resolve at ~1.6 ms of GPU, the largest after the scene.
 

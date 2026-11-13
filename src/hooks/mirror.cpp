@@ -51,7 +51,9 @@ int Rate()
 }
 }
 
-// Experiment (session 27, user request: what can the mirror leave out?). While the mirror renders, the scene
+// Experiment (session 27, user request: what can the mirror leave out?). Session 32: FM3_SCENE_SKIP=<hex>[,...] skips
+// the same steps/call sites outside the mirror too (main view; e.g. 8283A8D0 = the opaque cars, 8283AB40 = their glass
+// and lights, 828379A0 = the cars in the shadow map). While the mirror renders, the scene
 // renderer sub_8283A220's steps can be skipped one call site at a time: FM3_MIRROR_SKIP=<hex>[,<hex>...] lists
 // return addresses (the call site + 4, as ctx.lr holds them) or function addresses; FM3_MIRROR_TRACE=1 logs each
 // distinct (function, call site) the mirror reaches once. Read every 250 ms with the rate, so both work live.
@@ -61,6 +63,8 @@ bool g_inMirror = false; // render thread only (sub_827FDB88 and everything belo
 uint32_t g_skip[32];
 int g_skipCount = 0;
 bool g_trace = false;
+uint32_t g_sceneSkip[32]; // FM3_SCENE_SKIP (session 32 experiment): the same steps skipped outside the mirror too
+int g_sceneSkipCount = 0;
 int g_carLod = 0; // FM3_MIRROR_CAR_LOD (below)
 
 void ReadSkips()
@@ -89,6 +93,25 @@ void ReadSkips()
         }
         Log("mirror: skipping %d step(s) in the mirror: %s", g_skipCount, v[0] ? v : "(none)");
     }
+    char s[512] = {};
+    GetEnvironmentVariableA("FM3_SCENE_SKIP", s, sizeof(s));
+    static std::string lastScene;
+    if (lastScene != s)
+    {
+        lastScene = s;
+        g_sceneSkipCount = 0;
+        for (const char* p = s; *p && g_sceneSkipCount < 32;)
+        {
+            char* end = nullptr;
+            const unsigned long a = strtoul(p, &end, 16);
+            if (end == p)
+                break;
+            if (a)
+                g_sceneSkip[g_sceneSkipCount++] = uint32_t(a);
+            p = *end ? end + 1 : end;
+        }
+        Log("scene: skipping %d step(s) outside the mirror: %s", g_sceneSkipCount, s[0] ? s : "(none)");
+    }
     char t[4] = {};
     g_trace = GetEnvironmentVariableA("FM3_MIRROR_TRACE", t, sizeof(t)) && t[0] == '1';
     char l[4] = {};
@@ -103,7 +126,13 @@ void ReadSkips()
 bool SkipInMirror(uint32_t function, uint32_t lr)
 {
     if (!g_inMirror)
+    {
+        ReadSkips();
+        for (int i = 0; i < g_sceneSkipCount; i++)
+            if (g_sceneSkip[i] == lr || g_sceneSkip[i] == function)
+                return true;
         return false;
+    }
     if (g_trace)
     {
         static uint64_t seen[256];
