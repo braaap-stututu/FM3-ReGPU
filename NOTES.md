@@ -87,7 +87,14 @@
   `REGPU_SEPARATE_RESOLVE_BARRIERS`). GPU ms/frame from the light log, 6 alternating rounds: 2.531 -> 2.523 (-0.3%,
   noise), 0 pixels. AMD's driver already merges back-to-back barriers; the waits in the post chain are real data
   dependencies (each quad reads the previous resolve), so they can't be skipped. L55 closed.
-- Not built, decided: **L54 fast clears** (per frame two full-screen colour clears 2560x1440 on the 2560x2048
+- **L54 fast clears (user's pick): tested, no gain, removed.** The two big clears a frame are 2560x1440 rectangles on
+  2560x2048 surfaces: colour `00085A16` then `0000FFFF` on base 500000, depth 0 (reversed depth) on 2D0. Experiment
+  (live): a clear covering the whole pass clears the whole resource (no rectangle) so the driver may fast-clear it.
+  GPU ms/frame (light log, 6 alternating rounds): colour + depth whole 2.525 -> 2.548 (+0.9%: the colours aren't the
+  surface's optimized clear value, so it is still a full clear, now of 2,048 rows); depth only, with the depth
+  surfaces created with clear value 0 to match, 2.513 -> 2.524 (+0.4%). 0 pixels both. The rectangle clears are
+  already cheap here; session 29's 29-44 us per clear in RGP was pipeline time, not clear work. L54 closed.
+- (Session 29's plan for L54 below is superseded:) **L54 fast clears** (per frame two full-screen colour clears 2560x1440 on the 2560x2048
   EDRAM surface + ~38 small ones; a fast clear needs the whole resource, whose lower rows may hold aliased EDRAM:
   risky, ceiling ~2-3%). GPU-side leads (I8, L55) matter only with the ring off now.
 - New in `tools/perf_suite.ps1`: `Test-Drive <id> <variant> [seconds]` (unfreeze, hold RT, 1 s fps samples +
