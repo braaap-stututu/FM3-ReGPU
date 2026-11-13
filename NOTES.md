@@ -87,6 +87,12 @@
   `REGPU_SEPARATE_RESOLVE_BARRIERS`). GPU ms/frame from the light log, 6 alternating rounds: 2.531 -> 2.523 (-0.3%,
   noise), 0 pixels. AMD's driver already merges back-to-back barriers; the waits in the post chain are real data
   dependencies (each quad reads the previous resolve), so they can't be skipped. L55 closed.
+- **GPU tests now run at 4K (user's decision):** at 1440p 4x the grid sits at the 360 cap and the draw thread is the
+  limit, so GPU-side leads are measured at **3840x2160, 4x MSAA** (settings.ini `resolution=3840x2160`, backed up and
+  restored around the run; the light log for GPU ms). **4K baseline (ring in VRAM, one tile, half-rate mirror, patch
+  40):** frozen grid **228.7 fps**, GPU 4.10 of 4.38 ms a frame, draw thread 58-62% busy (replay thread ~97% = the
+  driver waiting for the GPU): **GPU-bound**. 12 s drive 238.4 fps (p99 5.58 ms). Ring in VRAM at 4K: 186.8 -> 228.1
+  (+22.1%, 3/3, 0 pixels). Journal `out/perf/s31k4/`.
 - **L54 fast clears (user's pick): tested, no gain, removed.** The two big clears a frame are 2560x1440 rectangles on
   2560x2048 surfaces: colour `00085A16` then `0000FFFF` on base 500000, depth 0 (reversed depth) on 2D0. Experiment
   (live): a clear covering the whole pass clears the whole resource (no rectangle) so the driver may fast-clear it.
