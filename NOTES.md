@@ -44,8 +44,19 @@
   draw thread). The largest single GPU items now are full-screen passes (`fd6b...`, `5b7e...`, `9e50...`: ~0.1 ms each).
 - Tool notes: `ps <hash> <expr>` names the pixel input `input` (e.g. `input.pos.xy`); black edits of full-screen post
   passes can make the frame slower (`8be0...` +0.42 ms): use them only on scene draws.
-- Possible next leads (ask): where AI cars cost outside the main pass (a race grid vs an empty-track grid, per pass with
-  `REGPU_GPU_PASSES=1`); the three full-screen passes (what they are, resolution, sample count at 4x MSAA).
+- **Where AI cars cost (user's pick):** `FM3_CMDLINE=DontDrawCars=1` (no cars at all) on the grid: draws 2,688 ->
+  1,226, GPU 4.13 -> 2.92 ms, draw thread 2.74 -> 1.25 ms a frame (1.02 us a draw either way). **Per car ~183 draws,
+  ~0.19 ms of draw thread, ~0.15 ms GPU** (matches session 20's 0.19 ms). Draws per car: ~120 in the main scene
+  (~20 material layers), **~54 in the car shadow map** (first pass, 256x256, depth from the sun: 432 draws = 0.44 ms of
+  draw thread a frame, 16%), the rest in small 256x256/512x512 passes. GPU: main pass. FM3's `fastcastshadows` /
+  `fastdropshadows` change nothing; `numaicars=0` is ignored by career races; `DontDrawCars` is read at load only.
+  At 1440p (draw-thread bound) the cars are a draw-count cost.
+- Leads from this (not built, ask): **(a) car shadow map at half rate** (like the mirror, `src/hooks/mirror.cpp`: find
+  the shadow-map render function; ~0.22 ms a frame of draw thread = ~8% below the cap; risk: shadows a frame late,
+  ~0.2 m at 300 km/h at 360 fps); (b) shadow map only for cars near the camera (fewer draws, distant cars' shadows
+  are tiny); (c) per-draw cost on the draw thread (1.02 us; no cheap cut left, NOTES session 31).
+- Other lead left: the full-screen passes after the scene (what they are, resolution, sample count at 4x MSAA): the
+  per-pass table puts the segment after the main colour resolve at ~1.6 ms of GPU, the largest after the scene.
 
 ### ▶ Start here (session 32): state at the end of session 31 (2026-11-13)
 - **In short:** session 31 made the **upload ring in VRAM the default** (L47: frozen grid 1440p 4x +26%, 12 s

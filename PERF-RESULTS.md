@@ -70,6 +70,28 @@ is ~0.05-0.1 ms. V2 variable-rate shading on AI cars could save < 1%: not worth 
 (race vs time trial, 1440p) must come from per-car work outside the main pass's shading (shadow maps, reflections, the
 mirror, vertices, the draw thread), not from material pixels.
 
+**Where the cars cost (frozen grid, 4K 4x, light log; `out/perf/s32ai/`):** FM3's developer option `DontDrawCars=1`
+(`FM3_CMDLINE`, read at load; a live poke at `0x82C2260C` does nothing; `numaicars=0` is ignored by career races)
+removes every car, the player's too:
+
+| | Draws | GPU ms | Draw thread ms/frame | fps |
+|---|---|---|---|---|
+| Cars (8) | 2,688 | 4.13 | 2.74 (62% busy) | 226.5 |
+| No cars | 1,226 | 2.92 | 1.25 (39%) | 312.5 |
+| Per car | ~183 | ~0.15 | ~0.19 | |
+
+The draw thread costs 1.02 us a draw either way, so a car's CPU cost is its draw count. Per pass (`REGPU_GPU_PASSES=1`,
+`gpudiff.py`): the GPU difference is the main scene pass (+0.89 ms by timestamps, of which material shading ~0.27 ms);
+other passes +0.04 ms. Draws per pass (captures `out/logs/s32_grid_capture{,_nocars}.log`): main scene 962 car draws
+(~120 a car, spread over ~20 material shaders: glass/lights 171, `1e5b88c3dde5cc88` 99, tail lights 92, paint 63, ...),
+**the car shadow map 432** (first pass of the frame: every car as depth from the sun into 256x256 8888, pixel shader
+`80cd4a0d0bd9d838`, ~54 draws a car; picture `out/perf/s32ai/pass0-cars.png`), 512x512 `16_16` pass 68, three 256x256
+4x passes 117. The shadow map is ~0.44 ms of the draw thread a frame (16%) and almost nothing on the GPU.
+
+FM3's shadow options at boot (2 boots each, picture vs base masked): `fastcastshadows=1` same draws, draw thread
+2.71 vs 2.80 ms, GPU 4.12 vs 4.12, 0.013% of pixels; `fastdropshadows=1` same draws, no change, 0.006-0.011%. Neither
+is a lever.
+
 ## Session 31 (2026-11-13): the VRAM ring again, after session 30's byte cuts
 Frozen grid, 1440p 4x, user's settings (one tile, half-rate mirror), perf log off. "Drive" = `Test-Drive` in
 `tools/perf_suite.ps1`: the frozen race released with the right trigger held for 12 s (automatic gearbox; ~6 s of
