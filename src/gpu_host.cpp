@@ -395,10 +395,12 @@ void GpuStart()
     Log("gpu: asynchronous present %s", getenv("REGPU_ASYNC_PRESENT") && strcmp(getenv("REGPU_ASYNC_PRESENT"), "0") ? "on" : "off");
     // Upload ring in VRAM (session 29, PERF-PLAN L47, our ReGPU patch regpu-gpu-upload-ring): with resizable BAR the
     // ring that holds every draw's constants (and vertex/texture uploads) can live in a GPU upload heap. Frozen grid,
-    // byte-identical: 1440p 4x +12%, 720p 1x (CPU-bound) -5%. settings.ini vram_upload_ring=1 (launcher Settings >
-    // Testing "Upload ring in VRAM"), off by default; ReGPU falls back to system memory without ReBAR. Live A/B:
+    // byte-identical: 1440p 4x +12%, 720p 1x (CPU-bound) -5%. Session 31, after session 30's per-draw byte cuts: grid
+    // +26%, 12 s drives +18%, 720p 1x -0.8%; the user's races (perf log off) clearly faster. On by default since
+    // session 31 (user's decision); settings.ini vram_upload_ring=0 (launcher Settings > Testing "Upload ring in
+    // VRAM") turns it off; ReGPU falls back to system memory without ReBAR. Live A/B:
     // Fm3 "switch REGPU_GPU_UPLOAD_RING 0|1".
-    if (GetSettings().Extra("vram_upload_ring") == "1")
+    if (GetSettings().Extra("vram_upload_ring") != "0")
         DefaultEnv("REGPU_GPU_UPLOAD_RING", "1");
     Log("gpu: upload ring in VRAM %s", getenv("REGPU_GPU_UPLOAD_RING") && strcmp(getenv("REGPU_GPU_UPLOAD_RING"), "0") ? "on (if resizable BAR)" : "off");
     // Sun glare size (session 14): FM3 sizes the glare from the occlusion query's raw sample count (not

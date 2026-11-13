@@ -57,6 +57,10 @@
   **Done by the user: perf log off, ring off: fps "definitely worse" than with the ring on.** So in real play
   (no perf log) the ring in VRAM wins, as the 12 s drives showed (+18%). Next: make it the default where resizable
   BAR is on (`src/gpu_host.cpp` reads `vram_upload_ring`; launcher `Install.cs` default + tooltip): user's go-ahead.
+- **Done (user's decision: keep the toggle, on by default for now):** `src/gpu_host.cpp` turns the ring on unless
+  settings.ini says `vram_upload_ring=0`; launcher default on, tooltip rewritten (session 31 numbers, perf-log caveat).
+  Checked on the grid: key absent -> "on", 348.7 fps; `vram_upload_ring=0` -> "off", 280.2 fps. **Perf tests now run
+  with the ring on** (the old baseline was ring off): set `REGPU_GPU_UPLOAD_RING=0` for ring-off comparisons.
 - Not built, decided: **L54 fast clears** (per frame two full-screen colour clears 2560x1440 on the 2560x2048
   EDRAM surface + ~38 small ones; a fast clear needs the whole resource, whose lower rows may hold aliased EDRAM:
   risky, ceiling ~2-3%). GPU-side leads (I8, L55) matter only with the ring off now.

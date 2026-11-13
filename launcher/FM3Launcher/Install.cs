@@ -76,7 +76,7 @@ public sealed class GameSettings
     public bool DrawWorkers { get; set; }          // FM3_DRAW_THREAD_PIECES: draw workers on the draw thread (A/B; off = faster at 720p)
     public bool HalfRateMirror { get; set; } = false; // mirror_rate=2: the rear-view mirror rendered every second frame (src/hooks/mirror.cpp)
     public bool OneTile { get; set; } = false; // one_tile: L36, the race scene drawn as one guest tile (src/hooks/one_tile.cpp; read by the game, so play.cmd too)
-    public bool VramUploadRing { get; set; } = false; // vram_upload_ring: L47, ReGPU's upload ring in VRAM via resizable BAR (src/gpu_host.cpp; read by the game, so play.cmd too)
+    public bool VramUploadRing { get; set; } = true; // vram_upload_ring: L47, ReGPU's upload ring in VRAM via resizable BAR (src/gpu_host.cpp; read by the game, so play.cmd too)
     public bool AsyncPresent { get; set; } = true; // async_present: L12, the frame ends on ReGPU's replay thread (src/gpu_host.cpp; read by the game, so play.cmd too)
     public bool EngineCrossfade { get; set; }      // engine_crossfade: engine sound loops crossfaded at the restart (src/audio/xma.cpp; read by the game, so play.cmd too)
     public bool DebugServer { get; set; } = true;  // REGPU_DEBUG: tools\fm3ctl.ps1 can attach (127.0.0.1 only)
