@@ -1,0 +1,658 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index a83ae11..8b815a4 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -622,6 +622,11 @@ void SegDraw(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+ void WorkerLoop()
+ {
+     SetThreadDescription(GetCurrentThread(), L"gpu draw worker");
++    // REGPU_DRAW_THREAD_PRIORITY=<Win32 level> (start-time; 1 above normal, 2 highest, 15 time critical): the draw thread
++    // (and the replay thread, recorded_list.h) above the title's threads, which a port may map to "highest" (session 33
++    // of the FM3 port: the 1% slowest frames at a frame cap, from the draw thread being pre-empted?).
++    if (const char* p = getenv("REGPU_DRAW_THREAD_PRIORITY"); p && *p)
++        SetThreadPriority(GetCurrentThread(), atoi(p));
+     // the port's sampler (PGR4_SAMPLE_THREAD=w) follows this thread
+     if (!g_profiledWorker)
+         DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &g_profiledWorker, 0, FALSE, DUPLICATE_SAME_ACCESS);
+@@ -1933,6 +1938,9 @@ void PaceSwap(uint64_t frame)
+ }
+ }
+ 
++// (For the presenter's pacing, render/presenter.cpp.)
++uint32_t RegpuFrameCap() { return FrameCap(); }
++
+ void regpu::SetFrameLimit(uint32_t maxFps, bool vsync)
+ {
+     Settings& s = GetSettings();
+diff --git a/src/gpu/hlsl.cpp b/src/gpu/hlsl.cpp
+index 2568cdb..086308f 100644
+--- a/src/gpu/hlsl.cpp
++++ b/src/gpu/hlsl.cpp
+@@ -409,6 +409,8 @@ struct Emitter
+     TranslatedShader& result;
+     bool layoutOnly = false;   // only collect the vertex fetch layout (no HLSL)
+     bool literalFetch = false; // a fetch had to be baked into the code
++    bool mayMakeInf = false;   // a scalar op that can give inf or NaN (raw rcp/rsq/log, sqrt, exp2): keeps 0 x inf = 0
++    bool mayMakeInfStrict = false; // the same without rsq/sqrt (REGPU_PLAIN_MUL_PS=3: normalize's rsq counted safe)
+     mutable bool exportsDepth = false; // a pixel shader writing depth (export 61)
+     uint32_t lastStride = 0;
+     uint32_t lastSrc = 0, lastSrcSwizzle = 0; // mini fetches reuse the full fetch's index
+@@ -534,6 +536,15 @@ struct Emitter
+     // Emits code computing the scalar result into `s`; may update p.
+     std::string ScalarCode(const Alu& a)
+     {
++        // Raw reciprocal / reciprocal square root / log (inf at 0, NaN below 0), log with its -inf clamped (NaN below 0
++        // stays), square root (NaN below 0) and exp2 (overflow): a later multiply by 0 may rely on Xenos' 0 x inf = 0.
++        switch (a.scalarOp)
++        {
++        case 14: case 15: case 16: case 19: case 22: case 40: mayMakeInf = true; break;
++        default: break;
++        }
++        if (a.scalarOp == 14 || a.scalarOp == 15 || a.scalarOp == 16 || a.scalarOp == 19)
++            mayMakeInfStrict = true;
+         const std::string sv = Src(a.src[2]);
+         const std::string A = sv + ".w", B = sv + ".x";
+         auto set = [](const std::string& e) { return "s = " + e + ";"; };
+@@ -1212,12 +1223,12 @@ void ReplaceOnce(std::string& h, const char* from, const char* to)
+         h.replace(at, strlen(from), to);
+ }
+ 
+-std::string Preamble()
++std::string Preamble(bool plainMul)
+ {
+     std::string h = kPreamble;
+     if (LeanVertexFetch())
+         ReplaceOnce(h, kOrigVFetch, kLeanVFetch);
+-    if (PlainMulPixel())
++    if (plainMul)
+         ReplaceOnce(h, kOrigMul, kPlainMul);
+     return LeanFetch() ? h + kLeanFetch : h;
+ }
+@@ -1259,8 +1270,19 @@ bool LeanVertexFetch()
+ 
+ bool PlainMulPixel()
+ {
+-    static const bool plain = EnvOn("REGPU_PLAIN_MUL_PS");
+-    return plain;
++    return PlainMulPixelLevel() != 0;
++}
++
++// REGPU_PLAIN_MUL_PS: 0/unset off, 2 safe shaders only (no op that can give inf/NaN), anything else 1 = every pixel shader.
++int PlainMulPixelLevel()
++{
++    static const int level = [] {
++        const char* v = getenv("REGPU_PLAIN_MUL_PS");
++        if (!v || !*v || strcmp(v, "0") == 0)
++            return 0;
++        return atoi(v) == 2 ? 2 : atoi(v) == 3 ? 3 : 1;
++    }();
++    return level;
+ }
+ 
+ bool BakedVertexFetch()
+@@ -1347,7 +1369,14 @@ TranslatedShader TranslateShader(const Shader& shader)
+         return result;
+     }
+ 
+-    std::string h = Preamble();
++    // REGPU_PLAIN_MUL_PS=1: plain multiplies in every pixel shader; =2: only in those with no op that can give inf or NaN
++    // (session 33 of the FM3 port: =1 turned the crowd's waving flags black, a shader relying on 0 x inf = 0).
++    const int plainLevel = PlainMulPixelLevel();
++    // (=3: like 2, but square roots and reciprocal square roots (normalize) don't keep the rule.)
++    const bool unsafe = plainLevel == 3 ? e.mayMakeInfStrict : e.mayMakeInf;
++    std::string h = Preamble(plainLevel == 1 || (plainLevel >= 2 && shader.pixel && !unsafe));
++    if (plainLevel >= 2 && shader.pixel)
++        result.plainMul = !unsafe;
+     result.bodyStart = h.size();
+     std::vector<uint32_t> regs = ScalarRegisters(e.out);
+     std::string decl;
+diff --git a/src/gpu/hlsl.h b/src/gpu/hlsl.h
+index 0048f56..329ab00 100644
+--- a/src/gpu/hlsl.h
++++ b/src/gpu/hlsl.h
+@@ -40,6 +40,8 @@ struct TranslatedShader
+     uint32_t interpolatorsWritten = 0;
+     // Where the shader's own code starts in hlsl (after the shared preamble).
+     size_t bodyStart = 0;
++    // REGPU_PLAIN_MUL_PS=2: this pixel shader multiplies as IEEE (no op in it can give inf or NaN).
++    bool plainMul = false;
+     // The other parts of the constant blocks the code reads (ScanBlockUse in renderer.cpp, after the game's
+     // rewrite): bool constants, loop constants, the vertex fetch layout (vfl), the game's vuser constants.
+     // A draw writes the unread ones to the upload ring no more. True (written) until scanned.
+@@ -70,3 +72,5 @@ int LeanFetchLevel();
+ bool LeanVertexFetch();
+ // REGPU_PLAIN_MUL_PS=1: pixel shaders multiply as IEEE (vertex shaders keep D3D9's 0 x anything = 0).
+ bool PlainMulPixel();
++// 0 off, 1 every pixel shader, 2 pixel shaders without inf/NaN-making ops (session 33 of the FM3 port).
++int PlainMulPixelLevel();
+diff --git a/src/gpu/recorded_list.h b/src/gpu/recorded_list.h
+index 0f7449d..bda353f 100644
+--- a/src/gpu/recorded_list.h
++++ b/src/gpu/recorded_list.h
+@@ -109,6 +109,12 @@ public:
+         struct A { D3D12_TEXTURE_COPY_LOCATION dst, src; UINT x, y, z; BOOL hasBox; D3D12_BOX box; } a{ *dst, *src, x, y, z, box != nullptr, box ? *box : D3D12_BOX{} };
+         Put(kCopyTexture, &a, sizeof(a));
+     }
++    // An MSAA surface's samples averaged by the hardware into a 1x one (REGPU_RESOLVE_TWO_STEP, renderer.cpp BlitResolve).
++    void ResolveSubresourceRegion(ID3D12Resource* dst, UINT dstX, UINT dstY, ID3D12Resource* src, const D3D12_RECT& rect, DXGI_FORMAT format)
++    {
++        struct A { ID3D12Resource* dst; ID3D12Resource* src; UINT x, y; D3D12_RECT rect; DXGI_FORMAT format; } a{ dst, src, dstX, dstY, rect, format };
++        Put(kResolveRegion, &a, sizeof(a));
++    }
+     void SetGraphicsRootSignature(ID3D12RootSignature* r) { Put(kRootSignature, &r, sizeof(r)); }
+     void SetComputeRootSignature(ID3D12RootSignature* r) { Put(kComputeRootSignature, &r, sizeof(r)); }
+     void SetComputeRootDescriptorTable(UINT i, D3D12_GPU_DESCRIPTOR_HANDLE h) { struct A { UINT i; D3D12_GPU_DESCRIPTOR_HANDLE h; } a{ i, h }; Put(kComputeTable, &a, sizeof(a)); }
+@@ -190,7 +196,7 @@ private:
+         kBarrier, kCopyTexture, kRootSignature, kTable, kCbv, kRoot32, kTargets, kPipeline, kViewports, kScissors, kStencilRef, kBlendFactor,
+         kTopology, kHeaps, kDraw, kEndQuery, kResolveQuery, kClearRtv, kClearDsv, kCreateRtv, kCreateDsv, kDrawIndexed, kIndexBuffer, kCopyBuffer,
+         kComputeRootSignature, kComputeTable, kComputeRoot32, kDispatch, kBeginQuery, kHandOff, kComputeSrv, kComputeUav, kPredication,
+-        kCall, kSwitch
++        kCall, kSwitch, kResolveRegion
+     };
+     static constexpr size_t kChunk = 64 << 10;
+ 
+@@ -264,6 +270,8 @@ private:
+     void Worker()
+     {
+         SetThreadDescription(GetCurrentThread(), L"command list replay");
++        if (const char* p = getenv("REGPU_DRAW_THREAD_PRIORITY"); p && *p) // (gpu.cpp WorkerLoop)
++            SetThreadPriority(GetCurrentThread(), atoi(p));
+         for (;;)
+         {
+             RecordBytes chunk;
+@@ -308,6 +316,18 @@ private:
+                 l->CopyTextureRegion(&c.dst, c.x, c.y, c.z, &c.src, c.hasBox ? &c.box : nullptr);
+                 break;
+             }
++            case kResolveRegion:
++            {
++                struct A { ID3D12Resource* dst; ID3D12Resource* src; UINT x, y; D3D12_RECT rect; DXGI_FORMAT format; };
++                A c = At<A>(a);
++                ID3D12GraphicsCommandList1* l1 = nullptr;
++                if (SUCCEEDED(l->QueryInterface(IID_PPV_ARGS(&l1))))
++                {
++                    l1->ResolveSubresourceRegion(c.dst, 0, c.x, c.y, c.src, 0, &c.rect, c.format, D3D12_RESOLVE_MODE_AVERAGE);
++                    l1->Release();
++                }
++                break;
++            }
+             case kRootSignature: l->SetGraphicsRootSignature(At<ID3D12RootSignature*>(a)); break;
+             case kTable:
+             {
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 1a9d201..ddc3e1a 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -113,6 +113,7 @@ struct Upscale
+     bool tried = false, ready = false;
+     ComPtr<ID3D12RootSignature> root;
+     ComPtr<ID3D12PipelineState> easu, rcas, depthCopy, gamma, enhance;
++    ComPtr<ID3D12PipelineState> gammaDraw; // the gamma pass as a draw into the back buffer (GradeIntoBackBuffer)
+     ComPtr<ID3D12Resource> dlaaOut; // DLAA output (scene size), copied back into the scene image
+     ComPtr<ID3D12Resource> depth; // temporal: the scene's depth as R32 (render size, top left)
+     ComPtr<ID3D12Resource> temp; // EASU output (RGBA16F)
+@@ -728,6 +729,7 @@ struct Renderer
+     ComPtr<ID3D12PipelineState> colorBlit8, colorBlit16;  // colour -> 8888 / RGBA16F, scaled
+     ComPtr<ID3D12PipelineState> depthBlitMs, colorBlitMs8, colorBlitMs16; // the same from multisampled surfaces
+     ComPtr<ID3D12PipelineState> colorBlit10, colorBlitMs10; // colour -> R10G10B10A2 (REGPU_COPIES_1010102)
++    ComPtr<ID3D12Resource> resolveScratch; // REGPU_RESOLVE_TWO_STEP: the colour surface averaged to 1x (BlitResolve)
+     // EDRAM surfaces: one host colour and one host depth target per EDRAM base
+     // (RB_COLOR_INFO / RB_DEPTH_INFO bits 0-11), so passes that the title
+     // places at different EDRAM offsets do not overwrite each other.
+@@ -7219,7 +7221,58 @@ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXG
+         TransitionColor(D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+     C().list->ResourceBarrier(barriers, b);
+ 
+-    const bool ms = g_msaa > 1;
++    bool ms = g_msaa > 1;
++    // REGPU_RESOLVE_TWO_STEP=1 (live, session 33 of the FM3 port): a multisampled colour resolve in two steps: the
++    // hardware averages the rectangle's samples into a 1x scratch copy of the surface (ResolveSubresourceRegion, which
++    // can use the MSAA compression instead of reading every sample), then the usual 1x pass scales and converts from it.
++    // At 4K 4x the three colour resolves took 0.63 ms of FM3's 4.2 ms GPU frame, each reading all samples in a shader.
++    static LiveSwitch twoStep("REGPU_RESOLVE_TWO_STEP");
++    if (ms && !depth && twoStep && f.descriptorsUsed < kDescriptorsPerFrame)
++    {
++        const D3D12_RESOURCE_DESC cd = C().color->GetDesc();
++        if (!g_r.resolveScratch || g_r.resolveScratch->GetDesc().Width != cd.Width || g_r.resolveScratch->GetDesc().Height != cd.Height)
++        {
++            if (g_r.resolveScratch)
++                Frame().garbage.push_back(std::move(g_r.resolveScratch));
++            D3D12_HEAP_PROPERTIES hp{};
++            hp.Type = D3D12_HEAP_TYPE_DEFAULT;
++            D3D12_RESOURCE_DESC td = cd;
++            td.SampleDesc = { 1, 0 };
++            td.Format = kColorFormat;
++            td.Flags = D3D12_RESOURCE_FLAG_NONE;
++            if (SUCCEEDED(g_r.device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr,
++                    IID_PPV_ARGS(&g_r.resolveScratch))))
++                CountCreate("resolve scratch");
++        }
++        if (g_r.resolveScratch)
++        {
++            // The colour surface: shader resource (above) -> resolve source; the scratch: shader resource -> resolve destination.
++            D3D12_RESOURCE_BARRIER rb[2]{};
++            rb[0].Type = rb[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++            rb[0].Transition.pResource = C().color.Get();
++            rb[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
++            rb[0].Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
++            rb[0].Transition.StateAfter = D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
++            rb[1].Transition.pResource = g_r.resolveScratch.Get();
++            rb[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
++            rb[1].Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
++            rb[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RESOLVE_DEST;
++            C().list->ResourceBarrier(2, rb);
++            const D3D12_RECT src = ToHost(sr);
++            C().list->ResolveSubresourceRegion(g_r.resolveScratch.Get(), UINT(src.left), UINT(src.top), C().color.Get(), src, kColorFormat);
++            for (auto& x : rb)
++                std::swap(x.Transition.StateBefore, x.Transition.StateAfter);
++            C().list->ResourceBarrier(2, rb);
++            // The 1x pass reads the scratch copy at the same place.
++            D3D12_SHADER_RESOURCE_VIEW_DESC sv{};
++            sv.Format = kColorFormat;
++            sv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
++            sv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
++            sv.Texture2D.MipLevels = 1;
++            g_r.device->CreateShaderResourceView(g_r.resolveScratch.Get(), &sv, Cpu(g_r.srvHeap.Get(), slot, g_r.srvStride));
++            ms = false;
++        }
++    }
+     ID3D12PipelineState* pso = depth ? (ms ? g_r.depthBlitMs.Get() : g_r.depthBlit.Get())
+         : format == DXGI_FORMAT_R8G8B8A8_UNORM ? (ms ? g_r.colorBlitMs8.Get() : g_r.colorBlit8.Get())
+         : format == DXGI_FORMAT_R10G10B10A2_UNORM ? (ms ? g_r.colorBlitMs10.Get() : g_r.colorBlit10.Get())
+@@ -7783,6 +7836,46 @@ bool InitUpscale()
+     pd.CS = { kEnhanceMain, sizeof(kEnhanceMain) };
+     if (FAILED(g_r.device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&g_upscale.enhance))))
+         return false;
++    {
++        // The display gamma pass drawn into the back buffer (session 33; the swap chain can't be a UAV). Same ramp as
++        // GammaMain in fsr1.hlsl, same constants and root signature.
++        static const char kGammaDraw[] = R"(
++cbuffer C : register(b0) { uint4 q0, q1, q2, q3, q4, outSize; };
++Texture2D<float4> src : register(t0);
++float4 vs(uint id : SV_VertexID) : SV_Position { return float4(float(id == 1) * 4.0 - 1.0, float(id == 2) * -4.0 + 1.0, 0, 1); }
++float Curve(float x, float p[17]) { const float f = saturate(x) * 16.0; const uint i = min(uint(f), 15u); return lerp(p[i], p[i + 1], f - float(i)); }
++float4 ps(float4 pos : SV_Position) : SV_Target
++{
++    const uint4 q[5] = { q0, q1, q2, q3, q4 };
++    float p[17];
++    [unroll] for (uint k = 0; k < 17; k++) p[k] = asfloat(q[k / 4][k % 4]);
++    const float4 c = src.Load(int3(pos.xy, 0));
++    return float4(Curve(c.r, p), Curve(c.g, p), Curve(c.b, p), c.a);
++}
++)";
++        ComPtr<ID3DBlob> vs, ps, err;
++        if (SUCCEEDED(D3DCompile(kGammaDraw, sizeof(kGammaDraw) - 1, nullptr, nullptr, nullptr, "vs", "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &vs, &err)) &&
++            SUCCEEDED(D3DCompile(kGammaDraw, sizeof(kGammaDraw) - 1, nullptr, nullptr, nullptr, "ps", "ps_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &ps, &err)))
++        {
++            D3D12_GRAPHICS_PIPELINE_STATE_DESC gd{};
++            gd.pRootSignature = g_upscale.root.Get();
++            gd.VS = { vs->GetBufferPointer(), vs->GetBufferSize() };
++            gd.PS = { ps->GetBufferPointer(), ps->GetBufferSize() };
++            gd.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
++            gd.SampleMask = UINT_MAX;
++            gd.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
++            gd.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
++            gd.RasterizerState.DepthClipEnable = TRUE;
++            gd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
++            gd.NumRenderTargets = 1;
++            gd.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
++            gd.SampleDesc.Count = 1;
++            if (FAILED(g_r.device->CreateGraphicsPipelineState(&gd, IID_PPV_ARGS(&g_upscale.gammaDraw))))
++                Log("gamma: back-buffer pass pipeline failed: grading into a copy");
++        }
++        else
++            Log("gamma: back-buffer pass failed to compile: %s", err ? static_cast<const char*>(err->GetBufferPointer()) : "?");
++    }
+     g_upscale.ready = true;
+     Log("upscale: FSR 1 ready (scene at %.0f%% of %ux%u)", GetSettings().SceneScale() * 100.0f, OutputWidth(), OutputHeight());
+     return true;
+@@ -7804,9 +7897,94 @@ std::atomic<bool> g_gammaPwlSet{ false };
+ ComPtr<ID3D12Resource> g_gammaOut;
+ ComPtr<ID3D12Resource> g_enhanceOut; // enhanced lighting output (Settings::enhance)
+ 
++// The gamma pass straight into the back buffer (FM3 port, session 33): GradeFrontBuffer fills one of these for the
++// frame end (PresenterRecordCopy's grade callback, GradeIntoBackBuffer) instead of grading into g_gammaOut, which was
++// then copied: one 4K RGBA8 write and read less (~4% at 4K 4x). REGPU_GAMMA_COPY=1 (live): the old way.
++struct GradeJob
++{
++    bool valid = false;
++    uint32_t c[24] = {};
++    UINT slots = 0; // the image's SRV
++    ID3D12Resource* image = nullptr; // COPY_SOURCE at the frame end
++};
++GradeJob g_gradeJobs[kFrames];
++
++void GradeIntoBackBuffer(ID3D12GraphicsCommandList* l, size_t rtvPtr, uint32_t width, uint32_t height, void* ctx)
++{
++    const D3D12_CPU_DESCRIPTOR_HANDLE rtv{ rtvPtr };
++    const GradeJob& j = *static_cast<const GradeJob*>(ctx);
++    D3D12_RESOURCE_BARRIER b{};
++    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++    b.Transition.pResource = j.image;
++    b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
++    b.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
++    l->ResourceBarrier(1, &b);
++    l->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
++    const D3D12_VIEWPORT vp{ 0, 0, float(width), float(height), 0, 1 };
++    const D3D12_RECT sc{ 0, 0, LONG(width), LONG(height) };
++    l->RSSetViewports(1, &vp);
++    l->RSSetScissorRects(1, &sc);
++    l->SetGraphicsRootSignature(g_upscale.root.Get());
++    l->SetGraphicsRoot32BitConstants(0, 24, j.c, 0);
++    l->SetGraphicsRootDescriptorTable(1, Gpu(g_r.srvHeap.Get(), j.slots, g_r.srvStride));
++    l->SetGraphicsRootDescriptorTable(2, Gpu(g_r.srvHeap.Get(), j.slots, g_r.srvStride)); // (unused UAV range)
++    l->SetPipelineState(g_upscale.gammaDraw.Get());
++    l->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
++    l->DrawInstanced(3, 1, 0, 0);
++    std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
++    l->ResourceBarrier(1, &b);
++}
++
++// The same pass into a texture (COPY_SOURCE afterwards), for frames the debug server or a dump reads (they read the
++// image before the present, which in this mode is not graded).
++ComPtr<ID3D12Resource> g_gammaDrawOut;
++ComPtr<ID3D12DescriptorHeap> g_gammaDrawRtv;
++ID3D12Resource* GradeIntoTexture(GradeJob* job)
++{
++    const D3D12_RESOURCE_DESC desc = job->image->GetDesc();
++    if (!g_gammaDrawRtv)
++    {
++        D3D12_DESCRIPTOR_HEAP_DESC hd{};
++        hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
++        hd.NumDescriptors = 1;
++        if (FAILED(g_r.device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&g_gammaDrawRtv))))
++            return job->image;
++    }
++    if (!g_gammaDrawOut || g_gammaDrawOut->GetDesc().Width != desc.Width || g_gammaDrawOut->GetDesc().Height != desc.Height)
++    {
++        D3D12_RESOURCE_DESC td = desc;
++        td.MipLevels = 1;
++        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
++        td.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
++        RetireTexture(std::move(g_gammaDrawOut));
++        g_gammaDrawOut = CreateTexture(td, D3D12_RESOURCE_STATE_COPY_SOURCE, "gamma draw");
++        if (!g_gammaDrawOut)
++            return job->image;
++        g_r.device->CreateRenderTargetView(g_gammaDrawOut.Get(), nullptr, g_gammaDrawRtv->GetCPUDescriptorHandleForHeapStart());
++    }
++    C().list->Call(
++        [](ID3D12GraphicsCommandList* l, void* ctx) {
++            GradeJob* j = static_cast<GradeJob*>(ctx);
++            D3D12_RESOURCE_BARRIER b{};
++            b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++            b.Transition.pResource = g_gammaDrawOut.Get();
++            b.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
++            b.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
++            l->ResourceBarrier(1, &b);
++            const D3D12_RESOURCE_DESC d = g_gammaDrawOut->GetDesc();
++            GradeIntoBackBuffer(l, g_gammaDrawRtv->GetCPUDescriptorHandleForHeapStart().ptr, uint32_t(d.Width), d.Height, j);
++            std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
++            l->ResourceBarrier(1, &b);
++        },
++        job);
++    g_drawState.Invalidate();
++    return g_gammaDrawOut.Get();
++}
++
+ // Returns the graded copy of `image` (in COPY_SOURCE state), or null to show it as is. `pwl`: the
+ // front buffer is k_2_10_10_10, so the display uses the PWL ramp. REGPU_NO_GAMMA_PWL=1: always the table.
+-ID3D12Resource* GradeFrontBuffer(ID3D12Resource* image, bool pwl)
++// With `direct`, a pass that grades fills *direct (valid) for the frame end and returns null.
++ID3D12Resource* GradeFrontBuffer(ID3D12Resource* image, bool pwl, GradeJob* direct = nullptr)
+ {
+     static LiveSwitch off("REGPU_NO_GAMMA"), noPwl("REGPU_NO_GAMMA_PWL");
+     pwl = pwl && !noPwl && g_gammaPwlSet.load(std::memory_order_relaxed);
+@@ -7848,6 +8026,25 @@ ID3D12Resource* GradeFrontBuffer(ID3D12Resource* image, bool pwl)
+     FrameResources& f = Frame();
+     if (f.descriptorsUsed + 2 > kDescriptorsPerFrame)
+         return nullptr;
++    if (direct && g_upscale.gammaDraw)
++    {
++        direct->slots = f.descriptorBase + f.descriptorsUsed;
++        f.descriptorsUsed += 1;
++        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
++        srv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
++        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
++        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
++        srv.Texture2D.MipLevels = 1;
++        g_r.device->CreateShaderResourceView(image, &srv, Cpu(g_r.srvHeap.Get(), direct->slots, g_r.srvStride));
++        memset(direct->c, 0, sizeof(direct->c));
++        memcpy(direct->c, points, sizeof(points));
++        direct->c[20] = uint32_t(desc.Width);
++        direct->c[21] = desc.Height;
++        direct->image = image;
++        direct->valid = true;
++        g_drawState.Invalidate(); // (the frame end sets the compute pipeline)
++        return nullptr;
++    }
+     if (!g_gammaOut || g_gammaOut->GetDesc().Width != desc.Width || g_gammaOut->GetDesc().Height != desc.Height)
+     {
+         D3D12_RESOURCE_DESC td = desc;
+@@ -10303,6 +10500,7 @@ bool RendererIsResolveDraw()
+ 
+ uint64_t RendererFenceSubmit() { return FenceSubmitImpl(); }
+ bool LongFramesOn() { return LongFramesEnabled(); }
++bool RegpuPerfLiteOn() { return PerfLiteOn(); } // (render/presenter.cpp)
+ void RendererDrawThreadIdle(double ms) { g_drawIdleMs += ms; }
+ // A host's long-frame callback (driver::SetLongFrameCallback): called on the draw thread at the end of a long frame,
+ // e.g. to log stack samples taken while it ran. It must be quick.
+@@ -13339,6 +13537,25 @@ void LogThread()
+                     double(n) / windowS, sum / double(n),
+                     double(sorted[k]), worst, double(r.draws - windowFirst.draws) / double(n),
+                     gpuFrames ? (r.gpuMs - windowFirst.gpuMs) / double(gpuFrames) : 0.0, busy, longText);
++                // Video memory every 5th line (session 33 of the FM3 port: high resolutions): what the process uses of the
++                // budget the OS gives it, from DXGI on this log thread (nothing on the draw thread).
++                static uint32_t vramLines = 0;
++                if (vramLines++ % 5 == 0 && g_r.device)
++                {
++                    static ComPtr<IDXGIAdapter3> adapter = [] {
++                        ComPtr<IDXGIFactory4> factory;
++                        ComPtr<IDXGIAdapter3> a;
++                        if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
++                            factory->EnumAdapterByLuid(g_r.device->GetAdapterLuid(), IID_PPV_ARGS(&a));
++                        return a;
++                    }();
++                    DXGI_QUERY_VIDEO_MEMORY_INFO local{}, shared{};
++                    if (adapter && SUCCEEDED(adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &local)) &&
++                        SUCCEEDED(adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &shared)))
++                        Log("perf lite: VRAM %llu MB used of %llu MB budget | system memory for the GPU %llu MB of %llu MB",
++                            (unsigned long long)(local.CurrentUsage >> 20), (unsigned long long)(local.Budget >> 20),
++                            (unsigned long long)(shared.CurrentUsage >> 20), (unsigned long long)(shared.Budget >> 20));
++                }
+                 windowFirst = r, cpuFirst = cpuNow;
+                 frameMs.clear();
+             }
+@@ -13988,10 +14205,16 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     const bool fromResolve = it != g_r.resolved.end() && it->second.width == kWidth && it->second.height == kHeight &&
+         it->second.format == DXGI_FORMAT_R8G8B8A8_UNORM;
+     ID3D12Resource* graded = nullptr; // the front buffer through the display's gamma table
++    GradeJob* gradeJob = nullptr;     // ... graded straight into the back buffer at the frame end
+     if (fromResolve)
+     {
+         image = it->second.resource.Get();
+-        graded = GradeFrontBuffer(image, it->second.guestFormat == 7);
++        static LiveSwitch gammaCopy("REGPU_GAMMA_COPY");
++        GradeJob& job = g_gradeJobs[g_r.frameIndex];
++        job.valid = false;
++        graded = GradeFrontBuffer(image, it->second.guestFormat == 7, gammaCopy || GetSettings().enhance ? nullptr : &job);
++        if (job.valid)
++            gradeJob = &job;
+         D3D12_RESOURCE_BARRIER b{};
+         b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+         b.Transition.pResource = image;
+@@ -14023,14 +14246,16 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         ID3D12Resource *shown = nullptr, *overlay = nullptr, *timer = nullptr;
+         UINT64 fence = 0;
+         ID3D12Resource* fps = nullptr;
++        GradeJob* grade = nullptr;
+     };
+     static AsyncEnd asyncEnds[kFrames];
+     AsyncEnd& asyncEnd = asyncEnds[g_r.frameIndex];
+     bool presenting = false;
+     if (asyncPresent)
+-        asyncEnd = { fromResolve, shown, overlay, timer, 0, fps };
++        asyncEnd = { fromResolve, shown, overlay, timer, 0, fps, gradeJob };
+     else
+-        presenting = fromResolve && PresenterRecordCopy(C().list->Real(), shown, overlay, kOverlayW, kOverlayH, timer, kTimerW, kTimerH, fps, kFpsW, kFpsH);
++        presenting = fromResolve && PresenterRecordCopy(C().list->Real(), shown, overlay, kOverlayW, kOverlayH, timer, kTimerW, kTimerH, fps, kFpsW, kFpsH,
++            gradeJob ? GradeIntoBackBuffer : nullptr, gradeJob);
+     {
+         const uint64_t traceFrame = TraceFrame();
+         if (traceFrame && g_r.frame + 1 == traceFrame)
+@@ -14111,7 +14336,7 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+         dst.PlacedFootprint.Footprint = { DXGI_FORMAT_R8G8B8A8_UNORM, OutputWidth(), OutputHeight(), 1, (OutputWidth() * 4 + 255) & ~255u };
+         D3D12_TEXTURE_COPY_LOCATION src{};
+-        src.pResource = shown;
++        src.pResource = gradeJob ? GradeIntoTexture(gradeJob) : shown; // (graded only into the back buffer otherwise)
+         src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+         C().list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+     }
+@@ -14218,7 +14443,8 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         C().list->Call(
+             [](ID3D12GraphicsCommandList* l, void* ctx) {
+                 const AsyncEnd& e = *static_cast<const AsyncEnd*>(ctx);
+-                const bool show = e.copy && PresenterRecordCopy(l, e.shown, e.overlay, kOverlayW, kOverlayH, e.timer, kTimerW, kTimerH, e.fps, kFpsW, kFpsH);
++                const bool show = e.copy && PresenterRecordCopy(l, e.shown, e.overlay, kOverlayW, kOverlayH, e.timer, kTimerW, kTimerH, e.fps, kFpsW, kFpsH,
++                    e.grade ? GradeIntoBackBuffer : nullptr, e.grade);
+                 l->Close();
+                 ID3D12CommandList* lists[] = { l };
+                 SubmitLists(1, lists);
+diff --git a/src/render/presenter.cpp b/src/render/presenter.cpp
+index 9d17135..e429449 100644
+--- a/src/render/presenter.cpp
++++ b/src/render/presenter.cpp
+@@ -3,10 +3,12 @@
+ // the guest. Until the D3D hooks draw real content the frame is a clear
+ // whose shade pulses with the frame count, proving the path end to end.
+ #include <algorithm>
++#include <chrono>
+ #include <atomic>
+ #include <condition_variable>
+ #include <mutex>
+ #include <thread>
++#include <vector>
+ 
+ #include <d3d12.h>
+ #include <dxgi1_6.h>
+@@ -14,6 +16,8 @@
+ #include <wrl/client.h>
+ 
+ #include "log.h"
++#include "live_switch.h"
++#include "precise_sleep.h"
+ #include "render/presenter.h"
+ #include "settings.h"
+ 
+@@ -441,7 +445,7 @@ void PresenterUseRenderer()
+ }
+ 
+ bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, ID3D12Resource* overlay, uint32_t overlayW, uint32_t overlayH,
+-    ID3D12Resource* timer, uint32_t timerW, uint32_t timerH, ID3D12Resource* fps, uint32_t fpsW, uint32_t fpsH)
++    ID3D12Resource* timer, uint32_t timerW, uint32_t timerH, ID3D12Resource* fps, uint32_t fpsW, uint32_t fpsH, PresenterGrade grade, void* gradeCtx)
+ {
+     if (!g_p.ready)
+         return false;
+@@ -468,9 +472,27 @@ bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, I
+         b.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+         b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+     }
+-    list->ResourceBarrier(1, &b);
+-    if (!offsetX && !offsetY && sd.Width == bd.Width && sd.Height == bd.Height)
+-        list->CopyResource(backBuffer, src);
++    const bool sameSize = !offsetX && !offsetY && sd.Width == bd.Width && sd.Height == bd.Height;
++    if (grade && sameSize)
++    {
++        // The gamma pass writes the back buffer itself: one full-size write and read less than grading into an image
++        // and copying that (session 33: ~4% at 4K 4x).
++        b.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
++        list->ResourceBarrier(1, &b);
++        D3D12_CPU_DESCRIPTOR_HANDLE rtv = g_p.rtvHeap->GetCPUDescriptorHandleForHeapStart();
++        rtv.ptr += SIZE_T(i) * g_p.rtvStride;
++        grade(list, size_t(rtv.ptr), UINT(bd.Width), bd.Height, gradeCtx);
++        b.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
++        b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
++        list->ResourceBarrier(1, &b);
++    }
++    else
++        list->ResourceBarrier(1, &b);
++    if (sameSize)
++    {
++        if (!grade)
++            list->CopyResource(backBuffer, src);
++    }
+     else
+     {
+         D3D12_TEXTURE_COPY_LOCATION dst{}, from{};
+@@ -517,8 +539,52 @@ bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, I
+     return true;
+ }
+ 
++uint32_t RegpuFrameCap();
++bool RegpuPerfLiteOn();
++
+ void PresenterPresent()
+ {
++    using Clock = std::chrono::steady_clock;
++    // REGPU_PRESENT_PACE=1 (live, session 33 of the FM3 port): presents held to an even spacing at the frame cap. The cap
++    // gates the title's VdSwap, at the start of the pipeline; the frame then reaches here after the command processor,
++    // the draw thread and the replay thread, whose time varies with the frame's load: the presents came unevenly (the
++    // 1% slowest present gaps ~15% over the cap's at 1440p even in light seconds). Here a frame waits for its slot
++    // (high-resolution timer, then a short spin); one that comes late starts the spacing again from now.
++    static LiveSwitch pace("REGPU_PRESENT_PACE");
++    static Clock::time_point slot{};
++    if (pace && g_p.ready && !GetSettings().vsync)
++    {
++        const auto interval = std::chrono::microseconds(1000000 / std::max(RegpuFrameCap(), 30u));
++        const auto now = Clock::now();
++        if (slot > now && slot - now <= interval)
++            PreciseSleepUntil(slot, 300);
++        slot = std::max(slot + interval, Clock::now() - interval / 4); // (a little catch-up; no burst after a late one)
++    }
++    // Present gaps for the light performance log: their 99th percentile once a second (what reaches the screen; the
++    // perf lite line's frame times are the draw thread's).
++    if (RegpuPerfLiteOn())
++    {
++        static std::vector<float> gaps;
++        static Clock::time_point last{}, windowStart = Clock::now();
++        const auto now = Clock::now();
++        if (last != Clock::time_point{})
++            gaps.push_back(std::chrono::duration<float, std::milli>(now - last).count());
++        last = now;
++        if (now - windowStart >= std::chrono::seconds(1) && gaps.size() > 10)
++        {
++            std::vector<float> sorted = gaps;
++            const size_t k = std::min(sorted.size() - 1, size_t(double(sorted.size()) * 0.99));
++            std::nth_element(sorted.begin(), sorted.begin() + ptrdiff_t(k), sorted.end());
++            const float p99 = sorted[k], worst = *std::max_element(gaps.begin(), gaps.end());
++            double sum = 0;
++            for (float g : gaps)
++                sum += g;
++            Log("perf lite: presents %zu, gap avg %.3f ms, p99 %.3f ms, max %.2f ms%s", gaps.size(), sum / double(gaps.size()), p99, worst,
++                pace ? " (paced)" : "");
++            gaps.clear();
++            windowStart = now;
++        }
++    }
+     // Vsync: wait for the display's refresh; off: present at once (tearing allowed).
+     if (g_p.ready)
+     {
+diff --git a/src/render/presenter.h b/src/render/presenter.h
+index e9aaf61..151e32d 100644
+--- a/src/render/presenter.h
++++ b/src/render/presenter.h
+@@ -31,8 +31,13 @@ ID3D12CommandQueue* RenderQueue();
+ // overlay (COPY_SOURCE RGBA8, overlayW x overlayH) is copied over the top-left corner when given.
+ // timer (same kind, timerW x timerH) goes in the very corner, the overlay below it.
+ // fps (same kind, fpsW x fpsH: the fps panel) goes at the top centre.
++// grade (FM3 port, session 33): instead of the copy, grade(list, rtv.ptr, width, height, gradeCtx) draws src into the back
++// buffer (its RTV, in RENDER_TARGET state; the display gamma pass) when src is the back buffer's size; else src is
++// copied as is.
++using PresenterGrade = void (*)(ID3D12GraphicsCommandList* list, size_t rtv, uint32_t width, uint32_t height, void* ctx);
+ bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, ID3D12Resource* overlay = nullptr, uint32_t overlayW = 0, uint32_t overlayH = 0,
+-    ID3D12Resource* timer = nullptr, uint32_t timerW = 0, uint32_t timerH = 0, ID3D12Resource* fps = nullptr, uint32_t fpsW = 0, uint32_t fpsH = 0);
++    ID3D12Resource* timer = nullptr, uint32_t timerW = 0, uint32_t timerH = 0, ID3D12Resource* fps = nullptr, uint32_t fpsW = 0, uint32_t fpsH = 0,
++    PresenterGrade grade = nullptr, void* gradeCtx = nullptr);
+ void PresenterPresent();
+ // The swap chain to a new output size (host GPU idle; renderer.cpp ApplyOutputSize).
+ void PresenterResize(uint32_t width, uint32_t height);

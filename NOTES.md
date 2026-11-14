@@ -164,9 +164,41 @@
   check:** a second round (the 1x < 2x result is odd: draws differ by AI run, and one round only), then the GPU time by
   pass at 4x vs 2x (`REGPU_GPU_PASSES`) to see which passes grow with the sample count. FSR 3 run: driver timeout
   (OPEN-ISSUES U, parked by the user; log kept in `out/logs/`).
-- **Next:** see the plan list in this session's turn: picture checks + 4K/1440p A/Bs of I3 per shader
-  (`REGPU_PLAIN_MUL_PS=2`), two-step resolve, draw-thread priority (`REGPU_DRAW_THREAD_PRIORITY`), present pacing
-  (`REGPU_PRESENT_PACE`), the existing speed options for p99; L59; VRAM at 5K/8K (ask first).
+- **Matrices (minimized 120 s benchmark races, interleaved by round, `tools/bench_matrix.ps1`):**
+  - **4K, 2 rounds** (`out/bench/matrix-4k-leads-20261114-175045/`): base 4x 227.1 fps (p99 5.26 ms, GPU 4.10 ms,
+    14.3 GB) | 2x 304.8 (+34%, at equal draws +33%, GPU -23%, 9.0 GB) | 1x 334.7 (+47%, 6.5 GB; round 1's 1x < 2x
+    was the AI run) | FSR 1 quality 347.1 (+53%) | I3 level 3 (`REGPU_PLAIN_MUL_PS=3`) 243.1 (+7%, at equal draws
+    +4.1%, GPU -3.5%) | no gamma (`REGPU_NO_GAMMA=1`, picture brighter: FM3's ramp is not the identity) 248.9 (+9.6%,
+    at equal draws +6.5%).
+  - **1440p 4x, 3 rounds** (`out/bench/matrix-1440p-leads-20261114-164150/`; all at the 360 cap, 349-358 fps):
+    base 353.8 (p99 3.45 ms, present p99 3.51) | draw-thread priority 2 356.0 (+0.6%, p99 3.53) | present pacing
+    349.7 (-1.2%, p99 3.60) | I3 level 3 349.2 (-1.3%, p99 3.70) | half-rate shadows 358.2 (+1.3%, p99 3.47) |
+    half-rate reflections 357.3 (+1.0%, p99 3.45) | distant-car detail (`FM3_CAR_LOD_FAR=3`) 356.8 (+0.9%, p99
+    3.36) | long-frame stack sampler on 357.2 (+1.0%, p99 3.29). **Nothing moves the 1440p p99 beyond noise**
+    (sd ~2 fps, p99 ±0.1 ms between rounds); the sampler costs nothing measurable (the user's `long_frame_stacks=1`
+    stays).
+- **Where 4x costs at 4K (frozen grid, `REGPU_GPU_PASSES=1`, `tools/analysis/gpupasses.py`, logs
+  `out/perf/s33-passes/`):** GPU 3.18 (2x) -> 4.02 ms (4x), +0.84 ms: main scene pass 2.02 -> 2.28 (+0.26), **the
+  scene's colour resolve (pass ending in the resolve to 17F96000, 27 draws) 0.19 -> 0.51 (+0.32)**, two 12-draw
+  passes + resolves 0.14 -> 0.24 (+0.10), the 70-draw 410340 pass +0.04, the rest small. So about half is resolves
+  reading every 8-byte sample of the R16G16B16A16F surface (bandwidth: 265 MB a 4K 4x read), which the hardware
+  resolve doesn't avoid (two-step: GPU 4.078 vs 4.077 ms, 0 pixels changed: **closed**). L59's post passes are small
+  (the 118-draw effects pass +0.02). fps differ more than GPU ms (1.12 vs 0.84 ms): the frame end (back-buffer copy,
+  gamma) sits after the end timestamp in async present.
+- **Gamma pass into the back buffer (new default, ReGPU patch 45 `regpu-4k-leads`):** the no-gamma result pointed at
+  the display gamma pass: a 4K compute pass into an image, then a copy to the back buffer. Now a pixel shader draws the
+  graded image straight into the back buffer (the swap chain refuses UAV usage: first try failed with 887A0001).
+  Frozen 4K grid, 3 interleaved rounds: copy 229.3 fps / direct 238.4 / none 238.2 (+4.0%, the cost is gone); picture
+  vs the old way: max 1/255, mean 0.08 (`out/perf/s33-gamma2/`). Debug-server shots grade a copy the same way.
+  `REGPU_GAMMA_COPY=1` live = the old way. Benchmark races, 2 rounds each (`out/bench/matrix-{1440p,4k}-gamma-*`): **4K 236.3 -> 242.2 fps (+2.5%, at equal draws +4.3%), p99 5.00 -> 4.80 ms; 1440p 357.1 -> 359.7 (+0.7%, at the cap), p99 3.41 -> 3.30 ms, present p99 3.45 -> 3.35** (the only lead this session that moved the 1440p p99 at all; within ~1 sd of noise there).
+- **I3 per shader:** level 2 (no inf/NaN-making op) and level 3 (rsq/sqrt also counted safe) keep the flags right
+  (level 1 = black flags); 4K frozen grid -0.6% GPU, 4K races +4% at equal draws, 1440p races -1.3% (cap-bound):
+  mixed; left off (`REGPU_PLAIN_MUL_PS`, start-time) until a cleaner 4K series.
+- **Closed:** two-step resolve (above); draw-thread priority (no p99 change); present pacing (works, p99 not better:
+  the present gaps follow the frames); L48/L49 (the only compute at native resolution was the gamma pass: now a draw).
+  L3/I6/L5 were settled earlier (L3 -6% in session 23, I6 not in our ReGPU, L5 = I2).
+- **Not done:** VRAM at 5K/8K (needs the user's OK: 4K 4x already uses 14.3 GB and an out-of-memory boot removed the
+  device once); the 4x VRAM size (5.3 GB over 2x at 4K: count the full-size surfaces) is a lead for 8-12 GB cards.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**

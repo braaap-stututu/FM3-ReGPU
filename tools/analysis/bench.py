@@ -17,6 +17,8 @@ LITE = re.compile(r'\[\s*([\d.]+)\] perf lite: ([\d.]+) fps, ([\d.]+) ms/frame \
 LONG = re.compile(r'\[\s*([\d.]+)\] long frame \d+: ([\d.]+) ms')
 RELEASE = re.compile(r'\[\s*([\d.]+)\] switch: FM3_FREEZE_TIME off')
 MEASURE = re.compile(r'\[\s*([\d.]+)\] benchmark: measuring (\d+) s')  # the game's own benchmark race (FM3_BENCHMARK)
+VRAM = re.compile(r'\[\s*([\d.]+)\] perf lite: VRAM (\d+) MB used of (\d+) MB budget')
+PRESENT = re.compile(r'\[\s*([\d.]+)\] perf lite: presents (\d+), gap avg ([\d.]+) ms, p99 ([\d.]+) ms, max ([\d.]+) ms')
 SIZE = re.compile(r'gpu: ReGPU at (\d+x\d+), msaa (\d+)')
 
 
@@ -58,6 +60,14 @@ def main():
         'gpu_ms_avg': round(statistics.mean(r[6] for r in rows), 2),
         'draw_thread_busy_avg': round(statistics.mean(r[7] for r in rows), 1),
     }
+    pres = [(float(m.group(4)), float(m.group(5))) for m in PRESENT.finditer(text) if t0 <= float(m.group(1)) < t1]
+    if pres:  # gaps between presents (what reaches the screen; ReGPU's presenter, session 33)
+        result['present_p99_ms_median'] = round(statistics.median(p[0] for p in pres), 3)
+        result['present_gap_worst_ms'] = round(max(p[1] for p in pres), 2)
+    vram = [(int(m.group(2)), int(m.group(3))) for m in VRAM.finditer(text)]
+    if vram:  # the whole run (loading included): the peak, and the budget the OS gave
+        result['vram_max_mb'] = max(v[0] for v in vram)
+        result['vram_budget_mb'] = vram[-1][1]
     # The per-second series next to the JSON (or alone with SERIES=path): time from the window's start, fps, draws a
     # frame, draws a second, GPU ms a frame, draw-thread busy %, p99 and worst frame ms.
     series = out[:-5] + '.series.csv' if out and out.endswith('.json') else None
