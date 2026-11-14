@@ -1,0 +1,68 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 1c0dc5f..5e26d4a 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -6622,6 +6622,7 @@ struct IndexListEntry
+     uint64_t hashedFrame = ~0ull; // REGPU_INDEX_HASH_ONCE: the frame `sample` was last taken in
+     bool changing = false;        // its indices changed between two draws of a frame once: hashed at every draw
+     uint64_t probe = 0;           // a sampled hash (every 256 bytes) taken with `sample`
++    uint64_t used = 0;            // the last frame a draw asked for it (eviction)
+ };
+ 
+ IndexListEntry* CachedIndexList(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+@@ -6634,8 +6635,38 @@ IndexListEntry* CachedIndexList(uint32_t initiator, uint32_t dmaBase, uint32_t d
+         key = (key ^ v) * 0x100000001B3ull;
+     uint64_t sample = 0;
+     thread_local std::unordered_map<uint64_t, IndexListEntry> cache;
+-    if (cache.size() > 8192)
++    // Past 8192 entries, lists unused for 600 frames are freed: once a frame, 512 buckets are looked at (a cursor
++    // walks the table) and at most 128 lists freed. clear() at 8192 freed every list in one draw: FM3's races grew
++    // the cache to it about once a lap, a 77-82 ms frame of heap frees (session 33, long-frame stacks).
++    // REGPU_INDEX_CACHE_CLEAR=1 (live): the old clear, for A/B. Over 32768 entries: cleared.
++    static LiveSwitch oldClear("REGPU_INDEX_CACHE_CLEAR");
++    thread_local uint64_t sweptFrame = ~0ull;
++    thread_local size_t sweepBucket = 0;
++    if (cache.size() > 8192 && oldClear)
+         cache.clear();
++    else if (cache.size() > 8192 && sweptFrame != g_r.frame)
++    {
++        sweptFrame = g_r.frame;
++        uint64_t stale[128];
++        size_t freed = 0;
++        const size_t buckets = cache.bucket_count();
++        for (size_t n = 0; n < 512 && freed < 128; n++)
++        {
++            const size_t b = sweepBucket++ % buckets;
++            for (auto it = cache.begin(b); it != cache.end(b) && freed < 128; ++it)
++                if (it->second.used + 600 < g_r.frame)
++                    stale[freed++] = it->first;
++        }
++        for (size_t i = 0; i < freed; i++)
++            cache.erase(stale[i]);
++        // (Logged every frame with REGPU_TRACE_INDEX_CACHE=1, else every 3000 frames it sweeps.)
++        static LiveSwitch trace("REGPU_TRACE_INDEX_CACHE");
++        thread_local uint64_t sweeps = 0;
++        if (trace || sweeps++ % 3000 == 0)
++            Log("index lists: %zu cached, %zu stale freed (frame %llu)", cache.size(), freed, (unsigned long long)g_r.frame);
++        if (cache.size() > 32768)
++            cache.clear();
++    }
+     // REGPU_INDEX_HASH_ONCE=1 (live): a list already hashed this frame isn't hashed again at its later draws,
+     // unless it was once seen changing within a frame (those are hashed at every draw, as before). Every
+     // index of every draw was hashed (FullHash), a few hundred KB a frame for a track's static meshes.
+@@ -6646,6 +6677,7 @@ IndexListEntry* CachedIndexList(uint32_t initiator, uint32_t dmaBase, uint32_t d
+     if (hashOnce && source == 0)
+         if (auto it = cache.find(key); it != cache.end() && it->second.valid && it->second.hashedFrame == g_r.frame && !it->second.changing)
+         {
++            it->second.used = g_r.frame;
+             if (ContentHash(indexData, indexBytes) == it->second.probe)
+                 return it->second.ok ? &it->second : nullptr;
+             it->second.changing = true;
+@@ -6661,6 +6693,7 @@ IndexListEntry* CachedIndexList(uint32_t initiator, uint32_t dmaBase, uint32_t d
+         sample = sampledIndexHash ? ContentHash(p, bytes) : FullHash(p, bytes);
+     }
+     IndexListEntry& e = cache[key];
++    e.used = g_r.frame;
+     if (e.valid && e.sample != sample && e.hashedFrame == g_r.frame)
+         e.changing = true;
+     e.hashedFrame = g_r.frame;

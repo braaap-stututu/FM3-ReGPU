@@ -61,6 +61,7 @@ $regpuPatches = @(
     'regpu-pass-per-draw'            # PassScales: later asks in a draw compare only the epoch; ToHost asks once (REGPU_PASS_SNAPSHOT_PER_CALL=1 old)
     'regpu-fps-panel'                # fps counter + frame-time graph at the top centre (REGPU_FPS_PANEL=1, live)
     'regpu-long-frames'              # long-frame log with the light perf log (REGPU_LONG_FRAMES)
+    'regpu-index-cache-sweep'        # index-list cache: stale lists freed gradually, not all at 8192 (once-a-lap 80 ms hitch)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

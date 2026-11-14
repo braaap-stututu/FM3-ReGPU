@@ -55,7 +55,17 @@
   `long_frame_stacks=1` was added to the user's settings.ini (backup `out/perf/s33-stacks/settings.ini.bak`).
 - **Lesson:** only the launcher copies `fm3.log` to `fm3.prev.log`; `play.cmd`/`Start-Grid` boots overwrite it. **Copy
   the user's drive log away before booting anything** (drive 2's log was lost that way; its long-frame lines are above).
-- **Next:** the user drives again (stacks on); read the `long stacks:` lines at the ~80 ms hitch.
+- **User's drive 3 (stacks on, 2 laps):** the hitch again at the start line (**79.7 ms at log 112.1 s, cpu 72.6 ms**),
+  and the stacks name it: 55 samples, all in heap frees (`RtlFreeHeap`, `NtFreeVirtualMemory`) under a
+  `std::unordered_map<uint64_t, ...>` called from `DrawImpl`. That is `CachedIndexList`'s thread-local cache of expanded
+  index lists (one vector each), **`clear()`ed whole at 8192 entries**: the race adds keys as the track streams, so it
+  filled about once a lap and freed every list in one draw. (ntdll names in the stacks are wrong export guesses; the
+  callers are right.)
+- **Fix: ReGPU patch 43 `regpu-index-cache-sweep`** (default): past 8192 entries, lists unused for 600 frames are freed
+  gradually (a cursor looks at 512 buckets a frame, frees at most 128); a full clear only past 32768. `index lists:` log
+  line every 3000 sweeps; `REGPU_INDEX_CACHE_CLEAR=1` (live) = old behaviour. Grid + 20 s drive: fine (359 fps, no long
+  frames while driving; a straight drive doesn't reach 8192). Log of drive 3: `out/perf/s33-stacks/drive3.log`.
+- **Next:** the user drives 2+ laps again: no ~80 ms hitch at the line, and `index lists:` lines show the sweep working.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
