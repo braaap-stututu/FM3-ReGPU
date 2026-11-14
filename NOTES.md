@@ -116,7 +116,15 @@
   the panel's look in the real launcher is not checked yet (user).
 - **User ran the button (15:29): works.** 120 s at 1440p 4x: 358.8 fps avg, lowest second 334, p99 3.31 ms, worst 10.0
   ms, 3 long frames; Benchmark profile removed afterwards.
-- **Next:** benchmark at 4K (repeatability over ~5 runs); then the other areas (4K+, iGPU, Steam Deck).
+- **4K repeatability** (`tools/bench_series.ps1 -Runs 5 -Resolution 3840x2160`: minimized, FM3_RESOLUTION override,
+  settings.ini untouched; results `out/bench/series-4k-20261114-153345/`): 4 good runs **227.6, 231.6, 220.0, 228.4
+  fps** = mean 226.9, sd 4.9 (2.2%); without run 4 sd 0.9%. GPU 4.07 ms/frame (sd 1.9%). Lowest second 172-204, p99
+  5.3-5.7 ms. Run 4: ~150 ms of 15-25 ms frames at 139.8 s, mostly idle (the game's thread late: AI contact or
+  physics, not ReGPU). **So: an A/B needs a difference over ~3%, or 3+ interleaved runs per side.**
+- **Run 2 failed at boot (7.9 s): `device removed`, `CreateCommittedResource(colour surface) failed (8007000E)` =
+  out of memory**, started seconds after run 1 closed (4K): probably the previous process's VRAM not freed yet (not
+  proven). The series now waits 15 s between runs. If it ever shows in normal play: a VRAM leak / budget lead.
+- **Next:** the other areas (4K+, iGPU, Steam Deck); user's choice.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
