@@ -114,7 +114,9 @@
   `FM3_BENCHMARK=30` (357.9 fps, closed by itself after 65 s) and `FM3Launcher --benchmark 30` (358.5 fps, Benchmark
   profile removed afterwards, Baseline untouched). The panel's JS block compiled and rendered a sample in the browser;
   the panel's look in the real launcher is not checked yet (user).
-- **Next:** the user tries the button; benchmark at 4K (repeatability over ~5 runs); then the other areas.
+- **User ran the button (15:29): works.** 120 s at 1440p 4x: 358.8 fps avg, lowest second 334, p99 3.31 ms, worst 10.0
+  ms, 3 long frames; Benchmark profile removed afterwards.
+- **Next:** benchmark at 4K (repeatability over ~5 runs); then the other areas (4K+, iGPU, Steam Deck).
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
