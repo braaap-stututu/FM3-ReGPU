@@ -305,6 +305,13 @@
   set.) A 155 ms frame in one 4K run was the game idle (draw thread idle 151.7 ms), not ReGPU. Not measured yet:
   specialisation + Low + the draw-cutting options together on the iGPU. Cubes and the 16-bit-fixed 9-tap fetch are
   still the generic path: next code-size cuts if wanted.
+- **Slow-PC settings on the iGPU with specialisation on (user: one race each; `out/bench/matrix-igpu-slowpc-20261114-231851/`,
+  720p 1x, everything else pinned):** nothing 56.6 fps (p99 20.1 ms) | Low 64.0 (17.6) | Extreme 68.7 (16.6) | the
+  draw-cutting options (one tile, half-rate shadows/mirror/reflections, distant-car detail) 64.2 (17.4) | **Low +
+  options 78.0 (14.3)** | Extreme + options 80.7 (14.1). GPU-bound throughout (draw thread 15-23%), VRAM ~3.4 GB, no
+  long frames. Low + options = +38% over nothing; Extreme adds ~3% more for a 50% scene and no anisotropy (one race
+  each: within noise). Suggested slow-PC setting: Low + the options (an "iGPU" preset could bundle them). One run
+  takes ~2:53 (boot 11 s, grid and countdown 13 s, settle 10 s, measuring 120 s, close, 15 s pause).
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
