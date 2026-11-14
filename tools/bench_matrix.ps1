@@ -5,7 +5,9 @@
 # and REGPU_* switches all go in this way (settings.ini stays as it is). -Resolution sets FM3_RESOLUTION for all.
 # At the end: a table per variant (mean fps, sd, p99, worst, long frames, GPU ms, VRAM peak) and each variant against the
 # first with tools/analysis/bench_compare.py (plain and at equal draw counts). Output: out\bench\matrix-<label>-<time>\.
-param([string]$Label = 'matrix', [int]$Rounds = 2, [int]$Seconds = 120, [string]$Resolution = '', [Parameter(Mandatory)][string]$Variants)
+# -Common "VAR=v;VAR=v": set for every variant (a variant's own value wins), e.g. REGPU_ADAPTER and the settings.ini
+# options pinned so the user's launcher choices don't leak in (session 33, iGPU: one tile and half rates were on).
+param([string]$Label = 'matrix', [int]$Rounds = 2, [int]$Seconds = 120, [string]$Resolution = '', [string]$Common = '', [Parameter(Mandatory)][string]$Variants)
 $root = Split-Path -Parent $PSScriptRoot
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $dir = Join-Path $root "out\bench\matrix-$Label-$stamp"
@@ -29,6 +31,7 @@ for ($round = 1; $round -le $Rounds; $round++) {
         # (The long-frame stack sampler off unless a variant turns it on: it stops the draw thread every millisecond.)
         $vars = @{ FM3_BENCHMARK = "$Seconds"; FM3_PROFILE = 'Benchmark'; FM3_MINIMIZED = '1'; FM3_LONG_STACKS = '0' }
         if ($Resolution) { $vars.FM3_RESOLUTION = $Resolution }
+        foreach ($kv in ($Common -split ';' | Where-Object { $_ -match '=' })) { $k, $val = $kv -split '=', 2; $vars[$k.Trim()] = $val.Trim() }
         foreach ($k in $v.Vars.Keys) { $vars[$k] = $v.Vars[$k] }
         if (-not $first) { Start-Sleep 15 } # (the previous run's video memory released: session 33's out-of-memory boot)
         $first = $false

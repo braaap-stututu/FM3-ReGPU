@@ -252,6 +252,36 @@
   after the iGPU runs rejected its own library once (not repeated; the HRESULT is logged now). Launcher page checked
   in the browser with a sample state (dropdown lists Automatic + both GPUs, keeps the saved choice); **the user
   tried it in the real launcher: works.** iGPU tests next (RESEARCH/PERF-PLAN "iGPU").
+- **iGPU tests (user's request; the 9800X3D's Radeon Graphics: RDNA2, 2 compute units, 485 MB of its own + system
+  memory).** The user first tried Low and Extreme from the launcher on the frozen grid (logs kept in
+  `out/logs/s33-user-igpu/`): 95.6 / 100 fps at 720p, cap 120, with one tile + half-rate shadows/mirror (+ reflections
+  in one) on: 1,130 draws a frame instead of ~2,700. **Matrix** (minimized AI races, 720p 1x, cap lifted to 360, every
+  launcher option pinned by `bench_matrix.ps1 -Common` (new) so settings.ini's choices don't leak in; 2 rounds;
+  `out/bench/matrix-igpu-720p-20261114-210954/`):
+
+  | Variant | fps | p99 ms | GPU ms | vs base (at equal draws) |
+  |---|---|---|---|---|
+  | base (720p, nothing) | 52.5 | 21.1 | 18.6 | |
+  | turbo | 51.5 | 21.3 | 19.0 | -2.0% (-1.7%) |
+  | FSR 1 quality (67%) | 54.0 | 20.4 | 18.0 | +2.9% (+6.7%) |
+  | mild (turbo + 67% + 4x aniso) | 54.4 | 20.0 | 17.8 | +3.6% (+9.0%) |
+  | low (59%) | 58.0 | 18.7 | 16.7 | +10.4% (+14.8%) |
+  | extreme (50%, no aniso) | 60.4 | 17.9 | 16.0 | +15.0% (+19.2%) |
+  | options (one tile, half-rate shadows/mirror/reflections, distant-car detail) | 58.1 | 19.2 | 16.7 | +10.6% (-0.4%: all from fewer draws) |
+  | low + options | 70.5 | 16.1 | 13.8 | +34.3% (+17.4%) |
+
+  GPU-bound throughout (draw thread 13-20% busy); VRAM 3.4 GB in all; no long frames. **Where its frame goes**
+  (frozen grid, `REGPU_GPU_PASSES=1/2`, `out/perf/s33-igpu-passes/`): GPU 21.9 ms, the main scene pass 13.9 ms for
+  1,874 draws, 522k vertices, 317k triangles, 2.2M pixels shaded (2.4 a screen pixel). At 50% scene scale that pass is
+  still 10.1 ms (-27% for a quarter of the pixels), and the FSR 1 upscale itself costs 1.65 ms: **the iGPU is
+  limited by per-draw and vertex work (~7 us a draw), not pixels**, so resolution presets help little and fewer draws
+  help most (one tile, half rates, car detail). Turbo is no gain there. **Measurement glitch:** the user's visible-
+  window iGPU runs logged `GPU 0.00 ms` (no frame timed), minimized ones time fine, the 7900 XTX at a 120 cap too:
+  suspect the cross-adapter present (picture copied to the 7900 XTX's display); not chased (needs a visible window).
+  **Next for iGPU / Steam Deck:** cut the per-draw GPU cost (what a draw costs on a small GPU: root constants,
+  descriptor tables, pipeline switches, the vertex fetch in translated vertex shaders), fewer draws (FM3's LOD
+  distances: `lodsettings.py`, AI car count), a cheaper upscale than FSR 1 for small GPUs (bilinear), and an
+  "iGPU" preset = low + the draw-cutting options.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
