@@ -130,6 +130,15 @@
   track (~2,500 at the start, 1,600-2,000 in some sections) and **differ between runs: 2,172 to 2,442 mean (12%)**
   (AI lines, traffic); within a run fps correlates with draws (-0.39..-0.88). So part of the run spread is the scene:
   compare A/Bs at equal draw counts (buckets, as `drives.py`).
+- **A/B comparison at equal draws (user's request, an additional one: AI runs are never at the same places):**
+  `tools/analysis/bench_compare.py --a <A runs> --b <B runs>`: plain (mean of the runs' fps) and at equal draws
+  (seconds bucketed by draws/frame, 100 wide; frame time compared per bucket with >= 3 s on both sides, weighted by
+  min(seconds A, B); GPU ms too; coverage printed). `tools/bench_series.ps1 -EnvB "..."` alternates A, B, A, B
+  (`-Runs` per side) and writes `compare.txt`. **Null tests on the four same-settings 4K runs (2 vs 2): plain -2.4 /
+  +2.8 / -1.0%, at equal draws +2.2 / +3.1 / -1.8%: no quieter at 4K**, where the GPU limits (draw thread 54-60%
+  busy) and GPU time follows what is on screen (corr with draws +0.45..+0.91), not only the draw count. Expect it to
+  help where the draw thread limits (1440p). Either way: several runs per side. Smoke test of the A/B mode (1 x 20 s
+  each, no-op variable, 1440p): plain -3.7%, equal draws -2.8% (A at the cap).
 - **Next:** the other areas (4K+, iGPU, Steam Deck); user's choice.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
