@@ -250,8 +250,8 @@
   other than Windows' default now has its own `pipelines-<vendor>-<device>.bin`; the 7900 XTX's was rebuilt (105 MB,
   loads again; first boots afterwards precompiled in 0.3-5 s from the driver's own cache). One 7900 XTX boot right
   after the iGPU runs rejected its own library once (not repeated; the HRESULT is logged now). Launcher page checked
-  in the browser with a sample state (dropdown lists Automatic + both GPUs, keeps the saved choice); the real
-  launcher window not opened. iGPU tests next (RESEARCH/PERF-PLAN "iGPU").
+  in the browser with a sample state (dropdown lists Automatic + both GPUs, keeps the saved choice); **the user
+  tried it in the real launcher: works.** iGPU tests next (RESEARCH/PERF-PLAN "iGPU").
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
