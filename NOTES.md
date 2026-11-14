@@ -282,6 +282,29 @@
   descriptor tables, pipeline switches, the vertex fetch in translated vertex shaders), fewer draws (FM3's LOD
   distances: `lodsettings.py`, AI car count), a cheaper upscale than FSR 1 for small GPUs (bilinear), and an
   "iGPU" preset = low + the draw-cutting options.
+- **Per-draw cost on the iGPU (user's choice of next step) -> fetch specialisation (new default).** What a draw costs
+  there (frozen grid 720p, live `REGPU_EXP_DRAW`, new test switch): frame 21.6 ms = state/resolves/clears 1.3 (no
+  draw calls), fixed per draw 4.8 (one triangle a draw: ~1.8 us x ~2,700), vertex work 5.3 (1x1 scissor), pixel work
+  10.2. So shader work, not draw overhead. Plain multiply (Xenos 0 x inf emulation off) in pixel and new
+  `REGPU_PLAIN_MUL_VS` vertex shaders: no gain (21.2 vs 20.7-22.6 ms). Per-shader GPU time (`REGPU_GPU_SHADERS`): the
+  car paint (vs 5AEF757B / ps 423E6F1B, 63 draws) 2.4 ms of 21.1. RGA (gfx1100): 117 KB of code, 236 sample
+  instructions for 22 fetches, 1,064 branches; the plain-fetch variants (L30) cover 2 of its 9 slots
+  (`REGPU_TRACE_FETCH_PLAIN`: single-axis clamp, exponent, shader swizzle, the 9-tap 16-bit-fixed shadow map, two
+  cubes keep the rest out). Hand-specialised offline (fetch words as literals): 22 KB, 41 samples, 182 branches.
+  **Built: ReGPU patch 48 `regpu-fetch-specialize`, `REGPU_FETCH_SPECIALIZE=1` default in FM3** (`gpu_host.cpp`,
+  under `FM3_NO_SHADER_SHORTCUTS`). Same-boot pictures: 0 pixels (7900 XTX 4K and 1440p), iGPU same as two off shots.
+  Races (`out/bench/matrix-{1440p,4k,igpu}-spec-*`):
+
+  | Setup | fps off -> on | at equal draws | GPU ms | p99 ms |
+  |---|---|---|---|---|
+  | 1440p 4x, 3 rounds | 319.8 -> 331.4 (+3.6%) | +-0 | 2.48 -> 2.12 | 3.94 -> 3.75 |
+  | 4K 4x, 2 rounds | 246.6 -> 268.7 (+9.0%) | +10.3% | 3.87 -> 3.51 | 4.86 -> 4.69 |
+  | iGPU 720p 1x, 2 rounds | 45.2 -> 57.3 (+26.9%) | +22.0% | 21.6 -> 17.0 | 24.5 -> 20.0 |
+
+  (The iGPU "off" mean here, 45.2, is below the earlier matrix's base 52.5 with the same settings: compare within a
+  set.) A 155 ms frame in one 4K run was the game idle (draw thread idle 151.7 ms), not ReGPU. Not measured yet:
+  specialisation + Low + the draw-cutting options together on the iGPU. Cubes and the 16-bit-fixed 9-tap fetch are
+  still the generic path: next code-size cuts if wanted.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**

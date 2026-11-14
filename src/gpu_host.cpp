@@ -338,6 +338,10 @@ void GpuStart()
         // skip the fetch-constant special cases (car paint 117 KB -> 20 KB of GPU code): GPU frame -2.5% on the
         // grid, byte-identical picture. Live: Fm3 "switch REGPU_FETCH_VARIANTS 0|1".
         DefaultEnv("REGPU_FETCH_VARIANTS", "1");
+        // Session 33 (iGPU work): every 2D fetch specialised by its fetch-constant words as literals (SpecVariant):
+        // the car paint 117 KB -> 22 KB, 236 -> 41 sample instructions. 0 pixels changed; races 1440p 4x +3.6%,
+        // 4K 4x +9.0%, the 9800X3D's iGPU at 720p +26.9% (p99 lower on all three). Live: switch REGPU_FETCH_SPECIALIZE 0|1.
+        DefaultEnv("REGPU_FETCH_SPECIALIZE", "1");
     }
 
     // Parallel draw workers (OPEN-ISSUES.md P): draw translation on 3 threads, which helps where the
