@@ -236,6 +236,7 @@ public sealed class Bridge
             options = new
             {
                 resolutions = Options.Resolutions(),
+                gpus = Options.Gpus().Select(g => new { value = g.Name, name = g.MemoryMb >= 1024 ? $"{g.Name} ({g.MemoryMb / 1024.0:0.#} GB)" : $"{g.Name} (uses system memory)" }),
                 aspects = Options.Aspects.Select(x => new { value = x.Value, name = x.Name }),
                 fps = Options.Fps,
                 msaa = Options.Msaa.Select(x => new { value = x.Value, name = x.Name }),

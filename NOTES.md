@@ -239,6 +239,19 @@
   the surface) and compression metadata, presumably; not measured further. So 4K 4x should now fit 8-12 GB cards.
   Side finding: at 1080p FM3's shadow atlas draws at 768x768, below the console's 1024 (a quality lead).
   Long frames of 36-39 ms in 4K races are GPU waits with no surface activity (the old surfaces had them too).
+- **GPU choice in the launcher (user's request; RESEARCH "Choosing the GPU in the launcher"):** Graphics > Display
+  "Graphics card": Automatic (Windows' choice) or one of the system's GPUs (DXGI list in `Install.cs` `Options.Gpus`,
+  software renderer left out, duplicates shown once; `FM3Launcher --gpus` prints it). settings.ini `gpu=<name>` ->
+  `REGPU_ADAPTER` (`src/gpu_host.cpp`) -> ReGPU patch 47 `regpu-adapter-choice` (name part, index, or high/low; falls
+  back to the default with a log line). The log now names the GPU: `presenter: rendering on ...`; the 30 s memory
+  log follows ReGPU's device instead of adapter 0. **Tested:** the 9800X3D's Radeon Graphics (485 MB of its own)
+  renders the frozen grid at 720p 1x, ~42 fps, GPU 23 ms; picture goes to the 7900 XTX's display. **Lesson:** that
+  test boot overwrote the 7900 XTX's 426 MB pipeline library (`pipelines.bin`, drivers reject each other's): a GPU
+  other than Windows' default now has its own `pipelines-<vendor>-<device>.bin`; the 7900 XTX's was rebuilt (105 MB,
+  loads again; first boots afterwards precompiled in 0.3-5 s from the driver's own cache). One 7900 XTX boot right
+  after the iGPU runs rejected its own library once (not repeated; the HRESULT is logged now). Launcher page checked
+  in the browser with a sample state (dropdown lists Automatic + both GPUs, keeps the saved choice); the real
+  launcher window not opened. iGPU tests next (RESEARCH/PERF-PLAN "iGPU").
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**

@@ -441,6 +441,10 @@ void GpuStart()
     // surfaces instead of 3840x3072: -1.2 GB VRAM and +3.8% fps on the frozen grid, picture within cross-boot noise.
     // REGPU_SURFACE_ROWS=1024 = as before (start-time).
     DefaultEnv("REGPU_SURFACE_ROWS", "720");
+    // settings.ini gpu=<part of a name | index | high | low> (launcher Display "Graphics card", session 33): the GPU
+    // ReGPU renders on (REGPU_ADAPTER, read when its device is made). Empty = Windows' default.
+    if (const std::string gpu = GetSettings().Extra("gpu"); !gpu.empty())
+        DefaultEnv("REGPU_ADAPTER", gpu.c_str());
     Log("gpu: draw workers on by default (occlusion queries counted on the command processor)");
 
     // Q18, the road surface: the road shader samples a 512x512 detail image the game composes at run time

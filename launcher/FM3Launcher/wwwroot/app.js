@@ -185,6 +185,10 @@ function render() {
   chip(s.checks.running ? "warn" : "ok", s.checks.running ? "Game running" : "Not running")
 
   // graphics page
+  // A card the settings name but the system no longer has stays listed (the game falls back to the default one).
+  const gpus = [{ value: "", name: "Automatic (Windows' choice)" }, ...o.gpus]
+  if (set.gpu && !gpus.some((g) => g.value === set.gpu)) gpus.push({ value: set.gpu, name: set.gpu + " (not found)" })
+  fill($("gpu"), gpus, set.gpu || "")
   fill($("resolution"), o.resolutions.map((r) => ({ value: r, name: r.replace("x", " × ") })), set.resolution)
   fill($("aspect"), o.aspects, set.aspect)
   const custom = customFps || !o.fps.includes(set.maxFps)
@@ -223,6 +227,7 @@ function render() {
   const line = (label, value) => { const d = el("div"); d.append(label + ": "); d.append(el("b", "", value)); $("summary").append(d) }
   line("Profile", set.profile || "Player")
   line("Display", `${set.resolution.replace("x", " × ")}, ${set.fullscreen ? "fullscreen" : "windowed"}${aspect && set.aspect !== "auto" ? ", " + aspect.name : ""}`)
+  if (set.gpu) line("Graphics card", set.gpu)
   line("Frame rate", `${set.maxFps} fps cap, VSync ${set.vsync ? "on" : "off"}`)
   line("Anti-aliasing", fsrAa ? "FSR 3" : `MSAA ${named(o.msaa, set.msaa)}`)
   if (set.upscaler !== "off") line("Upscaling", `${named(o.upscalers, set.upscaler)}, ${named(o.upscale, set.upscale)}`)
@@ -332,6 +337,7 @@ $("customFps").onchange = (e) => {
   change({ maxFps: f })
 }
 $("msaa").onchange = (e) => change({ msaa: +e.target.value })
+$("gpu").onchange = (e) => change({ gpu: e.target.value })
 $("perfPreset").oninput = (e) => { const p = PRESETS[+e.target.value]; $("perfPreset-v").textContent = p.name; $("perfPreset-note").textContent = p.note }
 $("perfPreset").onchange = (e) => change({ perfPreset: PRESETS[+e.target.value].value })
 $("upscaler").onchange = (e) => change({ upscaler: e.target.value })

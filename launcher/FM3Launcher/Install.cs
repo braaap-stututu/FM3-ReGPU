@@ -56,6 +56,8 @@ public sealed class GameSettings
     public bool Vsync { get; set; } = true;
     public int MaxFps { get; set; } = 60;
     public int Msaa { get; set; } = 1;
+    // gpu: the graphics card the game renders on, by name (Options.Gpus; the game's REGPU_ADAPTER); "" = Windows' choice.
+    public string Gpu { get; set; } = "";
     // The 3D scene's upscaler: off, fsr1 or fsr3 (settings.ini "upscaler"), at Upscale = the game's upscale_quality
     // (1 quality to 4 ultra performance). FSR 4 needs a newer ReGPU than FM3 has.
     public string Upscaler { get; set; } = "off";
@@ -90,7 +92,7 @@ public sealed class GameSettings
     public string GameFolder { get; set; } = "";
 
     // The racing wheel's wheel_* keys are the Wheel stuff tab's (Wheel.cs); Save keeps them like any other key it doesn't know.
-    static readonly string[] Known = ["profile", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
+    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
 
     public static GameSettings Load()
     {
@@ -105,6 +107,7 @@ public sealed class GameSettings
                 case "vsync": s.Vsync = v == "1"; break;
                 case "max_fps": s.MaxFps = int.TryParse(v, out var f) ? f : 60; break;
                 case "msaa": s.Msaa = int.TryParse(v, out var m) ? m : 1; break;
+                case "gpu": s.Gpu = v; break;
                 case "upscaler": s.Upscaler = Options.Upscalers.Any(u => u.Value == v) ? v : "off"; break;
                 case "upscale_quality": s.Upscale = int.TryParse(v, out var q) ? Math.Clamp(q, 1, 4) : 1; break;
                 case "sharpness":
@@ -147,6 +150,7 @@ public sealed class GameSettings
         sb.Append($"profile={(profile.Length > 0 ? profile : "Player")}\n");
         sb.Append($"resolution={Resolution}\naspect={Aspect}\nfullscreen={B(Fullscreen)}\nvsync={B(Vsync)}\nmax_fps={Math.Clamp(MaxFps, 30, 360)}\n");
         sb.Append($"msaa={(Options.Msaa.Any(x => x.Value == Msaa) ? Msaa : 1)}\n");
+        sb.Append($"gpu={new string(Gpu.Where(c => !char.IsControl(c) && c != '=').ToArray()).Trim()}\n");
         sb.Append($"upscaler={(Options.Upscalers.Any(u => u.Value == Upscaler) ? Upscaler : "off")}\nupscale_quality={Math.Clamp(Upscale, 1, 4)}\nsharpness={sharp}\n");
         sb.Append($"language={Language}\n");
         sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n"); // (session 23: these three were read but never saved)
@@ -206,6 +210,57 @@ public static class Options
     public static readonly (string Value, string Name)[] Upscalers = [("off", "Off (native)"), ("fsr1", "FSR 1 (any graphics card)"), ("fsr3", "FSR 3 (any graphics card)")];
     public static readonly (int Value, string Name)[] Upscale = [(1, "Quality"), (2, "Balanced"), (3, "Performance"), (4, "Ultra performance")];
     public static readonly (int Value, string Name)[] Sharpening = [(0, "Off"), (25, "Low"), (50, "Medium"), (75, "High"), (100, "Maximum")];
+
+    // ---- Graphics cards (DXGI), for the "Graphics card" choice: the game picks one by a part of its name
+    // (ReGPU's REGPU_ADAPTER; settings.ini gpu=). The same card can be listed twice (hybrid set-ups): shown once.
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct DXGI_ADAPTER_DESC1
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string Description;
+        public uint VendorId, DeviceId, SubSysId, Revision;
+        public nuint DedicatedVideoMemory, DedicatedSystemMemory, SharedSystemMemory;
+        public uint LuidLow;
+        public int LuidHigh;
+        public uint Flags;
+    }
+    [ComImport, Guid("29038f61-3839-4626-91fd-086879011a05"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IDXGIAdapter1
+    {
+        void SetPrivateData(); void SetPrivateDataInterface(); void GetPrivateData(); void GetParent(); // IDXGIObject
+        void EnumOutputs(); void GetDesc(); void CheckInterfaceSupport();                                // IDXGIAdapter
+        [PreserveSig] int GetDesc1(out DXGI_ADAPTER_DESC1 desc);
+    }
+    [ComImport, Guid("770aae78-f26f-4dba-a829-253c83d1b387"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IDXGIFactory1
+    {
+        void SetPrivateData(); void SetPrivateDataInterface(); void GetPrivateData(); void GetParent(); // IDXGIObject
+        void EnumAdapters(); void MakeWindowAssociation(); void GetWindowAssociation(); void CreateSwapChain(); void CreateSoftwareAdapter(); // IDXGIFactory
+        [PreserveSig] int EnumAdapters1(uint index, out IDXGIAdapter1 adapter);
+    }
+    [DllImport("dxgi.dll")]
+    static extern int CreateDXGIFactory1(ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out IDXGIFactory1 factory);
+
+    public sealed record Gpu(string Name, long MemoryMb);
+
+    /// <summary>The system's graphics cards (no software renderer), Windows' default first.</summary>
+    public static List<Gpu> Gpus()
+    {
+        var list = new List<Gpu>();
+        try
+        {
+            var iid = typeof(IDXGIFactory1).GUID;
+            if (CreateDXGIFactory1(ref iid, out var factory) != 0) return list;
+            for (uint i = 0; factory.EnumAdapters1(i, out var adapter) == 0; i++)
+            {
+                if (adapter.GetDesc1(out var d) == 0 && (d.Flags & 2 /* DXGI_ADAPTER_FLAG_SOFTWARE */) == 0 && list.All(g => g.Name != d.Description.Trim()))
+                    list.Add(new Gpu(d.Description.Trim(), (long)(d.DedicatedVideoMemory >> 20)));
+                Marshal.ReleaseComObject(adapter);
+            }
+            Marshal.ReleaseComObject(factory);
+        }
+        catch { } // (no list: the choice offers Automatic only)
+        return list;
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     struct DEVMODE

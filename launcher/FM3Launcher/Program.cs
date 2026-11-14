@@ -1,3 +1,6 @@
+// Windows only (DXGI, user32, WebView2).
+[assembly: System.Runtime.Versioning.SupportedOSPlatform("windows")]
+
 namespace FM3Launcher;
 
 internal static class Program
@@ -34,6 +37,13 @@ internal static class Program
                 Console.WriteLine("Error: " + ex.Message);
                 return 1;
             }
+        }
+        // --gpus: the graphics cards the "Graphics card" choice lists (name, own memory), to the console.
+        if (args.Contains("--gpus"))
+        {
+            if (GetStdHandle(-11) == IntPtr.Zero) AttachConsole(-1);
+            foreach (var g in Options.Gpus()) Console.WriteLine($"{g.Name}: {g.MemoryMb} MB");
+            return 0;
         }
         // --benchmark [seconds]: the benchmark race (Benchmark.cs) without the window; the result to the console and
         // the user folder's bench\, as the Settings tab's Benchmark button.

@@ -1,7 +1,7 @@
 // GPU adapter and memory log (session 18, RESEARCH.md "Less RAM, VRAM and memory traffic" step 1 and
 // "Choosing the GPU in the launcher" step 4). Measurement only; changes nothing the game or ReGPU does.
 //  - At start: every DXGI adapter (name, PCI ids, dedicated/shared memory) and which one ReGPU renders on
-//    (it creates its device on the default adapter, D3D12CreateDevice(nullptr): adapter 0 here).
+//    (Windows' default is adapter 0; ReGPU's own line "presenter: rendering on ..." names the one it uses).
 //  - Every 30 s: this process's video memory use against the OS budget (QueryVideoMemoryInfo: local = the
 //    GPU's own memory, or an iGPU's carve-out; non-local = shared system memory), and its RAM (working
 //    set, private bytes), each with the peak so far. FM3_NO_GPU_MEMORY_LOG=1: off.
@@ -14,6 +14,9 @@
 #include <wrl/client.h>
 
 #include "log.h"
+#include <d3d12.h>
+
+ID3D12Device* RenderDevice(); // ReGPU (render/presenter.h): its device, made on first use
 
 #pragma comment(lib, "dxgi.lib")
 
@@ -32,7 +35,7 @@ void LogAdapters(IDXGIFactory1* factory)
         adapter->GetDesc1(&d);
         char name[128] = {};
         WideCharToMultiByte(CP_UTF8, 0, d.Description, -1, name, sizeof(name) - 1, nullptr, nullptr);
-        Log("gpu: adapter %u%s: %s (%04X:%04X), dedicated %llu MB, shared %llu MB%s", i, i == 0 ? " (ReGPU renders here)" : "", name,
+        Log("gpu: adapter %u%s: %s (%04X:%04X), dedicated %llu MB, shared %llu MB%s", i, i == 0 ? " (Windows' default)" : "", name,
             d.VendorId, d.DeviceId, (unsigned long long)Mb(d.DedicatedVideoMemory), (unsigned long long)Mb(d.SharedSystemMemory),
             (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) ? ", software" : "");
     }
@@ -49,14 +52,19 @@ void StartGpuMemoryLog()
         if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
             return;
         LogAdapters(factory.Get());
-        ComPtr<IDXGIAdapter1> adapter1;
         ComPtr<IDXGIAdapter3> adapter;
-        if (FAILED(factory->EnumAdapters1(0, &adapter1)) || FAILED(adapter1.As(&adapter)))
-            return;
         uint64_t peakLocal = 0, peakShared = 0, peakPrivate = 0;
         for (;;)
         {
             Sleep(30000);
+            // The adapter ReGPU's device is on (REGPU_ADAPTER, settings.ini gpu=: not always adapter 0); made by now.
+            if (!adapter)
+            {
+                ComPtr<IDXGIFactory4> f4;
+                if (ID3D12Device* device = RenderDevice(); !device || FAILED(factory.As(&f4)) ||
+                    FAILED(f4->EnumAdapterByLuid(device->GetAdapterLuid(), IID_PPV_ARGS(&adapter))))
+                    return;
+            }
             DXGI_QUERY_VIDEO_MEMORY_INFO local{}, shared{};
             adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &local);
             adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &shared);
