@@ -124,6 +124,12 @@
 - **Run 2 failed at boot (7.9 s): `device removed`, `CreateCommittedResource(colour surface) failed (8007000E)` =
   out of memory**, started seconds after run 1 closed (4K): probably the previous process's VRAM not freed yet (not
   proven). The series now waits 15 s between runs. If it ever shows in normal play: a VRAM leak / budget lead.
+- **Draws per second (user asked, at no cost):** already in the light log's line a second (draws/frame; measured free
+  in session 31: grid 346.9 without / 352.9 with, drives 353.9 / 353.8). `bench.py` now writes `<run>.series.csv`
+  next to the JSON (t, fps, draws/frame, draws/second, GPU ms, draw busy, p99, worst). 4K runs: draws/frame follow the
+  track (~2,500 at the start, 1,600-2,000 in some sections) and **differ between runs: 2,172 to 2,442 mean (12%)**
+  (AI lines, traffic); within a run fps correlates with draws (-0.39..-0.88). So part of the run spread is the scene:
+  compare A/Bs at equal draw counts (buckets, as `drives.py`).
 - **Next:** the other areas (4K+, iGPU, Steam Deck); user's choice.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
