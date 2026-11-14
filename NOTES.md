@@ -197,8 +197,21 @@
 - **Closed:** two-step resolve (above); draw-thread priority (no p99 change); present pacing (works, p99 not better:
   the present gaps follow the frames); L48/L49 (the only compute at native resolution was the gamma pass: now a draw).
   L3/I6/L5 were settled earlier (L3 -6% in session 23, I6 not in our ReGPU, L5 = I2).
-- **Not done:** VRAM at 5K/8K (needs the user's OK: 4K 4x already uses 14.3 GB and an out-of-memory boot removed the
-  device once); the 4x VRAM size (5.3 GB over 2x at 4K: count the full-size surfaces) is a lead for 8-12 GB cards.
+- **VRAM at 5K/8K (user's OK; frozen grid, minimized, light log; logs `out/perf/s33-vram/`):**
+
+  | Resolution, MSAA | VRAM used / budget | fps | GPU ms |
+  |---|---|---|---|
+  | 4K 1x / 2x / 4x (races, above) | 6.5 / 9.0 / 14.3 GB | 335 / 305 / 242 | 2.8 / 3.1 / 3.9 |
+  | 5K (5120x2880) 1x | 9.5 / 23.7 GB | 229 | 4.11 |
+  | 5K 2x | 14.1 / 23.7 GB | 201 | 4.59 |
+  | 8K (7680x4320) 1x | 19.2 / 22.5 GB | 127 | 7.53 |
+  | 5K 4x | **23.3 / 22.6 GB: over budget** | **82** | **11.62** |
+
+  No errors in any boot. 5K 4x is over the 24 GB card's budget and pages (GPU time 2.5x 5K 2x's); 8K 2x/4x not tried
+  (they would need ~28 / ~45 GB by the same scaling). **4x MSAA needs ~2.8 GB a 4K-sized frame more than 2x** (4K: +5.3
+  GB, 5K: +9.3), much more than the colour + depth surfaces (4K 4x: 265 + 265 MB). **Lead (L61): count ReGPU's
+  full-size 4x surfaces** (EDRAM aliases by format, depth copies, resolve scratch); fewer would let 5K 4x fit on 24
+  GB and 4K 4x on 12-16 GB cards.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
