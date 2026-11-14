@@ -107,7 +107,7 @@
 - **Launcher button** (user's choice): Settings tab > **Benchmark** panel (measure 60/120 s, Run, Open results, a table
   of the last 20 results with avg fps, lowest second, p99, worst, long frames, GPU ms and the speed options that were
   on). `launcher/FM3Launcher/Benchmark.cs`: copies Baseline (else the active profile) to `profiles\Benchmark`, starts
-  the game with `FM3_PROFILE=Benchmark` + `FM3_BENCHMARK=<s>`, shows progress, reads fm3.log, saves `<user>ench  <time>.json` + `.log` + `runs.csv`, deletes the copy. Also `FM3Launcher --benchmark [s]` (no window, result to the
+  the game with `FM3_PROFILE=Benchmark` + `FM3_BENCHMARK=<s>`, shows progress, reads fm3.log, saves `<user>\bench\<time>.json` + `.log` + `runs.csv`, deletes the copy. Also `FM3Launcher --benchmark [s]` (no window, result to the
   console). The game does the race by itself with **`FM3_BENCHMARK=<s>`** (`grid_test.cpp`: the route without the
   freeze, AI + light log on (`gpu_host.cpp`), "benchmark: measuring N s" 10 s after GO (`FM3_BENCHMARK_SETTLE`),
   "benchmark: done" and WM_CLOSE to its window); `bench.py` reads those markers too. Tested: `play.cmd` with
