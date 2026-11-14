@@ -85,6 +85,27 @@
   `out/perf/s33-tex/drive5-user.log`. **Stutter work done for now**: what is left is one 5-6 ms frame every ~20-50 s.
 - **Next:** the other areas (4K+, iGPU, Steam Deck); user's choice.
 
+### Session 33 (cont.): AI-driven benchmark (user's request)
+- **The player's car driven by FM3's own race AI** (`src/hooks/ai_player.cpp`, `FM3_AI_PLAYER=1`): drives the whole race
+  (3 laps of the test-grid career race, racing in the pack), HUD/camera/position/results still the player's.
+  `engageaionstart` (dev option) does nothing in retail. How: `tools/analysis/rtti.py` (new: MSVC RTTI -> vtables)
+  found `RacingAI::CAICar`, `CHumanDriver`, `CAIDriver`, `CMetaAIDriver`, `CAIDrivatar`, `CCrashRecoveryDriver`;
+  `sub_828F8858(car, params)` builds each car's driver (car+104: 0 player, 2 opponent; params[0]: 3 player, 2
+  opponent). The hook builds the player's car with +104 = 2 and params[0] = 2, then restores both. Dead ends (kept in
+  the file's comment): an AI driver installed afterwards (pad still drives), with the four CCarDynamics calls, +104 = 1
+  with type 3 (AI revs on the line, never launches). Also found: CCarDynamics +2744 throttle, +2748 brake; the
+  control-state switch (CAICar slot 4, car+2288) is not used at the start. Watchpoints can now be set from code
+  (`SetGuestWatch` in `crash.cpp`, with `FM3_WATCHW=0` at start).
+- **Benchmark** (`tools/benchmark.ps1`: `. .\tools\benchmark.ps1; Invoke-Benchmark -Label x [-Env @{...}]`): copies the
+  Baseline profile to a fresh `Benchmark` profile (a finished race would write into the user's save: **never run the AI
+  on Baseline to the finish**; my first full test did, and was closed without the exit save, Baseline untouched),
+  boots the grid route minimized with the AI and the light perf log, measures 120 s from 10 s after the release
+  (`tools/analysis/bench.py`), kills the game (no exit save), results in `out/bench/<label>-<time>/` + `out/bench/runs.csv`.
+  First runs at 1440p 4x (user settings, cap 360): **354.1 and 358.4 fps** avg, lowest second 302/333, p99 3.39/3.24
+  ms, 6/3 long frames. At 1440p the cap squeezes differences: use 4K for GPU A/Bs. The AI varies run to run: average
+  several interleaved runs.
+- **Next:** benchmark at 4K (repeatability over ~5 runs), a launcher button, then the other areas.
+
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
   PGO build of ReGPU (L23, +3.2% draw-thread bound; `build/rel` configured `FM3_PGO=use`). **New launcher options,

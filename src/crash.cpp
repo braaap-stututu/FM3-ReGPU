@@ -248,19 +248,33 @@ LONG WINAPI OnWatchHit(EXCEPTION_POINTERS* info)
 }
 }
 
+// Set from code (session 33): FM3_WATCHW=0 at start arms nothing, then SetGuestWatch(address) watches a guest
+// byte found at run time (e.g. a field of an object whose address changes every run).
+std::atomic<uint64_t> g_watchAddress{ 0 };
+void SetGuestWatch(uint32_t guest)
+{
+    static const bool handler = (AddVectoredExceptionHandler(1, OnWatchHit), true);
+    (void)handler;
+    g_watchHits = 0;
+    g_watchAddress = uint64_t(g_base + guest);
+    Log("watchpoint on guest %08X (set by code)", guest);
+}
+
 void ArmWatchpoint(void* threadHandle)
 {
-    static uint64_t address = [] {
+    static const bool fromEnv = [] {
         const char* v = getenv("FM3_WATCHW");
         if (!v)
-            return uint64_t(0);
-        AddVectoredExceptionHandler(1, OnWatchHit);
+            return false;
         uint32_t a = uint32_t(strtoul(v, nullptr, 16));
         if (const char* comma = strchr(v, ','))
             a = LoadBE32(a) + uint32_t(strtoul(comma + 1, nullptr, 16));
-        Log("watchpoint on guest %08X", a);
-        return uint64_t(g_base + a);
+        if (a)
+            SetGuestWatch(a);
+        return true;
     }();
+    (void)fromEnv;
+    const uint64_t address = g_watchAddress.load();
     if (!address)
         return;
     if (SuspendThread(threadHandle) == DWORD(-1))
