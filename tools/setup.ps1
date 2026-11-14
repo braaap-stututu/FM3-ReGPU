@@ -62,6 +62,7 @@ $regpuPatches = @(
     'regpu-fps-panel'                # fps counter + frame-time graph at the top centre (REGPU_FPS_PANEL=1, live)
     'regpu-long-frames'              # long-frame log with the light perf log (REGPU_LONG_FRAMES)
     'regpu-index-cache-sweep'        # index-list cache: stale lists freed gradually, not all at 8192 (once-a-lap 80 ms hitch)
+    'regpu-texture-streaming'        # texture rows on helper threads, next texture heap made ahead, cubes in the pool, texture detail in long frames
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

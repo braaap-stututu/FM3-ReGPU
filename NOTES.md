@@ -69,7 +69,17 @@
   `index lists: 8065 cached, 128 stale freed` at 104.9 s with no long frame. Left: 5.7-6.5 ms frames from texture streams
   (0.2-3.3 MB, 1-3 ms on the draw thread; leads: upload/decode off the draw thread), one 11.6 ms with 7.6 ms idle (the game
   late, at 69.8 s), the race start (19.5 ms). Log `out/perf/s33-stacks/drive4.log`.
-- **Next (user's choice):** the small texture-stream frames, or the other areas (4K+, iGPU, Steam Deck).
+- **Texture-stream frames (user's choice next):** the long-frame line now names the frame's slowest texture and the
+  creation time. Automated drives + the grid boot's loading frames as the benchmark (same textures every boot): the cost
+  is CPU untiling/decoding on the draw thread at 1-2 GB/s (upload ring in VRAM or not: same times), a 128 MB texture heap
+  made on the draw thread when the pool ran out, and **cubes read from memory created as committed resources (~1.2 ms
+  each)**. **ReGPU patch 44 `regpu-texture-streaming`** (default): texture rows on 3 helper threads for textures of
+  256 KB+ (`REGPU_TEXTURE_THREADS`, `REGPU_NO_TEXTURE_THREADS=1`), next heap made ahead on another thread
+  (`REGPU_NO_HEAP_AHEAD=1`), cubes in the pool (`REGPU_COMMITTED_CUBES=1`). Same loads, same boot: 18.9 MB DXT5 8.9 ->
+  2.5 ms, 28.2 MB 19.2 -> 9.6 ms, 36.5 MB 34.7 -> 19.8 ms, 1.6 MB 1.4 -> 0.5 ms; 30 s drive max frame 7.3 -> 5.7 ms.
+  Picture: cross-boot diffs only in the crowd (checked by crop). Logs and shots: `out/perf/s33-tex/`. (A `Save-Shot` PNG
+  is written on the draw thread: a ~90 ms frame in test runs, not in play.)
+- **Next:** the user drives 2 laps (fix on); then the other areas (4K+, iGPU, Steam Deck).
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
