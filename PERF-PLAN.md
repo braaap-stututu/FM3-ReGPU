@@ -59,6 +59,10 @@ Session 32 closed the big CPU/GPU leads for this PC (results: NOTES "Start here 
   light log; then L32, L35, L17, L31. Known: the first seconds after a shader-cache rebuild (30-36 fps).
 - **4K+ (GPU):** L3/I6 shader optimisation level (start-time, measure at 4K), L48 wave size, L5 sampler table, I3
   per-shader plain multiply (needs the black-flag fix), L49 async compute; L59 per-pass MSAA parked (~3%).
+  **Session 33: MSAA cost looks too high** (4K: 4x 234 fps / 2x 329 (+40%) / 1x 314, GPU 3.97 / 2.83 / 3.01 ms, VRAM
+  14.4 / 9.0 / 6.5 GB, one round; NOTES "Session 33 (cont.): 4K+ leads"): find which passes grow with the sample count
+  (`REGPU_GPU_PASSES` at 4x vs 2x) before the smaller leads; L3/I6/L5 turned out settled (L3 -6%, I6 not in our
+  ReGPU, L5 = I2 built).
 - **iGPU / low-end:** check the 9800X3D's iGPU for real tests (`REGPU_ADAPTER`); L15, L19, L17/L18/L21, V5 SMAA, V7
   render scale + FSR, speed presets in a race, a low-end preset bundling the session-32 options (car_lod_far,
   shadow_rate, reflect_rate, aniso_from_game, mirror_rate).

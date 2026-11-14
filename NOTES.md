@@ -139,7 +139,34 @@
   busy) and GPU time follows what is on screen (corr with draws +0.45..+0.91), not only the draw count. Expect it to
   help where the draw thread limits (1440p). Either way: several runs per side. Smoke test of the A/B mode (1 x 20 s
   each, no-op variable, 1440p): plain -3.7%, equal draws -2.8% (A at the cap).
-- **Next:** the other areas (4K+, iGPU, Steam Deck); user's choice.
+
+### Session 33 (cont.): 4K+ leads (user: "implement/test all", plus 1440p p99, comparative 1440p runs for each)
+- **New tools:** `tools/bench_matrix.ps1` (variants interleaved by round, minimized, a summary table and each variant
+  vs the first with `bench_compare.py`); VRAM in the light log every 5 s (`perf lite: VRAM N MB used of N MB budget`,
+  DXGI on the log thread; `bench.py` -> `vram_max_mb`); present gaps (`perf lite: presents N, gap avg, p99, max`,
+  from ReGPU's presenter: what reaches the screen; `bench.py` -> `present_p99_ms_median`).
+- **MSAA cost at 4K (user: "that seems quite high", note kept):** one round each (matrix
+  `out/bench/matrix-4k-settings-20261114-160514/`, minimized 120 s benchmark races, user's other settings):
+
+  | 4K variant | avg fps | p99 ms | GPU ms/frame | draws/frame | VRAM peak |
+  |---|---|---|---|---|---|
+  | 4x MSAA (user's) | 234.0 | 5.28 | 3.97 | 2,349 | 14.4 GB |
+  | 2x MSAA | 328.6 | 3.95 | 2.83 | 2,069 | 9.0 GB |
+  | 1x (no MSAA) | 313.9 | 4.23 | 3.01 | 2,339 | 6.5 GB |
+  | FSR 1 quality (2560x1440 -> 4K, 1x) | 349.7 | 3.63 | 2.64 | 2,161 | 6.1 GB |
+
+  **4x -> 2x: +40% fps, GPU -29%, -5.4 GB VRAM.** That is far more than 4x MSAA usually costs over 2x on RDNA3 (the
+  extra samples of a frame like this: some 10-20%). Suspects, in ReGPU's 4x path: (1) every guest pass is drawn on the
+  one 4x surface, including the full-screen post passes the game draws without MSAA (L59); (2) the colour resolves
+  read every sample in a shader (0.63 ms at 4K 4x; the two-step hardware resolve `REGPU_RESOLVE_TWO_STEP` is the test);
+  (3) the 16-bit float colour surface (R16G16B16A16F: 8 bytes a sample, 265 MB for 4K 4x) for FM3's 7e3 format;
+  (4) VRAM: 14.4 GB at 4x suggests several full-size 4x surfaces (EDRAM aliases, depth copies) - count them. **To
+  check:** a second round (the 1x < 2x result is odd: draws differ by AI run, and one round only), then the GPU time by
+  pass at 4x vs 2x (`REGPU_GPU_PASSES`) to see which passes grow with the sample count. FSR 3 run: driver timeout
+  (OPEN-ISSUES U, parked by the user; log kept in `out/logs/`).
+- **Next:** see the plan list in this session's turn: picture checks + 4K/1440p A/Bs of I3 per shader
+  (`REGPU_PLAIN_MUL_PS=2`), two-step resolve, draw-thread priority (`REGPU_DRAW_THREAD_PRIORITY`), present pacing
+  (`REGPU_PRESENT_PACE`), the existing speed options for p99; L59; VRAM at 5K/8K (ask first).
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**

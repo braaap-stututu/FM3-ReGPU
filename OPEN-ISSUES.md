@@ -87,6 +87,17 @@ Original report:
   zero in memory and never resolved into while in the showroom. It may be unused there, or only live in races. The
   showroom looks right without it; worth a look if race reflections ever look wrong.
 
+### U. FSR 3 at 4K: GPU driver timeout (session 33, parked by the user)
+A minimized benchmark run (`FM3_BENCHMARK=120`, `FM3_RESOLUTION=3840x2160`, `FM3_UPSCALER=fsr3`,
+`FM3_UPSCALE_QUALITY=1` = 2560x1440 -> 4K, MSAA 1) made the AMD driver time out (the user's display reset). The log
+(kept: `out/logs/session33-fsr3-driver-timeout.log`) shows FSR 3's context created and destroyed several times in the
+first seconds (`fsr3: 2560x1440 -> 3840x2160`, then `..., HDR`, back and forth; stacks in `ffxCreateContext` /
+`ffxDestroyContext` under `Fsr3Evaluate` / `UpscaleScene` / `Resolve`), then the log stops at 28.5 s (track load, no
+FATAL line). Leads: the context flips between HDR and non-HDR as resolves of different formats come through (a
+recreate per flip; one context per format?); VRAM (4K 4x MSAA alone used 14.4 GB of 24 in the same series; one earlier
+4K run died with `device removed` + out of memory). **No FSR 3 test boots without asking the user** (memory note).
+FSR 1 at the same settings ran fine (349.7 fps).
+
 ### C1. Crash on some race loads: `std::out_of_range` while picking AI drivers (session 14; workaround session 15)
 **Session 18:** the DLC DB patches had **never run** on our build (the game looks for them as loose files beside each DLC zip; now unpacked, `UnpackDlcPatches` in `imports_xam.cpp`, NOTES session 18). They set `IsInstalled=1` on 199 DLC cars and merge car/track data. Whether that ends C1 is open: one race since showed no `ai drivers:` line. If C1 shows up again, the DB patch lead below still stands; if it never does over several races, A/B with `FM3_NO_DLC_PATCHES=1`.
 **Session 16:** row 125's `Name` is **NULL** in the in-memory DB when it happens (`typeof` null, `quote` NULL; `LastName` empty, `isUsed` 0, rowid 125; log `out/run` 354.6 s of session 16's 4th run, line `ai drivers: driver 125 row, ...`); the disc value is `_&2149404878`, and in another load the standings showed C. Reed normally. The xex has no `UPDATE AIPlayers SET Name`. **Lead:** the DB patch system (strings at `82007F00`: `ALTER TABLE AIPlayers ADD COLUMN isUsed INT DEFAULT 0 NOT NULL`, `%s:\Media\LicenseMasks\%08x.sql`, `ERROR: DB Patch: Duplicate priority:`, `overwrite` / `merge` / `exec`): find its code by those strings' references, log each patch file and statement, check whether one touches AIPlayers 125 (or replaces the row with NULLs). The workaround (generic driver) held in play with no odd names.
