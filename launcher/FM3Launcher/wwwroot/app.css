@@ -276,6 +276,15 @@ textarea { resize: vertical; min-height: 120px; }
 .wh-status.on { color: var(--ok); }
 .wh-status.on::before { content: "● "; }
 .buttons-row.wrap { flex-wrap: wrap; }
+.bench-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.bench-controls select { width: auto; }
+.bench-table-wrap { overflow-x: auto; margin-top: 6px; }
+.bench-table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.bench-table th { text-align: right; color: var(--muted); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.bench-table td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.bench-table th:first-child, .bench-table td:first-child { text-align: left; }
+.bench-table td.opts { text-align: left; color: var(--muted); white-space: normal; }
+.bench-table tr.latest td { color: var(--text); font-weight: 600; }
 .item .meta.wh-use { color: #b6f0c8; }
 #wh-devices { flex: 0 1 auto; }
 #wh-live-name { min-width: 0; margin-left: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

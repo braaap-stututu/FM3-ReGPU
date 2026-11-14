@@ -293,7 +293,8 @@ public static class Game
         catch { return true; } // can't look inside: assume it is ours
     });
 
-    public static void Launch()
+    /// <summary>Starts fm3.exe; `extra` adds environment variables for this run (the benchmark's). The caller disposes the process.</summary>
+    public static Process? Launch(IReadOnlyDictionary<string, string>? extra = null)
     {
         if (!File.Exists(Paths.Exe)) throw new InvalidOperationException($"fm3.exe isn't at {Paths.Exe}.");
         if (!File.Exists(Path.Combine(Paths.GameDir, "default.xex"))) throw new InvalidOperationException("No game files yet: choose the game folder (the extracted Disc 1) on the Play tab.");
@@ -314,7 +315,9 @@ public static class Game
         if (settings.DrawWorkers) psi.Environment["FM3_DRAW_THREAD_PIECES"] = "1";
         // The live debug server (127.0.0.1 only, tools\fm3ctl.ps1): status, captures, live switches.
         if (settings.DebugServer) psi.Environment["REGPU_DEBUG"] = "1";
-        Process.Start(psi)?.Dispose();
+        if (extra is not null)
+            foreach (var (k, v) in extra) psi.Environment[k] = v;
+        return Process.Start(psi);
     }
 }
 

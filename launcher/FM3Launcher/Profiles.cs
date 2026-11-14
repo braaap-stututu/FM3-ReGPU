@@ -224,7 +224,7 @@ internal static class Profiles
         File.Move(tmp, file, true);
     }
 
-    static void CopyDir(string from, string to)
+    internal static void CopyDir(string from, string to)
     {
         foreach (var d in Directory.GetDirectories(from, "*", SearchOption.AllDirectories))
             Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, d)));

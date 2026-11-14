@@ -404,6 +404,13 @@ void GpuStart()
     // settings.ini perf_log_light=1 (launcher Settings > Testing "Light performance log"); REGPU_PERF_LITE=1 directly.
     if (GetSettings().Extra("perf_log_light") == "1")
         DefaultEnv("REGPU_PERF_LITE", "1");
+    // Benchmark race (session 33, FM3_BENCHMARK=<seconds>, the launcher's Benchmark button): the AI drives the player's
+    // car (hooks/ai_player.cpp) and the light performance log measures (hooks/grid_test.cpp has the route and timing).
+    if (const char* bench = getenv("FM3_BENCHMARK"); bench && atoi(bench) > 0)
+    {
+        DefaultEnv("REGPU_PERF_LITE", "1");
+        DefaultEnv("FM3_AI_PLAYER", "1");
+    }
     // Long-frame stacks (session 33, src/long_stacks.cpp): settings.ini long_frame_stacks=1 (FM3_LONG_STACKS=1 or =N ms)
     // samples ReGPU's draw thread every millisecond and logs where it was during each long frame. Turns on the
     // long-frame log (REGPU_LONG_FRAMES) it hangs on.

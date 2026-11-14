@@ -361,6 +361,21 @@
           <button class="ghost small" data-open="log" data-tip="fm3.log: the game's log. Send it with bug reports.">Open log folder</button>
         </div>
       </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>Benchmark</h2></div>
+        <p class="hint">The game's own race AI drives your car through a career race (Ladera Test Track, 3 laps, 7 opponents) while the frame rate is measured, then the game closes by itself. It races on a copy of the Baseline profile, so your saves don't change. Uses the settings on these tabs. The AI drives a little differently each time: run it a few times before comparing settings.</p>
+        <div class="bench-controls">
+          <select id="bench-seconds" data-tip="How long to measure, starting 10 s after the start. 120 s ends just before the finish.">
+            <option value="60">Measure 60 s</option>
+            <option value="120" selected>Measure 120 s</option>
+          </select>
+          <button class="ghost small" id="bench-run" data-tip="Starts the game for the benchmark race. Close the game first; don't touch the controller while it runs.">Run benchmark</button>
+          <button class="ghost small" data-open="bench" data-tip="Each result as a .json file with its fm3.log, and runs.csv with all of them.">Open results</button>
+        </div>
+        <div class="status" id="bench-status"></div>
+        <div class="bench-table-wrap"><table class="bench-table" id="bench-table"></table></div>
+      </section>
     </div>
 
     <section class="panel">

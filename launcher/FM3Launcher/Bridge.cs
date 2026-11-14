@@ -99,14 +99,21 @@ public sealed class Bridge
                 }
             case "launch":
                 if (a?["settings"].Deserialize<GameSettings>(Json) is { } toSave) SaveFromPage(toSave);
-                Game.Launch();
+                Game.Launch()?.Dispose();
                 return null;
+            case "benchmark.run":
+                {
+                    var seconds = a?["seconds"]?.GetValue<int>() ?? 120;
+                    var result = await Benchmark.Run(seconds, text => Post(new { @event = "benchmark", data = new { text } }));
+                    return new { result, history = Benchmark.List() };
+                }
+            case "benchmark.list": return Benchmark.List();
             case "shaders.delete":
                 ShaderCache.Delete();
                 return State();
             case "shaders.rebuild":
                 ShaderCache.Delete();
-                Game.Launch();
+                Game.Launch()?.Dispose();
                 return State();
             case "open":
                 {
@@ -118,6 +125,7 @@ public sealed class Bridge
                         "game" => Paths.GameDir,
                         "dlc" => Directory.CreateDirectory(Disc2.Dir).FullName,
                         "log" => Directory.CreateDirectory(Path.GetDirectoryName(Paths.Log)!).FullName,
+                        "bench" => Directory.CreateDirectory(Benchmark.Dir).FullName,
                         _ => throw new ArgumentException("Unknown folder."),
                     };
                     Platform.OpenFolder(path);

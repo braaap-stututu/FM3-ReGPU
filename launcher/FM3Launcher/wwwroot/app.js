@@ -24,6 +24,7 @@ if (host) host.addEventListener("message", (e) => {
   const m = e.data
   if (m.event === "wheel") return typeof wheelEvent === "function" && wheelEvent(m.data) // wheel.js
   if (m.event === "disc2") return disc2Progress(m.data)
+  if (m.event === "benchmark") return benchProgress(m.data)
   const p = pending.get(m.id)
   if (!p) return
   pending.delete(m.id)
@@ -429,6 +430,50 @@ $("shaders-rebuild").onclick = () => guarded(async () => {
   render()
   toast("Game started: compiling shaders.", true)
 })
+// ---- benchmark race (Benchmark.cs): the AI drives, the game measures and closes by itself
+
+let benchBusy = false
+function benchProgress(d) { if (benchBusy) $("bench-status").textContent = d.text }
+function renderBench(list, latest) {
+  const t = $("bench-table")
+  t.textContent = ""
+  if (!list || !list.length) return
+  const head = el("tr")
+  for (const h of ["When", "Resolution", "Avg fps", "Lowest 1 s", "p99 ms", "Worst ms", "Long frames", "GPU ms", "Options"]) head.append(el("th", null, h))
+  t.append(head)
+  list.forEach((r, i) => {
+    const row = el("tr", i === 0 && latest ? "latest" : null)
+    const cells = [r.time.slice(5, 16), `${r.resolution} ${r.msaa}x`, r.fpsAvg.toFixed(1), r.fpsLowestSecond.toFixed(0), r.p99Ms.toFixed(2),
+      r.worstMs.toFixed(1), String(r.longFrames), r.gpuMs.toFixed(2)]
+    for (const c of cells) row.append(el("td", null, c))
+    row.append(el("td", "opts", r.options || "—"))
+    t.append(row)
+  })
+}
+async function loadBench() { await guarded(async () => renderBench(await call("benchmark.list"), false)) }
+$("bench-run").onclick = () => guarded(async () => {
+  const status = $("bench-status")
+  benchBusy = true
+  $("bench-run").disabled = true
+  $("launch").disabled = true
+  status.className = "status"
+  status.textContent = "Starting…"
+  try {
+    const r = await call("benchmark.run", { seconds: Number($("bench-seconds").value) })
+    status.className = "status done"
+    status.textContent = `${r.result.fpsAvg.toFixed(1)} fps on average (lowest second ${r.result.fpsLowestSecond.toFixed(0)}, ${r.result.longFrames} long frames).`
+    renderBench(r.history, true)
+  } catch (e) {
+    status.className = "status error"
+    status.textContent = e.message
+  } finally {
+    benchBusy = false
+    $("bench-run").disabled = false
+    $("launch").disabled = false
+  }
+})
+loadBench()
+
 for (const b of document.querySelectorAll("[data-open]")) b.onclick = () => guarded(() => call("open", b.dataset.open))
 // Settings changed elsewhere (an edited settings.ini): picked up when coming back here. Not while a dropdown is open
 // or a change is still being saved.

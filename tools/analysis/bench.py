@@ -2,7 +2,8 @@
 
 Usage: python -I tools/analysis/bench.py LOG [SETTLE_S] [SECONDS] [OUT.json]
 
-The window starts SETTLE_S seconds (default 10) after the race is released ("switch: FM3_FREEZE_TIME off") and lasts
+With the game's own benchmark race (FM3_BENCHMARK) the window is its "benchmark: measuring N s" line plus N s.
+Otherwise the window starts SETTLE_S seconds (default 10) after the race is released ("switch: FM3_FREEZE_TIME off") and lasts
 SECONDS (default 120). It reads the light performance log's line a second (`perf lite:`, REGPU_PERF_LITE=1) and the
 long-frame lines inside the window. Prints a summary and writes it as JSON when OUT is given.
 """
@@ -15,6 +16,7 @@ LITE = re.compile(r'\[\s*([\d.]+)\] perf lite: ([\d.]+) fps, ([\d.]+) ms/frame \
                   r' \| GPU ([\d.]+) ms/frame \| draw thread (-?\d+)% busy(?: \| (\d+) long)?')
 LONG = re.compile(r'\[\s*([\d.]+)\] long frame \d+: ([\d.]+) ms')
 RELEASE = re.compile(r'\[\s*([\d.]+)\] switch: FM3_FREEZE_TIME off')
+MEASURE = re.compile(r'\[\s*([\d.]+)\] benchmark: measuring (\d+) s')  # the game's own benchmark race (FM3_BENCHMARK)
 SIZE = re.compile(r'gpu: ReGPU at (\d+x\d+), msaa (\d+)')
 
 
@@ -24,11 +26,16 @@ def main():
     seconds = float(sys.argv[3]) if len(sys.argv) > 3 else 120.0
     out = sys.argv[4] if len(sys.argv) > 4 else None
     text = open(path, errors='ignore').read()
-    rel = RELEASE.search(text)
-    if not rel:
-        sys.exit('no race release (switch: FM3_FREEZE_TIME off) in the log')
-    t0 = float(rel.group(1)) + settle
-    t1 = t0 + seconds
+    mark = MEASURE.search(text)
+    if mark:  # FM3_BENCHMARK: the game logs its own window
+        t0 = float(mark.group(1))
+        t1 = t0 + float(mark.group(2))
+    else:
+        rel = RELEASE.search(text)
+        if not rel:
+            sys.exit('no race release (switch: FM3_FREEZE_TIME off) or benchmark marker in the log')
+        t0 = float(rel.group(1)) + settle
+        t1 = t0 + seconds
     rows = [tuple(float(x) if x is not None else 0.0 for x in m.groups()) for m in LITE.finditer(text)]
     rows = [r for r in rows if t0 <= r[0] < t1]
     if not rows:

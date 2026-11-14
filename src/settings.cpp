@@ -127,6 +127,8 @@ void Load()
         g_settings.quickRace = atoi(v) != 0;
     if (const char* v = getenv("FM3_GRID_TEST"))
         g_settings.gridTest = atoi(v) != 0;
+    if (const char* v = getenv("FM3_BENCHMARK"); v && atoi(v) > 0) // the benchmark race takes the grid route (hooks/grid_test.cpp)
+        g_settings.gridTest = true;
     if (g_settings.gridTest && g_settings.quickRace) // two routes can't share the pad
         g_settings.quickRace = false;
     if (g_settings.quickRace || g_settings.gridTest) // the routes assume the title screen comes up at once

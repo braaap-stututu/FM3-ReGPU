@@ -104,7 +104,17 @@
   First runs at 1440p 4x (user settings, cap 360): **354.1 and 358.4 fps** avg, lowest second 302/333, p99 3.39/3.24
   ms, 6/3 long frames. At 1440p the cap squeezes differences: use 4K for GPU A/Bs. The AI varies run to run: average
   several interleaved runs.
-- **Next:** benchmark at 4K (repeatability over ~5 runs), a launcher button, then the other areas.
+- **Launcher button** (user's choice): Settings tab > **Benchmark** panel (measure 60/120 s, Run, Open results, a table
+  of the last 20 results with avg fps, lowest second, p99, worst, long frames, GPU ms and the speed options that were
+  on). `launcher/FM3Launcher/Benchmark.cs`: copies Baseline (else the active profile) to `profiles\Benchmark`, starts
+  the game with `FM3_PROFILE=Benchmark` + `FM3_BENCHMARK=<s>`, shows progress, reads fm3.log, saves `<user>ench  <time>.json` + `.log` + `runs.csv`, deletes the copy. Also `FM3Launcher --benchmark [s]` (no window, result to the
+  console). The game does the race by itself with **`FM3_BENCHMARK=<s>`** (`grid_test.cpp`: the route without the
+  freeze, AI + light log on (`gpu_host.cpp`), "benchmark: measuring N s" 10 s after GO (`FM3_BENCHMARK_SETTLE`),
+  "benchmark: done" and WM_CLOSE to its window); `bench.py` reads those markers too. Tested: `play.cmd` with
+  `FM3_BENCHMARK=30` (357.9 fps, closed by itself after 65 s) and `FM3Launcher --benchmark 30` (358.5 fps, Benchmark
+  profile removed afterwards, Baseline untouched). The panel's JS block compiled and rendered a sample in the browser;
+  the panel's look in the real launcher is not checked yet (user).
+- **Next:** the user tries the button; benchmark at 4K (repeatability over ~5 runs); then the other areas.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**

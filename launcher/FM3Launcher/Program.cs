@@ -12,7 +12,7 @@ internal static class Program
         {
             try
             {
-                Game.Launch();
+                Game.Launch()?.Dispose();
                 return 0;
             }
             catch (Exception ex) { Platform.Error(Title, ex.Message); return 1; }
@@ -27,6 +27,26 @@ internal static class Program
             {
                 if (at + 1 >= args.Length) throw new ArgumentException("Usage: FM3Launcher --install-disc2 <Disc 2 .iso, its folder, or a package file>");
                 Disc2.Install(args[at + 1], Console.WriteLine);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error: " + ex.Message);
+                return 1;
+            }
+        }
+        // --benchmark [seconds]: the benchmark race (Benchmark.cs) without the window; the result to the console and
+        // the user folder's bench\, as the Settings tab's Benchmark button.
+        var bench = Array.IndexOf(args, "--benchmark");
+        if (bench >= 0)
+        {
+            if (GetStdHandle(-11) == IntPtr.Zero) AttachConsole(-1);
+            try
+            {
+                var seconds = bench + 1 < args.Length && int.TryParse(args[bench + 1], out var s) ? s : 120;
+                var last = "";
+                var r = Benchmark.Run(seconds, t => { if (t != last) Console.WriteLine(last = t); }).GetAwaiter().GetResult();
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(r, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
                 return 0;
             }
             catch (Exception ex)

@@ -14,13 +14,21 @@
 //    chase view, the AI cars on their grid spots, nothing moving yet.
 // Then `Fm3 "env FM3_FREEZE_TIME 0"` lets the race go on (and `... 1` stops it again anywhere).
 //
+// Benchmark race (session 33): FM3_BENCHMARK=<seconds> (the launcher's Benchmark button, tools/benchmark.ps1 -Self)
+// takes the same route without the freeze; the race AI drives the player's car (hooks/ai_player.cpp, FM3_AI_PLAYER set
+// in gpu_host.cpp with the light performance log). At GO (flag +26) a thread waits FM3_BENCHMARK_SETTLE seconds
+// (default 10), logs "benchmark: measuring N s", waits N seconds, logs "benchmark: done" and closes the game's window
+// (as the user would). The launcher (Benchmark.cs) / tools/analysis/bench.py read the perf lite lines in between.
+//
 // sub_822E6AD0 (this r3, dt f1) is the race-start sequence's update; its class reads the "321Tuning" settings
 // at 0x82C37520..0x82C37570 (loaded by sub_822E77D0 with HumanRevScript/AIRevScript/PreRaceCamsFadeOut). Phase
 // byte +4 (3 in a career race), flags +24..+26, the sequence clock at +16. Each flag change is logged.
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <thread>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -34,7 +42,36 @@
 
 namespace
 {
-enum class Route : int { Off, Pressing, Waiting, Frozen };
+enum class Route : int { Off, Pressing, Waiting, Frozen, Racing };
+
+int BenchmarkSeconds()
+{
+    static const int s = getenv("FM3_BENCHMARK") ? std::max(0, atoi(getenv("FM3_BENCHMARK"))) : 0;
+    return s;
+}
+
+BOOL CALLBACK CloseOurWindow(HWND hwnd, LPARAM)
+{
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == GetCurrentProcessId() && IsWindowVisible(hwnd) && GetWindow(hwnd, GW_OWNER) == nullptr)
+        PostMessageA(hwnd, WM_CLOSE, 0, 0); // what Process.CloseMainWindow (and the user's close button) does
+    return TRUE;
+}
+
+void StartBenchmarkClock()
+{
+    std::thread([] {
+        const char* s = getenv("FM3_BENCHMARK_SETTLE");
+        const int settle = s ? std::max(0, atoi(s)) : 10;
+        Sleep(DWORD(settle) * 1000);
+        Log("benchmark: measuring %d s (from %d s after GO)", BenchmarkSeconds(), settle);
+        Sleep(DWORD(BenchmarkSeconds()) * 1000);
+        Log("benchmark: done");
+        Sleep(1500); // (one more perf lite line, and the log written)
+        EnumWindows(CloseOurWindow, 0);
+    }).detach();
+}
 std::atomic<Route> g_route{ Route::Off };
 
 double FreezeAt()
@@ -60,7 +97,10 @@ bool GridTestPressA()
         if (!GetSettings().gridTest)
             return false;
         g_route = Route::Pressing;
-        Log("grid test: on: pressing A until the race starts, then freezing at %.2f s of its countdown clock", FreezeAt());
+        if (BenchmarkSeconds())
+            Log("grid test: benchmark race: pressing A until the race starts; the AI drives, %d s measured", BenchmarkSeconds());
+        else
+            Log("grid test: on: pressing A until the race starts, then freezing at %.2f s of its countdown clock", FreezeAt());
         return true;
     }();
     if (!armed || g_route.load(std::memory_order_relaxed) != Route::Pressing)
@@ -95,6 +135,16 @@ PPC_FUNC(sub_822E6AD0)
     {
         g_route = route = Route::Waiting;
         Log("grid test: race start under way: presses stopped");
+    }
+    if (route == Route::Waiting && BenchmarkSeconds())
+    {
+        if (f26) // GO
+        {
+            g_route = Route::Racing;
+            Log("grid test: benchmark race: GO at %.3f s of the countdown clock", clock);
+            StartBenchmarkClock();
+        }
+        return;
     }
     if (route == Route::Waiting && !f24 && f25 && !f26 && clock >= FreezeAt())
     {
