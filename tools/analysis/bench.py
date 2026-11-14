@@ -58,6 +58,14 @@ def main():
         'gpu_ms_avg': round(statistics.mean(r[6] for r in rows), 2),
         'draw_thread_busy_avg': round(statistics.mean(r[7] for r in rows), 1),
     }
+    # The per-second series next to the JSON (or alone with SERIES=path): time from the window's start, fps, draws a
+    # frame, draws a second, GPU ms a frame, draw-thread busy %, p99 and worst frame ms.
+    series = out[:-5] + '.series.csv' if out and out.endswith('.json') else None
+    if series:
+        with open(series, 'w') as f:
+            f.write('t_s,fps,draws_per_frame,draws_per_second,gpu_ms,draw_busy,p99_ms,worst_ms\n')
+            for r in rows:
+                f.write(f'{r[0] - t0:.1f},{r[1]:.1f},{int(r[5])},{int(r[5] * r[1])},{r[6]:.2f},{int(r[7])},{r[3]:.2f},{r[4]:.2f}\n')
     width = max(len(k) for k in result)
     for k, v in result.items():
         print(f'{k:<{width}}  {v}')
