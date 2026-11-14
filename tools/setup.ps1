@@ -60,6 +60,7 @@ $regpuPatches = @(
     'regpu-perf-lite'                # light performance log: one record a frame through a lock-free queue to a log thread (REGPU_PERF_LITE=1)
     'regpu-pass-per-draw'            # PassScales: later asks in a draw compare only the epoch; ToHost asks once (REGPU_PASS_SNAPSHOT_PER_CALL=1 old)
     'regpu-fps-panel'                # fps counter + frame-time graph at the top centre (REGPU_FPS_PANEL=1, live)
+    'regpu-long-frames'              # long-frame log with the light perf log (REGPU_LONG_FRAMES)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

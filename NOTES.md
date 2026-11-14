@@ -25,6 +25,17 @@
   pipeline from the user before reverse-engineering anything ourselves. Related: "FM4 Imported" (446 FM4 cars in FH1,
   moddb) shows the 360-era car path; Reddit counts 243 FM4 cars missing in FM3.
 
+### Session 33 (2026-11-14): stutters and frame drops
+- **Long-frame log built** (ReGPU patch 42 `regpu-long-frames`, on with the light perf log: launcher "Light performance
+  log" = `perf_log_light=1`; `REGPU_LONG_FRAMES=0` off, `=1` alone). Each frame over 2x the recent average (EMA over ~32
+  frames, each frame capped at 3x it) and 1 ms over it: `long frame N: ms (avg) | draws | idle` (draw thread waited for
+  the command processor = the game was late) `| gpu wait` (host GPU) `| builds/pipelines/created | textures new/changed
+  KB ms | swap`. The light log's line gains `| N long`. No per-draw cost (idle timed only around the draw thread's waits).
+- **First runs (4K 4x, grid + 20 s `Test-Drive`):** 0 long frames while driving. Long frames only at loading screens:
+  idle 100-220 ms (the game loading) with 150-250 new textures (36-39 MB, 20-28 ms of the draw thread), and a few
+  90-180 ms frames creating 45-98 committed resources (~1.5-2 ms each: L17/texture-heap lead, loading only).
+- **Next:** the user's race drive with the light log (and fps panel) on, then read the `long frame` lines for the cause.
+
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
   PGO build of ReGPU (L23, +3.2% draw-thread bound; `build/rel` configured `FM3_PGO=use`). **New launcher options,
