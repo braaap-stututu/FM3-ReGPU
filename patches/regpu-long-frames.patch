@@ -26,11 +26,42 @@ index f622add..a83ae11 100644
          }
          // Everything published so far, then let the command processor know.
          while (tail != head)
+diff --git a/src/gpu/recorded_list.h b/src/gpu/recorded_list.h
+index 23423a6..0f7449d 100644
+--- a/src/gpu/recorded_list.h
++++ b/src/gpu/recorded_list.h
+@@ -6,6 +6,7 @@
+ // list once everything recorded so far has been replayed (for code that records on it
+ // directly, and before Close/Execute). REGPU_NO_RECORD_THREAD=1 calls the driver directly.
+ #include <atomic>
++#include <chrono>
+ #include <condition_variable>
+ #include <cstdint>
+ #include <cstring>
+@@ -248,9 +249,18 @@ private:
+             return;
+         Submit();
+         std::unique_lock lock(m_mutex);
++        if (m_queue.empty() && !m_busy)
++            return;
++        const auto w0 = std::chrono::steady_clock::now();
+         m_idle.wait(lock, [this] { return m_queue.empty() && !m_busy; });
++        m_drainWaitMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - w0).count();
+     }
+ 
++public:
++    // Time spent waiting in Drain for the replay thread (summed; the long-frame log reads the difference per frame).
++    double m_drainWaitMs = 0;
++private:
++
+     void Worker()
+     {
+         SetThreadDescription(GetCurrentThread(), L"command list replay");
 diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
-index e7126df..cb57316 100644
+index e7126df..a8a6e37 100644
 --- a/src/gpu/renderer.cpp
 +++ b/src/gpu/renderer.cpp
-@@ -1068,7 +1068,26 @@ struct FrameEvents
+@@ -1068,7 +1068,28 @@ struct FrameEvents
      uint32_t waits = 0, pipelines = 0, created = 0;
      double section[8] = {};     // draw path sections (see Section), ms
      double worstDrawMs = 0;     // the single slowest draw
@@ -54,10 +85,29 @@ index e7126df..cb57316 100644
 +    return on;
 +}
 +double g_drawIdleMs = 0; // draw thread waiting for the command processor this frame (RendererDrawThreadIdle)
++double g_fenceWaitMs = 0; // host GPU fence waits on the thread that ends frames (summed; WaitFenceValue)
++thread_local bool t_countFenceWaits = false; // set on the thread that runs RendererOnSwap
  void CountCreate(const char* what)
  {
      g_created[what]++;
-@@ -6175,7 +6194,7 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+@@ -2622,6 +2643,16 @@ void WaitFenceValue(UINT64 value, DWORD timeoutMs)
+     if (g_r.fence->GetCompletedValue() >= value)
+         return;
+     g_r.fence->SetEventOnCompletion(value, event);
++    // (Every fence wait on the draw thread, for the long-frame log; the frame-start one is also its "gpu wait".)
++    struct CountFence
++    {
++        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
++        ~CountFence()
++        {
++            if (t_countFenceWaits)
++                g_fenceWaitMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
++        }
++    } countFence;
+     if (WaitForSingleObject(event, timeoutMs) == WAIT_TIMEOUT && timeoutMs != INFINITE)
+         Log("perf: a fence wait timed out after %lu ms (value %llu, completed %llu)", timeoutMs, (unsigned long long)value,
+             (unsigned long long)g_r.fence->GetCompletedValue());
+@@ -6175,7 +6206,7 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
      if (LiveSwitch &traceChange = g_sw_REGPU_TRACE_TEXCHANGE; traceChange && cached.resource)
          Log("texchange: %08X %s %ux%u frame %llu after %u unchanged", fetch.Address(), TextureFormatName(fetch.Format()), w, h,
              (unsigned long long)g_r.frame, cached.unchanged);
@@ -66,7 +116,7 @@ index e7126df..cb57316 100644
      const bool wasNew = !cached.resource;
      cached.unchanged = 0;
      if (!wasNew)
-@@ -6185,16 +6204,22 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+@@ -6185,16 +6216,22 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
          std::chrono::steady_clock::time_point start;
          const TextureFetch& fetch;
          bool isNew;
@@ -91,7 +141,7 @@ index e7126df..cb57316 100644
      // The title's own mip levels (distant surfaces sample the smaller, averaged ones: without
      // them the road and grass shimmer and look grainy). Down to the packed tail.
      LiveSwitch &noMips = g_sw_REGPU_NO_MIPS; // A/B
-@@ -10158,6 +10183,8 @@ bool RendererIsResolveDraw()
+@@ -10158,6 +10195,8 @@ bool RendererIsResolveDraw()
  }
  
  uint64_t RendererFenceSubmit() { return FenceSubmitImpl(); }
@@ -100,7 +150,7 @@ index e7126df..cb57316 100644
  bool RendererEarlyFences()
  {
      static const bool on = getenv("REGPU_EARLY_FENCES") != nullptr;
-@@ -13062,6 +13089,66 @@ Record g_ring[kSize];
+@@ -13062,6 +13101,72 @@ Record g_ring[kSize];
  std::atomic<uint32_t> g_head{ 0 }, g_tail{ 0 };
  HANDLE g_drawThread = nullptr;
  
@@ -111,11 +161,17 @@ index e7126df..cb57316 100644
 +//  builds    waits for shader/pipeline compiles (count, ms), pipelines started, committed resources created
 +//  textures  uploads (new, changed), their guest bytes and the time spent hashing nothing, decoding and copying
 +//  swap      the frame end itself (present, frame cap)
++//  fences    every host GPU fence wait on this thread (the frame-start one included: resolve write-backs, ...)
++//  replay    waits for the command list replay thread (it submits and, with async present, presents: a slow
++//            Present or capture hook shows here)
++//  cpu       the thread's own CPU time in the frame (QueryThreadCycleTime) and its recent average: a frame whose
++//            wall time is long but CPU time normal was spent blocked or not scheduled
 +// The rest of the frame is the draw thread translating draws.
 +struct LongRecord
 +{
 +    uint64_t frame;
 +    float ms, avgMs, idleMs, gpuWaitMs, buildWaitMs, texMs, swapMs;
++    float fenceMs, replayMs, cpuMs, avgCpuMs; // all fence waits, waits for the replay thread, the thread's CPU time
 +    uint32_t draws, buildWaits, pipelines, created, texNew, texChanged;
 +    uint64_t texBytes;
 +};
@@ -158,16 +214,16 @@ index e7126df..cb57316 100644
 +        }
 +        lines++;
 +        Log("long frame %llu: %.2f ms (avg %.2f) | %u draws | idle %.2f ms | gpu wait %.2f ms | builds %u waits %.2f ms, %u pipelines, %u created | "
-+            "textures %u new %u changed %.0f KB %.2f ms | swap %.2f ms",
++            "textures %u new %u changed %.0f KB %.2f ms | swap %.2f ms | fences %.2f ms | replay %.2f ms | cpu %.2f ms (avg %.2f)",
 +            (unsigned long long)r.frame, r.ms, r.avgMs, r.draws, r.idleMs, r.gpuWaitMs, r.buildWaits, r.buildWaitMs, r.pipelines, r.created,
-+            r.texNew, r.texChanged, double(r.texBytes) / 1024.0, r.texMs, r.swapMs);
++            r.texNew, r.texChanged, double(r.texBytes) / 1024.0, r.texMs, r.swapMs, r.fenceMs, r.replayMs, r.cpuMs, r.avgCpuMs);
 +    }
 +}
 +
  void LogThread()
  {
      std::vector<float> frameMs;
-@@ -13075,9 +13162,11 @@ void LogThread()
+@@ -13075,9 +13180,11 @@ void LogThread()
              return uint64_t(0);
          return ((uint64_t(k.dwHighDateTime) << 32 | k.dwLowDateTime) + (uint64_t(u.dwHighDateTime) << 32 | u.dwLowDateTime)) * 100; // ns
      };
@@ -179,7 +235,7 @@ index e7126df..cb57316 100644
          const uint32_t head = g_head.load(std::memory_order_acquire);
          for (uint32_t tail = g_tail.load(std::memory_order_relaxed); tail != head; tail++)
          {
-@@ -13104,10 +13193,15 @@ void LogThread()
+@@ -13104,10 +13211,15 @@ void LogThread()
                  const uint64_t cpuNow = threadCpu();
                  const double busy = cpuFirst && cpuNow ? 100.0 * double(cpuNow - cpuFirst) / (windowS * 1e9) : -1.0;
                  const uint64_t gpuFrames = r.gpuFrames - windowFirst.gpuFrames;
@@ -197,7 +253,7 @@ index e7126df..cb57316 100644
                  windowFirst = r, cpuFirst = cpuNow;
                  frameMs.clear();
              }
-@@ -13128,6 +13222,8 @@ void Push(std::chrono::steady_clock::time_point now, uint64_t draws)
+@@ -13128,6 +13240,8 @@ void Push(std::chrono::steady_clock::time_point now, uint64_t draws)
              LogThread();
          }).detach();
          Log("perf lite: light performance log on (REGPU_PERF_LITE): one line a second, no per-draw timing");
@@ -206,7 +262,7 @@ index e7126df..cb57316 100644
      }
      const uint32_t head = g_head.load(std::memory_order_relaxed);
      if (head - g_tail.load(std::memory_order_acquire) >= kSize)
-@@ -13145,8 +13241,41 @@ void RendererOnSwap(uint64_t frameNumber, uint32_t frontBuffer)
+@@ -13145,8 +13259,59 @@ void RendererOnSwap(uint64_t frameNumber, uint32_t frontBuffer)
      const auto now = std::chrono::steady_clock::now();
      g_perf.swapSeconds += std::chrono::duration<double>(now - t0).count();
      g_perf.frames++;
@@ -218,7 +274,21 @@ index e7126df..cb57316 100644
 +        // A frame over twice the recent average (and 1 ms over it): logged with what this frame did. The average is
 +        // an exponential one over ~32 frames.
 +        static auto last = now;
-+        static double avg = 0, gpuWaitBefore = 0;
++        static double avg = 0, gpuWaitBefore = 0, fenceBefore = 0, replayBefore = 0, avgCpu = 0;
++        static uint64_t cyclesBefore = 0, tsc0 = 0;
++        static auto time0 = now;
++        t_countFenceWaits = true;
++        // The thread's CPU time: QueryThreadCycleTime counts TSC ticks while it runs; the TSC rate is learnt from the
++        // wall clock since the first frame.
++        ULONG64 cycles = 0;
++        QueryThreadCycleTime(GetCurrentThread(), &cycles);
++        const uint64_t tsc = __rdtsc();
++        if (!tsc0)
++            tsc0 = tsc;
++        const double wallMs = std::chrono::duration<double, std::milli>(now - time0).count();
++        const double ticksPerMs = wallMs > 100.0 ? double(tsc - tsc0) / wallMs : 0.0;
++        const double cpuMs = ticksPerMs > 0 && cyclesBefore ? double(cycles - cyclesBefore) / ticksPerMs : 0.0;
++        const double fenceNow = g_fenceWaitMs, replayNow = g_r.recorder.m_drainWaitMs;
 +        static uint64_t drawsBefore = 0, frames = 0;
 +        const double ms = std::chrono::duration<double, std::milli>(now - last).count();
 +        last = now;
@@ -236,14 +306,18 @@ index e7126df..cb57316 100644
 +            r.draws = uint32_t(drawsNow - drawsBefore), r.buildWaits = g_frameEvents.waits, r.pipelines = g_frameEvents.pipelines;
 +            r.created = g_frameEvents.created, r.texNew = g_frameEvents.texNew, r.texChanged = g_frameEvents.texChanged;
 +            r.texBytes = g_frameEvents.texBytes;
++            r.fenceMs = float(fenceNow - fenceBefore), r.replayMs = float(replayNow - replayBefore);
++            r.cpuMs = float(cpuMs), r.avgCpuMs = float(avgCpu);
 +            PerfLite::PushLong(r);
 +        }
 +        // Every frame feeds the average, a long one capped at 3x it: a new steady level (a menu to a race) is
 +        // learnt in ~30 frames, a single 200 ms hitch moves it by a few percent. (The first interval is from start-up.)
 +        if (frames > 0)
 +            avg = avg > 0 ? avg + (std::min(ms, avg * 3.0) - avg) / 32.0 : ms;
++        if (frames > 0 && cpuMs > 0)
++            avgCpu = avgCpu > 0 ? avgCpu + (std::min(cpuMs, avgCpu * 3.0) - avgCpu) / 32.0 : cpuMs;
 +        frames++;
-+        drawsBefore = drawsNow, gpuWaitBefore = gpuWaitNow;
++        drawsBefore = drawsNow, gpuWaitBefore = gpuWaitNow, fenceBefore = fenceNow, replayBefore = replayNow, cyclesBefore = cycles;
 +        g_drawIdleMs = 0;
 +    }
      static LiveSwitch perf("REGPU_PERF");
