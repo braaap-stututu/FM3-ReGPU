@@ -34,7 +34,14 @@
 - **First runs (4K 4x, grid + 20 s `Test-Drive`):** 0 long frames while driving. Long frames only at loading screens:
   idle 100-220 ms (the game loading) with 150-250 new textures (36-39 MB, 20-28 ms of the draw thread), and a few
   90-180 ms frames creating 45-98 committed resources (~1.5-2 ms each: L17/texture-heap lead, loading only).
-- **Next:** the user's race drive with the light log (and fps panel) on, then read the `long frame` lines for the cause.
+- **User's drive 1 (1440p 4x, ~2 laps, ReLive recording, light log):** racing at 320-360 fps (draw thread 90-100% busy
+  at ~2,700 draws), only small long frames (5-12 ms: 1-5 MB texture streams). **One real hitch: 78 ms at log 132.9 s**
+  (video: 4-5 repeated frames, the race clock ran on: 1:32.499 -> 1:32.668), with no idle, GPU wait, builds, textures
+  or swap time counted. Video vs log: frame-diff of the ReLive mp4 (`ffmpeg` gray 160x78 raw + a diff script; video
+  offset read from the timer). Last 3 long frames (146.5-147 s, GPU waits 20-65 ms) = the recording being stopped.
+- **Fields added for it:** `fences` (all fence waits), `replay` (waits for the replay thread / async Present), `cpu`
+  (thread CPU time vs average). Grid check: loading frames' unexplained 90-170 ms were fence waits (42-78 ms).
+- **Next:** a second drive (with and without ReLive) to read the new fields at such a hitch.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
