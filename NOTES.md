@@ -79,7 +79,11 @@
   2.5 ms, 28.2 MB 19.2 -> 9.6 ms, 36.5 MB 34.7 -> 19.8 ms, 1.6 MB 1.4 -> 0.5 ms; 30 s drive max frame 7.3 -> 5.7 ms.
   Picture: cross-boot diffs only in the crowd (checked by crop). Logs and shots: `out/perf/s33-tex/`. (A `Save-Shot` PNG
   is written on the draw thread: a ~90 ms frame in test runs, not in play.)
-- **Next:** the user drives 2 laps (fix on); then the other areas (4K+, iGPU, Steam Deck).
+- **User's drive 5 (patch 44, 2 laps, 1440p 4x):** race (27-127 s) had **3 long frames, all 5.6-5.8 ms** (drive 4: 8,
+  up to 11.6 ms); texture time in them 0.6-2.2 ms (was up to 3.3 ms), the rest of each the draw thread's normal work. The
+  biggest one loaded 42 small textures (4.3 MB, each under the 256 KB threading threshold). No other hitches. Log
+  `out/perf/s33-tex/drive5-user.log`. **Stutter work done for now**: what is left is one 5-6 ms frame every ~20-50 s.
+- **Next:** the other areas (4K+, iGPU, Steam Deck); user's choice.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
