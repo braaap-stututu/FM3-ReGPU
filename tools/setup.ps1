@@ -64,6 +64,7 @@ $regpuPatches = @(
     'regpu-index-cache-sweep'        # index-list cache: stale lists freed gradually, not all at 8192 (once-a-lap 80 ms hitch)
     'regpu-texture-streaming'        # texture rows on helper threads, next texture heap made ahead, cubes in the pool, texture detail in long frames
     'regpu-4k-leads'                 # gamma pass drawn into the back buffer (default), VRAM + present-gap lines in the light log, test switches (plain multiply per shader, two-step resolve, draw-thread priority, present pacing)
+    'regpu-surface-release'          # EDRAM surfaces unused for 3600 frames released (VRAM), REGPU_TRACE_SURFACE_USE
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

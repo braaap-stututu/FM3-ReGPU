@@ -436,6 +436,11 @@ void GpuStart()
     // 0.6 matched it by eye (0.75, 0.65 still too big). Why the console counts fewer samples is not known.
     // REGPU_ZPD_SCALE=<f> overrides (live: Fm3 "env REGPU_ZPD_SCALE 1").
     DefaultEnv("REGPU_ZPD_SCALE", "0.6");
+    // Host EDRAM surfaces 720 guest rows tall instead of ReGPU's 1024 (session 33, VRAM): FM3's one tall pass (the
+    // 1024x1024 shadow atlas) draws at 1.5x scale, so its corner is 1536 rows at 4K either way. At 4K 4x: 3840x2160
+    // surfaces instead of 3840x3072: -1.2 GB VRAM and +3.8% fps on the frozen grid, picture within cross-boot noise.
+    // REGPU_SURFACE_ROWS=1024 = as before (start-time).
+    DefaultEnv("REGPU_SURFACE_ROWS", "720");
     Log("gpu: draw workers on by default (occlusion queries counted on the command processor)");
 
     // Q18, the road surface: the road shader samples a 512x512 detail image the game composes at run time

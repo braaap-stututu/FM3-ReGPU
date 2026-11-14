@@ -1,0 +1,173 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index ddc3e1a..221cf8d 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -738,6 +738,8 @@ struct Renderer
+         ComPtr<ID3D12Resource> resource;
+         D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_RENDER_TARGET;
+         D3D12_CPU_DESCRIPTOR_HANDLE view{};
++        uint64_t lastFrame = 0; // the frame that last selected it (EvictSurfaces)
++        UINT slot = 0;          // its view in the RTV/DSV heap
+     };
+     std::unordered_map<uint32_t, Surface> colorSurfaces, depthSurfaces;
+     ComPtr<ID3D12Resource> readback;
+@@ -2426,15 +2428,38 @@ void TransitionColor(D3D12_RESOURCE_STATES to);
+ bool TemporalInit();
+ void BeginTemporalFrame();
+ 
++std::map<std::pair<bool, uint32_t>, uint64_t> g_releasedSurfaces; // EvictSurfaces: the frame each base was released
++std::set<std::pair<bool, uint32_t>> g_keptSurfaces;                 // ... and those never to release again
++uint64_t SurfaceIdleFrames();
+ Renderer::Surface& GetSurface(bool depth, uint32_t base)
+ {
+     std::lock_guard surfaceLock(g_surfaceMutex);
+     auto& map = depth ? g_r.depthSurfaces : g_r.colorSurfaces;
+     if (auto it = map.find(base); it != map.end())
++    {
++        it->second.lastFrame = g_r.frame;
+         return it->second;
++    }
+     if (map.size() >= kMaxSurfaces)
+         return map.begin()->second; // out of views: share one (should not happen)
++    // The lowest view slot no surface holds (EvictSurfaces frees slots in the middle).
++    uint64_t usedSlots = 0;
++    for (auto& [b, other] : map)
++        usedSlots |= 1ull << other.slot;
++    UINT index = 0;
++    while (usedSlots >> index & 1)
++        index++;
++    if (auto r = g_releasedSurfaces.find({ depth, base }); r != g_releasedSurfaces.end() && g_r.frame - r->second < 4 * SurfaceIdleFrames())
++    {
++        // A base drawn to again soon after its release (FM3: a depth base used every ~16 s in a race) stays from now
++        // on: making a full-size surface costs a few ms in that frame. (Menus coming back after a race are released
++        // again.)
++        g_keptSurfaces.insert({ depth, base });
++        Log("renderer: EDRAM %s surface at base %03X came back after its release: kept from now on", depth ? "depth" : "colour", base);
++    }
+     Renderer::Surface& s = map[base];
++    s.slot = index;
++    s.lastFrame = g_r.frame;
+     D3D12_HEAP_PROPERTIES hp{};
+     hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+     D3D12_RESOURCE_DESC td{};
+@@ -2445,7 +2470,6 @@ Renderer::Surface& GetSurface(bool depth, uint32_t base)
+     td.MipLevels = 1;
+     td.SampleDesc.Count = g_msaa;
+     D3D12_CLEAR_VALUE cv{};
+-    const UINT index = UINT(map.size() - 1);
+     if (depth)
+     {
+         td.Format = DXGI_FORMAT_R32G8X24_TYPELESS; // float depth (the title uses D24FS8, reverse-Z); typeless for resolves
+@@ -2479,6 +2503,38 @@ Renderer::Surface& GetSurface(bool depth, uint32_t base)
+     return s;
+ }
+ 
++// EDRAM surfaces no pass selected for kSurfaceIdleFrames frames are released (FM3 port, session 33, VRAM): every base
++// a title ever drew to kept a full-size host surface (at 4K 4x 3840x3072, 377 MB each): FM3 had 33 (22 colour, 11
++// depth; 12.4 GB) after its menus and loading screens, while a race uses 11. A base drawn to again later gets a new
++// surface (cleared: EDRAM content isn't kept that long by the titles seen so far). REGPU_KEEP_SURFACES=1 (live): keep.
++constexpr uint64_t kSurfaceIdleFrames = 3600; // (10 s at the 360 cap: loading screens run fast and came back to bases after 600)
++uint64_t SurfaceIdleFrames() { return kSurfaceIdleFrames; }
++void EvictSurfaces()
++{
++    static LiveSwitch keep("REGPU_KEEP_SURFACES");
++    if (keep || g_r.frame % 60)
++        return;
++    std::lock_guard surfaceLock(g_surfaceMutex);
++    for (int d = 0; d < 2; d++)
++    {
++        auto& map = d ? g_r.depthSurfaces : g_r.colorSurfaces;
++        const uint32_t bound = d ? C().depthBase : C().colorBase;
++        for (auto it = map.begin(); it != map.end();)
++        {
++            if (it->first != bound && it->second.lastFrame + kSurfaceIdleFrames < g_r.frame && !g_keptSurfaces.count({ d == 1, it->first }))
++            {
++                g_releasedSurfaces[{ d == 1, it->first }] = g_r.frame;
++                Log("renderer: EDRAM %s surface at base %03X released (unused for %llu frames)", d ? "depth" : "colour", it->first,
++                    (unsigned long long)(g_r.frame - it->second.lastFrame));
++                Frame().garbage.push_back(std::move(it->second.resource)); // (released when the GPU is done with this frame)
++                it = map.erase(it);
++            }
++            else
++                ++it;
++        }
++    }
++}
++
+ // Binds the surfaces for the current RB_COLOR_INFO / RB_DEPTH_INFO bases
+ // (the list must be open).
+ ID3D12Resource* VertexCacheBeginFrame(); // the vertex arena for t1 this frame, or none (VertexArena)
+@@ -2510,6 +2566,49 @@ void PassMark(const char* fmt, uint32_t a, uint32_t b)
+     marks.push_back(m);
+ }
+ 
++// REGPU_TRACE_SURFACE_USE=1 (live; FM3 port, session 33, VRAM): what the draws use of each host EDRAM surface (the
++// largest scissor corner in host pixels, the guest MSAA modes, whether colour writes / depth or stencil are on),
++// logged every 600 frames: which full-size surfaces could be smaller or 1x.
++struct SurfaceUse
++{
++    LONG right = 0, bottom = 0;
++    uint32_t msaaModes = 0, draws = 0, active = 0;
++};
++std::mutex g_surfaceUseMutex;
++std::map<std::pair<bool, uint32_t>, SurfaceUse> g_surfaceUse;
++LiveSwitch g_traceSurfaceUse("REGPU_TRACE_SURFACE_USE");
++void TraceSurfaceUse(const D3D12_RECT& r)
++{
++    if (!g_traceSurfaceUse)
++        return;
++    const uint32_t msaa = (gpureg::Get(RB_SURFACE_INFO) >> 16) & 3;
++    const bool colourOn = (gpureg::Get(0x2104 /* RB_COLOR_MASK */) & 0xF) != 0;
++    const bool depthOn = (gpureg::Get(0x2200 /* RB_DEPTHCONTROL */) & 0x7) != 0; // stencil, z, z write
++    std::lock_guard lock(g_surfaceUseMutex);
++    for (int d = 0; d < 2; d++)
++    {
++        SurfaceUse& u = g_surfaceUse[{ d == 1, d ? C().depthBase : C().colorBase }];
++        u.right = std::max(u.right, r.right);
++        u.bottom = std::max(u.bottom, r.bottom);
++        u.msaaModes |= 1u << msaa;
++        u.draws++;
++        u.active += (d ? depthOn : colourOn) ? 1 : 0;
++    }
++}
++void LogSurfaceUse()
++{
++    static uint64_t next = 0;
++    if (!g_traceSurfaceUse || g_r.frame < next)
++        return;
++    next = g_r.frame + 600;
++    std::lock_guard lock(g_surfaceUseMutex);
++    Log("surface use: %zu surfaces of %ux%u x%u (draws since the last line; corner in host pixels)", g_surfaceUse.size(), SurfaceWidth(), SurfaceHeight(), g_msaa);
++    for (auto& [k, u] : g_surfaceUse)
++        Log("surface use: %s %06X corner %ld,%ld guest msaa modes %X draws %u writing %u", k.first ? "depth " : "colour", k.second, u.right, u.bottom,
++            u.msaaModes, u.draws, u.active);
++    g_surfaceUse.clear();
++}
++
+ void SelectSurfaces(bool force)
+ {
+     // A colour surface is keyed by its EDRAM layout: its base and its row width in samples (pitch
+@@ -3013,6 +3112,7 @@ void BeginFrameIfNeeded()
+     C().list->SetDescriptorHeaps(g_r.samplerHeap ? 2 : 1, heaps);
+     C().list->SetGraphicsRootSignature(g_r.rootSignature.Get());
+     g_drawState.Invalidate();
++    EvictSurfaces();
+     SelectSurfaces(true);
+     C().list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+     g_r.listOpen = true;
+@@ -12660,6 +12760,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         ds.scissor = hostScissor;
+         C().list->RSSetScissorRects(1, &hostScissor);
+     }
++    TraceSurfaceUse(hostScissor);
+     if (const uint32_t ref = gpureg::Get(RB_STENCILREFMASK) & 0xFF; ref != ds.stencilRef)
+     {
+         ds.stencilRef = ref;
+@@ -14179,6 +14280,7 @@ void PrecompileAll()
+ 
+ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+ {
++    LogSurfaceUse();
+     if (regpu::GetHost().onSwap)
+         regpu::GetHost().onSwap(g_r.frame);
+     if (!g_r.ok)

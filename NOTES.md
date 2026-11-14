@@ -212,6 +212,33 @@
   GB, 5K: +9.3), much more than the colour + depth surfaces (4K 4x: 265 + 265 MB). **Lead (L61): count ReGPU's
   full-size 4x surfaces** (EDRAM aliases by format, depth copies, resolve scratch); fewer would let 5K 4x fit on 24
   GB and 4K 4x on 12-16 GB cards.
+- **L61 done (user: "look into it"): the 4x VRAM was idle EDRAM surfaces, and their size.** ReGPU made a full-size host
+  surface for every EDRAM base the game ever drew to and never freed one: at 4K 4x each is 3840x3072 (room for
+  1024-row "tall" passes) x 4 samples x 8 bytes = 377 MB, colour and depth alike; after the menus and loading FM3 had
+  33 (22 colour, 11 depth = 12.4 GB), while a race draws to 11 (`REGPU_TRACE_SURFACE_USE=1`, new: per surface the
+  largest host corner, guest MSAA modes, draws writing). Two changes, both default:
+  1. **ReGPU patch 46 `regpu-surface-release`:** surfaces no pass selected for 3600 frames are released (every 60
+     frames at the frame start, never the bound ones; view slots reused); a base that returns within 4 x 3600 frames
+     of its release is kept from then on (FM3's depth base 004 is used every ~16 s in races). `REGPU_KEEP_SURFACES=1`
+     live = keep all. Releasing 22 surfaces in a running game changed 0 pixels (`out/perf/s33-surfaces3/`).
+  2. **`REGPU_SURFACE_ROWS=720` for FM3** (`src/gpu_host.cpp` DefaultEnv; ReGPU's default 1024): FM3's one tall pass
+     (the 1024x1024 shadow atlas, depth base 400) draws at the same size either way: 768 at 1080p, 1024 at 1440p, 1536
+     at 4K, so 720-row surfaces hold it. `REGPU_SURFACE_ROWS=1024` = as before.
+
+  | 4K 4x | VRAM | fps |
+  |---|---|---|
+  | before (frozen grid) | 14.0 GB | 240 |
+  | surfaces released | 6.9 GB | 240 |
+  | + 720 rows | 5.7 GB | 248 (+3.8%, GPU -2.5%) |
+  | races, old vs new, 2 rounds (`out/bench/matrix-4k-surfaces-20261114-194613/`) | 14.3 -> 10.5 GB peak (loading) | 248.1 -> 260.7 (+5.1%; +3.4% at equal draws), p99 4.71 -> 4.54 ms |
+  | 1440p races (at the cap) | 7.5 -> 5.7 GB | 358.9 / 357.5 (same) |
+  | **5K 4x frozen grid** | **23.3 -> 8.5 GB** (was over the 24 GB budget) | **82 -> 154** |
+
+  Picture: cross-boot diffs at noise level (crowd; a small asphalt-sparkle difference between boots that the live
+  release test shows is not the release). Why 720 rows is faster: smaller surfaces for clears (FM3's clears cover
+  the surface) and compression metadata, presumably; not measured further. So 4K 4x should now fit 8-12 GB cards.
+  Side finding: at 1080p FM3's shadow atlas draws at 768x768, below the console's 1024 (a quality lead).
+  Long frames of 36-39 ms in 4K races are GPU waits with no surface activity (the old surfaces had them too).
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
