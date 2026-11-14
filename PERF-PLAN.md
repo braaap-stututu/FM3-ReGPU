@@ -51,7 +51,28 @@ without the replay wait; **CPU-bound grid ~288 fps**. Upload hashing: 6 MB/frame
 `REGPU_UPLOAD_STABLE_REUSE` +1.2% (off: stale-for-a-frame risk). L10: 18% of draws are second-tile copies (the upside).
 The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch 200, 1% low 200.5 at 1440p 4x).
 
-## Next up (from session 33; the user's areas: 4K+, stutters/frame drops, iGPU, Steam Deck)
+## Next up (from session 34): the remaining iGPU optimisations (the user's plan)
+Session 33 results: NOTES "Start here (session 34)" and its "Session 33" sections. The iGPU (9800X3D Radeon Graphics,
+RDNA2, 2 CUs) at 720p races: nothing 56.6 fps, Low + the draw-cutting options (now part of Mild and up) 78.0 fps, GPU
+12.3 ms; GPU-bound, limited by shader code size and per-draw work more than pixels (a 50% scene cut the main pass
+only 27%). In order:
+1. **Measure:** per-shader GPU time on the iGPU with fetch specialisation on (`REGPU_GPU_SHADERS=1`, frozen grid,
+   options pinned): the new top list.
+2. **L62 (new) - specialise the remaining generic fetches** (lossless): cube fetches (car reflections) and the full
+   `TFetch` path (e.g. the car paint's 9-tap 16-bit-fixed shadow-map lookup), like `TFetch2DK` (ReGPU patch 48):
+   fetch words as literals. RGA offline first (code size, samples, branches), then same-boot 0-pixel check, then races
+   (iGPU 720p, 4K, 1440p).
+3. **Per-shader cuts** for whatever step 1 shows next.
+4. **L63 (new, opt-in) - cheaper upscale for slow GPUs:** FSR 1 costs 1.65 ms on the iGPU (~13% of its frame); a
+   bilinear upscale ~0.2 ms (softer). Option for the presets that scale the scene.
+5. **Later:** I7 DXC instead of FXC, and with it 16-bit math (RESEARCH "16-bit shaders"; Intel Gen9/Gen12 run FP16
+   at 2x; can't test Intel here). Shadow-map size in the presets (fixed-size work; visible). Not worth it (measured):
+   plain multiply in pixel/vertex shaders on the iGPU (no gain), draw cull at 1 px (removes nothing on this scene),
+   smaller colour format (L56: alpha needed).
+- Tools: `tools/bench_matrix.ps1 -Common` (pins options), `REGPU_EXP_DRAW` (draw-cost split), `REGPU_TRACE_FETCH_PLAIN`,
+  `tools/rga_shaders.ps1`, `tools/analysis/gpupasses.py`.
+
+## Next up (from session 33; the user's areas: 4K+, stutters/frame drops, iGPU, Steam Deck; mostly done in session 33)
 Session 32 closed the big CPU/GPU leads for this PC (results: NOTES "Start here (session 33)", PERF-RESULTS
 "Session 32"). What is left, per area, cheapest first:
 - **Stutters and frame drops:** a long-frame log first (frames over 2x the average, with what ReGPU did in them:
@@ -177,6 +198,9 @@ Session 32 closed the big CPU/GPU leads for this PC (results: NOTES "Start here 
 | L57 | **Reuse unchanged constant blocks**: when a draw's VS/PS constant block would equal the previous draw's (same shader, no feeding register written since), bind the previous ring offset instead of writing it again. ReGPU already writes only the used parts (constant mask, used fetch/texture entries) | **Session 30: measured and built.** The bulk was not repeats but the fetch table: 1,796 of 2,996 bytes a draw were "vs rest", the `vf` entries up to the highest used one (FM3 uses fetch constants near 95). **Built, default: entries written one by one** (ReGPU patch 35 `regpu-sparse-fetch-table`, A/B `REGPU_FETCH_TABLE_BY_RANGE=1`): ~1,500 bytes a draw, byte-identical; frozen grid fps neutral (720p 1x -0.3% system ring, +0.7% VRAM ring; the VRAM ring still -5.3% vs system at 720p 1x). **Block reuse built, off** (`REGPU_CONSTANT_REUSE`: vs repeats 28%, ps 42%, 1,144 bytes a draw, fps -1.4..+0.6%). **User's race drive: ring off ~+5% at equal draws (whole drive 256 -> 280 fps), draw thread ~1.40 -> ~1.33 us a draw; ring in VRAM unchanged (still ~-11.5% vs off)** (PERF-RESULTS "Session 30") | CPU-bound: racing on the user's PC (draw thread ~1.41 us a draw); also makes L47's VRAM ring cheaper | Live switch | Reuse only within one command list / frame ring; keep hooked and motion paths writing; pixel-diff |
 | L58 | **Car shadows at half rate: BUILT (session 32), launcher Settings > Testing "Half-rate car shadows" = `shadow_rate=2`, off by default; live `FM3_SHADOW_RATE`.** `src/hooks/car_shadows.cpp`: the driver `sub_827B5088` runs two passes a frame (begin `sub_827B4D30`, the drop-shadow method `sub_82592168` drawing the cars, end `sub_827B4E40` = two resolves); off-frames skip all three, so no clear and no resolve and ReGPU keeps last frame's images (skipping only the method left empty maps: shadows blinked). Frozen grid: 0 pixels at rates 2/3/1000; 1440p 4x under the full perf log (draw-thread bound): **+8.2% at rate 2 (4/4), +9.3% at rate 3**; 4K +2.2% / +4.7% (rate 1000); without the log this PC sits at the 360 cap either way. Needs the user's drive (shadows a frame late) | Built, opt-in | Draw-thread bound (below the cap, slower CPUs) | Live | Shadows up to N-1 frames old |
 | L59 | **Session 33 per-pass GPU 4x vs 2x at 4K: the post passes grow little (+0.02 ms the effects pass); half of 4x's extra GPU time is the colour resolves reading 8-byte samples. Stays parked.** **Per-pass MSAA for guest 1x passes**: studied session 32, **not built**: FM3's post passes draw into the same EDRAM base 0 with the same depth (`2D0`) as the main scene; the big one (pass 25, 117 draws of effects over the scene) depth-tests against the scene's 4x depth, so it must stay 4x. Only the bloom chain and the final composite (24 draws) could go 1x: their resolve + sample writes ~0.15 ms of 4.2 at 4K (~3%), for switching one base between sample counts within a frame | Studied, parked | GPU-bound (4K) | Start-time | Large and risky for ~3% |
+| L61 | **Idle EDRAM surfaces released + 720-row surfaces (session 33): BUILT, default** (ReGPU patch 46 `regpu-surface-release`; FM3 `REGPU_SURFACE_ROWS=720`) | Built, default | VRAM-bound (5K+, 8-16 GB cards) | Release live (`REGPU_KEEP_SURFACES`), rows start-time | 4K 4x 14.3 -> 5.7 GB, races +5.1%; 5K 4x 82 -> 154 fps |
+| L62 | **Specialise cube and full-path fetches** like `TFetch2DK` (fetch words as literals): the car paint's reflections (cubes) and its 9-tap 16-bit-fixed shadow-map lookup still compile every case | Not built (session 34 step 2) | GPU-bound, small GPUs most | Live (as `REGPU_FETCH_SPECIALIZE`) | Lossless in intent; RGA first |
+| L63 | **Cheaper upscale for slow GPUs**: bilinear instead of FSR 1 (1.65 ms on the iGPU, ~13% of its frame) | Not built | iGPU | Start-time | Softer picture: opt-in |
 | L60 | **Lower detail for distant AI cars** (main view, car detail field +596): live `FM3_CAR_LOD_FAR`/`FM3_CAR_LOD_FROM` (session 32); **launcher Graphics option `car_lod_far=1` (level 3 from 1), off by default** | Built, opt-in | Draw-thread bound | Live | from 1 to 3: +4.1%, 0.15% of pixels; from 2: +1-2%, 0.008%; to 4 is visible on mid-distance cars |
 | L53 | **Same hardware, Windows vs Proton** on all three of the user's machines (7900 XTX, 6650 XT, Deck OLED on its Win11 SD card) | Not done | Finds Proton-only losses | n/a | Deck's Windows runs from the SD card: compare fps, not load times |
 

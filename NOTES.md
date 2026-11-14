@@ -1,6 +1,66 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-13, session 30)
+## ▶ Current status / next step  (updated 2026-11-14, session 33)
+
+### ▶ Start here (session 34): state at the end of session 33 (2026-11-14)
+- **In short:** session 33 fixed the stutters (long-frame log, index-cache sweep, texture streaming), built the
+  AI-driven benchmark (game `FM3_BENCHMARK`, launcher Settings > Benchmark, `tools/bench_matrix.ps1`), worked through
+  the 4K+ leads, freed most of the 4x VRAM, added the launcher's GPU choice and started the iGPU work. Details per
+  part in the "Session 33" sections below (stutters, benchmark, 4K+ leads incl. VRAM, GPU choice, iGPU).
+- **New defaults this session (all lossless, measured; each has an undo switch):**
+
+  | What | Patch / place | Measured | Undo |
+  |---|---|---|---|
+  | Index-list cache sweep (once-a-lap hitch) | ReGPU 43 `regpu-index-cache-sweep` | hitch gone (user drove) | see patch README |
+  | Texture streaming on helper threads | ReGPU 44 `regpu-texture-streaming` | 3 long frames, all < 6 ms (user drove) | `REGPU_NO_TEXTURE_THREADS=1` ... |
+  | Gamma pass drawn into the back buffer | ReGPU 45 `regpu-4k-leads` | 4K races +2.5% (+4.3% equal draws) | `REGPU_GAMMA_COPY=1` |
+  | Idle EDRAM surfaces released | ReGPU 46 `regpu-surface-release` | 4K 4x 14.3 -> 5.7 GB; 5K 4x 82 -> 154 fps | `REGPU_KEEP_SURFACES=1` |
+  | 720-row EDRAM surfaces for FM3 | `src/gpu_host.cpp` | 4K +3.8% grid, races +5.1% (with 46) | `REGPU_SURFACE_ROWS=1024` |
+  | Fetch specialisation | ReGPU 48 `regpu-fetch-specialize` | races 1440p +3.6%, 4K +9%, iGPU +27%; 0 pixels | `REGPU_FETCH_SPECIALIZE=0` (live) |
+
+  Plus: launcher "Graphics card" choice (ReGPU 47 `regpu-adapter-choice`, settings.ini `gpu=`, own pipeline library
+  per non-default GPU; **user confirmed it works**); speed presets **Mild and up now include the draw-cutting options**
+  (one tile, half-rate shadows/mirror/reflections, distant-car detail; Off/Turbo leave them to their switches; the
+  real launcher window not checked yet). 48 ReGPU patches.
+- **Not driven by the user yet:** a race with the session's new defaults (gamma into back buffer, surface release,
+  720 rows, fetch specialisation). If something looks wrong after menus/replays: `REGPU_KEEP_SURFACES=1` first; a
+  texture looking different: `REGPU_FETCH_SPECIALIZE=0` (live).
+- **User's settings.ini right now** (left from their iGPU tests): `gpu=AMD Radeon RX 7900 XTX`, `max_fps=120`,
+  `one_tile=1`, `mirror_rate=2`, `shadow_rate=2`, `reflect_rate=1`, `perf_preset=off`, `long_frame_stacks=1`. The
+  benchmark matrices pin all of these per run (`bench_matrix.ps1 -Common`), so tests don't depend on them; don't
+  change the user's file.
+- **Next (user's plan: the remaining iGPU optimisations).** Where the iGPU frame stands (9800X3D Radeon Graphics, RDNA2,
+  2 CUs; 720p races): nothing 56.6 fps, Low + draw-cutting options 78.0 fps, GPU 12.3 ms. Before specialisation its
+  frame split ~47% pixel, ~25% vertex, ~22% fixed per draw (~1.8 us x ~2,700 draws), ~6% the rest. Steps, in order
+  (PERF-PLAN "Next up (from session 34)"):
+  1. **Per-shader GPU time on the iGPU again, specialisation on** (frozen grid 720p, `REGPU_GPU_SHADERS=1`,
+     `REGPU_ADAPTER=Radeon(TM) Graphics`, every option pinned as in the matrices): the new top list.
+  2. **Specialise the remaining generic fetches**: cube fetches (car reflections, slots 6/7 of the car paint) and the
+     full `TFetch` path (the 9-tap 16-bit-fixed shadow-map lookup, slot 13), the same way as `TFetch2DK` (literal
+     fetch words; `SpecVariant` in renderer.cpp, `SpecializedFetchFunction` in hlsl.cpp). Measure code size offline
+     first with RGA (`tools/rga_shaders.ps1 -Asic gfx1100`, `-Rga` path, root signature + HLSL in `out/rga/`; RGA
+     can't target the iGPU's gfx1036), then same-boot 0-pixel check and races.
+  3. Then whatever step 1 shows next (per-shader cuts).
+  4. Opt-in: a cheaper upscale than FSR 1 for slow GPUs (FSR 1 itself costs 1.65 ms on the iGPU, ~13% of its frame).
+  5. Bigger, later: DXC instead of FXC (I7), and with it 16-bit math (Intel Gen9/Gen12 run FP16 at 2x; RESEARCH
+     "16-bit shaders"). The user asked about Intel HD 630 / Iris: can't test here (AMD only); a tester's benchmark
+     button run would tell.
+- **How to test on the iGPU** (minimized, never the user's save): `tools\bench_matrix.ps1 -Label x -Rounds 1 -Seconds
+  120 -Resolution 1280x720 -Common "REGPU_ADAPTER=Radeon(TM) Graphics;FM3_MSAA=1;FM3_MAX_FPS=360;FM3_PERF_PRESET=off;
+  FM3_UPSCALER=off;FM3_ONE_TILE=0;FM3_SHADOW_RATE=1;FM3_MIRROR_RATE=1;FM3_REFLECT_RATE=1;FM3_CAR_LOD_FAR=0" -Variants
+  "base|x:VAR=v"`. One race = ~2:53; the user prefers one race each for quick looks (noise ~3-5%). Live A/Bs on the
+  frozen grid: `. tools\perf_suite.ps1 -Run x; Start-Grid @{ REGPU_ADAPTER = 'Radeon(TM) Graphics'; ... }`,
+  `Set-Live switch|env NAME v`, `Get-LiteGpu`. Draw-cost split: `Set-Live env REGPU_EXP_DRAW 1|2|3` (picture wrong).
+  Non-plain fetch slots: `switch REGPU_TRACE_FETCH_PLAIN 1`.
+- **Open, smaller:** iGPU runs with a visible window log `GPU 0.00 ms` (minimized ones time fine; suspect the
+  cross-adapter present; OPEN-ISSUES V). 36-39 ms GPU waits and one 152 ms game-idle frame in 4K AI races (game side,
+  not ReGPU). At 1080p FM3's shadow atlas draws at 768x768, below the console's 1024 (quality lead). FSR 3 at 4K
+  caused a driver timeout (OPEN-ISSUES U, parked: no FSR 3 test boots without asking). 1440p p99 (~3.3 ms at the 360
+  cap) didn't move with any lead tried.
+- **Lessons:** measure memory, not only time (the 12 GB of idle surfaces showed only once 5K 4x overflowed the card);
+  copy the user's drive logs away before booting anything; a non-default GPU must never share the pipeline library;
+  pin every launcher option in A/B runs (the user's settings.ini changes between tests); an iGPU is limited by shader
+  code size and per-draw work more than by pixels.
 
 ### Session 29b (2026-11-12, cloud, research only, no code): PFP3, ray tracing, vendor speed-ups, Linux/Steam Deck
 - User asked how to add **Project Forza Plus 3** (PFP3) as an option. Study: [RESEARCH.md](RESEARCH.md#project-forza-plus-3-as-an-option-session-29-2026-11-12).

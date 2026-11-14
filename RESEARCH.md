@@ -1062,6 +1062,13 @@ Don't port: `SplitMainListAsync(false)` (rexglue-driver 0bc61d1; our pin reverte
 FH1R's perf branches (ReIGlue/Xenia, not ReGPU; ideas only: a 540p scene under a 720p HUD for an iGPU preset).
 
 ## 16-bit (half-precision) shaders for lower-end GPUs (session 18, 2026-11-09)
+**Session 33 note (user asked about Intel HD 630 / Iris):** whether DXC alone beats FXC on Intel can't be said without
+testing (no Intel GPU here): FXC's DXBC is translated by Intel's driver, DXC's DXIL is its native input but less
+pre-optimised. The bigger reason for DXC there is this section's 16-bit math: Gen9 (HD 630) and Gen12 (Iris Xe) run
+FP16 at twice the FP32 rate, which needs DXC (SM 6.2 native 16-bit types). Gen9's drivers are in legacy support (check
+its shader-model level). Rough scale: HD 630 ~0.4 TFLOPS (like the 9800X3D's iGPU), Iris Xe ~1.7-2.2 TFLOPS. Fetch
+specialisation (ReGPU patch 48: smaller code) should help Intel's small instruction caches as well. A tester's
+launcher benchmark run would answer it.
 
 **Question:** could an optional shader translation that does vertex shaders (and others) in 16-bit instead of
 32-bit floats help lower-end hardware?
@@ -1261,6 +1268,8 @@ desktops), 2.2–2.9 (Zen 3 / Comet Lake), 3.6–3.8 (4-core Zen 1/2), ~6 (Ryzen
 (`gpu_host.cpp` ~55). The launcher doesn't offer FSR 4; only a hand edit hits it. Map it to Off or FSR3.
 
 ## Choosing the GPU in the launcher (session 18, 2026-11-09)
+**Built in session 33:** launcher Graphics > Display "Graphics card" (settings.ini `gpu=`, ReGPU patch 47
+`regpu-adapter-choice`, `REGPU_ADAPTER`); the user confirmed it. Notes below are the original study.
 **Goal:** pick which GPU (dedicated card or integrated GPU/APU) the game renders on, from the launcher.
 
 **Today:** ReGPU creates its device with `D3D12CreateDevice(nullptr, ...)` (`thirdparty/ReGPU/src/render/presenter.cpp`

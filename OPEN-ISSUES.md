@@ -96,6 +96,14 @@ first seconds (`fsr3: 2560x1440 -> 3840x2160`, then `..., HDR`, back and forth; 
 FATAL line). Leads: the context flips between HDR and non-HDR as resolves of different formats come through (a
 recreate per flip; one context per format?); VRAM (4K 4x MSAA alone used 14.4 GB of 24 in the same series; one earlier
 4K run died with `device removed` + out of memory). **No FSR 3 test boots without asking the user** (memory note).
+
+### V. iGPU with a visible window: GPU time reads 0.00 ms (session 33, measurement only)
+The user's launcher runs on the 9800X3D's iGPU (`gpu=AMD Radeon(TM) Graphics`, window visible, cap 120, Low/Extreme +
+one tile + half rates) logged `GPU 0.00 ms/frame` in every `perf lite:` line (no frame's timestamps passed the
+0-1000 ms check in renderer.cpp's readback). Minimized iGPU boots (all of them, presets and options too) and the
+7900 XTX at a 120 cap time fine. Suspect: the cross-adapter present (the picture goes to the 7900 XTX's display) puts
+the frame end's timestamps on another timeline. First step: one visible iGPU boot (ask the user: it puts a window on
+their screen), log the raw begin/end timestamps; logs in `out/logs/s33-user-igpu/`.
 FSR 1 at the same settings ran fine (349.7 fps).
 
 ### C1. Crash on some race loads: `std::out_of_range` while picking AI drivers (session 14; workaround session 15)
