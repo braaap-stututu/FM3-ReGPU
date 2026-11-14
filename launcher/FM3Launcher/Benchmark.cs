@@ -102,11 +102,17 @@ public static partial class Benchmark
         var options = new List<string>();
         if (settings.Upscaler != "off") options.Add($"{settings.Upscaler} q{settings.Upscale}");
         if (settings.PerfPreset != "off") options.Add($"preset {settings.PerfPreset}");
-        if (settings.OneTile) options.Add("one tile");
-        if (settings.HalfRateMirror) options.Add("half-rate mirror");
-        if (settings.HalfRateShadows) options.Add("half-rate shadows");
-        if (settings.HalfRateReflections) options.Add("half-rate reflections");
-        if (settings.CarLodFar) options.Add("far car LOD");
+        // (Mild and up turn the draw-cutting options on by themselves: src/gpu_host.cpp ApplyPerfPreset.)
+        var presetCuts = settings.PerfPreset is "mild" or "potato" or "low" or "extreme";
+        if (presetCuts) options.Add("draw-cutting options (preset)");
+        else
+        {
+            if (settings.OneTile) options.Add("one tile");
+            if (settings.HalfRateMirror) options.Add("half-rate mirror");
+            if (settings.HalfRateShadows) options.Add("half-rate shadows");
+            if (settings.HalfRateReflections) options.Add("half-rate reflections");
+            if (settings.CarLodFar) options.Add("far car LOD");
+        }
         if (settings.AnisoFromGame) options.Add("game anisotropy");
         if (!settings.VramUploadRing) options.Add("ring in RAM");
         if (!settings.AsyncPresent) options.Add("sync present");

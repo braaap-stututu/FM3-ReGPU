@@ -312,6 +312,12 @@
   long frames. Low + options = +38% over nothing; Extreme adds ~3% more for a 50% scene and no anisotropy (one race
   each: within noise). Suggested slow-PC setting: Low + the options (an "iGPU" preset could bundle them). One run
   takes ~2:53 (boot 11 s, grid and countdown 13 s, settle 10 s, measuring 120 s, close, 15 s pause).
+- **Presets Mild and up now include the draw-cutting options (user's request):** `src/gpu_host.cpp` `PerfPreset::drawCut`
+  -> `FM3_ONE_TILE=1`, `FM3_SHADOW_RATE=2`, `FM3_MIRROR_RATE=2`, `FM3_REFLECT_RATE=2`, `FM3_CAR_LOD_FAR=3` as
+  defaults (an explicit FM3_* value still wins: tested, `FM3_SHADOW_RATE=1` with Low gave full-rate shadows). Off and
+  Turbo leave them to their own switches. Launcher: at Mild+ the five switches show on and locked ("On in the X speed
+  preset"), the preset notes say so; the benchmark records "draw-cutting options (preset)". Low boot logs all five on.
+  Checked in the browser with a sample state; the real launcher window not opened.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**

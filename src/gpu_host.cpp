@@ -160,19 +160,20 @@ struct PerfPreset
     int freeze;        // REGPU_FREEZE_HELPERS (0 = off)
     int anisotropy;    // regpu::SetAnisotropy (-1 = the fetch's own)
     uint32_t quality;  // upscale_quality at least this (0 = native)
+    bool drawCut = false; // the draw-cutting options too (ApplyPerfPreset)
 };
 // Session 23 (PERF-RESULTS.md phase 6): in a race, smaller helper passes (REGPU_HELPER_SCALE) wash out a large
 // rectangle of the picture (one of FM3's exposure/bloom-type passes counts as a helper and is read back at the wrong
 // size), and frozen helper passes (REGPU_FREEZE_HELPERS) wash out everything above the EDRAM tile seam (a pass run
 // once per tile, frozen for one tile). Both are off in every preset until they are fixed; set either in the
-// environment to try it. Mild/Potato/Low/Extreme are now Turbo + render scale (FSR 1) + lower anisotropy.
+// environment to try it. Mild/Potato/Low/Extreme are now Turbo + render scale (FSR 1) + lower anisotropy, and (session 33) the draw-cutting options.
 constexpr PerfPreset kPresets[] = {
     { "off", false, 1.0f, 0, 0, -1, 0 },
     { "turbo", true, 1.0f, 1, 0, -1, 0 },
-    { "mild", true, 1.0f, 1, 0, 4, 1 },
-    { "potato", true, 1.0f, 1, 0, 2, 0 },
-    { "low", true, 1.0f, 1, 0, 2, 2 },
-    { "extreme", true, 1.0f, 1, 0, 0, 3 },
+    { "mild", true, 1.0f, 1, 0, 4, 1, true },
+    { "potato", true, 1.0f, 1, 0, 2, 0, true },
+    { "low", true, 1.0f, 1, 0, 2, 2, true },
+    { "extreme", true, 1.0f, 1, 0, 0, 3, true },
 };
 
 const PerfPreset& CurrentPreset()
@@ -212,6 +213,18 @@ void ApplyPerfPreset(regpu::Config& c)
         DefaultEnv("REGPU_FREEZE_HELPERS", std::to_string(p.freeze).c_str());
     if (p.anisotropy >= 0 && !getenv("REGPU_NO_ANISO"))
         regpu::SetAnisotropy(p.anisotropy);
+    // Mild and up (user's request, session 33): also the draw-cutting options, each normally its own launcher switch:
+    // one guest tile, half-rate car shadows, mirror and reflections, distant AI cars at detail level 3. iGPU races at
+    // 720p with fetch specialisation: Low 64.0 fps, Low + these 78.0 (+22%). Through their environment variables
+    // (read before settings.ini by each hook), so an explicit FM3_* value still wins; Off and Turbo leave them alone.
+    if (p.drawCut)
+    {
+        DefaultEnv("FM3_ONE_TILE", "1");
+        DefaultEnv("FM3_SHADOW_RATE", "2");
+        DefaultEnv("FM3_MIRROR_RATE", "2");
+        DefaultEnv("FM3_REFLECT_RATE", "2");
+        DefaultEnv("FM3_CAR_LOD_FAR", "3");
+    }
     if (p.quality)
     {
         if (c.upscaler == regpu::Config::Upscaler::Off)

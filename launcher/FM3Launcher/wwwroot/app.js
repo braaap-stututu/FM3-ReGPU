@@ -11,11 +11,14 @@ const PAGES = ["play", "profiles", "graphics", "wheel", "settings", "about"]
 const PRESETS = [
   { value: "off", name: "Off", note: "Everything drawn as the console does." },
   { value: "turbo", name: "Turbo", note: "Faster shaders and fewer wasted draws. The picture stays the same." },
-  { value: "mild", name: "Mild", note: "Turbo, with the 3D scene drawn at 67% (upscaled) and 4x texture filtering." },
-  { value: "potato", name: "Potato", note: "Turbo at full resolution with 2x texture filtering." },
-  { value: "low", name: "Low", note: "Potato with the 3D scene drawn at 59% (upscaled)." },
-  { value: "extreme", name: "Extreme", note: "Potato with the 3D scene drawn at half size and no texture filtering boost. The fastest." },
+  { value: "mild", name: "Mild", note: "Turbo, with the 3D scene drawn at 67% (upscaled) and 4x texture filtering. Also turns on the draw-cutting options: one tile, half-rate shadows, mirror and reflections, lower detail for distant cars." },
+  { value: "potato", name: "Potato", note: "Turbo at full resolution with 2x texture filtering. Also turns on the draw-cutting options: one tile, half-rate shadows, mirror and reflections, lower detail for distant cars." },
+  { value: "low", name: "Low", note: "Potato with the 3D scene drawn at 59% (upscaled). Also turns on the draw-cutting options: one tile, half-rate shadows, mirror and reflections, lower detail for distant cars." },
+  { value: "extreme", name: "Extreme", note: "Potato with the 3D scene drawn at half size and no texture filtering boost. The fastest. Also turns on the draw-cutting options: one tile, half-rate shadows, mirror and reflections, lower detail for distant cars." },
 ]
+// Mild and up turn these on by themselves (src/gpu_host.cpp ApplyPerfPreset): shown on and locked there; Off and
+// Turbo leave them to their own switches.
+const PRESET_OPTIONS = ["oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "carLodFar"]
 const SWITCHES = ["vsync", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
 
 // ---- host calls
@@ -214,6 +217,13 @@ function render() {
   if (document.activeElement !== $("perfPreset")) $("perfPreset").value = preset
   $("perfPreset-v").textContent = PRESETS[preset].name
   $("perfPreset-note").textContent = PRESETS[preset].note
+  const presetOptions = preset >= 2 // (Mild onwards)
+  for (const k of PRESET_OPTIONS) {
+    const b = $(k)
+    if (presetOptions) b.classList.add("on")
+    b.disabled = presetOptions
+    b.title = presetOptions ? `On in the ${PRESETS[preset].name} speed preset` : ""
+  }
 
   // play page
   fill($("language"), o.languages.map((l) => ({ value: l.id, name: l.name })), set.language)
