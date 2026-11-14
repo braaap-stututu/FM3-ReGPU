@@ -65,7 +65,11 @@
   gradually (a cursor looks at 512 buckets a frame, frees at most 128); a full clear only past 32768. `index lists:` log
   line every 3000 sweeps; `REGPU_INDEX_CACHE_CLEAR=1` (live) = old behaviour. Grid + 20 s drive: fine (359 fps, no long
   frames while driving; a straight drive doesn't reach 8192). Log of drive 3: `out/perf/s33-stacks/drive3.log`.
-- **Next:** the user drives 2+ laps again: no ~80 ms hitch at the line, and `index lists:` lines show the sweep working.
+- **User's drive 4 (fix on, 2 laps): hitch gone** (user: "no longer red"). Longest race frame 11.6 ms (was 78-82 ms);
+  `index lists: 8065 cached, 128 stale freed` at 104.9 s with no long frame. Left: 5.7-6.5 ms frames from texture streams
+  (0.2-3.3 MB, 1-3 ms on the draw thread; leads: upload/decode off the draw thread), one 11.6 ms with 7.6 ms idle (the game
+  late, at 69.8 s), the race start (19.5 ms). Log `out/perf/s33-stacks/drive4.log`.
+- **Next (user's choice):** the small texture-stream frames, or the other areas (4K+, iGPU, Steam Deck).
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
