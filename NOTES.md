@@ -25,7 +25,59 @@
   pipeline from the user before reverse-engineering anything ourselves. Related: "FM4 Imported" (446 FM4 cars in FH1,
   moddb) shows the 360-era car path; Reddit counts 243 FM4 cars missing in FM3.
 
-### ▶ Session 32 (2026-11-13 evening, in progress)
+### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
+- **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
+  PGO build of ReGPU (L23, +3.2% draw-thread bound; `build/rel` configured `FM3_PGO=use`). **New launcher options,
+  all off by default (the user drove the half-rate ones: lag not noticeable at their frame rates):**
+  | Option | Setting | Gain | Picture |
+  |---|---|---|---|
+  | Graphics "Anisotropy as the game asks" (I8) | `aniso_from_game=1` | GPU -3.8% at 4K | distant textures slightly softer |
+  | Graphics "Lower detail for distant AI cars" (L60) | `car_lod_far=1` | +4.1% draw-thread bound | small details on mid-distance cars |
+  | Graphics "Fps counter and frame-time graph" | `fps_panel=1` | -0.8% (noise) | panel at the top centre |
+  | Testing "Half-rate car shadows" (L58) | `shadow_rate=2` | +8.2% draw-thread bound | shadows a frame late |
+  | Testing "Half-rate car reflections" (V8) | `reflect_rate=2` | +2.1% draw-thread bound, GPU -2.4% at 4K | reflections a little later |
+  Closed with measurements: L56 render-target formats (the scene is 7e3 float with alpha), V2 VRS on AI cars (their
+  material shading is ~0.05-0.1 ms), hardware MSAA resolve (no big resolve qualifies), I2 lean fetch 2 (slower),
+  FM3's dev options `numaicars`/`fastcastshadows`/`fastdropshadows`/`cubemap`/`fastenvmaprender` (no effect in
+  retail). Parked: L59 per-pass MSAA (~3% at 4K for a large ReGPU change). ReGPU patches: 41 (new: 41 `regpu-fps-panel`).
+- **Where the frame goes now (RX 7900 XTX, frozen CrownJewel grid, 8 cars):**
+  - 1440p 4x: at the 360 cap; underneath, ReGPU's draw thread (~2.7 ms a frame, 1.02 us a draw, ~2,670 draws).
+    Each car ~183 draws (~120 main scene in ~20 material layers, ~54 shadow map, rest small passes) = ~0.19 ms of
+    draw thread + ~0.15 ms GPU; no cars (`FM3_CMDLINE=DontDrawCars=1`): 1,226 draws, 312 fps at 4K.
+  - 4K 4x: GPU-bound ~229 fps, GPU ~4.1 ms: main scene draws ~1.5 ms (car paint layer 0.16), three 1280x720 colour
+    resolves 0.63 ms (format conversions: shader resolves needed), FM3's clear rectangles 0.26 ms (L54/L37 closed),
+    post shaders small; the post passes share base 0 and the scene's 4x depth.
+- **What is left (the user's summary): 4K+ resolutions, stutters and frame drops, iGPU and Steam Deck.** Plan per
+  area in PERF-PLAN.md "Next up (from session 33)". Suggested first steps:
+  1. **Stutters / frame drops:** make them visible first. The fps panel shows them live; add a "long frame" log
+     (frames over 2x the average: what ReGPU did in them: shader/pipeline compiles, texture uploads/decodes, resolve
+     write-backs, ring growth) and drive a race with it (light log on). Then L32 (wait for missing pipelines at
+     submit), L35 (texture checks only over the bytes a texture uses: needless reloads), L17 (texture budget hitches),
+     L31 (frame pacing). Known: the first seconds after a shader-cache rebuild run at 30-36 fps (README).
+  2. **4K+:** cheap measurements first at 4K with the light log: L3/I6 (`REGPU_OPTIMIZE_SHADERS` / level, start-time),
+     L48 wave size, L5 sampler table (ReGPU root-signature change), I3 per-shader plain multiply (-2.5% GPU, needs the
+     black-flag fix); L59 only if the user wants the ~3%.
+  3. **iGPU:** the 9800X3D has a small RDNA2 iGPU: check whether it is enabled (`REGPU_ADAPTER`, adapter list in the
+     log) for real tests; L15 laptop GPU pick, L19 native small texture formats, L17/L18/L21 memory, V5 SMAA, V7 render
+     scale + FSR (in the launcher, untested on FM3), speed presets in a race (untested), a "low-end" preset bundling
+     the session-32 options.
+  4. **Steam Deck (the user has a Deck OLED):** L52 preset (1280x800 or 720p, MSAA 2x/1x, cap 40/45/60, 4C/8T worker
+     counts), Proton run by the user; test 720p 1x here meanwhile (CPU-bound numbers). Read the session 29b research
+     (Linux / Steam Deck, top of this file and RESEARCH.md) first.
+- **How to test** (unchanged from session 31, plus): the fps panel (`fps_panel=1`) for drives; `REGPU_FPS_PANEL_DUMP=1`
+  writes it to `out/run/fps_panel.png` (debug-server shots don't contain it). GPU leads at 4K with the light log
+  (`Get-LiteGpu`), draw-thread leads at 1440p with the full perf log as the load (`Test-Live`), moving cars with
+  `Test-Drive`. New live tools: `FM3_SCENE_SKIP=<hex>` (skip a scene step / car-draw call site in the main view),
+  `FM3_CAR_LOD_FAR/FROM`, `FM3_SHADOW_RATE`, `FM3_REFLECT_RATE`; FM3's `DontDrawCars=1` (boot) for a no-cars frame.
+  **Lesson (twice in session 32):** skipping a render pass's draws leaves its clear and resolve: the image goes empty.
+  Skip the whole pass (begin, draws, end) and ReGPU keeps last frame's image.
+- **PGO:** re-record the profile after larger ReGPU changes (`pgo/README.md`; the fps panel patch postdates it).
+- **User's settings.ini now:** 3840x2160 (the user's choice at the end), msaa 4, cap 360, perf_log 0, perf_log_light 0, fps_panel 1, vram_upload_ring
+  1, one_tile 1, mirror_rate 2, shadow_rate 1, reflect_rate 1, car_lod_far 0, aniso_from_game 0. Game (PGO build)
+  and launcher built at HEAD, both closed.
+- Session 32's details, in order: the next section.
+
+### Session 32 details (2026-11-13 evening to 11-14 night)
 - The user's settings.ini is now **3840x2160, msaa 4, light log on** (set by the user for the GPU tests; leave it).
 - **L56 closed without code:** a grid `capture` (`out/logs/s32_grid_capture.log`) shows the main scene pass (1,804 of
   2,649 draws) on `2_10_10_10_FLOAT_AS_16_16_16_16` (7e3 float) writing alpha on every draw, 51 draws reading it; no

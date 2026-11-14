@@ -51,7 +51,20 @@ without the replay wait; **CPU-bound grid ~288 fps**. Upload hashing: 6 MB/frame
 `REGPU_UPLOAD_STABLE_REUSE` +1.2% (off: stale-for-a-frame risk). L10: 18% of draws are second-tile copies (the upside).
 The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch 200, 1% low 200.5 at 1440p 4x).
 
-## Next up (from session 28; ask the user which)
+## Next up (from session 33; the user's areas: 4K+, stutters/frame drops, iGPU, Steam Deck)
+Session 32 closed the big CPU/GPU leads for this PC (results: NOTES "Start here (session 33)", PERF-RESULTS
+"Session 32"). What is left, per area, cheapest first:
+- **Stutters and frame drops:** a long-frame log first (frames over 2x the average, with what ReGPU did in them:
+  compiles, pipeline creation, texture uploads/decodes, write-backs, ring growth), driven with the fps panel and the
+  light log; then L32, L35, L17, L31. Known: the first seconds after a shader-cache rebuild (30-36 fps).
+- **4K+ (GPU):** L3/I6 shader optimisation level (start-time, measure at 4K), L48 wave size, L5 sampler table, I3
+  per-shader plain multiply (needs the black-flag fix), L49 async compute; L59 per-pass MSAA parked (~3%).
+- **iGPU / low-end:** check the 9800X3D's iGPU for real tests (`REGPU_ADAPTER`); L15, L19, L17/L18/L21, V5 SMAA, V7
+  render scale + FSR, speed presets in a race, a low-end preset bundling the session-32 options (car_lod_far,
+  shadow_rate, reflect_rate, aniso_from_game, mirror_rate).
+- **Steam Deck:** L52 preset; user runs it under Proton (session 29b research).
+
+## Next up (from session 28; superseded by the list above, kept for its notes)
 0. **End of session 27:** shader and pipeline discovery (Disc 2 static scan + low-priority scan threads, an automated
    tour over every track/mode feeding the seed, a per-boot coverage line), then L27 rebase (L7/L17), I6, draw-thread
    cost per draw, the remaining not-built leads (NOTES "Start here (session 28)" has the audit). Done in session 27:
