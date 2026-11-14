@@ -404,6 +404,17 @@ void GpuStart()
     // settings.ini perf_log_light=1 (launcher Settings > Testing "Light performance log"); REGPU_PERF_LITE=1 directly.
     if (GetSettings().Extra("perf_log_light") == "1")
         DefaultEnv("REGPU_PERF_LITE", "1");
+    // Long-frame stacks (session 33, src/long_stacks.cpp): settings.ini long_frame_stacks=1 (FM3_LONG_STACKS=1 or =N ms)
+    // samples ReGPU's draw thread every millisecond and logs where it was during each long frame. Turns on the
+    // long-frame log (REGPU_LONG_FRAMES) it hangs on.
+    if (GetSettings().Extra("long_frame_stacks") == "1")
+        DefaultEnv("FM3_LONG_STACKS", "1");
+    if (const char* stacks = getenv("FM3_LONG_STACKS"); stacks && *stacks && strcmp(stacks, "0"))
+    {
+        DefaultEnv("REGPU_LONG_FRAMES", "1");
+        void StartLongFrameSampler();
+        StartLongFrameSampler();
+    }
     // Anisotropy as the game asks (session 32, PERF-PLAN I8): each fetch's own anisotropy instead of 16x everywhere.
     // GPU -3.8% at 4K 4x, ~9% of pixels slightly softer at a distance (closer to the console). Off by default;
     // settings.ini aniso_from_game=1 (launcher Graphics "Anisotropy as the game asks"); REGPU_ANISO_FROM_FETCH=1 directly.

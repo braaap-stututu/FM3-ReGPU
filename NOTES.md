@@ -41,7 +41,21 @@
   offset read from the timer). Last 3 long frames (146.5-147 s, GPU waits 20-65 ms) = the recording being stopped.
 - **Fields added for it:** `fences` (all fence waits), `replay` (waits for the replay thread / async Present), `cpu`
   (thread CPU time vs average). Grid check: loading frames' unexplained 90-170 ms were fence waits (42-78 ms).
-- **Next:** a second drive (with and without ReLive) to read the new fields at such a hitch.
+- **User's drive 2 (no recording, 1440p 4x, ~2 laps):** again **one hitch, 82 ms at log 117.1 s** (the user felt it "a bit
+  before finishing lap 2"; drive 1's was near the line too), and the new fields say: **cpu 76.9 ms** (average 2.1), idle,
+  GPU wait, fences, replay, builds, textures all ~0. So **not ReLive and not a wait: the draw thread itself computed for
+  77 ms.** Everything else in the race: 5-6 ms long frames from texture streams.
+- **Long-frame stacks built** (`src/long_stacks.cpp`, settings.ini `long_frame_stacks=1` or `FM3_LONG_STACKS=1`/`=N` ms,
+  default 15; turns on `REGPU_LONG_FRAMES`): a thread samples ReGPU's draw thread every 1 ms (RIP + 20 callers, unwound
+  from a stack copy after resuming) into a 1.5 s ring; ReGPU calls the host at each long frame (new
+  `regpu::driver::SetLongFrameCallback`, in patch 42) and the samples inside that frame are logged as `long stacks:` lines
+  (top functions, then top call chains). No measurable fps cost on the grid. Grid boot already shows the loading frames:
+  driver allocation waits under `CreateBuffer`/`GetIndexBuffer`/`EnsureResolved`, `DecodeTexture`, `ContentHash` +
+  vector copy in `QueueDeferredWriteback`, and an 88 ms frame mostly `WaitFenceValue` in `WriteResolveToGuest`.
+  `long_frame_stacks=1` was added to the user's settings.ini (backup `out/perf/s33-stacks/settings.ini.bak`).
+- **Lesson:** only the launcher copies `fm3.log` to `fm3.prev.log`; `play.cmd`/`Start-Grid` boots overwrite it. **Copy
+  the user's drive log away before booting anything** (drive 2's log was lost that way; its long-frame lines are above).
+- **Next:** the user drives again (stacks on); read the `long stacks:` lines at the ~80 ms hitch.
 
 ### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**

@@ -1,3 +1,18 @@
+diff --git a/include/regpu/driver.h b/include/regpu/driver.h
+index 5d66aef..0092b39 100644
+--- a/include/regpu/driver.h
++++ b/include/regpu/driver.h
+@@ -21,6 +21,10 @@ void SetRefreshRate(double hz);
+ // environment variable, this also reaches switches read when the library loads.
+ void SetSwitch(const char* name, bool on);
+ 
++// Called on the draw thread at the end of a long frame (the long-frame log: REGPU_LONG_FRAMES or REGPU_PERF_LITE),
++// with its length and the draw thread's CPU time in it. Keep it short: it runs inside the frame's swap.
++void SetLongFrameCallback(void (*callback)(uint64_t frame, double ms, double cpuMs));
++
+ // The register file (guest 0x7FC80000 + index * 4), for the host's MMIO handler. Without
+ // REGPU_GUEST_EXPORTS the registers live in host memory, so guest accesses must come here.
+ uint32_t ReadRegister(uint32_t index);
 diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
 index f622add..a83ae11 100644
 --- a/src/gpu/gpu.cpp
@@ -58,10 +73,18 @@ index 23423a6..0f7449d 100644
      {
          SetThreadDescription(GetCurrentThread(), L"command list replay");
 diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
-index e7126df..a8a6e37 100644
+index e7126df..1c0dc5f 100644
 --- a/src/gpu/renderer.cpp
 +++ b/src/gpu/renderer.cpp
-@@ -1068,7 +1068,28 @@ struct FrameEvents
+@@ -50,6 +50,7 @@
+ #include "kernel/thread.h"
+ #include "debug.h"
+ #include "log.h"
++#include "regpu/driver.h"
+ #include "png.h"
+ #include "render/presenter.h"
+ #include "gpu/renderer.h"
+@@ -1068,7 +1069,28 @@ struct FrameEvents
      uint32_t waits = 0, pipelines = 0, created = 0;
      double section[8] = {};     // draw path sections (see Section), ms
      double worstDrawMs = 0;     // the single slowest draw
@@ -90,7 +113,7 @@ index e7126df..a8a6e37 100644
  void CountCreate(const char* what)
  {
      g_created[what]++;
-@@ -2622,6 +2643,16 @@ void WaitFenceValue(UINT64 value, DWORD timeoutMs)
+@@ -2622,6 +2644,16 @@ void WaitFenceValue(UINT64 value, DWORD timeoutMs)
      if (g_r.fence->GetCompletedValue() >= value)
          return;
      g_r.fence->SetEventOnCompletion(value, event);
@@ -107,7 +130,7 @@ index e7126df..a8a6e37 100644
      if (WaitForSingleObject(event, timeoutMs) == WAIT_TIMEOUT && timeoutMs != INFINITE)
          Log("perf: a fence wait timed out after %lu ms (value %llu, completed %llu)", timeoutMs, (unsigned long long)value,
              (unsigned long long)g_r.fence->GetCompletedValue());
-@@ -6175,7 +6206,7 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+@@ -6175,7 +6207,7 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
      if (LiveSwitch &traceChange = g_sw_REGPU_TRACE_TEXCHANGE; traceChange && cached.resource)
          Log("texchange: %08X %s %ux%u frame %llu after %u unchanged", fetch.Address(), TextureFormatName(fetch.Format()), w, h,
              (unsigned long long)g_r.frame, cached.unchanged);
@@ -116,7 +139,7 @@ index e7126df..a8a6e37 100644
      const bool wasNew = !cached.resource;
      cached.unchanged = 0;
      if (!wasNew)
-@@ -6185,16 +6216,22 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+@@ -6185,16 +6217,22 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
          std::chrono::steady_clock::time_point start;
          const TextureFetch& fetch;
          bool isNew;
@@ -141,16 +164,23 @@ index e7126df..a8a6e37 100644
      // The title's own mip levels (distant surfaces sample the smaller, averaged ones: without
      // them the road and grass shimmer and look grainy). Down to the packed tail.
      LiveSwitch &noMips = g_sw_REGPU_NO_MIPS; // A/B
-@@ -10158,6 +10195,8 @@ bool RendererIsResolveDraw()
+@@ -10158,6 +10196,15 @@ bool RendererIsResolveDraw()
  }
  
  uint64_t RendererFenceSubmit() { return FenceSubmitImpl(); }
 +bool LongFramesOn() { return LongFramesEnabled(); }
 +void RendererDrawThreadIdle(double ms) { g_drawIdleMs += ms; }
++// A host's long-frame callback (driver::SetLongFrameCallback): called on the draw thread at the end of a long frame,
++// e.g. to log stack samples taken while it ran. It must be quick.
++std::atomic<void (*)(uint64_t, double, double)> g_longFrameCallback{ nullptr };
++void regpu::driver::SetLongFrameCallback(void (*callback)(uint64_t frame, double ms, double cpuMs))
++{
++    g_longFrameCallback.store(callback);
++}
  bool RendererEarlyFences()
  {
      static const bool on = getenv("REGPU_EARLY_FENCES") != nullptr;
-@@ -13062,6 +13101,72 @@ Record g_ring[kSize];
+@@ -13062,6 +13109,72 @@ Record g_ring[kSize];
  std::atomic<uint32_t> g_head{ 0 }, g_tail{ 0 };
  HANDLE g_drawThread = nullptr;
  
@@ -223,7 +253,7 @@ index e7126df..a8a6e37 100644
  void LogThread()
  {
      std::vector<float> frameMs;
-@@ -13075,9 +13180,11 @@ void LogThread()
+@@ -13075,9 +13188,11 @@ void LogThread()
              return uint64_t(0);
          return ((uint64_t(k.dwHighDateTime) << 32 | k.dwLowDateTime) + (uint64_t(u.dwHighDateTime) << 32 | u.dwLowDateTime)) * 100; // ns
      };
@@ -235,7 +265,7 @@ index e7126df..a8a6e37 100644
          const uint32_t head = g_head.load(std::memory_order_acquire);
          for (uint32_t tail = g_tail.load(std::memory_order_relaxed); tail != head; tail++)
          {
-@@ -13104,10 +13211,15 @@ void LogThread()
+@@ -13104,10 +13219,15 @@ void LogThread()
                  const uint64_t cpuNow = threadCpu();
                  const double busy = cpuFirst && cpuNow ? 100.0 * double(cpuNow - cpuFirst) / (windowS * 1e9) : -1.0;
                  const uint64_t gpuFrames = r.gpuFrames - windowFirst.gpuFrames;
@@ -253,7 +283,7 @@ index e7126df..a8a6e37 100644
                  windowFirst = r, cpuFirst = cpuNow;
                  frameMs.clear();
              }
-@@ -13128,6 +13240,8 @@ void Push(std::chrono::steady_clock::time_point now, uint64_t draws)
+@@ -13128,6 +13248,8 @@ void Push(std::chrono::steady_clock::time_point now, uint64_t draws)
              LogThread();
          }).detach();
          Log("perf lite: light performance log on (REGPU_PERF_LITE): one line a second, no per-draw timing");
@@ -262,7 +292,7 @@ index e7126df..a8a6e37 100644
      }
      const uint32_t head = g_head.load(std::memory_order_relaxed);
      if (head - g_tail.load(std::memory_order_acquire) >= kSize)
-@@ -13145,8 +13259,59 @@ void RendererOnSwap(uint64_t frameNumber, uint32_t frontBuffer)
+@@ -13145,8 +13267,61 @@ void RendererOnSwap(uint64_t frameNumber, uint32_t frontBuffer)
      const auto now = std::chrono::steady_clock::now();
      g_perf.swapSeconds += std::chrono::duration<double>(now - t0).count();
      g_perf.frames++;
@@ -309,6 +339,8 @@ index e7126df..a8a6e37 100644
 +            r.fenceMs = float(fenceNow - fenceBefore), r.replayMs = float(replayNow - replayBefore);
 +            r.cpuMs = float(cpuMs), r.avgCpuMs = float(avgCpu);
 +            PerfLite::PushLong(r);
++            if (auto callback = g_longFrameCallback.load(std::memory_order_relaxed))
++                callback(frameNumber, ms, cpuMs);
 +        }
 +        // Every frame feeds the average, a long one capped at 3x it: a new steady level (a menu to a race) is
 +        // learnt in ~30 frames, a single 200 ms hitch moves it by a few percent. (The first interval is from start-up.)
