@@ -45,6 +45,21 @@
     2-CU iGPU). **The lever for weak CPUs is less total CPU work per frame across threads, not more threads.**
   - Command processor at 2c/4t: memcpy in ExecutePacket 7%, wake-ups of the draw thread ~4%, timers ~2.6%,
     switch loads ~2.7%: small each.
+- **Total CPU cut (user: "Yes, cut total CPU")**: **ReGPU patch 59 `regpu-cpu-cuts`** (default): wake-ups between
+  the command processor and the draw thread only when the other side waits (`REGPU_ALWAYS_NOTIFY=1` old), clock
+  reads every 4096 calls instead of per register run, whole-buffer index views (IASetIndexBuffer 1,985 -> 9 a frame,
+  byte-identical; `REGPU_NO_WIDE_INDEX_VIEWS=1` old, live). **Command processor 75.9/74.6% -> 64.1/63.7% of a core**
+  (frozen grid, 4c/8t, equal fps); total ~-0.1 core; AI benchmark race 120 s fine (355.7 fps at the cap, p99 3.32 ms).
+  Measured with `threads.ps1` at the frame cap (equal fps, CPU per thread) and fps at affinity 0x0F; both have
+  ~±2-3% noise per boot, so only the command processor's drop is clearly above it.
+  - **Tried, no gain, removed:** PGO of the recompiled game code (`fm3_ppc`, profile from a 150 s AI race: 3.50 vs
+    3.48 cores at the cap, 2c/4t +0.4%), `-mavx2` for `fm3_ppc` (no change), a fence-free head publish (no change),
+    command-processor idle sleep at 2c/4t (it is not idle there) and on the iGPU (the whole game uses ~1.2 cores
+    there: GPU-bound), draw/replay thread priority 1/2 at 2c/4t (noise).
+  - **Where a 4-thread CPU's time goes now (2c/4t, ~285 fps):** draw thread ~94%, command processor ~62%, the
+    game's render thread (guest 7) ~50%, guest 3 ~33%, replay ~23%, guest 14 ~13%, XMA decoder ~9%: the draw
+    thread's ~1 us a draw (flat) and the title's own threads are what is left; no single cut of more than a few
+    percent remains that we know of.
 
 ### ▶ Start here (session 37): state at the end of session 36 (2026-11-15)
 - **In short:** anti-aliasing filters (user's request: FXAA, EQAA, MLAA, SRAA, SSAA, TAA, CMAA, SMAA; the user chose to

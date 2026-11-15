@@ -77,6 +77,7 @@ $regpuPatches = @(
     'regpu-motion-table'             # motion-vector bookkeeping in flat tables (FSR/TAA draw thread -4%), shader-pair memo, FSR 4 fallback message
     'regpu-ring-auto'                # REGPU_UPLOAD_RING_AUTO: upload ring in VRAM or system memory by measured frame time (opt-in, launcher)
     'regpu-scan-confirm'             # scanned shaders reported only once their bytes hold still for a second (no half-written junk compiles); REGPU_SCAN_NO_CONFIRM=1 old
+    'regpu-cpu-cuts'                 # wake-ups between the command processor and the draw thread only for a waiter (CP -15% CPU), clock reads every 4096 calls, whole-buffer index views (REGPU_ALWAYS_NOTIFY / REGPU_NO_WIDE_INDEX_VIEWS: old)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }
