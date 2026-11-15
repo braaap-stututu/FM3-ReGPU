@@ -1,0 +1,73 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 7b991a2..9dccfda 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -572,6 +572,7 @@ struct CompiledShader
+ {
+     enum State { Pending, Ready, Failed };
+     std::atomic<int> state{ Pending }; // set by the compile worker
++    bool loadFirst = false;              // the compile worker tries the disk cache first (FetchVariantOf)
+     uint64_t hash = 0, cacheKey = 0;
+     bool pixel = false;
+     std::vector<uint32_t> ucodeBE; // saved to the shader cache once a pipeline uses it
+@@ -4523,6 +4524,11 @@ struct ShaderCompiler
+ 
+     static void Compile(CompiledShader& cs)
+     {
++        if (cs.loadFirst && LoadCachedBytecode(cs))
++        {
++            cs.state.store(CompiledShader::Ready, std::memory_order_release);
++            return;
++        }
+         ComPtr<ID3DBlob> errors;
+         // Runtime compiles skip optimisation: fxc can take minutes on the
+         // larger translated shaders.
+@@ -5364,13 +5370,23 @@ const CompiledShader* FetchVariantOf(const CompiledShader& base, uint32_t mask)
+             cs->code = bc->second;
+             cs->state = CompiledShader::Ready;
+         }
+-        else if (LoadCachedBytecode(*cs))
++        else
+         {
+-            cs->state = CompiledShader::Ready;
+-            g_bytecode.emplace(cs->cacheKey, cs->code);
++            // Read from the disk cache by the compile worker, not here on the draw thread: a variant first met in a
++            // race opened and read its file mid-frame (FM3, session 37: part of a 20 ms frame). The draw keeps the
++            // base shader until then (FetchShader), which draws the same. REGPU_VARIANT_LOAD_NOW=1: read here (A/B).
++            static const bool loadNow = getenv("REGPU_VARIANT_LOAD_NOW") != nullptr;
++            if (loadNow && LoadCachedBytecode(*cs))
++            {
++                cs->state = CompiledShader::Ready;
++                g_bytecode.emplace(cs->cacheKey, cs->code);
++            }
++            else
++            {
++                cs->loadFirst = true;
++                g_compiler.Push(cs.get(), false);
++            }
+         }
+-        else
+-            g_compiler.Push(cs.get(), false);
+     }
+     return g_fetchShaders.emplace(id, std::move(cs)).first->second.get();
+ }
+@@ -14739,6 +14755,19 @@ void LogThread()
+                     double(n) / windowS, sum / double(n),
+                     double(sorted[k]), worst, double(r.draws - windowFirst.draws) / double(n),
+                     gpuFrames ? (r.gpuMs - windowFirst.gpuMs) / double(gpuFrames) : 0.0, busy, longText);
++                // REGPU_FRAME_HISTOGRAM=1 (start-time): the second's frame times in 0.25 ms buckets (frame pacing).
++                static const bool histogram = getenv("REGPU_FRAME_HISTOGRAM") != nullptr;
++                if (histogram)
++                {
++                    uint32_t bucket[41] = {};
++                    for (float x : frameMs)
++                        bucket[std::min(40, int(x * 4.0f))]++;
++                    std::string line;
++                    for (int i = 0; i <= 40; i++)
++                        if (bucket[i])
++                            line += " " + std::to_string(i * 0.25).substr(0, 4) + (i == 40 ? "+" : "") + ":" + std::to_string(bucket[i]);
++                    Log("perf lite: frame times (ms:count):%s", line.c_str());
++                }
+                 // Video memory every 5th line (session 33 of the FM3 port: high resolutions): what the process uses of the
+                 // budget the OS gives it, from DXGI on this log thread (nothing on the draw thread).
+                 static uint32_t vramLines = 0;

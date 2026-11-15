@@ -60,6 +60,16 @@
     game's render thread (guest 7) ~50%, guest 3 ~33%, replay ~23%, guest 14 ~13%, XMA decoder ~9%: the draw
     thread's ~1 us a draw (flat) and the title's own threads are what is left; no single cut of more than a few
     percent remains that we know of.
+- **1% lows / frame pacing (user's question after a 1440p 4x drive)**: at the 360 cap the race is smooth (p99
+  3.1-3.5 ms; new `REGPU_FRAME_HISTOGRAM=1` shows frame times at 2.25-3.25 ms around 2.78, no quantisation by the
+  720 Hz guest vblank). The lows are (1) dense moments (2,900-3,100 draws: start, pack) where the draw thread is
+  97-100% busy and fps falls to 294-315: the CPU limit above; (2) single long frames: a fetch variant's bytecode
+  read from disk on the draw thread (fixed: **ReGPU patch 60 `regpu-variant-load`**, the compile worker reads it),
+  the title itself idle 16.5 ms (guest side), one 14 ms frame where the draw thread had only 6 ms of CPU
+  (descheduled), and once in ~20 race logs a 254 ms GPU fence wait (driver side; not reproduced).
+  Unseeded pipelines in a drive (48%) are fetch variants, whose masks are assigned at runtime: they build in the
+  background and can't be seeded. **For steadier frame times the user can cap where the dense moments still hold
+  (~300) or use the opt-in draw cuts** (distant AI car detail, half-rate shadows/reflections/mirror).
 
 ### ▶ Start here (session 37): state at the end of session 36 (2026-11-15)
 - **In short:** anti-aliasing filters (user's request: FXAA, EQAA, MLAA, SRAA, SSAA, TAA, CMAA, SMAA; the user chose to
