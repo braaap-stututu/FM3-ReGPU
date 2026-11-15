@@ -32,6 +32,13 @@
   benchmark race: FSR 3 260.0 fps / GPU 3.66 ms, FSR 4 171.5 fps / 5.64 ms (no FP8 on RDNA 3), no crash; 1440p grid
   2.79 / 3.73 ms. Crops `out/perf/s36-fsr/edge_*.png`: FSR 4 a little crisper. The launcher exe was open: rebuild it
   (`dotnet build launcher\FM3Launcher -c Release`) for the FSR 4 entry.
+- **"FSR slower than native 1440p 4x MSAA" (user):** at 1440p on this PC the frame is limited by ReGPU's draw thread
+  (94-98% busy; GPU only ~2.1 of 3.25 ms, which is also why 4x MSAA is free), so upscaling can't gain: even FSR 3
+  Performance (720p) ran 291.6 fps vs native 306. Fixed one stall: the FSR dispatch drained the recorded list mid-frame
+  (`Real()`); now queued with `Call` (patch 55): FSR 3 Quality 276 -> 287 fps. FSR 3 Native 287, FSR 4 Quality 260 /
+  Native 246 (GPU-bound: FSR 4 on RDNA 3). The rest of the gap = motion vectors (GPU ~0.6 ms, draw thread a little).
+  Upscaling pays where the GPU limits (4K 4x, iGPU). **Native AA** added to the launcher (Upscaler quality "Native
+  (anti-aliasing only)" = `upscale_quality=0`). Results `out/perf/s36-fsr2`.
 - **Next (ask the user):** their look at each mode in a drive; TAA tuning if it ghosts (`REGPU_TAA_BLEND`,
   `REGPU_TAA_CLIP`, live via `Fm3 "env ..."`); SMAA 2x/T2x (SMAA with TAA) if wanted.
 

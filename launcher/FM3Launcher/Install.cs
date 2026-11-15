@@ -118,7 +118,7 @@ public sealed class GameSettings
                 case "eqaa": s.Eqaa = v == "1"; break;
                 case "gpu": s.Gpu = v; break;
                 case "upscaler": s.Upscaler = Options.Upscalers.Any(u => u.Value == v) ? v : "off"; break;
-                case "upscale_quality": s.Upscale = int.TryParse(v, out var q) ? Math.Clamp(q, 1, 4) : 1; break;
+                case "upscale_quality": s.Upscale = int.TryParse(v, out var q) ? Math.Clamp(q, 0, 4) : 1; break;
                 case "sharpness":
                     s.Sharpening = double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sh)
                         ? (int)Math.Round(sh * 100) : 50;
@@ -162,7 +162,7 @@ public sealed class GameSettings
         sb.Append($"msaa={(Options.Msaa.Any(x => x.Value == Msaa) ? Msaa : 1)}\n");
         sb.Append("aa=" + (Options.Aa.Any(x => x.Value == Aa) ? Aa : "off") + "\nssaa=" + (Options.Ssaa.Any(x => x.Value == Ssaa) ? Ssaa : "1") + "\neqaa=" + B(Eqaa) + "\n");
         sb.Append($"gpu={new string(Gpu.Where(c => !char.IsControl(c) && c != '=').ToArray()).Trim()}\n");
-        sb.Append($"upscaler={(Options.Upscalers.Any(u => u.Value == Upscaler) ? Upscaler : "off")}\nupscale_quality={Math.Clamp(Upscale, 1, 4)}\nsharpness={sharp}\n");
+        sb.Append($"upscaler={(Options.Upscalers.Any(u => u.Value == Upscaler) ? Upscaler : "off")}\nupscale_quality={Math.Clamp(Upscale, 0, 4)}\nsharpness={sharp}\n");
         sb.Append($"language={Language}\n");
         sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n"); // (session 23: these three were read but never saved)
         sb.Append($"perf_preset={(PerfPresets.Contains(PerfPreset) ? PerfPreset : "off")}\n");
@@ -222,7 +222,7 @@ public static class Options
     public static readonly (string Value, string Name)[] Aa = [("off", "Off"), ("fxaa", "FXAA (fastest, softest)"), ("smaa", "SMAA (sharp)"), ("cmaa2", "CMAA 2 (sharpest, keeps fine detail)"), ("taa", "TAA (smoothest; can ghost in motion)")];
     public static readonly (string Value, string Name)[] Ssaa = [("1", "Off"), ("1.5", "1.5x (2.25x the pixels)"), ("2", "2x (4x the pixels)")];
     public static readonly (string Value, string Name)[] Upscalers = [("off", "Off (native)"), ("fsr1", "FSR 1 (any graphics card)"), ("fsr3", "FSR 3 (any graphics card)"), ("fsr4", "FSR 4 (Radeon RX 9000 series; FSR 3 on others)"), ("bilinear", "Bilinear (fastest, softer; for slow GPUs)")];
-    public static readonly (int Value, string Name)[] Upscale = [(1, "Quality"), (2, "Balanced"), (3, "Performance"), (4, "Ultra performance")];
+    public static readonly (int Value, string Name)[] Upscale = [(0, "Native (anti-aliasing only)"), (1, "Quality"), (2, "Balanced"), (3, "Performance"), (4, "Ultra performance")];
     public static readonly (int Value, string Name)[] Sharpening = [(0, "Off"), (25, "Low"), (50, "Medium"), (75, "High"), (100, "Maximum")];
 
     // ---- Graphics cards (DXGI), for the "Graphics card" choice: the game picks one by a part of its name

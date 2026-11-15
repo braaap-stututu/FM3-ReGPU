@@ -24,7 +24,7 @@ index 5151b01..732fa3b 100644
  };
  
 diff --git a/src/gpu/fsr3.cpp b/src/gpu/fsr3.cpp
-index 7947aaf..1494501 100644
+index 7947aaf..798ad2b 100644
 --- a/src/gpu/fsr3.cpp
 +++ b/src/gpu/fsr3.cpp
 @@ -1,8 +1,19 @@
@@ -50,7 +50,7 @@ index 7947aaf..1494501 100644
  #include <ffx_api.h>
  #include <ffx_upscale.h>
  #include <dx12/ffx_api_dx12.h>
-@@ -11,46 +22,141 @@
+@@ -11,46 +22,150 @@
  
  namespace
  {
@@ -111,7 +111,27 @@ index 7947aaf..1494501 100644
 +        return;
 +    std::string all;
 +    for (uint64_t i = 0; i < count; i++)
-+    {
+     {
+-        if (g_fsr3.context)
+-        {
+-            ffxDestroyContext(&g_fsr3.context, nullptr);
+-            g_fsr3.context = nullptr;
+-        }
+-        ffxCreateBackendDX12Desc backend{};
+-        backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+-        backend.device = device;
+-        ffxCreateContextDescUpscale create{};
+-        create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+-        create.header.pNext = &backend.header;
+-        create.maxRenderSize = { setup.renderWidth, setup.renderHeight };
+-        create.maxUpscaleSize = { setup.outputWidth, setup.outputHeight };
+-        create.flags = FFX_UPSCALE_ENABLE_AUTO_EXPOSURE | (setup.depthInverted ? FFX_UPSCALE_ENABLE_DEPTH_INVERTED : 0) |
+-            (setup.hdr ? FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE : 0);
+-        const ffxReturnCode_t r = ffxCreateContext(&g_fsr3.context, &create.header, nullptr);
+-        if (r != FFX_API_RETURN_OK)
+-        {
+-            Log("fsr3: create failed (%d): amd_fidelityfx_*_dx12.dll missing?", int(r));
+-            g_fsr3.context = nullptr;
 +        const char* name = names[i] ? names[i] : "?";
 +        all += (i ? ", " : "") + std::string(name);
 +        const int major = MajorOf(name);
@@ -173,27 +193,7 @@ index 7947aaf..1494501 100644
 +    c.setup = setup;
 +    const ffxReturnCode_t r = ffxCreateContext(&c.context, &create.header, nullptr);
 +    if (r != FFX_API_RETURN_OK)
-     {
--        if (g_fsr3.context)
--        {
--            ffxDestroyContext(&g_fsr3.context, nullptr);
--            g_fsr3.context = nullptr;
--        }
--        ffxCreateBackendDX12Desc backend{};
--        backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
--        backend.device = device;
--        ffxCreateContextDescUpscale create{};
--        create.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
--        create.header.pNext = &backend.header;
--        create.maxRenderSize = { setup.renderWidth, setup.renderHeight };
--        create.maxUpscaleSize = { setup.outputWidth, setup.outputHeight };
--        create.flags = FFX_UPSCALE_ENABLE_AUTO_EXPOSURE | (setup.depthInverted ? FFX_UPSCALE_ENABLE_DEPTH_INVERTED : 0) |
--            (setup.hdr ? FFX_UPSCALE_ENABLE_HIGH_DYNAMIC_RANGE : 0);
--        const ffxReturnCode_t r = ffxCreateContext(&g_fsr3.context, &create.header, nullptr);
--        if (r != FFX_API_RETURN_OK)
--        {
--            Log("fsr3: create failed (%d): amd_fidelityfx_*_dx12.dll missing?", int(r));
--            g_fsr3.context = nullptr;
++    {
 +        Log("fsr: create failed (%d): amd_fidelityfx_*_dx12.dll missing?", int(r));
 +        if (g_fsr3.contexts.empty())
              g_fsr3.failed = true;
@@ -210,19 +210,28 @@ index 7947aaf..1494501 100644
 +}
 +} // namespace
 +
-+bool Fsr3Evaluate(ID3D12Device* device, ID3D12GraphicsCommandList* list, const DlssSetup& setup, const DlssFrame& frame, float sharpness)
++// On the draw thread (FM3 port, session 36): the context for `setup`, made on first use; *handle and *switched (a
++// different context than the last dispatch's: no history) go to Fsr3Dispatch, which runs where the list replays.
++bool Fsr3Prepare(ID3D12Device* device, const DlssSetup& setup, void** handle, bool* switched)
 +{
 +    if (g_fsr3.failed)
 +        return false;
 +    Fsr3Context* c = ContextFor(device, setup);
 +    if (!c)
 +        return false;
-+    const bool switched = g_fsr3.last != c->context;
++    *switched = g_fsr3.last != c->context;
 +    g_fsr3.last = c->context;
++    *handle = c->context;
++    return true;
++}
++
++bool Fsr3Dispatch(ID3D12GraphicsCommandList* list, void* handle, bool switched, const DlssSetup& setup, const DlssFrame& frame, float sharpness)
++{
++    ffxContext context = handle;
      ffxDispatchDescUpscale d{};
      d.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
      d.commandList = list;
-@@ -66,18 +172,18 @@ bool Fsr3Evaluate(ID3D12Device* device, ID3D12GraphicsCommandList* list, const D
+@@ -66,19 +181,26 @@ bool Fsr3Evaluate(ID3D12Device* device, ID3D12GraphicsCommandList* list, const D
      d.sharpness = sharpness;
      d.frameTimeDelta = frame.frameTimeMs;
      d.preExposure = 1.0f;
@@ -234,7 +243,7 @@ index 7947aaf..1494501 100644
      d.cameraFovAngleVertical = 1.0f;
      d.viewSpaceToMetersFactor = 1.0f;
 -    const ffxReturnCode_t r = ffxDispatch(&g_fsr3.context, &d.header);
-+    const ffxReturnCode_t r = ffxDispatch(&c->context, &d.header);
++    const ffxReturnCode_t r = ffxDispatch(&context, &d.header);
      if (r != FFX_API_RETURN_OK)
      {
          static int logged = 0;
@@ -244,8 +253,28 @@ index 7947aaf..1494501 100644
          return false;
      }
      return true;
+ }
++
++bool Fsr3Evaluate(ID3D12Device* device, ID3D12GraphicsCommandList* list, const DlssSetup& setup, const DlssFrame& frame, float sharpness)
++{
++    void* handle = nullptr;
++    bool switched = false;
++    return Fsr3Prepare(device, setup, &handle, &switched) && Fsr3Dispatch(list, handle, switched, setup, frame, sharpness);
++}
+diff --git a/src/gpu/fsr3.h b/src/gpu/fsr3.h
+index 547918b..3da95a7 100644
+--- a/src/gpu/fsr3.h
++++ b/src/gpu/fsr3.h
+@@ -4,3 +4,7 @@
+ // AMD FSR 3 upscaling (fsr3.cpp), with the inputs and states DLSS takes (dlss.h). Records into
+ // `list` (the real command list). False if FidelityFX is unavailable.
+ bool Fsr3Evaluate(ID3D12Device* device, ID3D12GraphicsCommandList* list, const DlssSetup& setup, const DlssFrame& frame, float sharpness);
++// The same in two steps (FM3 port, session 36): Prepare on the recording thread (the context; false if FSR is
++// unavailable), Dispatch where the list is replayed (RecordedList::Call), so recording needn't wait for the replay.
++bool Fsr3Prepare(ID3D12Device* device, const DlssSetup& setup, void** handle, bool* switched);
++bool Fsr3Dispatch(ID3D12GraphicsCommandList* list, void* handle, bool switched, const DlssSetup& setup, const DlssFrame& frame, float sharpness);
 diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
-index 4244dfb..61dcca3 100644
+index 4244dfb..7c104b3 100644
 --- a/src/gpu/renderer.cpp
 +++ b/src/gpu/renderer.cpp
 @@ -3046,7 +3046,7 @@ void BeginFrameIfNeeded()
@@ -265,7 +294,71 @@ index 4244dfb..61dcca3 100644
      static auto last = std::chrono::steady_clock::now();
      const auto now = std::chrono::steady_clock::now();
      DlssFrame in{};
-@@ -8126,7 +8127,7 @@ bool TaaScene(uint32_t base);
+@@ -8089,15 +8090,59 @@ bool EvaluateTemporal(uint32_t base, bool dlss)
+     barrier(g_upscale.depth.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+     barrier(g_upscale.motion.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+     barrier(in.output, read, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+-    // NGX records into the real command list (after everything recorded so far).
+-    const bool ok = dlss ? DlssEvaluate(C().list->Real(), setup, in)
+-                         : Fsr3Evaluate(g_r.device, C().list->Real(), setup, in, GetSettings().sharpness);
++    // NGX records into the real command list (after everything recorded so far: Real() waits for the replay).
++    // FSR (FM3 port, session 36): its context is made here, the dispatch queued with RecordedList::Call and run where
++    // the list replays, so the draw thread doesn't wait for the replay thread to catch up each frame (it limits the
++    // frame rate where the GPU doesn't: FM3 at 1440p on an RX 7900 XTX). REGPU_FSR_ON_REAL=1: as before.
++    struct FsrJob
++    {
++        void* handle;
++        bool switched;
++        DlssSetup setup;
++        DlssFrame in;
++        float sharpness;
++        ID3D12Resource *copyDst, *copySrc;
++    };
++    static FsrJob fsrJobs[kFrames];
++    static LiveSwitch fsrOnReal("REGPU_FSR_ON_REAL");
++    const bool queued = !dlss && !fsrOnReal;
++    bool ok;
++    if (dlss)
++        ok = DlssEvaluate(C().list->Real(), setup, in);
++    else if (!queued)
++        ok = Fsr3Evaluate(g_r.device, C().list->Real(), setup, in, GetSettings().sharpness);
++    else
++    {
++        FsrJob& job = fsrJobs[g_r.frameIndex];
++        job = { nullptr, false, setup, in, GetSettings().sharpness, nullptr, nullptr };
++        ok = Fsr3Prepare(g_r.device, setup, &job.handle, &job.switched);
++        if (ok)
++            C().list->Call(
++                [](ID3D12GraphicsCommandList* l, void* c) {
++                    const FsrJob& j = *static_cast<const FsrJob*>(c);
++                    Fsr3Dispatch(l, j.handle, j.switched, j.setup, j.in, j.sharpness);
++                },
++                &job);
++    }
+     barrier(in.output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, read);
+     if (dlaa && ok)
+     {
+         barrier(in.output, read, D3D12_RESOURCE_STATE_COPY_SOURCE);
+         barrier(color.Get(), read, D3D12_RESOURCE_STATE_COPY_DEST);
+-        C().list->Real()->CopyResource(color.Get(), in.output);
++        if (queued)
++        {
++            FsrJob& job = fsrJobs[g_r.frameIndex];
++            job.copyDst = color.Get();
++            job.copySrc = in.output;
++            C().list->Call(
++                [](ID3D12GraphicsCommandList* l, void* c) {
++                    const FsrJob& j = *static_cast<const FsrJob*>(c);
++                    l->CopyResource(j.copyDst, j.copySrc);
++                },
++                &job);
++        }
++        else
++            C().list->Real()->CopyResource(color.Get(), in.output);
+         barrier(color.Get(), D3D12_RESOURCE_STATE_COPY_DEST, read);
+         barrier(in.output, D3D12_RESOURCE_STATE_COPY_SOURCE, read);
+     }
+@@ -8126,7 +8171,7 @@ bool TaaScene(uint32_t base);
  void TemporalEvaluate(uint32_t base)
  {
      // TAA (Config::postAA, FM3 port session 36): the temporal path without an upscaler.
@@ -274,3 +367,14 @@ index 4244dfb..61dcca3 100644
      {
          TaaScene(base);
          g_upscale.reset = false;
+diff --git a/src/gpu/upscaler_stubs.cpp b/src/gpu/upscaler_stubs.cpp
+index fe1b18e..fdc7283 100644
+--- a/src/gpu/upscaler_stubs.cpp
++++ b/src/gpu/upscaler_stubs.cpp
+@@ -8,4 +8,6 @@ bool DlssEvaluate(ID3D12GraphicsCommandList*, const DlssSetup&, const DlssFrame&
+ #endif
+ #ifndef REGPU_FSR3
+ bool Fsr3Evaluate(ID3D12Device*, ID3D12GraphicsCommandList*, const DlssSetup&, const DlssFrame&, float) { return false; }
++bool Fsr3Prepare(ID3D12Device*, const DlssSetup&, void**, bool*) { return false; }
++bool Fsr3Dispatch(ID3D12GraphicsCommandList*, void*, bool, const DlssSetup&, const DlssFrame&, float) { return false; }
+ #endif
