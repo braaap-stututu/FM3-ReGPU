@@ -25,6 +25,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Ray tracing](#ray-tracing-and-screen-space-effects-session-29-2026-11-12) (session 29) | No full ray tracing or path tracing (ReGPU sees draws and shaders, not a scene; hits would need the game's pixel shaders). Realistic, all opt-in: (1) screen-space AO + reflections from depth, (2) ray-traced shadows/AO from captured vertex positions, (3) ray-traced reflections with simplified hit colour. Prerequisites: camera/projection matrices (shared with VR/telemetry/ultrawide), the scene/HUD split ReGPU already finds |
 | [Vendor-specific speed-ups](#vendor-specific-speed-ups-amd-nvidia-intel-session-29-2026-11-12) (session 29) | AMD first (testable here): an RGP capture of the frozen grid for **decompress barriers** (RDNA colour/depth compression lost to copies, barriers or UAV flags), then GPU upload heaps (ReBAR), compute wave size (needs DXC), async compute, AFMF 2. NVIDIA/Intel: mostly features (DLSS/Reflex/Smooth Motion, XeSS); Arc needs ReBAR. As far as we know untried in any 360 recomp: write results up for the sibling ports. PERF-PLAN L45-L50 |
 | [Linux, Proton and the Steam Deck](#linux-proton-and-the-steam-deck-session-29-2026-11-12) (session 29) | Run through Proton (vkd3d-proton on RADV), no native port. Launcher (WebView2) likely broken under Wine: run `fm3.exe` with `settings.ini` or port the launcher natively. Per-platform defaults under Wine (vertex arena write watch, sleeps, workers), Deck preset, gamescope for caps/FSR. **User has 3 dual-boot machines** (7900 XTX, 6650 XT, Deck OLED + Win11 SD): same-hardware Windows vs Proton A/Bs. PERF-PLAN L51-L53 |
+| [TAAU (TAA upscaling)](#taau-taa-upscaling-session-39-2026-11-16) (session 39) | Feasible and small: our TAA already has jitter, motion vectors, depth, history and the mip bias; TAAU = the same resolve run at output size from a lower-res scene (one new compute pass + an `upscaler=taau` entry). Worth it mainly for weak GPUs (iGPU, Steam Deck): cheaper than FSR 3, much sharper than FSR 1/bilinear; on the 7900 XTX at 1440p no gain (draw-thread bound). Measure the motion vectors' cost on the iGPU first |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -1868,3 +1869,76 @@ Existing items that suit the Deck: V4 iGPU defaults, L21 writing textures in pla
 5. Native Linux launcher when the game side holds.
 Claude sessions run on the Windows PC: Linux/Deck runs are the user's for now (or a Claude Code session on that Linux
 install with the repo checked out).
+
+## TAAU (TAA upscaling) (session 39, 2026-11-16)
+The user asked whether TAAU can be added. Research only, no code. Read from our ReGPU (`renderer.cpp`: `TemporalInit`,
+`BeginTemporalFrame`, `TemporalEvaluate`, `TaaScene`, `EvaluateTemporal`; `postaa.hlsl` `TaaMain`).
+
+**What TAAU is:** the scene is drawn at a lower resolution with a different sub-pixel jitter each frame; one pass
+reprojects last frame's *output-resolution* history with motion vectors, clips it against the new frame's
+neighbourhood and blends the new samples in at their jittered positions. Over a few frames the history gathers more
+detail than one low-res frame holds. FSR 2/3, DLSS and XeSS are the same idea with better heuristics (FSR 3) or a
+network (DLSS, FSR 4, XeSS); UE4's "TAAU" is the plain hand-written kind.
+
+**What we already have (all of it built for FSR 3/DLSS and reused by TAA in session 36):**
+- jitter: Halton(2,3) per frame, applied in the vertex shaders to the main view (`vjitter`), sized to the render
+  resolution (`g_upscale.jitterPx/jitterNdc`, `REGPU_NO_JITTER`);
+- motion vectors: a second render target in the scene draws from this and last frame's vertex constants (flat motion
+  tables, session 36), in an output-size RG16F target (the render-size part used);
+- scene depth copied per tile (`CopySceneDepth`, R32);
+- the scene phase: the scene drawn at `g_sceneScale`, upscaled where its full-screen resolve ends, post-processing and
+  HUD at full size; history reset after menus (`g_upscale.reset`);
+- negative texture mip bias `log2(scale)` when the scene is scaled (`REGPU_NO_LOD_BIAS`);
+- our TAA resolve (`TaaMain`): 3x3 YCoCg neighbourhood, variance clip toward the mean, Catmull-Rom history, longest
+  motion of the 3x3, blend 10% (`REGPU_TAA_BLEND`, `REGPU_TAA_CLIP` live).
+TAA today runs only at scale 1 (`taa` turns the temporal path on without an upscaler); TAAU is that resolve with an
+output larger than its input.
+
+**What TAAU needs (estimate: one session, one ReGPU patch):**
+1. `upscaler=taau` (Settings enum + launcher Upscaler entry "TAAU (built-in)"), treated as a temporal upscaler in the
+   frame-start block (`temporalUpscaler`), routed in `TemporalEvaluate` to a new `TaauScene` instead of FSR/DLSS.
+   The output-image hand-over (`dest.resource` / host size) copies what `EvaluateTemporal` does for FSR 3.
+2. A `TaauMain` compute shader beside `TaaMain`, per output pixel:
+   - its position in input pixels, minus this frame's jitter; the 3x3 input samples around it, each weighted by its
+     distance to the output pixel (Gaussian or Blackman-Harris, radius ~1 input pixel); that weighted colour is the
+     new sample, the 3x3 mean/variance the clip box (as now);
+   - motion from the closest-depth sample of the 3x3 (depth dilation: better silhouettes than the longest vector);
+   - history at output size (RGBA16F x2, already per-size in `g_postAA.history`), Catmull-Rom, clipped;
+   - blend weight scaled by how close the nearest jittered sample lies (UE4's "sample confidence"): ~0.05-0.1 when far,
+     up to ~0.3 when a sample lands on the pixel; lower it further where motion is large (less ghost smear).
+3. Optional sharpen: our FSR 1 RCAS pipeline (`g_upscale.rcas`) after it, with the launcher's sharpening value.
+4. Cost check: the pass reads 9 input + 16 history texels per output pixel: about TaaMain's cost at output size
+   (TAA at 1440p was +0.65-0.85 ms GPU on the 7900 XTX *including* the ~0.6 ms of motion vectors, so the resolve itself
+   ~0.1-0.25 ms).
+
+**Where it would help, where not:**
+- **7900 XTX at 1440p: no gain.** The frame is limited by the draw thread (session 36: even FSR 3 Performance 291.6 vs
+  native 306 fps before the fixes; FSR 3 Quality now equals native). At 4K it would compete with FSR 3 (260 vs ~229 fps
+  native): a little faster than FSR 3, a little softer and more ghosting.
+- **iGPU (the 9800X3D's 2-CU part), Steam Deck, 6650 XT:** the real audience. Today they choose between
+  FSR 1 (1.65 ms on the 2-CU iGPU, soft), bilinear (cheapest, softest) and FSR 3 (best, cost on the iGPU never measured,
+  under Proton needs the AMD DLL to run in vkd3d-proton). TAAU would sit between: near-bilinear cost, close to FSR 3's
+  detail on still or slow scenes, and it anti-aliases too, so `msaa=1` with TAAU could replace 2x/4x MSAA on weak GPUs.
+- **The unknown is the motion vectors' price on a weak GPU**, not the resolve: the extra render target in every scene
+  draw (+ the constants for last frame) cost ~0.6 ms of 2.1 ms on the 7900 XTX at 1440p. If that scales with the GPU,
+  on the iGPU it could eat what the lower resolution saves. **First step: on the iGPU, grid GPU ms with FSR 1 vs FSR 3
+  at the same scale** (`REGPU_ADAPTER=Radeon(TM) Graphics`, light log): FSR 3's extra = motion vectors + FSR 3's own
+  pass, an upper bound for TAAU. If FSR 3 already wins there, TAAU's case is weaker (only Proton and cost); if motion
+  vectors alone cost more than FSR 1 does, TAAU won't pay on the iGPU either.
+
+**Risks (same as our TAA, larger when upscaling):**
+- ghosting on things without proper motion: the HUD is not in the scene phase (fine), but FM3's particles, smoke, the
+  sun flare (occlusion-query driven) and alpha-blended glass draw without a motion change of their own; the clip
+  catches most. The rear-view mirror is a separate render pass (not in the main view, so not jittered: it just upscales
+  as a still image).
+- texture shimmer from the mip bias on high-frequency surfaces (fences, grandstands) before the history settles.
+- not with VR stereo (the scene phase is off there).
+- FM3 draws its scene in two EDRAM tiles: the jitter and motion already work across the seam (TAA and FSR 3 do).
+
+**Licences:** our own shader (TaaMain is ours); UE4's TAAU is source-available but not open (read for ideas only).
+Open references with permissive terms: AMD FSR 2 (MIT, the reprojection and lock heuristics), "A Survey of Temporal
+Antialiasing Techniques" (Yang, Liu, Salvi 2020), Karis "High Quality Temporal Supersampling" (SIGGRAPH 2014).
+
+**Suggested order if the user wants it:** (1) the iGPU measurement above; (2) build `upscaler=taau` behind the launcher
+entry, off by default (picture trade: opt-in); (3) grid crops vs FSR 1 / bilinear / FSR 3 at the same scale + the
+user's drive for ghosting; (4) tooltip "for weak GPUs; FSR 3 looks better where it runs fast enough".
