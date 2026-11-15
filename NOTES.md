@@ -26,6 +26,25 @@
   - Waits: ~2% of the draw thread is waking the command processor (needed); no replay-drain cost worth chasing.
   - Left: the per-draw cost is ~1 us spread over hundreds of lines. Real gains would need a different structure
     (e.g. parallel recording that works with FM3's short segments and occlusion queries), not trimming.
+- **Parallel recording built and measured (user: "give it a shot", aim: weaker CPUs, iGPU machines, Steam Deck);
+  slower, removed** (diff kept locally: `out/perf/s37-draw/splice-pieces-experiment.diff`):
+  - **Spliced pieces** (`REGPU_SPLICE_PIECES`): workers record into memory (`RecordedList::InitCapture`), the draw
+    thread splices them into the main list in order: no wait for the replay before pieces, no extra GPU lists.
+  - **Why only ~10% of draws reached the workers:** segments were logged when last frame's segment at the same
+    place was >= 192 draws, but boundaries shift between frames even on the frozen grid (~120 segments a frame,
+    some appearing/vanishing), and catch-up flushes cut segments by timing. Fixed by drawing a segment's first 64
+    draws straight away and logging the rest (no prediction) + catch-up cuts not ending a segment: 53% of draws in
+    pieces, 1.6x on those (pieces ~2 us a draw vs ~1 us serial: cold per-thread caches, snapshot copies of the
+    128 KB register file, wake-ups, uneven pieces at 128-draw snapshots).
+  - Occlusion-query draws stay serial (their coverage draws use global query state).
+  - **Result, no perf log: 4 cores/8 threads (affinity 0xFF) serial 345.6 vs spliced 310.3 fps (-10%); 2 cores/4
+    threads (0x0F) 288.2 vs 253.6 (-12%).** With the full perf log, 1440p: 258 vs 246-252.
+  - **Why it can't win on weak CPUs:** at 2c/4t the game already uses 3.25 of 4 hardware threads (draw thread 91%,
+    command processor guest 9 70%, the game's render thread guest 7 51%, guest 3 34%, replay 22%): workers only
+    add total CPU. And on iGPU machines the GPU limits anyway (session 33: draw thread 15-23% busy on the 680M-class
+    iGPU). **The lever for weak CPUs is less total CPU work per frame across threads, not more threads.**
+  - Command processor at 2c/4t: memcpy in ExecutePacket 7%, wake-ups of the draw thread ~4%, timers ~2.6%,
+    switch loads ~2.7%: small each.
 
 ### ▶ Start here (session 37): state at the end of session 36 (2026-11-15)
 - **In short:** anti-aliasing filters (user's request: FXAA, EQAA, MLAA, SRAA, SSAA, TAA, CMAA, SMAA; the user chose to
