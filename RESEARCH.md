@@ -27,6 +27,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Linux, Proton and the Steam Deck](#linux-proton-and-the-steam-deck-session-29-2026-11-12) (session 29) | Run through Proton (vkd3d-proton on RADV), no native port. Launcher (WebView2) likely broken under Wine: run `fm3.exe` with `settings.ini` or port the launcher natively. Per-platform defaults under Wine (vertex arena write watch, sleeps, workers), Deck preset, gamescope for caps/FSR. **User has 3 dual-boot machines** (7900 XTX, 6650 XT, Deck OLED + Win11 SD): same-hardware Windows vs Proton A/Bs. PERF-PLAN L51-L53 |
 | [Benchmark data: laps, cars, positions](#benchmark-data-laps-car-positions-and-cars-on-screen-session-32-2026-11-13) (session 32) | None found yet, all likely findable without a recording: lap counter and car position/rotation by a value search + write watch (a "find value" debug-server command first); cars on screen counted by ReGPU from the car-paint draws (no RE); fps logged by lap distance, lap 1 and 2 apart, median of interleaved runs; test the dev option `engageaionstart` first |
 | [A Vulkan ReGPU](#a-vulkan-regpu-session-32-2026-11-13) (session 32) | Mainly portability (Linux/Deck without vkd3d-proton); small CPU gains at most: our limits (per-draw translation, bytes through the BAR, GPU shading) carry over to any API |
+| [FH1R's native renderer plan](#fh1rs-native-renderer-plan-session-32-2026-11-15) (session 32) | FH1R hooks the game's D3D flush points and draws from the D3D device's own state instead of emulating PM4/EDRAM; M1-M4 step 2 done, no fps gain yet (by design, the gain comes with whole groups of passes). For FM3: a long-term route only with ReGPU's planned D3D12 backend (their M7); now worth borrowing are their method (shadow mode, GPU compare mode, code-identity checks) and a few CPU ideas |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -1890,3 +1891,69 @@ link); answer from what limits us now.
   renderer, a different design: the gap was ReGPU's CPU side, not D3D12.
 - **Next:** if the user shares the Vulkan ReGPU's branch, read how it records and uploads for ideas worth bringing back
   to the D3D12 build (they would apply to both).
+
+## FH1R's native renderer plan (session 32, 2026-11-15)
+**Asked (user):** research FH1R's `docs/native-renderer.md` (main, read 2026-11-15, ~1,100 lines). Read only; nothing
+run. FH1R = ForzaHorizon1-ReImagined on ReIGlue (their Xenia-derived Vulkan SDK), not ReGPU.
+
+### What it is
+- **Idea:** stop emulating the Xbox GPU. Catch the game at its Direct3D *flush points* (the draws, RunCommandBuffer,
+  Resolve, clear, predication, tiling, fences, waits, swap: ~15 functions, 16 hooks) and draw with Vulkan from the D3D
+  device's own **shadow state** (the D3D setters write no PM4: they fill the device; the draws flush it). Render
+  targets become real images (no EDRAM, no tiles), copies only where the game reads a result, shaders translated at
+  build time. The emulated path stays as a per-pass-group switch with a compare mode. **M7: a Direct3D 12 backend
+  "through ReGPU, with its author"**: the ReGPU author is involved.
+- **Why (their measurements):** on a GTX 1650 Ti laptop the game's draws are ~8 of 15.5 ms of GPU; render-target
+  transfers 3.2 ms, loads of resolved textures 1.9 ms, resolves 1.7 ms (Xenia's EDRAM model). CPU: their command
+  processor 1.2-1.6 us a draw; ~half of what it reads is shader constants, and it reads the 4x MSAA scene ~twice
+  (tiling). The ALU constant flush alone is **43% of all dwords** read.
+- **Where the PM4 comes from (FH1 TU4, race):** 51% of the dwords written by the D3D library at run time; **49% from
+  command lists D3D did not write**: precompiled lists stored in the **model files** (run by RunCommandBuffer,
+  patched with texture/buffer addresses at load) and **clones** of command buffers made when a car is set up.
+
+### Status (2026-11-14)
+| Milestone | State | Result |
+|---|---|---|
+| M1 build-time shaders | done, ships | warm-up translation on several threads + a per-PC shader pack: warm start 0.66 -> 0.11 s; fps unchanged |
+| M2 shadow mode | first pass group (the sun shadow mask, 19 calls a frame) | records from the device shadow match the emulator on **100% of what the shaders read** (26% on everything: the shadow holds values the GPU never sees); record building 0.3 us a record |
+| M3 first native group | part: the mask's blurs + resolves as compute | 98.6-99.8% of pixels identical, the rest 1/255; **no fps gain** (+1.4%, t = 0.44), GPU the same (expected: the gain comes when whole groups incl. their EDRAM targets go native) |
+| M4 model lists | converter (offline proof on every list of the game's files) + measurement build | 410,639 Colorado lists convert, all agree with a PM4 interpreter; model lists are 32-47% of the decoder's time, but replay saves only the parsing; replay must still skip unchanged registers |
+| M5-M7 | not started | whole frame native; features (DLSS, VR, ...); D3D12 via ReGPU |
+
+### Findings that apply to any port of this engine family (FM3 included: same Xbox D3D library lineage)
+1. **Shader literal constants are not in the device's shadow:** D3D loads them from the shader object at the draw
+   (LOAD_ALU_CONSTANT). A native layer must take them from the shader object.
+2. **The shadow holds values nothing reads** (unbound targets, alpha ref with the test off, unread constants): compare
+   or upload only what the bound shaders read, as ReGPU already does with constant masks (patches 35, 37, 38).
+3. **Models carry precompiled PM4 lists**, loaded once and patched; cars are command-buffer clones. FM3 likely does the
+   same (FM3's "foreign" command buffers): unmeasured here.
+4. **The D3D device keeps dirty masks for constant chunks** (device +0/+8 in FH1 TU4): a native layer uploads only the
+   chunks the game changed. ReGPU instead compares every register write against a shadow (our `regpu-reg-skip`).
+5. **Method:**
+   - shadow mode first (build the new path's input, compare field by field, change nothing);
+   - a GPU compare mode per pass group at a low rate;
+   - groups of passes chosen from a measured pass map, never single passes (their prototype broke at dawn on a clear and
+     a resolve outside the pass);
+   - A/Bs of 6-8 alternating rounds with t-values;
+   - **"off costs nothing" proven by diffing the two binaries' `.text`**: a relink alone moved CPU time by several
+     percent either way (code layout). Lesson for us: compare builds by live switches, as we do, and treat
+     cross-build differences of a few % as layout noise.
+
+### What it would mean for FM3
+- **Upside, smaller than FH1R's:** ReGPU isn't Xenia. It has no render-target transfer cost of FH1R's size; resolves
+  already stay on the GPU when a later draw samples them; one guest tile (L36) already drops the second tile's copies.
+  Our limits are the **draw thread's per-draw work** (1440p, ~1.1-1.3 us a draw, close to FH1R's 1.2-1.6) and **GPU
+  shading at 4K**. A native layer would remove PM4 parsing on the command processor (not our limit) and the register
+  file work in `DrawImpl`. The constants, texture bindings and pipelines would still be built per draw, from the
+  device state instead of registers. So: a CPU gain of unknown size, no GPU gain beyond what ReGPU already avoids.
+- **Cost:** very large and FM3-specific: FM3's D3D library (2009, older than FH1 TU4) has its own addresses and device
+  layout, so every flush point, shadow offset and list format must be found again; plus ReGPU needs the backend
+  interface FH1R plans as M7. FH1R is months in and has no fps gain yet.
+- **Recommendation:** not a project for FM3 now. Watch FH1R's M4-M7 and ReGPU's side of M7: if ReGPU gets a
+  "draw from records" backend, FM3 could feed it later.
+- **Worth trying sooner, small:**
+  - (a) a census of FM3's command buffers: how much PM4 comes from model-file lists and clones (our CP's share is
+    known; its source split isn't);
+  - (b) the code-identity check before cross-build A/Bs;
+  - (c) their multi-threaded warm-up translation, if FM3's first boot after a cache invalidation (~3 min after patch 38)
+    is still a complaint.
