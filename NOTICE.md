@@ -44,6 +44,9 @@ SOFTWARE.
 - `thirdparty/ReGPU`: MIT.
 - `thirdparty/ffmpeg` (not in the repository): FFmpeg LGPL build, linked dynamically, under its own licence.
 - `thirdparty/fidelityfx` (not in the repository): AMD FidelityFX SDK, MIT.
+- `thirdparty/openxr` (session 37, not in the repository; VR): the OpenXR SDK headers and `openxr_loader.dll` from
+  KhronosGroup/OpenXR-SDK-Source release 1.1.65 (`openxr_loader_windows-1.1.65.zip`, x64), Copyright The Khronos Group
+  Inc. and contributors; Apache License 2.0 (`thirdparty/openxr/LICENSE`). The loader DLL ships beside `fm3.exe`.
 - `thirdparty/aa` (session 36, the anti-aliasing filters, compiled into ReGPU's shaders; pinned commits in
   `thirdparty/aa/SOURCES.txt`):
   - `smaa/`: SMAA (`SMAA.hlsl`, `AreaTex.h`, `SearchTex.h`), Copyright (C) 2013 Jorge Jimenez, Jose I. Echevarria,

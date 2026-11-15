@@ -70,6 +70,18 @@
   Unseeded pipelines in a drive (48%) are fetch variants, whose masks are assigned at runtime: they build in the
   background and can't be seeded. **For steadier frame times the user can cap where the dense moments still hold
   (~300) or use the opt-in draw cuts** (distant AI car detail, half-rate shadows/reflections/mirror).
+- **VR (user: "implement VR in a similar way FH1R did it", chose all the way to stereo; download of the OpenXR SDK
+  approved)**. Plan = FH1R's order (RESEARCH.md "VR, after FH1R's design"): (1) virtual screen, (2) FM3's view matrix +
+  its readers -> head-tracked mono cockpit + HUD panel, (3) true stereo (replay the scene segment per eye with
+  clip.x -= P00*d), (4) headset pacing, (5) cabin pass. The user's runtime: **Virtual Desktop** (VDXR active,
+  Pico streaming devices present).
+  - **Step 1 done, not yet seen in a headset: ReGPU patch 61 `regpu-vr-screen`** (`src/render/xr.cpp`): settings.ini
+    `vr=screen` / `FM3_VR=screen` -> `REGPU_VR`. OpenXR (D3D12, ReGPU's device + queue) on its own thread, the presented
+    frame on a quad 2.2 m wide, 2.5 m ahead (`REGPU_VR_SCREEN_WIDTH/_DISTANCE/_HEIGHT`). Logs `vr:` lines; without a
+    headset it retries every 3 s, game unaffected (grid 356 fps). OpenXR SDK 1.1.65 in `thirdparty/openxr` (not in
+    git: download `openxr_loader_windows-1.1.65.zip` from KhronosGroup/OpenXR-SDK-Source and copy `include/`,
+    `x64/bin/openxr_loader.dll` -> `bin/`, `x64/lib` -> `lib/`, LICENSE; CMake finds it, post-build copies the DLL).
+  - **Next:** the user tries the screen in the headset (Virtual Desktop connected, `vr=screen`); then step 2.
 
 ### ▶ Start here (session 37): state at the end of session 36 (2026-11-15)
 - **In short:** anti-aliasing filters (user's request: FXAA, EQAA, MLAA, SRAA, SSAA, TAA, CMAA, SMAA; the user chose to

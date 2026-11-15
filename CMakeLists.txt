@@ -79,6 +79,13 @@ option(FM3_REGPU_FM4 "FM3_REGPU_DIR is the FM4 port's vendored ReGPU" OFF)
 # Anti-aliasing filters (session 36): the original FXAA 3.11, SMAA and CMAA 2 shaders in thirdparty/aa (their licences
 # there; pinned sources in thirdparty/aa/SOURCES.txt), compiled into ReGPU.
 set(REGPU_AA_DIR "${CMAKE_SOURCE_DIR}/thirdparty/aa" CACHE PATH "" FORCE)
+# Session 37: VR (ReGPU src/render/xr.cpp, settings.ini vr=screen): the OpenXR SDK's headers and loader in
+# thirdparty/openxr (Khronos release 1.1.65, Apache-2.0; not in git, see thirdparty/openxr/SOURCE.txt). Without it the
+# game builds without VR.
+set(FM3_OPENXR "${CMAKE_SOURCE_DIR}/thirdparty/openxr")
+if(EXISTS "${FM3_OPENXR}/include/openxr/openxr.h")
+    set(REGPU_OPENXR_DIR "${FM3_OPENXR}" CACHE PATH "" FORCE)
+endif()
 add_subdirectory("${FM3_REGPU_DIR}" regpu)
 
 # Profile-guided optimisation of ReGPU (session 32, PERF-PLAN L23; FH1R measured +6%): FM3_PGO=gen builds ReGPU
@@ -125,6 +132,9 @@ endif()
 # Session 34: DXC (REGPU_DXC=1, ReGPU src/gpu/dxc.cpp) loads dxcompiler.dll + dxil.dll beside the exe; the SDK's
 # redistributables, next to d3dcompiler_47.dll.
 get_filename_component(FM3_D3D_REDIST "${REGPU_D3DCOMPILER}" DIRECTORY)
+if(EXISTS "${FM3_OPENXR}/bin/openxr_loader.dll")
+    add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${FM3_OPENXR}/bin/openxr_loader.dll" $<TARGET_FILE_DIR:fm3>)
+endif()
 if(EXISTS "${FM3_D3D_REDIST}/dxcompiler.dll" AND EXISTS "${FM3_D3D_REDIST}/dxil.dll")
     add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${FM3_D3D_REDIST}/dxcompiler.dll" "${FM3_D3D_REDIST}/dxil.dll" $<TARGET_FILE_DIR:fm3>)

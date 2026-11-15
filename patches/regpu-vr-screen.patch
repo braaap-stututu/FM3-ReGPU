@@ -1,0 +1,604 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 809ef93..3206a5f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -99,6 +99,13 @@ add_library(regpu STATIC ${REGPU_SOURCES})
+ target_include_directories(regpu PUBLIC include ${REGPU_GUEST_INCLUDES})
+ target_compile_definitions(regpu PUBLIC ${REGPU_GUEST_DEFINES})
+ target_include_directories(regpu PRIVATE src "${REGPU_GENERATED}")
++# VR through OpenXR (src/render/xr.cpp, REGPU_VR=screen): the OpenXR SDK's include/openxr headers. The loader DLL is
++# loaded at run time (openxr_loader.dll beside the exe), so nothing links against it.
++set(REGPU_OPENXR_DIR "" CACHE PATH "OpenXR SDK folder with include/openxr/openxr.h (VR; empty: built without)")
++if(REGPU_OPENXR_DIR AND EXISTS "${REGPU_OPENXR_DIR}/include/openxr/openxr.h")
++    target_compile_definitions(regpu PRIVATE REGPU_OPENXR=1)
++    target_include_directories(regpu PRIVATE "${REGPU_OPENXR_DIR}/include")
++endif()
+ target_compile_definitions(regpu PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+ target_compile_definitions(regpu PRIVATE REGPU_POSTAA_FILTERS=${REGPU_POSTAA_FILTERS})
+ if(REGPU_POSTAA_FILTERS)
+diff --git a/src/render/presenter.cpp b/src/render/presenter.cpp
+index d8b39e9..15b7591 100644
+--- a/src/render/presenter.cpp
++++ b/src/render/presenter.cpp
+@@ -2,6 +2,7 @@
+ // VdSwap hands a frame over; a render thread presents it without blocking
+ // the guest. Until the D3D hooks draw real content the frame is a clear
+ // whose shade pulses with the frame count, proving the path end to end.
++#include "render/xr.h"
+ #include <algorithm>
+ #include <chrono>
+ #include <atomic>
+@@ -276,6 +277,7 @@ void CreateWindowAndDevice()
+     EnsureDevice();
+     g_p.device = g_device;
+     g_p.queue = g_queue;
++    regpu::xr::Start(g_device.Get(), g_queue.Get()); // (REGPU_VR: the headset thread, on this device and queue)
+ 
+     DXGI_SWAP_CHAIN_DESC1 sd{};
+     sd.Width = outW;
+@@ -588,6 +590,7 @@ bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, I
+         const UINT shownW = UINT(std::min(sd.Width, bd.Width));
+         list->CopyTextureRegion(&dst, offsetX + (shownW - fpsW) / 2, offsetY + 12, 0, &from, nullptr);
+     }
++    regpu::xr::CaptureFrame(list, backBuffer); // (REGPU_VR: the finished frame for the headset's virtual screen)
+     b.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+     b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+     std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
+diff --git a/src/render/xr.cpp b/src/render/xr.cpp
+new file mode 100644
+index 0000000..3c677d2
+--- /dev/null
++++ b/src/render/xr.cpp
+@@ -0,0 +1,524 @@
++// VR through OpenXR: see xr.h. Our own code; the design follows the order Forza Horizon 1: ReImagined's VR took (a
++// virtual screen first, then a head-tracked view, then true stereo), not its code.
++#include "render/xr.h"
++
++#include <cstdlib>
++#include <cstring>
++#include <string>
++
++#include "log.h"
++
++#if !REGPU_OPENXR
++
++namespace regpu::xr
++{
++bool Wanted()
++{
++    static bool logged = false;
++    if (getenv("REGPU_VR") && !logged)
++    {
++        logged = true;
++        Log("vr: REGPU_VR is set but this build has no OpenXR (REGPU_OPENXR_DIR)");
++    }
++    return false;
++}
++void Start(ID3D12Device*, ID3D12CommandQueue*) {}
++void CaptureFrame(ID3D12GraphicsCommandList*, ID3D12Resource*) {}
++}
++
++#else
++
++#include <windows.h>
++
++#include <d3d12.h>
++#include <unknwn.h>
++#include <wrl/client.h>
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <mutex>
++#include <thread>
++#include <vector>
++
++#define XR_USE_GRAPHICS_API_D3D12
++#define XR_USE_PLATFORM_WIN32
++#define XR_NO_PROTOTYPES
++#include <openxr/openxr.h>
++#include <openxr/openxr_platform.h>
++
++using Microsoft::WRL::ComPtr;
++
++namespace
++{
++// The OpenXR functions used, fetched from the loader at run time (no link to it).
++#define REGPU_XR_GLOBAL(X) X(xrCreateInstance) X(xrEnumerateInstanceExtensionProperties)
++#define REGPU_XR_INSTANCE(X)                                                                                                     \
++    X(xrDestroyInstance) X(xrGetSystem) X(xrGetSystemProperties) X(xrGetD3D12GraphicsRequirementsKHR) X(xrCreateSession)          \
++    X(xrDestroySession) X(xrCreateReferenceSpace) X(xrDestroySpace) X(xrEnumerateSwapchainFormats) X(xrCreateSwapchain)          \
++    X(xrDestroySwapchain) X(xrEnumerateSwapchainImages) X(xrAcquireSwapchainImage) X(xrWaitSwapchainImage)                      \
++    X(xrReleaseSwapchainImage) X(xrPollEvent) X(xrBeginSession) X(xrEndSession) X(xrWaitFrame) X(xrBeginFrame) X(xrEndFrame)     \
++    X(xrResultToString) X(xrEnumerateViewConfigurationViews)
++
++PFN_xrGetInstanceProcAddr xrGetInstanceProcAddr = nullptr;
++#define REGPU_XR_DECLARE(name) PFN_##name name = nullptr;
++REGPU_XR_GLOBAL(REGPU_XR_DECLARE)
++REGPU_XR_INSTANCE(REGPU_XR_DECLARE)
++#undef REGPU_XR_DECLARE
++
++// The finished frame for the headset: written where the presenter copies into the back buffer, read by the headset
++// thread; both on the one queue, so in submission order. Kept in COMMON between the two.
++std::mutex g_screenMutex;
++ComPtr<ID3D12Resource> g_screen;
++std::vector<ComPtr<ID3D12Resource>> g_oldScreens; // replaced ones, kept a while (commands in flight may read them)
++std::atomic<bool> g_capturing{ false };
++std::atomic<uint64_t> g_captured{ 0 };
++ComPtr<ID3D12Device> g_device;
++ComPtr<ID3D12CommandQueue> g_queue;
++
++std::string ResultText(XrInstance instance, XrResult r)
++{
++    char text[XR_MAX_RESULT_STRING_SIZE] = "";
++    if (instance && xrResultToString)
++        xrResultToString(instance, r, text);
++    return std::string(text) + " (" + std::to_string(int(r)) + ")";
++}
++
++void Barrier(ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
++{
++    D3D12_RESOURCE_BARRIER b{};
++    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++    b.Transition.pResource = resource;
++    b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
++    b.Transition.StateBefore = before;
++    b.Transition.StateAfter = after;
++    list->ResourceBarrier(1, &b);
++}
++
++float EnvFloat(const char* name, float fallback)
++{
++    const char* v = getenv(name);
++    return v && *v ? float(atof(v)) : fallback;
++}
++
++bool LoadLoader()
++{
++    HMODULE dll = LoadLibraryW(L"openxr_loader.dll");
++    if (!dll)
++    {
++        Log("vr: openxr_loader.dll not found beside the game: VR off");
++        return false;
++    }
++    xrGetInstanceProcAddr = reinterpret_cast<PFN_xrGetInstanceProcAddr>(GetProcAddress(dll, "xrGetInstanceProcAddr"));
++    if (!xrGetInstanceProcAddr)
++        return false;
++#define REGPU_XR_LOAD(name) xrGetInstanceProcAddr(XR_NULL_HANDLE, #name, reinterpret_cast<PFN_xrVoidFunction*>(&name));
++    REGPU_XR_GLOBAL(REGPU_XR_LOAD)
++#undef REGPU_XR_LOAD
++    return xrCreateInstance && xrEnumerateInstanceExtensionProperties;
++}
++
++bool LoadInstanceFunctions(XrInstance instance)
++{
++    bool ok = true;
++#define REGPU_XR_LOAD(name)                                                                                                      \
++    if (XR_FAILED(xrGetInstanceProcAddr(instance, #name, reinterpret_cast<PFN_xrVoidFunction*>(&name))) || !name)                \
++    {                                                                                                                            \
++        Log("vr: OpenXR function %s missing", #name);                                                                            \
++        ok = false;                                                                                                              \
++    }
++    REGPU_XR_INSTANCE(REGPU_XR_LOAD)
++#undef REGPU_XR_LOAD
++    return ok;
++}
++
++// One OpenXR instance + session at a time; the thread makes a new one after a loss or when no headset was there yet.
++struct Session
++{
++    XrInstance instance = XR_NULL_HANDLE;
++    XrSystemId system = XR_NULL_SYSTEM_ID;
++    XrSession session = XR_NULL_HANDLE;
++    XrSpace local = XR_NULL_HANDLE;
++    XrSwapchain quad = XR_NULL_HANDLE;
++    uint32_t quadW = 0, quadH = 0;
++    int64_t quadFormat = 0;
++    std::vector<ID3D12Resource*> images;
++    static constexpr uint32_t kLists = 3;
++    ComPtr<ID3D12CommandAllocator> allocators[kLists];
++    ComPtr<ID3D12GraphicsCommandList> list;
++    ComPtr<ID3D12Fence> fence;
++    uint64_t fenceValues[kLists] = {};
++    uint64_t nextFence = 1;
++    uint32_t listIndex = 0;
++    HANDLE fenceEvent = nullptr;
++    bool running = false;
++
++    ~Session()
++    {
++        g_capturing = false;
++        if (quad)
++            xrDestroySwapchain(quad);
++        if (local)
++            xrDestroySpace(local);
++        if (session)
++            xrDestroySession(session);
++        if (instance)
++            xrDestroyInstance(instance);
++        if (fenceEvent)
++            CloseHandle(fenceEvent);
++    }
++
++    // false: try again later (no runtime, no headset yet, ...). `quiet`: the reason was logged before.
++    bool Create(bool quiet)
++    {
++        uint32_t count = 0;
++        xrEnumerateInstanceExtensionProperties(nullptr, 0, &count, nullptr);
++        std::vector<XrExtensionProperties> exts(count, { XR_TYPE_EXTENSION_PROPERTIES });
++        xrEnumerateInstanceExtensionProperties(nullptr, count, &count, exts.data());
++        bool d3d12 = false;
++        for (const auto& e : exts)
++            d3d12 |= strcmp(e.extensionName, XR_KHR_D3D12_ENABLE_EXTENSION_NAME) == 0;
++        if (!d3d12)
++        {
++            if (!quiet)
++                Log("vr: the OpenXR runtime has no Direct3D 12 support (%u extensions; is a runtime installed and active?)", count);
++            return false;
++        }
++        const char* enabled[] = { XR_KHR_D3D12_ENABLE_EXTENSION_NAME };
++        XrInstanceCreateInfo ci{ XR_TYPE_INSTANCE_CREATE_INFO };
++        strcpy_s(ci.applicationInfo.applicationName, "ReGPU");
++        ci.applicationInfo.applicationVersion = 1;
++        strcpy_s(ci.applicationInfo.engineName, "ReGPU");
++        ci.applicationInfo.apiVersion = XR_API_VERSION_1_0;
++        ci.enabledExtensionCount = 1;
++        ci.enabledExtensionNames = enabled;
++        if (XrResult r = xrCreateInstance(&ci, &instance); XR_FAILED(r))
++        {
++            if (!quiet)
++                Log("vr: xrCreateInstance failed: %d", int(r));
++            return false;
++        }
++        if (!LoadInstanceFunctions(instance))
++            return false;
++        XrSystemGetInfo si{ XR_TYPE_SYSTEM_GET_INFO };
++        si.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
++        if (XrResult r = xrGetSystem(instance, &si, &system); XR_FAILED(r))
++        {
++            if (!quiet)
++                Log("vr: no headset yet (%s): trying again every few seconds", ResultText(instance, r).c_str());
++            return false;
++        }
++        XrSystemProperties props{ XR_TYPE_SYSTEM_PROPERTIES };
++        xrGetSystemProperties(instance, system, &props);
++        XrGraphicsRequirementsD3D12KHR req{ XR_TYPE_GRAPHICS_REQUIREMENTS_D3D12_KHR };
++        if (XrResult r = xrGetD3D12GraphicsRequirementsKHR(instance, system, &req); XR_FAILED(r))
++        {
++            Log("vr: xrGetD3D12GraphicsRequirementsKHR failed: %s", ResultText(instance, r).c_str());
++            return false;
++        }
++        const LUID ours = g_device->GetAdapterLuid();
++        if (ours.LowPart != req.adapterLuid.LowPart || ours.HighPart != req.adapterLuid.HighPart)
++            Log("vr: the headset runtime wants another graphics card than the one the game renders on (set it in the launcher)");
++        XrGraphicsBindingD3D12KHR binding{ XR_TYPE_GRAPHICS_BINDING_D3D12_KHR };
++        binding.device = g_device.Get();
++        binding.queue = g_queue.Get();
++        XrSessionCreateInfo sci{ XR_TYPE_SESSION_CREATE_INFO };
++        sci.next = &binding;
++        sci.systemId = system;
++        if (XrResult r = xrCreateSession(instance, &sci, &session); XR_FAILED(r))
++        {
++            Log("vr: xrCreateSession failed: %s", ResultText(instance, r).c_str());
++            return false;
++        }
++        XrReferenceSpaceCreateInfo rs{ XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
++        rs.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
++        rs.poseInReferenceSpace.orientation.w = 1;
++        if (XrResult r = xrCreateReferenceSpace(session, &rs, &local); XR_FAILED(r))
++        {
++            Log("vr: xrCreateReferenceSpace failed: %s", ResultText(instance, r).c_str());
++            return false;
++        }
++        for (uint32_t i = 0; i < kLists; i++)
++            if (FAILED(g_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocators[i]))))
++                return false;
++        if (FAILED(g_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocators[0].Get(), nullptr, IID_PPV_ARGS(&list))))
++            return false;
++        list->Close();
++        if (FAILED(g_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
++            return false;
++        fenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
++        Log("vr: headset session created: %s (vendor %u)", props.systemName, props.vendorId);
++        return true;
++    }
++
++    // The quad's swapchain at the screen's size (made again when the game's output size changes).
++    bool EnsureQuad(uint32_t w, uint32_t h)
++    {
++        if (quad && quadW == w && quadH == h)
++            return true;
++        if (quad)
++        {
++            WaitIdle();
++            xrDestroySwapchain(quad);
++            quad = XR_NULL_HANDLE;
++            images.clear();
++        }
++        uint32_t count = 0;
++        xrEnumerateSwapchainFormats(session, 0, &count, nullptr);
++        std::vector<int64_t> formats(count);
++        xrEnumerateSwapchainFormats(session, count, &count, formats.data());
++        // The back buffer is R8G8B8A8_UNORM holding gamma-encoded colour: an sRGB swapchain of the same layout takes
++        // its bytes as they are (a copy, no shader) and the runtime reads them as sRGB.
++        quadFormat = 0;
++        for (int64_t want : { int64_t(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB), int64_t(DXGI_FORMAT_R8G8B8A8_UNORM) })
++            if (std::find(formats.begin(), formats.end(), want) != formats.end())
++            {
++                quadFormat = want;
++                break;
++            }
++        if (!quadFormat)
++        {
++            Log("vr: the runtime offers no RGBA8 swapchain format (%u formats)", count);
++            return false;
++        }
++        XrSwapchainCreateInfo ci{ XR_TYPE_SWAPCHAIN_CREATE_INFO };
++        ci.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
++        ci.format = quadFormat;
++        ci.sampleCount = 1;
++        ci.width = w;
++        ci.height = h;
++        ci.faceCount = 1;
++        ci.arraySize = 1;
++        ci.mipCount = 1;
++        if (XrResult r = xrCreateSwapchain(session, &ci, &quad); XR_FAILED(r))
++        {
++            Log("vr: xrCreateSwapchain %ux%u failed: %s", w, h, ResultText(instance, r).c_str());
++            quad = XR_NULL_HANDLE;
++            return false;
++        }
++        xrEnumerateSwapchainImages(quad, 0, &count, nullptr);
++        std::vector<XrSwapchainImageD3D12KHR> imgs(count, { XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR });
++        xrEnumerateSwapchainImages(quad, count, &count, reinterpret_cast<XrSwapchainImageBaseHeader*>(imgs.data()));
++        for (const auto& i : imgs)
++            images.push_back(i.texture);
++        quadW = w, quadH = h;
++        Log("vr: virtual screen %ux%u (%s)", w, h, quadFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ? "sRGB" : "linear format: colours may look washed out");
++        return true;
++    }
++
++    void WaitIdle()
++    {
++        const uint64_t v = nextFence++;
++        g_queue->Signal(fence.Get(), v);
++        if (fence->GetCompletedValue() < v)
++        {
++            fence->SetEventOnCompletion(v, fenceEvent);
++            WaitForSingleObject(fenceEvent, 2000);
++        }
++    }
++
++    // Copies the latest captured frame into the quad's next image.
++    bool DrawQuad()
++    {
++        ComPtr<ID3D12Resource> screen;
++        {
++            std::lock_guard lock(g_screenMutex);
++            screen = g_screen;
++        }
++        if (!screen)
++            return false;
++        const D3D12_RESOURCE_DESC d = screen->GetDesc();
++        if (!EnsureQuad(uint32_t(d.Width), d.Height))
++            return false;
++        uint32_t index = 0;
++        XrSwapchainImageAcquireInfo ai{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
++        if (XR_FAILED(xrAcquireSwapchainImage(quad, &ai, &index)))
++            return false;
++        XrSwapchainImageWaitInfo wi{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
++        wi.timeout = XR_INFINITE_DURATION;
++        xrWaitSwapchainImage(quad, &wi);
++        // (This list's previous use has finished: kLists frames ago.)
++        const uint32_t li = listIndex++ % kLists;
++        if (fence->GetCompletedValue() < fenceValues[li])
++        {
++            fence->SetEventOnCompletion(fenceValues[li], fenceEvent);
++            WaitForSingleObject(fenceEvent, 1000);
++        }
++        allocators[li]->Reset();
++        list->Reset(allocators[li].Get(), nullptr);
++        ID3D12Resource* image = images[index];
++        Barrier(list.Get(), screen.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
++        Barrier(list.Get(), image, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_DEST);
++        list->CopyResource(image, screen.Get());
++        Barrier(list.Get(), image, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RENDER_TARGET);
++        Barrier(list.Get(), screen.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
++        list->Close();
++        ID3D12CommandList* lists[] = { list.Get() };
++        g_queue->ExecuteCommandLists(1, lists);
++        fenceValues[li] = nextFence++;
++        g_queue->Signal(fence.Get(), fenceValues[li]);
++        XrSwapchainImageReleaseInfo ri{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
++        xrReleaseSwapchainImage(quad, &ri);
++        return true;
++    }
++
++    // Runs until the session ends or is lost.
++    void Run()
++    {
++        const float width = EnvFloat("REGPU_VR_SCREEN_WIDTH", 2.2f), distance = EnvFloat("REGPU_VR_SCREEN_DISTANCE", 2.5f);
++        const float height = EnvFloat("REGPU_VR_SCREEN_HEIGHT", 0.0f);
++        uint64_t frames = 0, shown = 0;
++        auto lastLog = std::chrono::steady_clock::now();
++        for (;;)
++        {
++            XrEventDataBuffer ev{ XR_TYPE_EVENT_DATA_BUFFER };
++            while (xrPollEvent(instance, &ev) == XR_SUCCESS)
++            {
++                if (ev.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED)
++                {
++                    const auto& sc = *reinterpret_cast<XrEventDataSessionStateChanged*>(&ev);
++                    Log("vr: session state %d", int(sc.state));
++                    if (sc.state == XR_SESSION_STATE_READY)
++                    {
++                        XrSessionBeginInfo bi{ XR_TYPE_SESSION_BEGIN_INFO };
++                        bi.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
++                        if (XrResult r = xrBeginSession(session, &bi); XR_FAILED(r))
++                            Log("vr: xrBeginSession failed: %s", ResultText(instance, r).c_str());
++                        else
++                        {
++                            running = true;
++                            g_capturing = true;
++                        }
++                    }
++                    else if (sc.state == XR_SESSION_STATE_STOPPING)
++                    {
++                        running = false;
++                        g_capturing = false;
++                        xrEndSession(session);
++                    }
++                    else if (sc.state == XR_SESSION_STATE_EXITING || sc.state == XR_SESSION_STATE_LOSS_PENDING)
++                        return;
++                }
++                else if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING)
++                    return;
++                ev = { XR_TYPE_EVENT_DATA_BUFFER };
++            }
++            if (!running)
++            {
++                Sleep(50);
++                continue;
++            }
++            XrFrameState fs{ XR_TYPE_FRAME_STATE };
++            if (XR_FAILED(xrWaitFrame(session, nullptr, &fs)))
++                return;
++            xrBeginFrame(session, nullptr);
++            XrCompositionLayerQuad layer{ XR_TYPE_COMPOSITION_LAYER_QUAD };
++            const XrCompositionLayerBaseHeader* layers[1] = { reinterpret_cast<XrCompositionLayerBaseHeader*>(&layer) };
++            uint32_t layerCount = 0;
++            if (fs.shouldRender && DrawQuad())
++            {
++                layer.space = local;
++                layer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
++                layer.subImage.swapchain = quad;
++                layer.subImage.imageRect = { { 0, 0 }, { int32_t(quadW), int32_t(quadH) } };
++                layer.pose.orientation.w = 1;
++                layer.pose.position = { 0, height, -distance };
++                layer.size = { width, width * float(quadH) / float(std::max(quadW, 1u)) };
++                layerCount = 1;
++                shown++;
++            }
++            XrFrameEndInfo end{ XR_TYPE_FRAME_END_INFO };
++            end.displayTime = fs.predictedDisplayTime;
++            end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
++            end.layerCount = layerCount;
++            end.layers = layers;
++            if (XrResult r = xrEndFrame(session, &end); XR_FAILED(r))
++                Log("vr: xrEndFrame failed: %s", ResultText(instance, r).c_str());
++            frames++;
++            if (std::chrono::steady_clock::now() - lastLog > std::chrono::seconds(30))
++            {
++                lastLog = std::chrono::steady_clock::now();
++                Log("vr: %llu headset frames, %llu with the screen, %llu game frames captured", (unsigned long long)frames, (unsigned long long)shown,
++                    (unsigned long long)g_captured.load());
++            }
++        }
++    }
++};
++
++void Thread()
++{
++    SetThreadDescription(GetCurrentThread(), L"regpu vr");
++    if (!LoadLoader())
++        return;
++    bool quiet = false;
++    for (;;)
++    {
++        {
++            Session s;
++            if (s.Create(quiet))
++            {
++                quiet = false;
++                s.Run();
++                Log("vr: headset session ended");
++            }
++            else
++                quiet = true;
++        }
++        Sleep(3000);
++    }
++}
++} // namespace
++
++namespace regpu::xr
++{
++bool Wanted()
++{
++    const char* v = getenv("REGPU_VR");
++    return v && *v && strcmp(v, "0") != 0 && strcmp(v, "off") != 0;
++}
++
++void Start(ID3D12Device* device, ID3D12CommandQueue* queue)
++{
++    static bool started = false;
++    if (started || !Wanted())
++        return;
++    started = true;
++    g_device = device;
++    g_queue = queue;
++    Log("vr: on (%s): waiting for a headset", getenv("REGPU_VR"));
++    std::thread(Thread).detach();
++}
++
++void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer)
++{
++    if (!g_capturing.load(std::memory_order_relaxed))
++        return;
++    D3D12_RESOURCE_DESC d = backBuffer->GetDesc();
++    ComPtr<ID3D12Resource> screen;
++    {
++        std::lock_guard lock(g_screenMutex);
++        if (!g_screen || g_screen->GetDesc().Width != d.Width || g_screen->GetDesc().Height != d.Height)
++        {
++            d.Flags = D3D12_RESOURCE_FLAG_NONE;
++            D3D12_HEAP_PROPERTIES heap{ D3D12_HEAP_TYPE_DEFAULT };
++            ComPtr<ID3D12Resource> made;
++            if (FAILED(g_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&made))))
++                return;
++            if (g_screen)
++                g_oldScreens.push_back(g_screen);
++            if (g_oldScreens.size() > 8)
++                g_oldScreens.erase(g_oldScreens.begin());
++            g_screen = made;
++        }
++        screen = g_screen;
++    }
++    Barrier(list, backBuffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
++    Barrier(list, screen.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
++    list->CopyResource(screen.Get(), backBuffer);
++    Barrier(list, screen.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
++    Barrier(list, backBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
++    g_captured++;
++}
++}
++
++#endif
+diff --git a/src/render/xr.h b/src/render/xr.h
+new file mode 100644
+index 0000000..3e8db7f
+--- /dev/null
++++ b/src/render/xr.h
+@@ -0,0 +1,22 @@
++#pragma once
++// VR through OpenXR (REGPU_VR; built with REGPU_OPENXR_DIR). Step 1, "screen": the presented picture on a virtual
++// screen in the headset, redrawn at the headset's rate whatever the game's frame rate; the desktop window stays as it
++// is. The OpenXR loader (openxr_loader.dll beside the exe) is loaded only when VR is asked for.
++#include <cstdint>
++
++struct ID3D12Device;
++struct ID3D12CommandQueue;
++struct ID3D12GraphicsCommandList;
++struct ID3D12Resource;
++
++namespace regpu::xr
++{
++// REGPU_VR=screen (start-time): VR wanted.
++bool Wanted();
++// Starts the headset thread on ReGPU's device and queue (after they exist). It waits for a headset and keeps
++// retrying, so the game runs normally without one.
++void Start(ID3D12Device* device, ID3D12CommandQueue* queue);
++// The back buffer holds the finished frame (state COPY_DEST, left so): copies it for the headset. No-op unless a
++// headset session runs.
++void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer);
++}

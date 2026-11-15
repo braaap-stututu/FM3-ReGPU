@@ -19,6 +19,7 @@
 /thirdparty/dlss/
 /thirdparty/sdl3/
 /thirdparty/directx-headers/
+/thirdparty/openxr/
 
 # Python
 __pycache__/

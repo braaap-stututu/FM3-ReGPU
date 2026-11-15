@@ -465,6 +465,12 @@ void GpuStart()
     // directly. Needs dxcompiler.dll + dxil.dll beside fm3.exe (else FXC, with a log line).
     if (GetSettings().Extra("shader_compiler") == "dxc")
         DefaultEnv("REGPU_DXC", "1");
+    // VR (session 37, ReGPU src/render/xr.cpp): settings.ini vr=screen (or FM3_VR / REGPU_VR) puts the game on a virtual
+    // screen in an OpenXR headset (the active runtime: Virtual Desktop, SteamVR, Oculus, ...); the window stays.
+    if (const char* v = getenv("FM3_VR"); v && *v)
+        DefaultEnv("REGPU_VR", v);
+    else if (const std::string vr = GetSettings().Extra("vr"); !vr.empty() && vr != "off" && vr != "0")
+        DefaultEnv("REGPU_VR", vr.c_str());
     Log("gpu: shader compiler %s", getenv("REGPU_DXC") && *getenv("REGPU_DXC") && strcmp(getenv("REGPU_DXC"), "0") ? "DXC (if its DLLs load)" : "FXC");
     Log("gpu: upload ring in VRAM %s", getenv("REGPU_GPU_UPLOAD_RING") && strcmp(getenv("REGPU_GPU_UPLOAD_RING"), "0") ? "on (if resizable BAR)" : "off");
     // Sun glare size (session 14): FM3 sizes the glare from the occlusion query's raw sample count (not
