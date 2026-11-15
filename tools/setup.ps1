@@ -76,6 +76,7 @@ $regpuPatches = @(
     'regpu-fsr4'                     # FSR contexts kept per setup (the FSR 3 driver timeout: contexts destroyed under the GPU), SDK 2.1 version descriptor, FSR 4 (Config::Upscaler::Fsr4)
     'regpu-motion-table'             # motion-vector bookkeeping in flat tables (FSR/TAA draw thread -4%), shader-pair memo, FSR 4 fallback message
     'regpu-ring-auto'                # REGPU_UPLOAD_RING_AUTO: upload ring in VRAM or system memory by measured frame time (opt-in, launcher)
+    'regpu-scan-confirm'             # scanned shaders reported only once their bytes hold still for a second (no half-written junk compiles); REGPU_SCAN_NO_CONFIRM=1 old
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

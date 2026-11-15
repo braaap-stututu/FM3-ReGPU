@@ -1,0 +1,109 @@
+diff --git a/include/regpu/regpu.h b/include/regpu/regpu.h
+index cf3ac73..39ecf23 100644
+--- a/include/regpu/regpu.h
++++ b/include/regpu/regpu.h
+@@ -65,6 +65,7 @@ struct ScannedShader
+ {
+     bool pixel;
+     std::vector<uint32_t> code;
++    uint32_t address = 0; // guest address of the microcode (0: not from guest memory)
+ };
+ 
+ // A resolve (an EDRAM copy to memory), as offered to Host::resolveWriteback.
+diff --git a/src/gpu/shader_scan.cpp b/src/gpu/shader_scan.cpp
+index a44b093..6372920 100644
+--- a/src/gpu/shader_scan.cpp
++++ b/src/gpu/shader_scan.cpp
+@@ -11,6 +11,7 @@
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
++#include <cstring>
+ #include <mutex>
+ #include <thread>
+ #include <unordered_set>
+@@ -32,6 +33,19 @@ std::unordered_set<uint64_t> g_seen;
+ std::vector<ScannedShader> g_found;
+ std::atomic<uint64_t> g_totalFound{ 0 };
+ 
++// Candidates waiting to be confirmed (under g_mutex). The scan also finds load packets the
++// title is still writing (into the command buffer, or a shader object being filled in), and
++// those half-written shaders differ on every run: compiling them costs background work and
++// leaves cache files no draw ever reads. A candidate is reported once its bytes are unchanged
++// at least a second after the scan that found it. REGPU_SCAN_NO_CONFIRM=1 reports at once.
++struct PendingShader
++{
++    ScannedShader shader;
++    std::chrono::steady_clock::time_point found;
++};
++std::vector<PendingShader> g_pending;
++std::atomic<uint64_t> g_changed{ 0 };
++constexpr auto kConfirmAfter = std::chrono::milliseconds(1000);
+ uint64_t Fnv(const uint32_t* p, size_t n)
+ {
+     uint64_t h = 0xCBF29CE484222325ull;
+@@ -109,7 +123,7 @@ void ScanWords(uint32_t first, uint32_t runEnd, std::vector<ScannedShader>& out)
+         const ucode::Shader parsed = ucode::Parse(code, used, type == 1);
+         if (!parsed.valid)
+             continue;
+-        out.push_back({ type == 1, std::vector<uint32_t>(code, code + used) });
++        out.push_back({ type == 1, std::vector<uint32_t>(code, code + used), kBase + (i + 3) * 4 });
+     }
+ }
+ }
+@@ -124,12 +138,52 @@ void ShaderScanNow(unsigned threads)
+         workers.emplace_back([&, t] { ScanRange(t * chunk, std::min(kSize, (t + 1) * chunk), results[t]); });
+     for (auto& w : workers)
+         w.join();
++    static LiveSwitch noConfirm("REGPU_SCAN_NO_CONFIRM");
++    const auto now = std::chrono::steady_clock::now();
+     std::lock_guard lock(g_mutex);
+-    for (auto& r : results)
++    // Earlier candidates old enough: report those whose bytes held still, drop the rest.
++    uint64_t changed = 0;
++    size_t keep = 0;
++    for (size_t i = 0; i < g_pending.size(); i++)
+     {
+-        g_totalFound += r.size();
++        PendingShader& p = g_pending[i];
++        if (!noConfirm && now - p.found < kConfirmAfter)
++        {
++            if (keep != i)
++                g_pending[keep] = std::move(p);
++            keep++;
++            continue;
++        }
++        const uint32_t offset = p.shader.address - kBase, bytes = uint32_t(p.shader.code.size() * 4);
++        uint32_t skip = 0;
++        const bool same = noConfirm ||
++                          (ReadableEnd(offset, kSize, &skip) >= offset + bytes &&
++                           memcmp(GuestPtr<uint8_t>(p.shader.address), p.shader.code.data(), bytes) == 0);
++        if (same)
++        {
++            g_totalFound++;
++            g_found.push_back(std::move(p.shader));
++        }
++        else
++            changed++;
++    }
++    g_pending.resize(keep);
++    for (auto& r : results)
+         for (auto& s : r)
+-            g_found.push_back(std::move(s));
++        {
++            if (noConfirm)
++            {
++                g_totalFound++;
++                g_found.push_back(std::move(s));
++            }
++            else
++                g_pending.push_back({ std::move(s), now });
++        }
++    if (changed)
++    {
++        g_changed += changed;
++        Log("shader scan: %llu candidates changed before they were confirmed (%llu so far)", (unsigned long long)changed,
++            (unsigned long long)g_changed.load());
+     }
+ }
+ 

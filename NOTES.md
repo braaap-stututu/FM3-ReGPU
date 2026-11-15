@@ -2,6 +2,14 @@
 
 ## ▶ Current status / next step  (updated 2026-11-15, session 36)
 
+### Session 37 (2026-11-15): FM2 ReGPU PR 33 checked
+- The user asked whether zer0ducksgiven/Forza-Motorsport-2-ReGPU PR 33 had anything new. Its Vulkan "copy only the
+  constants a draw reads" we already have and exceed (patches 35/37/38). Its "scanned shaders only once their bytes
+  hold still" was new: ported as **ReGPU patch 58 `regpu-scan-confirm`** (default; `REGPU_SCAN_NO_CONFIRM=1` old).
+  Four grid boots (`out/perf/s37-scan/`): 22-24 half-written candidates dropped per boot, 0 new cache files with or
+  without it, because our ReGPU already parks scan finds from 1.7 s into the boot (translated, compiled only on use).
+  Saving in FM3 = only those translations; the user chose to keep it. 58 ReGPU patches.
+
 ### ▶ Start here (session 37): state at the end of session 36 (2026-11-15)
 - **In short:** anti-aliasing filters (user's request: FXAA, EQAA, MLAA, SRAA, SSAA, TAA, CMAA, SMAA; the user chose to
   skip MLAA (SMAA's predecessor) and SRAA (needs per-sample normals FM3 never draws) and to download the originals).
