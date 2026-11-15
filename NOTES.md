@@ -4,7 +4,7 @@
 
 ### ▶ Start here (session 35): state at the end of session 34 (2026-11-15)
 - **In short:** session 34 worked through the five remaining iGPU steps (PERF-PLAN "Session 34 outcome"). New
-  ReGPU patch 49 `regpu-igpu-leads` (49 patches):
+  ReGPU patch 49 `regpu-igpu-leads`, then patch 50 `regpu-dxc` (below; 50 patches):
 
   | What | Default? | Measured | Switch |
   |---|---|---|---|
@@ -12,6 +12,15 @@
   | L63: bilinear upscale instead of FSR 1 | opt-in: launcher Upscaler "Bilinear" (`upscaler=bilinear`; scene scale from Upscaler quality or the preset) | iGPU Low preset: grid GPU 12.40 -> 11.20 ms; races 79.2 -> 84.7 fps (+6.9%, p99 14.4 -> 13.8 ms); softer picture, no ringing | `REGPU_UPSCALE_BILINEAR=1` (live) |
   | 16-bit probe (I7) | off, measurement only | iGPU 17.9 -> 19.7 ms (slower) and blocky texture coordinates: parked for AMD | `REGPU_EXP_MIN16=1` (start-time) |
 
+- **DXC built and measured (user's request; ReGPU patch 50 `regpu-dxc`, `REGPU_DXC=1`, off):** why the 16-bit probe
+  lost first (RESEARCH "16-bit shaders": no packed FP16 instructions with either compiler, 32-bit constants force
+  conversions, Xenos' 0 x anything = 0 compares dominate, more VGPRs). Offline DXC 32-bit had 7-13% fewer ALU
+  instructions, so DXC was built as a compile path (DXIL SM 6.0, own caches, `dxcompiler.dll`/`dxil.dll` beside the
+  exe). Measured: 4K 4x races +2.2% (+1.3% at equal draws), **iGPU races -16.4%** (every shader 30-75% slower,
+  also with `-Od`: the driver's DXIL path on the 2-CU RDNA2), and 2 of 9 cached DXC boots crashed inside
+  `amdxc64.dll` (FXC never). Stays off; no launcher option. Results `out/bench/matrix-{4k,igpu}-dxc-*`,
+  `out/perf/s34-dxc/`. If revisited: the crash first (suspect: loading DXIL pipelines from the pipeline library,
+  `LoadGraphicsPipeline` is not under the crash guard), then whether a newer AMD driver changes the iGPU result.
 - **Per-shader list on the iGPU** (specialisation on, frozen grid 720p, every option off; `out/perf/s34-igpu-shaders`,
   HLSL in `out/run/out/hlsl34/`): car paint 2.09 of 21.7 ms, then 28968ECC 1.13 (228 draws), the road material
   B76C24BB 1.04 (9 full-screen-sized draws), DF4F62D3 0.67, 8B27A974 0.65, tone map B0C87A00 0.60 (2 draws). No

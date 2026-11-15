@@ -119,6 +119,13 @@ if(EXISTS "${REGPU_D3DCOMPILER}")
     add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${REGPU_D3DCOMPILER}" $<TARGET_FILE_DIR:fm3>)
 endif()
+# Session 34: DXC (REGPU_DXC=1, ReGPU src/gpu/dxc.cpp) loads dxcompiler.dll + dxil.dll beside the exe; the SDK's
+# redistributables, next to d3dcompiler_47.dll.
+get_filename_component(FM3_D3D_REDIST "${REGPU_D3DCOMPILER}" DIRECTORY)
+if(EXISTS "${FM3_D3D_REDIST}/dxcompiler.dll" AND EXISTS "${FM3_D3D_REDIST}/dxil.dll")
+    add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${FM3_D3D_REDIST}/dxcompiler.dll" "${FM3_D3D_REDIST}/dxil.dll" $<TARGET_FILE_DIR:fm3>)
+endif()
 
 # XMA audio through FFmpeg's xma2 decoder (LGPL, linked dynamically): a win64 LGPL shared build
 # (BtbN ffmpeg-n8.1-latest-win64-lgpl-shared) in thirdparty/ffmpeg with include/, lib/ and bin/.

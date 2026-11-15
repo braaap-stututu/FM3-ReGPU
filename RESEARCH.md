@@ -1086,6 +1086,9 @@ translator and plain multiplies where safe; none of it is measured to pay. **Sid
 gives 7-13% fewer VALU instructions and 6-8% less code than FXC `/Od`** (road 3,464 -> 3,025, paint 10,405 ->
 9,689; samples 236 -> 219). Not measured on a GPU: ReGPU has no DXC path (needs dxcompiler.dll + dxil.dll beside
 the game, DXIL root signature check, its own shader cache), and FXC's own optimiser was measured slower before (L3).
+**Built the same session (ReGPU patch 50 `regpu-dxc`, `REGPU_DXC=1`) and measured: 4K 4x races +2.2% (+1.3% at
+equal draws), iGPU races -16.4%** (GPU +21%; every shader slower, also with `-Od`), 2 of 9 cached boots crashed in
+AMD's driver. Off. The offline instruction counts (RDNA3 code from the dGPU's driver) did not predict the iGPU.
 
 **Session 33 note (user asked about Intel HD 630 / Iris):** whether DXC alone beats FXC on Intel can't be said without
 testing (no Intel GPU here): FXC's DXBC is translated by Intel's driver, DXC's DXIL is its native input but less

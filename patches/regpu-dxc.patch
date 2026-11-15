@@ -1,0 +1,254 @@
+diff --git a/src/gpu/dxc.cpp b/src/gpu/dxc.cpp
+new file mode 100644
+index 0000000..c4c8381
+--- /dev/null
++++ b/src/gpu/dxc.cpp
+@@ -0,0 +1,144 @@
++// REGPU_DXC=1 (FM3 port, session 34; read once, at the first compile): the translated shaders compiled by DXC
++// (dxcompiler.dll + dxil.dll beside the game executable, Microsoft's redistributables from the Windows SDK's
++// Redist\D3D folder) to DXIL shader model 6.0 instead of by FXC to DXBC 5.1. Offline (RGA, RDNA3) DXC's code had
++// 7-13% fewer ALU instructions than FXC's unoptimised build, which ReGPU compiles at run time. Shaders and pipelines
++// cache apart (renderer.cpp: .dxil files, pipelines-dxil*.bin). HLSL 2018 rules (-HV 2018): DXC's default 2021
++// rejects the translator's vector ?: and ||. Without the DLLs: FXC, with a log line.
++#include <windows.h>
++#include <d3dcompiler.h>
++#include <dxcapi.h>
++#include <wrl/client.h>
++#include <cstdlib>
++#include <cstring>
++#include <cstdio>
++#include <cstdint>
++#include <string>
++#include <vector>
++#include "log.h"
++
++using Microsoft::WRL::ComPtr;
++
++namespace
++{
++DxcCreateInstanceProc CreateInstance()
++{
++    static const DxcCreateInstanceProc create = [] () -> DxcCreateInstanceProc {
++        wchar_t path[MAX_PATH];
++        const DWORD n = GetModuleFileNameW(nullptr, path, MAX_PATH);
++        HMODULE m = nullptr;
++        if (n && n < MAX_PATH)
++        {
++            std::wstring dir(path, n);
++            dir = dir.substr(0, dir.find_last_of(L"\\/") + 1);
++            // dxil.dll first, by full path: dxcompiler signs its output with it (unsigned DXIL is rejected).
++            LoadLibraryExW((dir + L"dxil.dll").c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
++            m = LoadLibraryExW((dir + L"dxcompiler.dll").c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
++        }
++        if (!m)
++        {
++            Log("dxc: dxcompiler.dll not found beside the executable: shaders compile with FXC");
++            return nullptr;
++        }
++        auto f = reinterpret_cast<DxcCreateInstanceProc>(GetProcAddress(m, "DxcCreateInstance"));
++        Log("dxc: %s", f ? "translated shaders compile with DXC (shader model 6.0)" : "DxcCreateInstance missing: shaders compile with FXC");
++        return f;
++    }();
++    return create;
++}
++} // namespace
++
++// REGPU_DXC: every translated shader or none: D3D12 refuses a pipeline mixing a DXBC vertex shader with a DXIL
++// pixel shader (tried: every such pipeline failed).
++int DxcStages() // bit 0 vertex, bit 1 pixel
++{
++    static const int stages = [] {
++        const char* v = getenv("REGPU_DXC");
++        return v && *v && strcmp(v, "0") != 0 && CreateInstance() ? 3 : 0;
++    }();
++    return stages;
++}
++
++bool DxcEnabled()
++{
++    return DxcStages() != 0;
++}
++
++bool DxcFor(bool pixel)
++{
++    return (DxcStages() >> (pixel ? 1 : 0)) & 1;
++}
++
++// The cache tag for REGPU_DXC_ARGS: "" without extra arguments, else "-<hash>", so builds with other arguments
++// (and their pipelines) cache apart.
++std::string DxcCacheTag()
++{
++    static const std::string tag = [] {
++        const char* e = getenv("REGPU_DXC_ARGS");
++        const std::string stage;
++        if (!e || !*e)
++            return stage;
++        uint32_t h = 2166136261u;
++        for (const char* c = e; *c; c++)
++            h = (h ^ uint8_t(*c)) * 16777619u;
++        char b[16];
++        snprintf(b, sizeof(b), "-%08x", h);
++        return stage + b;
++    }();
++    return tag;
++}
++
++// One compiler per thread (DXC's compiler objects are not shared between threads). The DXIL object is copied into a
++// D3D blob, so callers keep using ID3DBlob as with FXC.
++HRESULT DxcCompileShader(const std::string& hlsl, bool pixel, ID3DBlob** code, std::string* errors)
++{
++    *code = nullptr;
++    const DxcCreateInstanceProc create = CreateInstance();
++    if (!create)
++        return E_NOTIMPL;
++    thread_local ComPtr<IDxcCompiler3> compiler;
++    if (!compiler && FAILED(create(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler))))
++        return E_FAIL;
++    // REGPU_DXC_ARGS: extra arguments, space-separated (e.g. "-O0", "-Od"; default DXC's -O3).
++    static const std::vector<std::wstring> extra = [] {
++        std::vector<std::wstring> v;
++        if (const char* e = getenv("REGPU_DXC_ARGS"))
++        {
++            std::string s = e;
++            for (size_t at = 0; at < s.size();)
++            {
++                const size_t end = s.find(' ', at);
++                const std::string a = s.substr(at, end == std::string::npos ? std::string::npos : end - at);
++                if (!a.empty())
++                    v.emplace_back(a.begin(), a.end());
++                at = end == std::string::npos ? s.size() : end + 1;
++            }
++        }
++        return v;
++    }();
++    std::vector<LPCWSTR> args = { L"-E", L"main", L"-T", pixel ? L"ps_6_0" : L"vs_6_0", L"-HV", L"2018" };
++    if (!pixel)
++        args.insert(args.end(), { L"-D", L"REGPU_VERTEX_STAGE=1" });
++    for (const std::wstring& a : extra)
++        args.push_back(a.c_str());
++    const DxcBuffer source{ hlsl.data(), hlsl.size(), DXC_CP_UTF8 };
++    ComPtr<IDxcResult> result;
++    if (FAILED(compiler->Compile(&source, args.data(), UINT32(args.size()), nullptr, IID_PPV_ARGS(&result))))
++        return E_FAIL;
++    HRESULT status = E_FAIL;
++    result->GetStatus(&status);
++    if (errors)
++    {
++        ComPtr<IDxcBlobUtf8> text;
++        if (SUCCEEDED(result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&text), nullptr)) && text && text->GetStringLength())
++            errors->assign(text->GetStringPointer(), text->GetStringLength());
++    }
++    if (FAILED(status))
++        return status;
++    ComPtr<IDxcBlob> object;
++    if (FAILED(result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&object), nullptr)) || !object || !object->GetBufferSize())
++        return E_FAIL;
++    if (FAILED(D3DCreateBlob(object->GetBufferSize(), code)))
++        return E_OUTOFMEMORY;
++    memcpy((*code)->GetBufferPointer(), object->GetBufferPointer(), object->GetBufferSize());
++    return S_OK;
++}
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 534781f..3b738f9 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -58,6 +58,12 @@
+ #include "gpu/shader_scan.h"
+ #include "gpu/resolve_pack.h"
+ 
++// REGPU_DXC (dxc.cpp, global): DXIL from DXC instead of FXC's DXBC, cached apart (.dxil).
++bool DxcEnabled();
++bool DxcFor(bool pixel); // (both stages or neither: D3D12 refuses mixed DXBC/DXIL pipelines)
++HRESULT DxcCompileShader(const std::string& hlsl, bool pixel, ID3DBlob** code, std::string* errors);
++std::string DxcCacheTag(); // "-<hash of REGPU_DXC_ARGS>" or ""
++
+ using Microsoft::WRL::ComPtr;
+ 
+ 
+@@ -4167,10 +4173,13 @@ uint32_t g_drawnPipelines = 0, g_drawnUnseeded = 0, g_drawnUnprepared = 0;
+ // session keeps the bytecode its pipelines were built from.
+ const bool g_optimizeShaders = getenv("REGPU_OPTIMIZE_SHADERS") != nullptr;
+ 
+-std::filesystem::path ShaderCachePath(uint64_t key, bool optimized = false)
++std::filesystem::path ShaderCachePath(uint64_t key, bool optimized, bool pixel)
+ {
+-    char name[40];
+-    snprintf(name, sizeof(name), optimized ? "%016llx.o.dxbc" : "%016llx.dxbc", (unsigned long long)key);
++    char name[48];
++    if (DxcFor(pixel))
++        snprintf(name, sizeof(name), "%016llx%s.dxil", (unsigned long long)key, DxcCacheTag().c_str());
++    else
++        snprintf(name, sizeof(name), optimized ? "%016llx.o.dxbc" : "%016llx.dxbc", (unsigned long long)key);
+     return RegpuUserDir() / "shadercache" / name;
+ }
+ 
+@@ -4226,7 +4235,7 @@ struct ShaderOptimizer
+                     &code, &errors)))
+                 continue; // the unoptimised build stays
+             // Written under a temporary name: a run that reads it never sees half a file.
+-            const auto path = ShaderCachePath(job.key, true);
++            const auto path = ShaderCachePath(job.key, true, job.pixel);
+             auto tmp = path;
+             tmp += ".tmp";
+             std::ofstream(tmp, std::ios::binary).write(static_cast<const char*>(code->GetBufferPointer()), std::streamsize(code->GetBufferSize()));
+@@ -4244,9 +4253,9 @@ bool LoadCachedBytecode(CompiledShader& cs)
+ {
+     for (const bool optimized : { true, false })
+     {
+-        if (optimized && !g_optimizeShaders)
++        if (optimized && (!g_optimizeShaders || DxcFor(cs.pixel))) // (DXC: one build, already optimised)
+             continue;
+-        std::ifstream in{ ShaderCachePath(cs.cacheKey, optimized), std::ios::binary | std::ios::ate };
++        std::ifstream in{ ShaderCachePath(cs.cacheKey, optimized, cs.pixel), std::ios::binary | std::ios::ate };
+         if (!in)
+             continue;
+         const auto size = size_t(in.tellg());
+@@ -4254,7 +4263,7 @@ bool LoadCachedBytecode(CompiledShader& cs)
+             continue;
+         in.seekg(0);
+         in.read(static_cast<char*>(cs.code->GetBufferPointer()), std::streamsize(size));
+-        if (!optimized && g_optimizeShaders)
++        if (!optimized && g_optimizeShaders && !DxcFor(cs.pixel))
+             g_optimizer.Push(cs.cacheKey, cs.pixel, cs.info.hlsl);
+         return true;
+     }
+@@ -4369,22 +4378,24 @@ struct ShaderCompiler
+         // The translated source picks its sampling form per stage (see hlsl.cpp: a vertex
+         // shader cannot sample with an implicit LOD).
+         const D3D_SHADER_MACRO vertexStage[] = { { "REGPU_VERTEX_STAGE", "1" }, { nullptr, nullptr } };
+-        const HRESULT hr = D3DCompile(cs.info.hlsl.data(), cs.info.hlsl.size(), nullptr, cs.pixel ? nullptr : vertexStage, nullptr, "main",
+-            cs.pixel ? "ps_5_1" : "vs_5_1", D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES, 0, &cs.code, &errors);
++        std::string dxcErrors;
++        const HRESULT hr = DxcFor(cs.pixel) ? DxcCompileShader(cs.info.hlsl, cs.pixel, &cs.code, &dxcErrors)
++            : D3DCompile(cs.info.hlsl.data(), cs.info.hlsl.size(), nullptr, cs.pixel ? nullptr : vertexStage, nullptr, "main",
++                  cs.pixel ? "ps_5_1" : "vs_5_1", D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES, 0, &cs.code, &errors);
+         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+         if (FAILED(hr))
+         {
+             Log("renderer: %s %016llx failed to compile:\n%s", cs.pixel ? "ps" : "vs", (unsigned long long)cs.hash,
+-                errors ? static_cast<const char*>(errors->GetBufferPointer()) : "?");
++                !dxcErrors.empty() ? dxcErrors.c_str() : errors ? static_cast<const char*>(errors->GetBufferPointer()) : "?");
+             cs.state.store(CompiledShader::Failed, std::memory_order_release);
+             return;
+         }
+         g_stats.shadersBuilt++;
+         if (ms > 200)
+             Log("renderer: %s %016llx compiled in %.0f ms (background)", cs.pixel ? "ps" : "vs", (unsigned long long)cs.hash, ms);
+-        std::ofstream(ShaderCachePath(cs.cacheKey), std::ios::binary)
++        std::ofstream(ShaderCachePath(cs.cacheKey, false, cs.pixel), std::ios::binary)
+             .write(static_cast<const char*>(cs.code->GetBufferPointer()), std::streamsize(cs.code->GetBufferSize()));
+-        if (g_optimizeShaders)
++        if (g_optimizeShaders && !DxcFor(cs.pixel))
+             g_optimizer.Push(cs.cacheKey, cs.pixel, cs.info.hlsl);
+         cs.state.store(CompiledShader::Ready, std::memory_order_release);
+     }
+@@ -5352,6 +5363,9 @@ struct PipelineLibrary
+                 path = RegpuUserDir() / name;
+             }
+         }
++        // DXIL pipelines in their own library (REGPU_DXC): pipelines-dxil.bin, pipelines-dxil-<vendor>-<device>.bin.
++        if (DxcEnabled())
++            path = RegpuUserDir() / ("pipelines-dxil" + DxcCacheTag() + path.filename().string().substr(9));
+         if (std::ifstream in{ Path(), std::ios::binary | std::ios::ate })
+         {
+             loaded.resize(size_t(in.tellg()));
