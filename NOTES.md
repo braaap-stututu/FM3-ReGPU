@@ -68,7 +68,7 @@
   per camera (`FollowCam`, `FollowCam2`, `DriverCam` 37 layers, `Hood` 31, `BumperHigh` 32) a stack of layers that each
   turn an input (G-forces, slip, speed, road bumps, suspension, collisions) into a car- or camera-space offset, turn,
   impulse, noise or the field of view, each with `Enabled="1"`. With VR on (not `screen`) `src/kernel/imports_io.cpp`
-  serves a copy with every layer of the in-car, hood and bumper cameras off (`<user>r\CameraPhysics.xml`, made once a
+  serves a copy with every layer of the in-car, hood and bumper cameras off (`<user>\vr\CameraPhysics.xml`, made once a
   run; log `vr: in-car camera motion off (100 camera layers ...)`); chase cameras keep theirs; a mod of the file wins.
   `vr_camera_motion=1` in settings.ini (or `FM3_VR_CAMERA_MOTION=1`) keeps the game's motion (no launcher toggle yet).
   **Measured** with FM3's AI driving the player car (`FM3_AI_PLAYER=1`, in-car view, head pose zero, 8 shots over
