@@ -1,11 +1,29 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-15, session 38)
+## ▶ Current status / next step  (updated 2026-11-16, session 38)
 
-### ▶ Start here (session 39): state at the end of session 38 (2026-11-15)
-- **VR step 3, true stereo, built and checked without a headset** (`vr=stereo` in settings.ini, or `FM3_VR=stereo`;
-  ReGPU patch 63 `regpu-vr-stereo`). Not yet seen in a headset: **next, ask the user to try the launcher's "VR
-  headset" = Stereo cockpit (and Head-tracked cockpit) in the headset**; then camera shake, the cabin pass, pacing.
+### ▶ Start here (session 39): state at the end of session 38 (2026-11-16)
+- **In short:** VR is built through FH1R's whole plan except headset pacing, all checked on the grid without a
+  headset (64 ReGPU patches; last commits 292150a, 658ea51, 829a2fc, 4e30796, c267e0d): true stereo (`vr=stereo`,
+  patch 63), HUD on its own panel + F8/both-sticks recentre (patch 64), eye limit, launcher "VR headset" option, the
+  real in-car camera (director +0x0C, not +0x14), cabin parallax checked correct, in-car camera motion off
+  (generated `CameraPhysics.xml`). **Nothing has run in a real headset yet.**
+- **Next (VR), in order:** (1) **the user's headset test** (launcher Graphics > Display "VR headset" = Stereo
+  cockpit, in-car view: RB held; recentre F8 / LS+RS 1 s) and its fixes: untested are the stereo swapchain pair,
+  the HUD quad layer, the UNORM->sRGB swapchain copies (`CopyResource`/`CopyTextureRegion` between R8G8B8A8_UNORM and
+  _SRGB), per-eye poses; (2) **render size/shape matched to the headset** (each eye now gets the game's 16:9 frame with
+  the vertical FOV fitted: far wider than the lenses; a Quest wants ~2064x2208 per eye: e.g. render the main view at
+  the headset's per-eye aspect, Hor+ machinery in ReGPU, or crop); (3) **headset pacing** (FH1R v6: cap = a multiple
+  of the headset rate, short wait for a due game frame; needs the headset); (4) HUD panel in mono `vr=cockpit` too;
+  (5) launcher toggle for `vr_camera_motion`; (6) seat height/fore-aft adjust keys.
+- **Open performance leads** (not built or not measured; details in PERF-PLAN.md): stale PGO profile (recorded
+  session 32, ReGPU changed a lot since: re-record `pgo/regpu.profdata`, `-DFM3_PGO=gen`, then A/B); L35 texture change
+  checks over only the bytes a texture uses; L9 `REGPU_SUBMIT_DRAWS` with the draw thread; L18 smaller upload rings
+  on iGPU/UMA; L22 XMA codec-context RAM; I5 `REGPU_UPLOAD_STABLE_REUSE` (needs a drive with damage/tyre marks);
+  I6 `REGPU_OPTIMIZE_LEVEL`; L50 driver frame generation (AFMF 2) never tried on our swapchain; Steam Deck (Proton) not
+  tried; VR stereo: each eye drawn only across the columns its lens shows (FH1R), second eye ~2.1 ms now.
+- **VR step 3 details (true stereo):** `vr=stereo` in settings.ini, or `FM3_VR=stereo`; ReGPU patch 63
+  `regpu-vr-stereo`.
 - **How it works:** FM3's frame order (capture `out/perf/s38-stereo/capture1.log`, `passes1.txt`): passes 0-9 shadow
   maps, reflection cube, mirror (pitch 280-560), pass 10 the main scene (1,804 draws, pitch 1280), 11-24 the post
   chain (bloom, luminance), 25 the final pass: HUD drawn first onto a cleared surface, then the tone-map composite
