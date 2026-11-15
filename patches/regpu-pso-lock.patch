@@ -1,0 +1,82 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 3b738f9..6326023 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -5414,6 +5414,36 @@ struct PipelineLibrary
+         return name;
+     }
+ 
++    // REGPU_PSO_LOCK (start-time; FM3 port, session 35): 1 = the library's loads and stores one at a time (exclusive
++    // instead of shared), 2 = also pipeline creation one at a time, 0 = shared, as before. Default 1 with DXC, else 0:
++    // with DXIL pipelines AMD's drivers (RDNA2 and RDNA3 branches) crashed in amdxc64.dll (a null read) on 5 of 16 cached
++    // boots while loads and stores ran on several threads at once; 0 of 16 at 1 and at 2. FXC's never crashed.
++    static int PsoLock()
++    {
++        static const int v = [] { const char* e = getenv("REGPU_PSO_LOCK"); return e && *e ? atoi(e) : (DxcEnabled() ? 1 : 0); }();
++        return v;
++    }
++    struct LibraryLock
++    {
++        std::shared_lock<std::shared_mutex> shared;
++        std::unique_lock<std::shared_mutex> exclusive;
++        explicit LibraryLock(std::shared_mutex& m)
++        {
++            if (PsoLock() >= 1)
++                exclusive = std::unique_lock(m);
++            else
++                shared = std::shared_lock(m);
++        }
++    };
++    static HRESULT Create(ID3D12Device* device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& pd, ComPtr<ID3D12PipelineState>& pso)
++    {
++        static std::mutex one;
++        std::unique_lock<std::mutex> lock;
++        if (PsoLock() >= 2)
++            lock = std::unique_lock(one);
++        return device->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&pso));
++    }
++
+     HRESULT CreateOrLoad(ID3D12Device* device, const D3D12_GRAPHICS_PIPELINE_STATE_DESC& pd, const PipelineKey& key, ComPtr<ID3D12PipelineState>& pso, bool* hit)
+     {
+         *hit = false;
+@@ -5423,7 +5453,7 @@ struct PipelineLibrary
+         {
+             const std::wstring name = Name(key, pd);
+             {
+-                std::shared_lock lock(access);
++                LibraryLock lock(access);
+                 *hit = SUCCEEDED(library->LoadGraphicsPipeline(name.c_str(), &pd, IID_PPV_ARGS(&pso)));
+             }
+             if (*hit)
+@@ -5433,11 +5463,11 @@ struct PipelineLibrary
+             }
+             // The slow part (the driver compiling) runs outside the lock.
+             g_compiling = { key.vs, key.ps, true };
+-            const HRESULT hr = device->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&pso));
++            const HRESULT hr = Create(device, pd, pso);
+             g_compiling.active = false;
+             if (SUCCEEDED(hr))
+             {
+-                std::shared_lock lock(access);
++                LibraryLock lock(access);
+                 if (SUCCEEDED(library->StorePipeline(name.c_str(), pso.Get())))
+                     stored++;
+             }
+@@ -5446,7 +5476,7 @@ struct PipelineLibrary
+             return hr;
+         }
+         g_compiling = { key.vs, key.ps, true };
+-        const HRESULT hr = device->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&pso));
++        const HRESULT hr = Create(device, pd, pso);
+         g_compiling.active = false;
+         return hr;
+     }
+@@ -5456,7 +5486,7 @@ struct PipelineLibrary
+         if (!fresh)
+             return;
+         {
+-            std::shared_lock lock(access); // (stores share the library, as in CreateOrLoad)
++            LibraryLock lock(access); // (stores share the library, as in CreateOrLoad)
+             if (!fresh)
+                 return;
+             if (SUCCEEDED(fresh->StorePipeline(name.c_str(), pso)))

@@ -1094,6 +1094,8 @@ AMD's driver. Off. The offline instruction counts (RDNA3 code from the dGPU's dr
 (rectangle corners, indexed at run time) sat in scratch with FXC but in registers with DXC. Removed (ReGPU patch 51):
 vertex shaders ~62 VGPRs with both; iGPU races FXC +10%, DXC +14.5% over old FXC (DXC now ahead), 4K DXC +2.5%.
 The pixel-shader counts above held on the iGPU's compiler too (DXC slightly better).
+The DXC driver crash (session 35): concurrent `ID3D12PipelineLibrary` loads/stores of DXIL pipelines; 5 of 16 cached boots
+crashed unlocked, 0 of 16 with loads/stores serialised (ReGPU patch 52, default under DXC).
 
 **Session 33 note (user asked about Intel HD 630 / Iris):** whether DXC alone beats FXC on Intel can't be said without
 testing (no Intel GPU here): FXC's DXBC is translated by Intel's driver, DXC's DXIL is its native input but less

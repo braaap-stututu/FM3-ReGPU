@@ -27,10 +27,18 @@
   (`out/user/shadercache/<key>.dxbc` vs `<key>.dxil`, same key = same HLSL) compiled side by side: vertex shaders DXC
   239 vs FXC 100 VGPRs (25/25 worse), pixel shaders DXC slightly better. `dxc -dumpbin` showed four `[48 x float]`
   allocas = `vq[3][16]` split per component. After the fix: vertex shaders ~62 VGPRs with both compilers, no scratch.
-- **DXC now wins on both GPUs** (above), but stays off: the open item is the **driver crash** (2 of 9 cached DXC boots
-  crashed in `amdxc64.dll` in session 34, before this fix; today's 4 DXC boots (2 grid, 2 races): none). Whether the 256-VGPR vertex
-  shaders caused it is unknown. **Next (ask the user):** a DXC stability series (e.g. 10 cached boots on each GPU), then
-  DXC as a launcher option or the default; DXC also opens 16-bit types and wave intrinsics (RESEARCH "16-bit shaders").
+- **DXC now wins on both GPUs** (above). **Its driver crash is found and fixed (user asked for the stability test;
+  ReGPU patch 52 `regpu-pso-lock`).** Series of cached boots to the frozen grid, alternating iGPU 720p / 7900 XTX 4K 4x
+  (`out/perf/s35-dxc-series*`, script: Start-Grid + 15 s alive check + the crash handler's `CRASH:` line + Windows
+  Application Error events): **unlocked 5 of 16 crashed** (iGPU 2 at `amdxc64.dll+3FFD84` ~3 s in, 7900 XTX 3 at
+  `+4BC0AA` ~22.5 s in; both null reads on a driver thread, each right when ReGPU loads/builds pipelines, e.g. the "not in
+  the seed" lines). `REGPU_PSO_LOCK=2` (library + creation one at a time) 0 of 16; **`REGPU_PSO_LOCK=1` (only the
+  pipeline library's `LoadGraphicsPipeline`/`StorePipeline` one at a time) 0 of 16**, grid fps unchanged (iGPU 61.9 vs
+  61.0, 7900 XTX 278 vs 284 within run-to-run spread). So concurrent library access with DXIL pipelines trips AMD's
+  drivers. Level 1 is now the default whenever `REGPU_DXC` is on (FXC keeps the shared lock; it never crashed); 8 more
+  boots with that default: 0 crashes.
+  **Next (ask the user):** DXC as a launcher option (Testing) or the default; DXC also opens 16-bit types and wave
+  intrinsics (RESEARCH "16-bit shaders"). A first (uncached) DXC boot was not part of the series.
 - **Not checked by the user yet:** a drive with the new vertex shaders (on by default), plus session 34's list (launcher
   Bilinear entry, session 33 defaults). User's settings.ini untouched.
 

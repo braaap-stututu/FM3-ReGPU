@@ -70,6 +70,7 @@ $regpuPatches = @(
     'regpu-igpu-leads'               # L62 cube/3D fetches specialised too (TFetchK); L63 bilinear upscale (REGPU_UPSCALE_BILINEAR); 16-bit probe REGPU_EXP_MIN16 (off)
     'regpu-dxc'                      # REGPU_DXC=1 (off): translated shaders compiled by DXC to DXIL (dxc.cpp); 4K races +1.3%, iGPU races -16%
     'regpu-vs-corners'               # vertex shaders' point/rectangle path without a float4[3][16] array: no scratch (FXC), ~62 instead of ~240 VGPRs (DXC); REGPU_OLD_VS_CORNERS=1 old form
+    'regpu-pso-lock'                 # REGPU_PSO_LOCK: pipeline-library loads/stores one at a time (default with DXC: AMD driver crashed on 5/16 cached DXC boots, 0/32 locked)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }
