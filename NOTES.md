@@ -41,8 +41,8 @@
     threads (0x0F) 288.2 vs 253.6 (-12%).** With the full perf log, 1440p: 258 vs 246-252.
   - **Why it can't win on weak CPUs:** at 2c/4t the game already uses 3.25 of 4 hardware threads (draw thread 91%,
     command processor guest 9 70%, the game's render thread guest 7 51%, guest 3 34%, replay 22%): workers only
-    add total CPU. And on iGPU machines the GPU limits anyway (session 33: draw thread 15-23% busy on the 680M-class
-    iGPU). **The lever for weak CPUs is less total CPU work per frame across threads, not more threads.**
+    add total CPU. And on iGPU machines the GPU limits anyway (session 33: draw thread 15-23% busy on the 9800X3D's
+    2-CU iGPU). **The lever for weak CPUs is less total CPU work per frame across threads, not more threads.**
   - Command processor at 2c/4t: memcpy in ExecutePacket 7%, wake-ups of the draw thread ~4%, timers ~2.6%,
     switch loads ~2.7%: small each.
 
