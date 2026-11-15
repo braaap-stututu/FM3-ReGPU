@@ -21,7 +21,9 @@
 - **Not checked yet:** the SSAA picture as shown (the debug shot is taken before the downsample: user's eye), TAA in
   motion (ghosting/trails: user's drive), the launcher's new fields in the real window, the iGPU. One crash in 10
   boots: the long-frame stack sampler (`long_stacks.cpp`, on via the user's `long_frame_stacks=1`) crashed in
-  RtlVirtualUnwind during a TAA boot's screenshot; the re-run was clean. Watch for it; it is the sampler, not TAA.
+  RtlVirtualUnwind during a TAA boot's screenshot, and again in the user's TAA drive (`out/run/fm3.log`, 50 s). Fixed:
+  the unwind of a sample now runs under SEH (`UnwindCopy`), a faulting walk just ends that sample's chain; two TAA grid
+  boots with the sampler on afterwards: 0 crashes, dumps still logged (`out/perf/s36-taa-fix*`).
 - **Next (ask the user):** their look at each mode in a drive; TAA tuning if it ghosts (`REGPU_TAA_BLEND`,
   `REGPU_TAA_CLIP`, live via `Fm3 "env ..."`); SMAA 2x/T2x (SMAA with TAA) if wanted.
 

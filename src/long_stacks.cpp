@@ -104,6 +104,44 @@ HANDLE FindDrawThread()
     return found;
 }
 
+// The return addresses of a sample, unwound on its stack copy [lo, hi) of the real stack, moved by delta. Under SEH
+// (session 36): the snapshot is taken at any instruction, and a frame pointer that holds no stack address there (or a
+// function whose unwind data doesn't match the moment) sends RtlVirtualUnwind to read wherever it points: it faulted
+// on unmapped memory twice in TAA runs, which crashed the game. Such a sample now just ends its chain there.
+void UnwindCopy(CONTEXT& u, DWORD64 lo, DWORD64 hi, DWORD64 delta, DWORD64 (&up)[20])
+{
+    const DWORD64 cLo = lo + delta, cHi = hi + delta;
+    __try
+    {
+        for (int k = 0; k < 20; k++)
+        {
+            if (u.Rsp < cLo || u.Rsp + 8 > cHi)
+                break;
+            DWORD64 imageBase = 0;
+            auto* fn = RtlLookupFunctionEntry(u.Rip, &imageBase, nullptr);
+            if (!fn)
+            {
+                u.Rip = *reinterpret_cast<DWORD64*>(u.Rsp); // a leaf (or no unwind data: then a guess)
+                u.Rsp += 8;
+            }
+            else
+            {
+                void* handlerData = nullptr;
+                DWORD64 establisher = 0;
+                RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, u.Rip, fn, &u, &handlerData, &establisher, nullptr);
+                if (u.Rbp >= lo && u.Rbp < hi) // (a frame pointer restored from the stack points into the real stack)
+                    u.Rbp += delta;
+            }
+            up[k] = u.Rip;
+            if (!u.Rip)
+                break;
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
 void DumpLongFrame(const std::deque<LongSample>& ring, int64_t end, double ms)
 {
     const int64_t from = end - int64_t(ms * 1e6);
@@ -210,29 +248,7 @@ void StartLongFrameSampler()
                 CONTEXT u = c;
                 rebase(u.Rsp);
                 rebase(u.Rbp);
-                const DWORD64 cLo = lo + delta, cHi = hi + delta;
-                for (int k = 0; k < 20; k++)
-                {
-                    if (u.Rsp < cLo || u.Rsp + 8 > cHi)
-                        break;
-                    DWORD64 imageBase = 0;
-                    auto* fn = RtlLookupFunctionEntry(u.Rip, &imageBase, nullptr);
-                    if (!fn)
-                    {
-                        u.Rip = *reinterpret_cast<DWORD64*>(u.Rsp); // a leaf (or no unwind data: then a guess)
-                        u.Rsp += 8;
-                    }
-                    else
-                    {
-                        void* handlerData = nullptr;
-                        DWORD64 establisher = 0;
-                        RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, u.Rip, fn, &u, &handlerData, &establisher, nullptr);
-                        rebase(u.Rbp); // (a frame pointer restored from the stack points into the real stack)
-                    }
-                    s.up[k] = u.Rip;
-                    if (!u.Rip)
-                        break;
-                }
+                UnwindCopy(u, lo, hi, delta, s.up);
             }
             ring.push_back(s);
             while (!ring.empty() && ns - ring.front().ns > 1500000000)
