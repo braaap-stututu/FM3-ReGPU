@@ -1063,6 +1063,29 @@ FH1R's perf branches (ReIGlue/Xenia, not ReGPU; ideas only: a 540p scene under a
 
 ## 16-bit (half-precision) shaders for lower-end GPUs (session 18, 2026-11-09)
 **Session 34 probe (ReGPU patch 49, `REGPU_EXP_MIN16=1`):** every pixel-shader register and ALU temporary as FXC `min16float` (an upper bound, no dataflow care): on the 9800X3D iGPU (RDNA2) the driver runs it at 16 bits (texture coordinates go blocky) and the frozen grid gets **slower**, GPU 17.9 -> 19.7 ms, from 16/32-bit conversions against the 32-bit constants. So no gain on this AMD iGPU without a careful typing pass, which has no measured upside: parked. Intel Gen9/Gen12 (2x FP16) stay untested; ReGPU has no DXC path.
+**Why it lost (session 34, offline: RGA gfx1100 (RDNA3, same packed-FP16 hardware as the iGPU's RDNA2), the road shader B76C24BB and the car paint 423E6F1B, unspecialised; FXC as ReGPU compiles (`/Od`) vs DXC (`-HV 2018`: DXC's default HLSL 2021 rejects the translator's vector `?:`/`||`), each 32-bit and 16-bit (`ps_6_2 -enable-16bit-types`, real `half`)):**
+
+| Build | VGPRs | code bytes | VALU instr. | f16 instr. | packed (`v_pk_*`) | 16/32 conversions |
+|---|---|---|---|---|---|---|
+| road FXC 32 / FXC min16 | 40 / 40 | 38,036 / 38,008 | 3,464 / 3,198 | 2 / 269 | 0 / 0 | 2 / 52 |
+| road DXC 32 / DXC half | 43 / 38 | 34,824 / 35,656 | 3,025 / 3,079 | 2 / 259 | 0 / 0 | 2 / 63 |
+| paint FXC 32 / FXC min16 | 80 / **94** | 117,056 / 120,896 | 10,405 / 10,839 | 2 / 707 | 0 / 0 | 2 / 156 |
+| paint DXC 32 / DXC half | 84 / 84 | 109,092 / 110,192 | 9,689 / 9,433 | 2 / 656 | 0 / 0 | 2 / 111 |
+
+1. **No packed math at all**, with either compiler. FP16 is only faster as `v_pk_*` (two halves per instruction); single
+   `v_mul_f16`/`v_add_f16` run at the f32 rate. The translator's code works component by component through swizzles
+   (`r5.zw = ...`, `.xxyy`), so the compiler finds no pairs to pack.
+2. **The constants and inputs stay 32-bit** (`pc[]`, interpolators, fetch results): every mixed op becomes a
+   conversion or a mixed-precision FMA (`v_fma_mix*`); 52-156 explicit conversions a shader.
+3. **Xenos' multiply rule dominates the 16-bit code:** `Mul9` (0 x anything = 0) is two compares and a select per
+   component; in the road shader the most common f16 op is `v_cmp_eq_f16` (74) ahead of `v_mul_f16` (46).
+4. FXC's min16 build of the car paint needs **94 VGPRs instead of 80** (fewer waves in flight on 2 CUs): with (2)
+   the likely cause of the measured slowdown (17.9 -> 19.7 ms).
+So 16-bit needs more than a compiler switch: 16-bit constant copies, packing-friendly vector code from the
+translator and plain multiplies where safe; none of it is measured to pay. **Side finding: DXC itself, 32-bit,
+gives 7-13% fewer VALU instructions and 6-8% less code than FXC `/Od`** (road 3,464 -> 3,025, paint 10,405 ->
+9,689; samples 236 -> 219). Not measured on a GPU: ReGPU has no DXC path (needs dxcompiler.dll + dxil.dll beside
+the game, DXIL root signature check, its own shader cache), and FXC's own optimiser was measured slower before (L3).
 
 **Session 33 note (user asked about Intel HD 630 / Iris):** whether DXC alone beats FXC on Intel can't be said without
 testing (no Intel GPU here): FXC's DXBC is translated by Intel's driver, DXC's DXIL is its native input but less
