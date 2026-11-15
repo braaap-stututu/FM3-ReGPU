@@ -39,6 +39,16 @@
   boots with that default: 0 crashes.
   **Next (ask the user):** DXC as a launcher option (Testing) or the default; DXC also opens 16-bit types and wave
   intrinsics (RESEARCH "16-bit shaders"). A first (uncached) DXC boot was not part of the series.
+- **DXC launcher option (user's request):** Settings > Testing "DXC shader compiler" = settings.ini
+  `shader_compiler=dxc|fxc` -> `REGPU_DXC=1` (src/gpu_host.cpp, log `gpu: shader compiler ...`); off by default; the
+  benchmark lists "DXC" among the options. Checked: a boot with the ini line logs DXC (user's ini restored).
+- **DXC tuned further (ReGPU patch 53 `regpu-dxc-tuning`):** DXC `-O1` by default (drivers' code within 0.5% of `-O3`,
+  compiles faster); `REGPU_DXC_SM` (shader model; 6.6 1-3% leaner offline but level on the grid on both GPUs: not
+  used); `-denorm ftz` changed nothing; the vertex shaders' rectangle path now has one `GuestVS` call site (the
+  corner fix had added a third inlined copy): cold-boot VS compile FXC 255 -> 198 s (slowest 81 -> 45 s), DXC 77 -> 44 s
+  (slowest 24 -> 7.5 s), GPU unchanged. Cached iGPU grid after it: DXC 15.99/15.47 ms vs FXC 16.40/15.91 ms (DXC ~2.7% ahead); pictures within cross-boot noise
+  (`out/perf/s35-merged`). What DXC can't cut: Xenos 0 x anything = 0 selects (`Mul9`, ~25% of a heavy shader's
+  instructions) and the drivers' register moves (~20%).
 - **Not checked by the user yet:** a drive with the new vertex shaders (on by default), plus session 34's list (launcher
   Bilinear entry, session 33 defaults). User's settings.ini untouched.
 

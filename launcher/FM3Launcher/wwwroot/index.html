@@ -412,6 +412,10 @@
         <div><div class="toggle-title">Upload ring in VRAM</div><div class="toggle-sub">Performance (L47), needs resizable BAR, on by default</div></div>
         <button class="switch" id="vramUploadRing" role="switch"></button>
       </div>
+      <div class="toggle-row" data-tip="Compiles the game's translated shaders with Microsoft's newer DXC compiler instead of the older FXC. Same picture. Session 35: races about 4% faster on a small integrated GPU (Ryzen 9800X3D graphics, 720p) and about 2.5% faster on an RX 7900 XTX at 4K. DXC has its own shader and pipeline caches, so the first start after switching it on (or off again) compiles every shader once and may stutter for a while. Experimental: tested on AMD GPUs only. Read when the game starts.">
+        <div><div class="toggle-title">DXC shader compiler</div><div class="toggle-sub">Performance, experimental (AMD-tested), off by default</div></div>
+        <button class="switch" id="dxcShaders" role="switch"></button>
+      </div>
       <div class="toggle-row" data-tip="Draws the scene in one piece instead of the two halves the Xbox 360's 10 MB video memory needed, so about a fifth of the draws are no longer done twice. Session 26: +9% fps where the CPU is the limit, same picture on the race grid. Experimental: photo mode comes out wrong with it on (washed yellow, session 28), so turn it off for photo mode. Read when the game starts.">
         <div><div class="toggle-title">One guest tile</div><div class="toggle-sub">Performance (L36), experimental, off by default</div></div>
         <button class="switch" id="oneTile" role="switch"></button>

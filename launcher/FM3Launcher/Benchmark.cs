@@ -115,6 +115,7 @@ public static partial class Benchmark
         }
         if (settings.AnisoFromGame) options.Add("game anisotropy");
         if (!settings.VramUploadRing) options.Add("ring in RAM");
+        if (settings.DxcShaders) options.Add("DXC");
         if (!settings.AsyncPresent) options.Add("sync present");
         return new Result(
             DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), profile,

@@ -454,6 +454,14 @@ void GpuStart()
         DefaultEnv("REGPU_ANISO_FROM_FETCH", "1");
     if (GetSettings().Extra("vram_upload_ring") != "0")
         DefaultEnv("REGPU_GPU_UPLOAD_RING", "1");
+    // DXC shader compiler (session 35, ReGPU patches regpu-dxc, regpu-vs-corners, regpu-pso-lock): translated shaders
+    // compiled by DXC to DXIL instead of by FXC to DXBC. Races: iGPU 720p +4% over FXC, RX 7900 XTX 4K 4x +2.5% at
+    // equal draws, same picture; its own shader and pipeline caches (the first boot after switching compiles everything).
+    // Off by default; settings.ini shader_compiler=dxc (launcher Settings > Testing "DXC shader compiler"); REGPU_DXC=1
+    // directly. Needs dxcompiler.dll + dxil.dll beside fm3.exe (else FXC, with a log line).
+    if (GetSettings().Extra("shader_compiler") == "dxc")
+        DefaultEnv("REGPU_DXC", "1");
+    Log("gpu: shader compiler %s", getenv("REGPU_DXC") && *getenv("REGPU_DXC") && strcmp(getenv("REGPU_DXC"), "0") ? "DXC (if its DLLs load)" : "FXC");
     Log("gpu: upload ring in VRAM %s", getenv("REGPU_GPU_UPLOAD_RING") && strcmp(getenv("REGPU_GPU_UPLOAD_RING"), "0") ? "on (if resizable BAR)" : "off");
     // Sun glare size (session 14): FM3 sizes the glare from the occlusion query's raw sample count (not
     // the visible share): none below ~0.55x our count of a fully visible sun, largest at ~1.5-2x. At 1x
