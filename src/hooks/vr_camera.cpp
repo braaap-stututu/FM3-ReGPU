@@ -3,7 +3,10 @@
 //
 // FM3's player view has a camera director (found by the CCamDriver object it creates in sub_8246DF78, read from guest
 // memory on the race grid; FH1's layout with every field 32 bytes earlier):
-//   +0x14 the active camera (Camera::ICamera; CCamDriver vtable 0x8200206C, CCamCockpit 0x82034FC4)
+//   +0x08 the view the player picked (0-4; RB held cycles them)
+//   +0x0C the active camera (Camera::ICamera; CCamDriver vtable 0x8200206C = the in-car view, CCamHood 0x82001FF4, ...);
+//         +0x10/+0x14 earlier ones (session 37 took +0x14 for the active one: on the grid it is the chase camera
+//         either way; session 38 found +0x0C by cycling the views in a running race)
 //   +0x18 ... the player's cameras
 //   +0x90 camera position in the world (x, y, z)    +0xB0 forward    +0xC0 up
 //   +0xD0 the view matrix: 4x4 floats, world to camera, row vectors, left-handed (x right, y up, z forward)
@@ -33,8 +36,10 @@
 
 namespace
 {
-constexpr uint32_t kDirectorView = 0xD0, kDirectorFov = 0x110, kDirectorActive = 0x14;
-constexpr uint32_t kCamDriverVtable = 0x8200206C, kCamCockpitVtable = 0x82034FC4;
+constexpr uint32_t kDirectorView = 0xD0, kDirectorFov = 0x110, kDirectorActive = 0x0C;
+// First-person cameras (vtables by RTTI name, tools/analysis/rtti.py CCam): the in-car view CCamDriver, CCamCockpit,
+// the hood view CCamHood and the two bumper views.
+constexpr uint32_t kFirstPerson[] = { 0x8200206C, 0x82034FC4, 0x82001FF4, 0x82001F7C, 0x820020E4 };
 
 bool Enabled()
 {
@@ -159,8 +164,26 @@ PPC_FUNC(sub_821E9B50)
     const uint32_t director = view ? Load32(base, view + 4) : 0;
     const uint32_t camera = director ? Load32(base, director + kDirectorActive) : 0;
     const uint32_t vtable = camera ? Load32(base, camera) : 0;
+    {
+        // Which camera each view shows, logged when it changes (to find the views' cameras: CCam* vtables by RTTI name,
+        // tools/analysis/rtti.py CCam).
+        static uint32_t lastVtable[4] = {}, lastDirector[4] = {};
+        static int views = 0;
+        int slot = 0;
+        while (slot < views && lastDirector[slot] != director)
+            slot++;
+        if (slot == views && views < 4)
+            lastDirector[views++] = director;
+        if (slot < 4 && lastVtable[slot] != vtable)
+        {
+            lastVtable[slot] = vtable;
+            Log("vr: view %d (director %08X) camera %08X vtable %08X", slot, director, camera, vtable);
+        }
+    }
     regpu::vr::HeadPose pose;
-    const bool inCar = vtable == kCamDriverVtable || vtable == kCamCockpitVtable;
+    bool inCar = false;
+    for (uint32_t v : kFirstPerson)
+        inCar |= vtable == v;
     if (!inCar || !(FakePose(pose) || regpu::vr::GetHeadPose(pose)))
     {
         __imp__sub_821E9B50(ctx, base);

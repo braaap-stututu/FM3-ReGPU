@@ -48,6 +48,22 @@
     nowhere: dead in retail; would need the in-car camera's update reverse-engineered: wait for the headset test), the
     cabin pass (needs a real cockpit drive), headset pacing (the headset thread already has its own lists and never
     holds the game's queue; a cap matched to the headset rate may help: test first).
+- **Then (user: "continue building"): the real cockpit view, cabin check, pad recentre** (FM3 side only):
+  - **Session 37's "active camera" (+0x14) was wrong:** the director's active camera is at **+0x0C** (+0x08 the view
+    the player picked, 0-4; +0x10/+0x14 earlier cameras; +0x18.. the player's cameras). On the grid both read as the
+    chase camera, so it didn't show; in a real cockpit view the hook never engaged. Found by cycling the views in a
+    running race (virtual pad **RB held ~0.5 s** changes the view; a short press doesn't; BACK is rewind) with a new log
+    line `vr: view N (director X) camera Y vtable Z` on every camera change. The hook now reads +0x0C and head-tracks
+    every first-person camera: CCamDriver (the in-car view, `0x8200206C`), CCamCockpit, CCamHood and the two bumper
+    views. `tools/vr_incar.ps1` now unfreezes the grid and holds RB until the in-car camera is active (the old poke of
+    +0x14 overwrote one of the director's camera slots).
+  - **Cabin check (FH1R v7-8's nausea bug): not present in FM3.** In the real in-car view a fake 10 cm head move right
+    moves the wheel and hands -146 px, the dashboard -74, the rear-view mirror -102, the stands outside -2: the
+    interior is drawn from the real eye point with correct parallax. Stereo in the cockpit: dashboard -47 px between
+    the eyes (predicted 47), mirror -58 (65), wheel -81 (93); picture clean, HUD on its panel, mirrors drawn.
+    Shots `out/shots/s38-cab*.png`, `s38-cs-*.png`.
+  - **Pad recentre:** both stick clicks held for 1 s (`src/kernel/imports_xam.cpp`, any pad, only with VR on) call
+    `regpu::vr::Recentre()`, as F8 does; checked with the virtual pad (`press LS+RS 1600`).
 - Not done: XR eye images never ran with a real session (the swapchain pair path, poses per eye); the user's
   `fm3.log` from before was copied to `out/logs/user-s38/`.
 

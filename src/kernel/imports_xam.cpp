@@ -752,6 +752,26 @@ bool ReadPad(uint32_t user, PadState& s, bool gameRead = true)
     }
     if (connected && (s.buttons & (XINPUT_GAMEPAD_START | XINPUT_GAMEPAD_A)))
         g_lastActiveUser = user;
+    // VR (session 38): both stick clicks held for a second recentre the headset (regpu::vr::Recentre; F8 does it too).
+    if (connected && gameRead && user < 4 && getenv("REGPU_VR"))
+    {
+        static Clock::time_point heldSince[4]{};
+        static bool done[4] = {};
+        constexpr uint16_t both = XINPUT_GAMEPAD_LEFT_THUMB | XINPUT_GAMEPAD_RIGHT_THUMB;
+        if ((s.buttons & both) == both)
+        {
+            if (heldSince[user] == Clock::time_point{})
+                heldSince[user] = Clock::now();
+            else if (!done[user] && Clock::now() - heldSince[user] > std::chrono::seconds(1))
+            {
+                done[user] = true;
+                regpu::vr::Recentre();
+                Log("vr: recentre (both stick clicks held)");
+            }
+        }
+        else
+            heldSince[user] = {}, done[user] = false;
+    }
     return connected;
 }
 }
