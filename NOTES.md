@@ -9,6 +9,23 @@
   Four grid boots (`out/perf/s37-scan/`): 22-24 half-written candidates dropped per boot, 0 new cache files with or
   without it, because our ReGPU already parks scan finds from 1.7 s into the boot (translated, compiled only on use).
   Saving in FM3 = only those translations; the user chose to keep it. 58 ReGPU patches.
+- **Draw thread: the "bigger changes" tried (user's request), none gained, nothing kept** (`out/perf/s37-draw/`;
+  1440p 1x grid, upscaler off, full perf log as the load, ~261 fps, GPU 1.9 of 3.8 ms):
+  - Line profile (`prof-lines.log`): flat; DrawImpl's closing line 10.4% (the write-combined ring stores retiring),
+    then nothing over 2.6% (hashing ~6%, GetIndexBuffer ~4%, pass scales ~4%). Perf sections per frame: shaders
+    0.13, indices 0.31, pipeline 0.19, constants 1.10, textures 0.29, submit 1.12 ms.
+  - **Ring writes moved off the draw thread** (built as `REGPU_DEFER_RING_WRITES`: blocks staged in cached memory,
+    `RecordedList::Write` commands, the replay thread copies them into the ring): picture byte-identical, the 10.4%
+    line gone from the draw thread, replay thread 22.7% -> 35.9% of a core, but **fps -0.4% (live A/B, 4 rounds)**
+    and the "submit" section unchanged: the stores' cost reappears as cached writes into the recording. So **fewer
+    constant bytes per draw cannot gain much either**: removing all of them from the draw thread gained nothing.
+    Removed again.
+  - **Draw workers** (`FM3_DRAW_THREAD_PIECES=1`) re-tested: **-7.6%** (242 vs 261 fps, 2 boots each): only ~20% of
+    the draws reach a parallel piece (short segments between resolves/fences, query draws drawn directly), and the
+    extra lists cost GPU time (1.88 -> 2.05 ms). Session 15's verdict stands.
+  - Waits: ~2% of the draw thread is waking the command processor (needed); no replay-drain cost worth chasing.
+  - Left: the per-draw cost is ~1 us spread over hundreds of lines. Real gains would need a different structure
+    (e.g. parallel recording that works with FM3's short segments and occlusion queries), not trimming.
 
 ### ▶ Start here (session 37): state at the end of session 36 (2026-11-15)
 - **In short:** anti-aliasing filters (user's request: FXAA, EQAA, MLAA, SRAA, SSAA, TAA, CMAA, SMAA; the user chose to
