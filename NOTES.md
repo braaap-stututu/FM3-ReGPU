@@ -28,10 +28,9 @@
   came from destroying the FSR context on every 8-bit/HDR flip while the GPU still used it; contexts are now kept per
   setup. The SDK 2.1 version descriptor was missing too, and with no explicit version the DLL ran **FSR 4.1.2** (its
   default on the RX 7900 XTX: `4.1.2 *, 3.1.5, 2.3.4`) under "FSR 3". Now `upscaler=fsr3` = 3.1.5, `upscaler=fsr4` =
-  4.1.2 (launcher: "FSR 4 (Radeon RX 9000 series; FSR 3 on others)"; on this card it is offered too). 4K from 1440p,
+  4.1.2 (launcher: "FSR 4 (RX 9000; RX 7000 with recent drivers; else FSR 3)"). 4K from 1440p,
   benchmark race: FSR 3 260.0 fps / GPU 3.66 ms, FSR 4 171.5 fps / 5.64 ms (no FP8 on RDNA 3), no crash; 1440p grid
-  2.79 / 3.73 ms. Crops `out/perf/s36-fsr/edge_*.png`: FSR 4 a little crisper. The launcher exe was open: rebuild it
-  (`dotnet build launcher\FM3Launcher -c Release`) for the FSR 4 entry.
+  2.79 / 3.73 ms. Crops `out/perf/s36-fsr/edge_*.png`: FSR 4 a little crisper. Launcher rebuilt.
 - **"FSR slower than native 1440p 4x MSAA" (user):** at 1440p on this PC the frame is limited by ReGPU's draw thread
   (94-98% busy; GPU only ~2.1 of 3.25 ms, which is also why 4x MSAA is free), so upscaling can't gain: even FSR 3
   Performance (720p) ran 291.6 fps vs native 306. Fixed one stall: the FSR dispatch drained the recorded list mid-frame
@@ -55,6 +54,9 @@
   1x -> system memory, 4x -> VRAM) but **the user chose a tooltip instead**: launcher "Upload ring in VRAM" now says
   on when the GPU is the limit, off when the CPU is (no launcher toggle for the automatic pick; the env switch stays
   for tests). Results `out/perf/s36-ring*`, `s36-lines`, `s36-reuse`.
+- **State at the end:** everything committed and pushed (last: launcher VRAM-ring tooltip), 57 ReGPU patches verified,
+  game + launcher built. Session 35 (DXC: vertex-shader corner array, pipeline-library lock, launcher option, `-O1`) is
+  in "Start here (session 36)" below.
 - **Next (ask the user):** their look at each mode in a drive; TAA tuning if it ghosts (`REGPU_TAA_BLEND`,
   `REGPU_TAA_CLIP`, live via `Fm3 "env ..."`); SMAA 2x/T2x (SMAA with TAA) if wanted.
 
