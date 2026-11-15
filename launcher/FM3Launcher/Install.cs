@@ -64,7 +64,7 @@ public sealed class GameSettings
     // gpu: the graphics card the game renders on, by name (Options.Gpus; the game's REGPU_ADAPTER); "" = Windows' choice.
     public string Gpu { get; set; } = "";
     // The 3D scene's upscaler: off, fsr1, fsr3 or bilinear (session 34: plain upscale, no sharpening) (settings.ini "upscaler"), at Upscale = the game's upscale_quality
-    // (1 quality to 4 ultra performance). FSR 4 needs a newer ReGPU than FM3 has.
+    // (1 quality to 4 ultra performance). FSR 4 (session 36): RDNA 4 GPUs; FSR 3 on others.
     public string Upscaler { get; set; } = "off";
     public int Upscale { get; set; } = 1;
     public int Sharpening { get; set; } = 50; // percent; settings.ini holds 0-1
@@ -221,7 +221,7 @@ public static class Options
     public static readonly (int Value, string Name)[] Msaa = [(1, "Off"), (2, "2x MSAA"), (4, "4x MSAA")];
     public static readonly (string Value, string Name)[] Aa = [("off", "Off"), ("fxaa", "FXAA (fastest, softest)"), ("smaa", "SMAA (sharp)"), ("cmaa2", "CMAA 2 (sharpest, keeps fine detail)"), ("taa", "TAA (smoothest; can ghost in motion)")];
     public static readonly (string Value, string Name)[] Ssaa = [("1", "Off"), ("1.5", "1.5x (2.25x the pixels)"), ("2", "2x (4x the pixels)")];
-    public static readonly (string Value, string Name)[] Upscalers = [("off", "Off (native)"), ("fsr1", "FSR 1 (any graphics card)"), ("fsr3", "FSR 3 (any graphics card)"), ("bilinear", "Bilinear (fastest, softer; for slow GPUs)")];
+    public static readonly (string Value, string Name)[] Upscalers = [("off", "Off (native)"), ("fsr1", "FSR 1 (any graphics card)"), ("fsr3", "FSR 3 (any graphics card)"), ("fsr4", "FSR 4 (Radeon RX 9000 series; FSR 3 on others)"), ("bilinear", "Bilinear (fastest, softer; for slow GPUs)")];
     public static readonly (int Value, string Name)[] Upscale = [(1, "Quality"), (2, "Balanced"), (3, "Performance"), (4, "Ultra performance")];
     public static readonly (int Value, string Name)[] Sharpening = [(0, "Off"), (25, "Low"), (50, "Medium"), (75, "High"), (100, "Maximum")];
 

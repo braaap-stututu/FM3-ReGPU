@@ -24,6 +24,14 @@
   RtlVirtualUnwind during a TAA boot's screenshot, and again in the user's TAA drive (`out/run/fm3.log`, 50 s). Fixed:
   the unwind of a sample now runs under SEH (`UnwindCopy`), a faulting walk just ends that sample's chain; two TAA grid
   boots with the sampler on afterwards: 0 crashes, dumps still logged (`out/perf/s36-taa-fix*`).
+- **FSR 3 crash fixed, FSR 4 added (user's request; ReGPU patch 55 `regpu-fsr4`):** the driver timeout (OPEN-ISSUES U)
+  came from destroying the FSR context on every 8-bit/HDR flip while the GPU still used it; contexts are now kept per
+  setup. The SDK 2.1 version descriptor was missing too, and with no explicit version the DLL ran **FSR 4.1.2** (its
+  default on the RX 7900 XTX: `4.1.2 *, 3.1.5, 2.3.4`) under "FSR 3". Now `upscaler=fsr3` = 3.1.5, `upscaler=fsr4` =
+  4.1.2 (launcher: "FSR 4 (Radeon RX 9000 series; FSR 3 on others)"; on this card it is offered too). 4K from 1440p,
+  benchmark race: FSR 3 260.0 fps / GPU 3.66 ms, FSR 4 171.5 fps / 5.64 ms (no FP8 on RDNA 3), no crash; 1440p grid
+  2.79 / 3.73 ms. Crops `out/perf/s36-fsr/edge_*.png`: FSR 4 a little crisper. The launcher exe was open: rebuild it
+  (`dotnet build launcher\FM3Launcher -c Release`) for the FSR 4 entry.
 - **Next (ask the user):** their look at each mode in a drive; TAA tuning if it ghosts (`REGPU_TAA_BLEND`,
   `REGPU_TAA_CLIP`, live via `Fm3 "env ..."`); SMAA 2x/T2x (SMAA with TAA) if wanted.
 

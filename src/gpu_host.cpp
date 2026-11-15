@@ -56,14 +56,9 @@ void ApplySettings(regpu::Config& c)
     c.vsync = s.vsync;
     c.maxFps = s.maxFps;
     c.msaa = s.msaa;
-    // Our pinned ReGPU has no FSR 4 (regpu.h: Off, Fsr1, Fsr3, Dlss): a hand-edited upscaler=fsr4 would pass an
-    // out-of-range 4. It runs as FSR 3 (same single-sample inputs; Settings already forced MSAA 1x for it).
-    if (s.upscaler == Settings::Upscaler::Fsr4)
-    {
-        Log("settings: upscaler=fsr4 is not in this ReGPU; using fsr3");
-        c.upscaler = regpu::Config::Upscaler::Fsr3;
-    }
-    else if (s.upscaler == Settings::Upscaler::Bilinear)
+    // FSR 4 (session 36, ReGPU fsr3.cpp): the FidelityFX upscaler's 4.x version where the GPU offers it (RDNA 4, RX 9000
+    // series), else FSR 3.1 with a log line; the same single-sample inputs (Settings forces MSAA 1x for it).
+    if (s.upscaler == Settings::Upscaler::Bilinear)
     {
         // L63 (session 34): FSR 1's scene scaling with a plain bilinear upscale instead of EASU + RCAS (ReGPU patch 49,
         // REGPU_UPSCALE_BILINEAR, live): for small GPUs (2-CU iGPU, Low preset: frozen grid 77 -> 85 fps); softer.

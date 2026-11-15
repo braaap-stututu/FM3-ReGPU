@@ -87,7 +87,10 @@ Original report:
   zero in memory and never resolved into while in the showroom. It may be unused there, or only live in races. The
   showroom looks right without it; worth a look if race reflections ever look wrong.
 
-### U. FSR 3 at 4K: GPU driver timeout (session 33, parked by the user)
+### U. FSR 3 at 4K: GPU driver timeout (session 33; **fixed in session 36**, ReGPU patch 55 `regpu-fsr4`)
+**Session 36:** cause = the context destroyed and re-created on each 8-bit/HDR flip while the GPU still used it; now
+one context per setup is kept; also the missing SDK 2.1 version descriptor, and the old code ran FSR 4.1.2 (the
+DLL's default on this GPU) under "FSR 3". The same 4K benchmark race: FSR 3 260 fps, FSR 4 171.5 fps, no timeout.
 A minimized benchmark run (`FM3_BENCHMARK=120`, `FM3_RESOLUTION=3840x2160`, `FM3_UPSCALER=fsr3`,
 `FM3_UPSCALE_QUALITY=1` = 2560x1440 -> 4K, MSAA 1) made the AMD driver time out (the user's display reset). The log
 (kept: `out/logs/session33-fsr3-driver-timeout.log`) shows FSR 3's context created and destroyed several times in the

@@ -209,12 +209,12 @@ function render() {
   $("eqaaRow").classList.toggle("off", set.msaa <= 1)
   fill($("upscaler"), o.upscalers, set.upscaler)
   // FSR 3 does its own anti-aliasing: fm3.exe turns MSAA off under it (src/settings.cpp), so it's greyed out here.
-  const fsrAa = set.upscaler === "fsr3"
+  const fsrAa = set.upscaler === "fsr3" || set.upscaler === "fsr4"
   const mf = $("msaaField")
   if (!mf.dataset.tip0) mf.dataset.tip0 = mf.dataset.tip
   $("msaa").disabled = fsrAa
   mf.classList.toggle("off", fsrAa)
-  mf.dataset.tip = fsrAa ? "Off while FSR 3 is on: it handles anti-aliasing itself." : mf.dataset.tip0
+  mf.dataset.tip = fsrAa ? "Off while FSR 3 or 4 is on: it handles anti-aliasing itself." : mf.dataset.tip0
   fill($("upscale"), o.upscale, set.upscale)
   fill($("sharpening"), o.sharpening, set.sharpening)
   $("upscaleField").hidden = set.upscaler === "off"
@@ -247,7 +247,7 @@ function render() {
   line("Display", `${set.resolution.replace("x", " × ")}, ${set.fullscreen ? "fullscreen" : "windowed"}${aspect && set.aspect !== "auto" ? ", " + aspect.name : ""}`)
   if (set.gpu) line("Graphics card", set.gpu)
   line("Frame rate", `${set.maxFps} fps cap, VSync ${set.vsync ? "on" : "off"}`)
-  const aaParts = [fsrAa ? "FSR 3" : `MSAA ${named(o.msaa, set.msaa)}`]
+  const aaParts = [fsrAa ? (set.upscaler === "fsr4" ? "FSR 4" : "FSR 3") : `MSAA ${named(o.msaa, set.msaa)}`]
   if (set.aa !== "off" && !(fsrAa && set.aa === "taa")) aaParts.push(named(o.aa, set.aa).split(" (")[0])
   if (set.ssaa !== "1" && set.upscaler === "off") aaParts.push(`SSAA ${set.ssaa}x`)
   if (set.eqaa && set.msaa > 1) aaParts.push("EQAA")
