@@ -240,6 +240,8 @@ public sealed class Bridge
                 aspects = Options.Aspects.Select(x => new { value = x.Value, name = x.Name }),
                 fps = Options.Fps,
                 msaa = Options.Msaa.Select(x => new { value = x.Value, name = x.Name }),
+                aa = Options.Aa.Select(x => new { value = x.Value, name = x.Name }),
+                ssaa = Options.Ssaa.Select(x => new { value = x.Value, name = x.Name }),
                 upscalers = Options.Upscalers.Select(x => new { value = x.Value, name = x.Name }),
                 upscale = Options.Upscale.Select(x => new { value = x.Value, name = x.Name }),
                 sharpening = Options.Sharpening.Select(x => new { value = x.Value, name = x.Name }),

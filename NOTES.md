@@ -1,6 +1,30 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-15, session 35)
+## ▶ Current status / next step  (updated 2026-11-15, session 36)
+
+### ▶ Start here (session 37): state at the end of session 36 (2026-11-15)
+- **In short:** anti-aliasing filters (user's request: FXAA, EQAA, MLAA, SRAA, SSAA, TAA, CMAA, SMAA; the user chose to
+  skip MLAA (SMAA's predecessor) and SRAA (needs per-sample normals FM3 never draws) and to download the originals).
+  ReGPU patch 54 `regpu-postaa` + FM3 `thirdparty/aa` (SMAA MIT, CMAA 2 Apache 2.0, FXAA 3.11 NVIDIA BSD-style; pinned
+  in `thirdparty/aa/SOURCES.txt`, notices in NOTICE.md). Launcher Graphics > "Anti-aliasing & image": **Edge filter**
+  (`aa=off|fxaa|smaa|cmaa2|taa`), **Supersampling** (`ssaa=1|1.5|2`, not with an upscaler), **EQAA** (`eqaa=1`). Env:
+  `FM3_AA`, `FM3_SSAA`, `FM3_EQAA`. All off by default. Log line `gpu: anti-aliasing filter ...`.
+- **How:** FXAA/SMAA/CMAA 2 run on the finished scene image (the upscalers' point, `UpscaleScene`: before FM3's bloom,
+  tone map and HUD), inside a reversible tone map (Reinhard + gamma into RGBA16F; unchanged pixels stay bit-identical).
+  TAA = own resolve on the motion vectors + jitter ReGPU makes for FSR 3/DLSS (not together with those). SSAA = the frame
+  drawn at 1.5x/2x and area-filtered down at the present (HUD supersampled too). EQAA = MSAA quality levels: **AMD's
+  D3D12 driver reports only 1 level at 4x on the RX 7900 XTX: not offered** (the switch logs "not offered").
+- **Measured** (frozen grid 1440p 1x, RX 7900 XTX, GPU ms/frame; `out/perf/s36-aa*`, crops `edge_*.png`): off 2.06,
+  FXAA 2.10, SMAA 2.31, CMAA 2 2.23, TAA 2.70-2.91 (with motion vectors), SSAA 1.5x 2.63, 2x 3.69, MSAA 4x 2.17. Crops:
+  FXAA smooths edges and softens texture noise, SMAA smooths edges and keeps texture, CMAA 2 the most conservative, TAA
+  the smoothest (on a frozen grid the jitter accumulates). 0 compile failures.
+- **Not checked yet:** the SSAA picture as shown (the debug shot is taken before the downsample: user's eye), TAA in
+  motion (ghosting/trails: user's drive), the launcher's new fields in the real window, the iGPU. One crash in 10
+  boots: the long-frame stack sampler (`long_stacks.cpp`, on via the user's `long_frame_stacks=1`) crashed in
+  RtlVirtualUnwind during a TAA boot's screenshot; the re-run was clean. Watch for it; it is the sampler, not TAA.
+- **Next (ask the user):** their look at each mode in a drive; TAA tuning if it ghosts (`REGPU_TAA_BLEND`,
+  `REGPU_TAA_CLIP`, live via `Fm3 "env ..."`); SMAA 2x/T2x (SMAA with TAA) if wanted.
+
 
 ### ▶ Start here (session 36): state at the end of session 35 (2026-11-15)
 - **In short:** the user asked why DXC lost on the iGPU. Answer: **every translated vertex shader carried a

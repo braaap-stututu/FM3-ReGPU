@@ -44,3 +44,11 @@ SOFTWARE.
 - `thirdparty/ReGPU`: MIT.
 - `thirdparty/ffmpeg` (not in the repository): FFmpeg LGPL build, linked dynamically, under its own licence.
 - `thirdparty/fidelityfx` (not in the repository): AMD FidelityFX SDK, MIT.
+- `thirdparty/aa` (session 36, the anti-aliasing filters, compiled into ReGPU's shaders; pinned commits in
+  `thirdparty/aa/SOURCES.txt`):
+  - `smaa/`: SMAA (`SMAA.hlsl`, `AreaTex.h`, `SearchTex.h`), Copyright (C) 2013 Jorge Jimenez, Jose I. Echevarria,
+    Belen Masia, Fernando Navarro, Diego Gutierrez; MIT licence (`smaa/LICENSE.txt`). From iryoku/smaa.
+  - `cmaa2/`: CMAA 2 (`CMAA2.hlsl`), Copyright (c) Intel Corporation; Apache License 2.0 (`cmaa2/license.txt`).
+    From GameTechDev/CMAA2.
+  - `fxaa/`: FXAA 3.11 (`Fxaa3_11.h`), Copyright (c) 2014 NVIDIA Corporation; BSD-style licence in the file's header.
+    The copy in Intel's CMAA 2 sample (its luma-texture addition unused here).

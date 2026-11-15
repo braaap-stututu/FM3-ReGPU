@@ -45,6 +45,31 @@ const char* UpscalerName(Settings::Upscaler u)
     }
 }
 
+Settings::PostAA ParsePostAA(const std::string& v)
+{
+    if (v == "fxaa")
+        return Settings::PostAA::Fxaa;
+    if (v == "smaa")
+        return Settings::PostAA::Smaa;
+    if (v == "cmaa2" || v == "cmaa")
+        return Settings::PostAA::Cmaa2;
+    if (v == "taa")
+        return Settings::PostAA::Taa;
+    return Settings::PostAA::Off;
+}
+
+const char* PostAAName(Settings::PostAA a)
+{
+    switch (a)
+    {
+    case Settings::PostAA::Fxaa: return "fxaa";
+    case Settings::PostAA::Smaa: return "smaa";
+    case Settings::PostAA::Cmaa2: return "cmaa2";
+    case Settings::PostAA::Taa: return "taa";
+    default: return "off";
+    }
+}
+
 void Load()
 {
     std::ifstream in(Path());
@@ -82,8 +107,17 @@ void Load()
             g_settings.gridTest = value == "1";
         else if (key == "msaa")
             g_settings.msaa = uint32_t(atoi(value.c_str()));
-        else if (key == "smaa")
-            g_settings.smaa = uint32_t(atoi(value.c_str()));
+        else if (key == "smaa") // (an old key of the FM2/FM4 template, never used: a level above 0 now means SMAA)
+        {
+            if (atoi(value.c_str()) > 0 && g_settings.postAA == Settings::PostAA::Off)
+                g_settings.postAA = Settings::PostAA::Smaa;
+        }
+        else if (key == "aa")
+            g_settings.postAA = ParsePostAA(value);
+        else if (key == "ssaa")
+            g_settings.ssaa = float(atof(value.c_str()));
+        else if (key == "eqaa")
+            g_settings.eqaa = value == "1";
         else if (key == "upscaler")
             g_settings.upscaler = ParseUpscaler(value);
         else if (key == "upscale_quality")
@@ -138,6 +172,16 @@ void Load()
         g_settings.skipIntro = true;
     if (const char* v = getenv("FM3_MSAA"))
         g_settings.msaa = uint32_t(atoi(v));
+    if (const char* v = getenv("FM3_AA"))
+        g_settings.postAA = ParsePostAA(v);
+    if (const char* v = getenv("FM3_SSAA"))
+        g_settings.ssaa = float(atof(v));
+    if (const char* v = getenv("FM3_EQAA"))
+        g_settings.eqaa = atoi(v) != 0;
+    // Supersampling: 1-2x; not with an upscaler (the scene would be drawn smaller and the frame larger at once).
+    g_settings.ssaa = std::clamp(g_settings.ssaa, 1.0f, 2.0f);
+    if (g_settings.upscaler != Settings::Upscaler::Off)
+        g_settings.ssaa = 1.0f;
     g_settings.msaa = g_settings.msaa >= 8 ? 8 : g_settings.msaa >= 4 ? 4 : g_settings.msaa >= 2 ? 2 : 1;
     // FSR 3 and 4 need single-sample colour, depth and motion; MSAA crashed FSR 4 at context creation.
     if (g_settings.upscaler == Settings::Upscaler::Fsr3 || g_settings.upscaler == Settings::Upscaler::Fsr4)
@@ -204,7 +248,9 @@ void SaveSettings()
     out << "grid_test=" << (s.gridTest ? 1 : 0) << "\n";
     out << "language=" << s.language << "\n";
     out << "msaa=" << s.msaa << "\n";
-    out << "smaa=" << s.smaa << "\n";
+    out << "aa=" << PostAAName(s.postAA) << "\n";
+    out << "ssaa=" << s.ssaa << "\n";
+    out << "eqaa=" << (s.eqaa ? 1 : 0) << "\n";
     out << "upscaler=" << UpscalerName(s.upscaler) << "\n";
     out << "upscale_quality=" << s.quality << "\n";
     out << "sharpness=" << s.sharpness << "\n";

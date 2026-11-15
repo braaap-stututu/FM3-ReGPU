@@ -161,6 +161,18 @@
         <span>MSAA (experimental)</span>
         <select id="msaa"></select>
       </label>
+      <label class="field" id="aaField" data-tip="A filter that smooths edges on the finished 3D picture, before the game's own effects and the HUD (so the HUD stays sharp). Works with or without MSAA. FXAA: fastest, softens the whole picture a little. SMAA: sharper, catches most edges. CMAA 2: the sharpest, changes the least besides edges. TAA: blends each frame with the last ones using the game's motion; the smoothest edges and no shimmer on fine detail, but softer and it can leave faint trails behind fast-moving things (not with FSR 3, which does its own). Read when the game starts.">
+        <span>Edge filter</span>
+        <select id="aa"></select>
+      </label>
+      <label class="field" id="ssaaField" data-tip="Supersampling: the game draws every frame larger and shrinks it to your resolution, which smooths every edge, the HUD included. The most expensive option by far: 1.5x draws 2.25 times the pixels, 2x four times (and needs much more video memory, especially with MSAA). Not with an upscaler. Read when the game starts.">
+        <span>Supersampling (SSAA)</span>
+        <select id="ssaa"></select>
+      </label>
+      <div class="toggle-row" id="eqaaRow" data-tip="AMD's enhanced quality anti-aliasing: with MSAA on, the graphics card stores more coverage samples than colour samples, for smoother edges at about the cost of the MSAA level you chose. Only where the driver offers it (fm3.log says so at start: 'MSAA quality levels'); otherwise nothing changes. Read when the game starts.">
+        <div><div class="toggle-title">EQAA</div><div class="toggle-sub">With MSAA, AMD cards, where the driver offers it</div></div>
+        <button class="switch" id="eqaa" role="switch"></button>
+      </div>
       <div class="toggle-row" data-tip="Keeps road and ground textures sharp when seen at a low angle (16x). Costs little.">
         <div><div class="toggle-title">Anisotropic filtering</div><div class="toggle-sub">16x</div></div>
         <button class="switch" id="anisotropy" role="switch"></button>

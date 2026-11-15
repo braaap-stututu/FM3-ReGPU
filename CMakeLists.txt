@@ -76,6 +76,9 @@ endif()
 # then, as that copy's API differs slightly (src/crash.cpp).
 set(FM3_REGPU_DIR "${CMAKE_SOURCE_DIR}/thirdparty/ReGPU" CACHE PATH "ReGPU source folder")
 option(FM3_REGPU_FM4 "FM3_REGPU_DIR is the FM4 port's vendored ReGPU" OFF)
+# Anti-aliasing filters (session 36): the original FXAA 3.11, SMAA and CMAA 2 shaders in thirdparty/aa (their licences
+# there; pinned sources in thirdparty/aa/SOURCES.txt), compiled into ReGPU.
+set(REGPU_AA_DIR "${CMAKE_SOURCE_DIR}/thirdparty/aa" CACHE PATH "" FORCE)
 add_subdirectory("${FM3_REGPU_DIR}" regpu)
 
 # Profile-guided optimisation of ReGPU (session 32, PERF-PLAN L23; FH1R measured +6%): FM3_PGO=gen builds ReGPU

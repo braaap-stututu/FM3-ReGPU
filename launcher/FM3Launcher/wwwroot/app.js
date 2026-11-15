@@ -19,7 +19,7 @@ const PRESETS = [
 // Mild and up turn these on by themselves (src/gpu_host.cpp ApplyPerfPreset): shown on and locked there; Off and
 // Turbo leave them to their own switches.
 const PRESET_OPTIONS = ["oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "carLodFar"]
-const SWITCHES = ["vsync", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "dxcShaders", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
+const SWITCHES = ["vsync", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "dxcShaders", "eqaa", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
 
 // ---- host calls
 
@@ -199,6 +199,14 @@ function render() {
   $("customFpsField").hidden = !custom
   if (document.activeElement !== $("customFps")) $("customFps").value = set.maxFps
   fill($("msaa"), o.msaa, set.msaa)
+  // Edge filter, supersampling, EQAA (session 36). TAA is off under FSR 3 (it does its own); SSAA not with an upscaler
+  // (fm3.exe turns it off, src/settings.cpp); EQAA only means something with MSAA.
+  fill($("aa"), o.aa, set.aa)
+  fill($("ssaa"), o.ssaa, set.ssaa)
+  const noSsaa = set.upscaler !== "off"
+  $("ssaa").disabled = noSsaa
+  $("ssaaField").classList.toggle("off", noSsaa)
+  $("eqaaRow").classList.toggle("off", set.msaa <= 1)
   fill($("upscaler"), o.upscalers, set.upscaler)
   // FSR 3 does its own anti-aliasing: fm3.exe turns MSAA off under it (src/settings.cpp), so it's greyed out here.
   const fsrAa = set.upscaler === "fsr3"
@@ -239,7 +247,11 @@ function render() {
   line("Display", `${set.resolution.replace("x", " × ")}, ${set.fullscreen ? "fullscreen" : "windowed"}${aspect && set.aspect !== "auto" ? ", " + aspect.name : ""}`)
   if (set.gpu) line("Graphics card", set.gpu)
   line("Frame rate", `${set.maxFps} fps cap, VSync ${set.vsync ? "on" : "off"}`)
-  line("Anti-aliasing", fsrAa ? "FSR 3" : `MSAA ${named(o.msaa, set.msaa)}`)
+  const aaParts = [fsrAa ? "FSR 3" : `MSAA ${named(o.msaa, set.msaa)}`]
+  if (set.aa !== "off" && !(fsrAa && set.aa === "taa")) aaParts.push(named(o.aa, set.aa).split(" (")[0])
+  if (set.ssaa !== "1" && set.upscaler === "off") aaParts.push(`SSAA ${set.ssaa}x`)
+  if (set.eqaa && set.msaa > 1) aaParts.push("EQAA")
+  line("Anti-aliasing", aaParts.join(", "))
   if (set.upscaler !== "off") line("Upscaling", `${named(o.upscalers, set.upscaler)}, ${named(o.upscale, set.upscale)}`)
   if (preset) line("Speed preset", PRESETS[preset].name)
   const testing = [set.timer ? "timer" : "", set.debugServer ? "debug server" : "", set.perfLog ? "performance log" : "", set.perfLogLight ? "light performance log" : ""].filter(Boolean)
@@ -347,6 +359,8 @@ $("customFps").onchange = (e) => {
   change({ maxFps: f })
 }
 $("msaa").onchange = (e) => change({ msaa: +e.target.value })
+$("aa").onchange = (e) => change({ aa: e.target.value })
+$("ssaa").onchange = (e) => change({ ssaa: e.target.value })
 $("gpu").onchange = (e) => change({ gpu: e.target.value })
 $("perfPreset").oninput = (e) => { const p = PRESETS[+e.target.value]; $("perfPreset-v").textContent = p.name; $("perfPreset-note").textContent = p.note }
 $("perfPreset").onchange = (e) => change({ perfPreset: PRESETS[+e.target.value].value })

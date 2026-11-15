@@ -56,6 +56,11 @@ public sealed class GameSettings
     public bool Vsync { get; set; } = true;
     public int MaxFps { get; set; } = 60;
     public int Msaa { get; set; } = 1;
+    // Anti-aliasing filters (session 36; read by the game, so play.cmd too): aa = off/fxaa/smaa/cmaa2/taa on the 3D scene,
+    // ssaa = supersampling factor "1"/"1.5"/"2", eqaa = AMD's enhanced quality AA with MSAA (where the driver offers it).
+    public string Aa { get; set; } = "off";
+    public string Ssaa { get; set; } = "1";
+    public bool Eqaa { get; set; }
     // gpu: the graphics card the game renders on, by name (Options.Gpus; the game's REGPU_ADAPTER); "" = Windows' choice.
     public string Gpu { get; set; } = "";
     // The 3D scene's upscaler: off, fsr1, fsr3 or bilinear (session 34: plain upscale, no sharpening) (settings.ini "upscaler"), at Upscale = the game's upscale_quality
@@ -93,7 +98,7 @@ public sealed class GameSettings
     public string GameFolder { get; set; } = "";
 
     // The racing wheel's wheel_* keys are the Wheel stuff tab's (Wheel.cs); Save keeps them like any other key it doesn't know.
-    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "shader_compiler", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
+    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "shader_compiler", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
 
     public static GameSettings Load()
     {
@@ -108,6 +113,9 @@ public sealed class GameSettings
                 case "vsync": s.Vsync = v == "1"; break;
                 case "max_fps": s.MaxFps = int.TryParse(v, out var f) ? f : 60; break;
                 case "msaa": s.Msaa = int.TryParse(v, out var m) ? m : 1; break;
+                case "aa": s.Aa = Options.Aa.Any(x => x.Value == v) ? v : "off"; break;
+                case "ssaa": s.Ssaa = Options.Ssaa.Any(x => x.Value == v) ? v : "1"; break;
+                case "eqaa": s.Eqaa = v == "1"; break;
                 case "gpu": s.Gpu = v; break;
                 case "upscaler": s.Upscaler = Options.Upscalers.Any(u => u.Value == v) ? v : "off"; break;
                 case "upscale_quality": s.Upscale = int.TryParse(v, out var q) ? Math.Clamp(q, 1, 4) : 1; break;
@@ -152,6 +160,7 @@ public sealed class GameSettings
         sb.Append($"profile={(profile.Length > 0 ? profile : "Player")}\n");
         sb.Append($"resolution={Resolution}\naspect={Aspect}\nfullscreen={B(Fullscreen)}\nvsync={B(Vsync)}\nmax_fps={Math.Clamp(MaxFps, 30, 360)}\n");
         sb.Append($"msaa={(Options.Msaa.Any(x => x.Value == Msaa) ? Msaa : 1)}\n");
+        sb.Append("aa=" + (Options.Aa.Any(x => x.Value == Aa) ? Aa : "off") + "\nssaa=" + (Options.Ssaa.Any(x => x.Value == Ssaa) ? Ssaa : "1") + "\neqaa=" + B(Eqaa) + "\n");
         sb.Append($"gpu={new string(Gpu.Where(c => !char.IsControl(c) && c != '=').ToArray()).Trim()}\n");
         sb.Append($"upscaler={(Options.Upscalers.Any(u => u.Value == Upscaler) ? Upscaler : "off")}\nupscale_quality={Math.Clamp(Upscale, 1, 4)}\nsharpness={sharp}\n");
         sb.Append($"language={Language}\n");
@@ -210,6 +219,8 @@ public static class Options
     public static readonly int[] Fps = [30, 60, 120, 144, 165, 240, 360];
     public static readonly (string Value, string Name)[] Aspects = [("auto", "Auto (match resolution)"), ("16:9", "16:9"), ("21:9", "21:9 (experimental)"), ("32:9", "32:9 (experimental)")];
     public static readonly (int Value, string Name)[] Msaa = [(1, "Off"), (2, "2x MSAA"), (4, "4x MSAA")];
+    public static readonly (string Value, string Name)[] Aa = [("off", "Off"), ("fxaa", "FXAA (fastest, softest)"), ("smaa", "SMAA (sharp)"), ("cmaa2", "CMAA 2 (sharpest, keeps fine detail)"), ("taa", "TAA (smoothest; can ghost in motion)")];
+    public static readonly (string Value, string Name)[] Ssaa = [("1", "Off"), ("1.5", "1.5x (2.25x the pixels)"), ("2", "2x (4x the pixels)")];
     public static readonly (string Value, string Name)[] Upscalers = [("off", "Off (native)"), ("fsr1", "FSR 1 (any graphics card)"), ("fsr3", "FSR 3 (any graphics card)"), ("bilinear", "Bilinear (fastest, softer; for slow GPUs)")];
     public static readonly (int Value, string Name)[] Upscale = [(1, "Quality"), (2, "Balanced"), (3, "Performance"), (4, "Ultra performance")];
     public static readonly (int Value, string Name)[] Sharpening = [(0, "Off"), (25, "Low"), (50, "Medium"), (75, "High"), (100, "Maximum")];

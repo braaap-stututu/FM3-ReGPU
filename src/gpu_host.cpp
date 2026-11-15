@@ -75,6 +75,12 @@ void ApplySettings(regpu::Config& c)
         c.upscaler = regpu::Config::Upscaler(uint32_t(s.upscaler));
     c.quality = s.quality;
     c.sharpness = s.sharpness;
+    // Anti-aliasing filters (session 36, ReGPU's postaa): settings.ini aa=, ssaa=, eqaa= (launcher Graphics).
+    c.postAA = regpu::Config::PostAA(uint32_t(s.postAA));
+    c.ssaa = s.ssaa;
+    c.eqaa = s.eqaa;
+    static const char* const kAaNames[] = { "off", "FXAA", "SMAA", "CMAA 2", "TAA" };
+    Log("gpu: anti-aliasing filter %s, supersampling %.2fx, EQAA %s", kAaNames[std::min<uint32_t>(uint32_t(s.postAA), 4)], s.ssaa, s.eqaa ? "asked for" : "off");
 }
 
 // Test aid: FM3_WRITEBACK="WxH,WxH,..." writes colour resolves of those sizes back to memory at once, to find out

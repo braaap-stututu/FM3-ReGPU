@@ -72,6 +72,7 @@ $regpuPatches = @(
     'regpu-vs-corners'               # vertex shaders' point/rectangle path without a float4[3][16] array: no scratch (FXC), ~62 instead of ~240 VGPRs (DXC); REGPU_OLD_VS_CORNERS=1 old form
     'regpu-pso-lock'                 # REGPU_PSO_LOCK: pipeline-library loads/stores one at a time (default with DXC: AMD driver crashed on 5/16 cached DXC boots, 0/32 locked)
     'regpu-dxc-tuning'               # DXC -O1 default (same code, faster compiles), REGPU_DXC_SM; vertex-shader rectangle path with one GuestVS call site (VS compile -22% FXC, -43% DXC)
+    'regpu-postaa'                   # anti-aliasing filters: FXAA 3.11 / SMAA / CMAA 2 (REGPU_AA_DIR sources), TAA, SSAA, EQAA (Config::postAA, ssaa, eqaa)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

@@ -20,7 +20,14 @@ struct Settings
     bool gridTest = false;               // the reference career race's grid by itself, world frozen there (hooks/grid_test.cpp; implies skipIntro)
     uint32_t language = 1;               // the console language the game sees (XGetLanguage: 1 English, 3 German, ...)
     uint32_t msaa = 1;                   // anti-aliasing samples per pixel: 1 (off), 2, 4 or 8
-    uint32_t smaa = 0;                   // SMAA 1x on the frame as it is shown: 0 off, 1 low, 2 medium, 3 high, 4 ultra
+    // Anti-aliasing filters (session 36, ReGPU's postaa): aa = a filter on the finished 3D scene before the game's own
+    // post-processing and HUD (the numbers match regpu::Config::PostAA); ssaa = supersampling, the frame drawn at this
+    // multiple of the shown size and filtered down (1 off, 1.5, 2; not with an upscaler); eqaa = AMD's enhanced quality
+    // AA with MSAA, where the driver offers it.
+    enum class PostAA : uint32_t { Off, Fxaa, Smaa, Cmaa2, Taa };
+    PostAA postAA = PostAA::Off;
+    float ssaa = 1.0f;
+    bool eqaa = false;
     // Upscaling: the 3D scene renders smaller and is upscaled before post-processing and
     // the HUD, which stay at full resolution.
     enum class Upscaler : uint32_t { Off, Fsr1, Fsr3, Dlss, Fsr4, Bilinear }; // (Fsr4, Bilinear last: the numbers match regpu::Config::Upscaler)
