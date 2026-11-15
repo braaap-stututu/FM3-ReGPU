@@ -1,0 +1,759 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index 6448aa0..f24eddf 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -28,6 +28,7 @@ using Clock = std::chrono::steady_clock;
+ #include "gpu/regs.h"
+ #include "render/presenter.h"
+ #include "gpu/renderer.h"
++#include "render/xr.h"
+ #include "precise_sleep.h"
+ 
+ extern HANDLE g_profiledWorker; // renderer.cpp
+@@ -651,6 +652,148 @@ void SegDraw(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+     FrameOnDraw(initiator, dmaBase, dmaSize);
+ }
+ 
++// ---- VR stereo (REGPU_VR=stereo) ---------------------------------------------------------
++// The frame's main view drawn a second time, for the other eye (the design Forza Horizon 1: ReImagined describes; our
++// own code). The draw thread keeps every record from the frame's first main-view draw (the full-width surface: before
++// it come the shadow maps, reflections and the mirror, which both eyes share) to the swap, with the register file and
++// the current shaders as they were at that draw. At the swap the front buffer holds the first eye's picture: it goes to
++// the headset, then the records run again from the saved state for the second eye and that picture follows. The eye is
++// one constant: the main view's perspective geometry moves sideways in clip space by P00 * half the eye distance
++// (hlsl.cpp, renderer.cpp RendererSetStereoEye; post-processing quads and the HUD are flat and stay put). The game's CPU
++// side, its command stream and the guest's view of the GPU run once: the second pass skips fence writes, ordered
++// stores, occlusion queries (and their draws) and resolve write-backs to guest memory.
++// REGPU_VR_SHOW_LEFT=1 (live): the right eye first, so the desktop shows the left one. REGPU_VR_EYE_FLIP=1 (live):
++// the eyes' offsets swapped, for a title that draws its main view mirrored in x (camera +x at clip -x) and turns it
++// back later (FM3 draws its scene turned 180 degrees; the port sets it).
++namespace stereo
++{
++bool Mode()
++{
++    static const bool on = [] {
++        const char* v = getenv("REGPU_VR");
++        return v && strcmp(v, "stereo") == 0;
++    }();
++    return on;
++}
++bool g_checked = false; // this frame's first main-view draw seen (and the frame's choice made)
++bool g_armed = false;   // recording this frame for the second eye
++float g_clip = 0;       // P00 * half the eye distance: the left eye's clip x offset (the right eye's negated)
++int g_firstEye = 0;     // the eye drawn by the game's own pass (0 left)
++std::vector<uint32_t> g_log;            // the records since the first main-view draw (headers included)
++std::vector<uint8_t> g_startFile, g_endFile;
++std::vector<uint32_t> g_shader[2], g_startShader[2]; // the newest shader load of each type (now / at that draw)
++uint32_t g_shaderAddress[2] = {}, g_startShaderAddress[2] = {};
++uint64_t g_frames = 0, g_words = 0;
++constexpr size_t kMaxWords = 24u << 20; // 96 MB: a frame past this is drawn once
++
++float EyeClip(int eye) { return eye == 0 ? g_clip : -g_clip; }
++
++void OnShader(uint32_t type, uint32_t address, const uint32_t* code, uint32_t dwords)
++{
++    if (!Mode() || type > 1)
++        return;
++    g_shader[type].assign(code, code + dwords);
++    g_shaderAddress[type] = address;
++}
++
++// Before a draw record runs: the frame's first main-view draw starts the recording.
++void BeforeDraw()
++{
++    if (!Mode() || g_checked || !RendererMainViewNow())
++        return;
++    g_checked = true;
++    float p00 = 0, half = 0;
++    if (!regpu::xr::StereoFrame(p00, half))
++        return;
++    static LiveSwitch showLeft("REGPU_VR_SHOW_LEFT"), flip("REGPU_VR_EYE_FLIP");
++    g_clip = p00 * half * (flip ? -1.0f : 1.0f);
++    g_firstEye = showLeft ? 1 : 0;
++    g_startFile = work::g_file;
++    for (int t = 0; t < 2; t++)
++        g_startShader[t] = g_shader[t], g_startShaderAddress[t] = g_shaderAddress[t];
++    g_log.clear();
++    g_armed = true;
++    RendererSetStereoEye(EyeClip(g_firstEye));
++}
++
++void Append(const uint32_t* record, uint32_t words)
++{
++    if (!g_armed)
++        return;
++    if (g_log.size() + words > kMaxWords)
++    {
++        g_armed = false; // too long: this frame stays mono (its first pass still has the eye offset)
++        g_log.clear();
++        return;
++    }
++    g_log.insert(g_log.end(), record, record + words);
++}
++
++// At the swap, before the frame is presented: the second eye.
++void AtSwap(uint32_t frontBuffer)
++{
++    const bool armed = g_armed;
++    g_armed = false;
++    g_checked = false;
++    if (!armed)
++    {
++        RendererSetStereoEye(0);
++        return;
++    }
++    RendererStereoCaptureEye(g_firstEye, frontBuffer);
++    // REGPU_VR_NO_SECOND_EYE=1 (live): the records are kept but not drawn again (the second eye's cost; which pass the
++    // desktop shows).
++    static LiveSwitch noSecond("REGPU_VR_NO_SECOND_EYE");
++    if (noSecond)
++    {
++        RendererSetStereoEye(0);
++        return;
++    }
++    g_endFile = work::g_file;
++    memcpy(work::g_file.data(), g_startFile.data(), g_startFile.size());
++    for (int t = 0; t < 2; t++)
++        if (!g_startShader[t].empty())
++            FrameOnShaderLoad(ShaderType(t), g_startShader[t].data(), uint32_t(g_startShader[t].size()), g_startShaderAddress[t]);
++    RendererSetStereoEye(EyeClip(1 - g_firstEye));
++    RendererSetStereoReplay(true);
++    bool inQuery = false;
++    for (size_t i = 0; i < g_log.size();)
++    {
++        const uint32_t* p = &g_log[i];
++        const uint32_t type = p[0] >> 24, words = p[0] & 0xFFFFFF;
++        const uint32_t* a = p + 1;
++        switch (type)
++        {
++        case work::kRegs:
++            memcpy(work::g_file.data() + a[0] * 4, a + 1, size_t(words - 1) * 4);
++            break;
++        case work::kShader:
++            FrameOnShaderLoad(ShaderType(a[0]), a + 3, a[2], a[1]);
++            break;
++        case work::kDraw:
++            if (!inQuery)
++                FrameOnDraw(a[0], a[1], a[2]);
++            break;
++        case work::kQuery:
++            inQuery = a[0] == 0;
++            break;
++        default: // fences, ordered stores: the guest saw them once
++            break;
++        }
++        i += size_t(words) + 1;
++    }
++    RendererSetStereoReplay(false);
++    RendererSetStereoEye(0);
++    memcpy(work::g_file.data(), g_endFile.data(), g_endFile.size()); // (the same values: the records ran in full)
++    RendererStereoCaptureEye(1 - g_firstEye, frontBuffer);
++    g_frames++;
++    g_words += g_log.size();
++    if (g_frames == 1 || g_frames % 3600 == 0)
++        Log("vr: stereo frame %llu: %zu KB of records drawn again for the second eye (clip offset %.4f)", (unsigned long long)g_frames,
++            g_log.size() * 4 / 1024, g_clip);
++}
++}
++
+ void WorkerLoop()
+ {
+     SetThreadDescription(GetCurrentThread(), L"gpu draw worker");
+@@ -688,6 +831,8 @@ void WorkerLoop()
+             const uint32_t* p = &work::g_ring[tail % work::kWords];
+             const uint32_t type = p[0] >> 24, words = p[0] & 0xFFFFFF;
+             const uint32_t* a = p + 1;
++            if (stereo::g_armed && type != work::kSwap && type != work::kPad)
++                stereo::Append(p, words + 1);
+             switch (type)
+             {
+             case work::kRegs:
+@@ -696,13 +841,18 @@ void WorkerLoop()
+                     seg::Append(seg::kRegs, a, words);
+                 break;
+             case work::kShader:
++                stereo::OnShader(a[0], a[1], a + 3, a[2]);
+                 SegShaderLoad(ShaderType(a[0]), a + 3, a[2], a[1]);
+                 break;
+             case work::kDraw:
++                stereo::BeforeDraw();
++                if (stereo::g_armed && stereo::g_log.empty())
++                    stereo::Append(p, words + 1); // (the draw that started the recording)
+                 SegDraw(a[0], a[1], a[2]);
+                 break;
+             case work::kSwap:
+                 seg::Flush();
++                stereo::AtSwap(a[2]);
+                 seg::EndFrame();
+                 seg::g_tile = RendererTile{};
+                 seg::g_query = false;
+diff --git a/src/gpu/hlsl.cpp b/src/gpu/hlsl.cpp
+index c6abdc1..2d2afa3 100644
+--- a/src/gpu/hlsl.cpp
++++ b/src/gpu/hlsl.cpp
+@@ -1228,6 +1228,16 @@ const char kPlainMulAll[] = R"(float4 Mul9(float4 a, float4 b) { return a * b; }
+ float Mul9(float a, float b) { return a * b; }
+ float Dot9(float4 a, float4 b) { return dot(a, b); })";
+ 
++// REGPU_VR=stereo (read once): the vertex shaders take the eye offset (see the viewport transform below).
++bool StereoShaders()
++{
++    static const bool on = [] {
++        const char* v = getenv("REGPU_VR");
++        return v && strcmp(v, "stereo") == 0;
++    }();
++    return on;
++}
++
+ std::string Preamble(bool plainMul, bool plainMulVertex = false)
+ {
+     std::string h = kPreamble;
+@@ -1623,8 +1633,13 @@ TranslatedShader TranslateShader(const Shader& shader)
+              "    // per-axis scale and offset to screen pixels; back to D3D clip space after.\n"
+              "    // Hor+: on a wider-than-16:9 output a full-width pass is drawn wider; perspective\n"
+              "    // geometry is narrowed to match, so the view widens instead of stretching.\n"
+-             "    const bool flat = abs(r.pos.w - 1.0) <= 1e-4;\n"
+-             "    if (!flat) r.pos.xy *= vwide.xy;\n"
++             "    const bool flat = abs(r.pos.w - 1.0) <= 1e-4;\n";
++        // VR stereo (REGPU_VR=stereo): perspective geometry seen from one eye, the view moved sideways in the camera's
++        // space: clip x moves by -P00 * eye offset, the same at every depth (vdepth.y, renderer.cpp; 0 outside the
++        // main view). Only in stereo mode, so the shaders (and their cache entries) stay as they were otherwise.
++        if (StereoShaders())
++            h += "    if (!flat) r.pos.x += vdepth.y;\n";
++        h += "    if (!flat) r.pos.xy *= vwide.xy;\n"
+              "    float w = r.pos.w;\n"
+              "    // (VTX_W0_FMT set means w is the true W0, the normal case.)\n"
+              "    float3 p = r.pos.xyz;\n"
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 9dccfda..ba8d912 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -40,6 +40,7 @@
+ #include "gpu/dlss.h"
+ #include "gpu/fsr3.h"
+ #include "gpu/recorded_list.h"
++#include "render/xr.h"
+ #include "fsr1_cs.h"
+ #include "postaa_cs.h"
+ #if REGPU_POSTAA_FILTERS
+@@ -421,6 +422,9 @@ float HelperPassScale(float passScale, uint32_t big)
+ }
+ 
+ bool WidePass() { return (gpureg::Get(0x2000 /* RB_SURFACE_INFO */) & 0x3FFF) == kWidth; }
++// VR stereo (gpu.cpp stereo::): the eye being drawn, as a clip-space x offset (0: none).
++float g_stereoClipX = 0.0f;
++bool g_stereoReplay = false; // the second eye's pass (no write-backs to guest memory)
+ // REGPU_NO_PASS_SNAPSHOT=1: worked out at every call (A/B, live).
+ LiveSwitch g_passNoSnapshot("REGPU_NO_PASS_SNAPSHOT"), g_passFullCheck("REGPU_PASS_SNAPSHOT_FULL_CHECK");
+ // Inside DrawImpl: a number for the draw this thread is translating (0 outside one). A draw's surface registers can't
+@@ -3108,7 +3112,16 @@ void BeginFrameIfNeeded()
+         const bool taa = st.postAA == Settings::PostAA::Taa && !temporalUpscaler;
+         const bool filter = st.postAA != Settings::PostAA::Off && st.postAA != Settings::PostAA::Taa;
+         const bool upscale = st.upscaler != Settings::Upscaler::Off && (temporalUpscaler || scale < 1.0f);
+-        g_scenePhase = (upscale || taa || filter) && g_r.frame >= g_upscale.retryFrame && (!(temporalUpscaler || taa) || TemporalInit());
++        // VR stereo draws the scene twice from the same commands: the upscalers' and filters' per-frame state (history,
++        // jitter, the scene's end) would run twice too, so they are off with it.
++        static const bool stereo = [] {
++            const char* v = getenv("REGPU_VR");
++            const bool on = v && strcmp(v, "stereo") == 0;
++            if (on)
++                Log("vr: stereo: upscalers and anti-aliasing filters are off");
++            return on;
++        }();
++        g_scenePhase = !stereo && (upscale || taa || filter) && g_r.frame >= g_upscale.retryFrame && (!(temporalUpscaler || taa) || TemporalInit());
+         g_temporal = g_scenePhase && (temporalUpscaler || taa);
+         g_sceneScale = g_scenePhase ? scale : 1.0f;
+         BumpPassEpoch();
+@@ -8552,7 +8565,8 @@ ID3D12Resource* GradeIntoTexture(GradeJob* job)
+ // Returns the graded copy of `image` (in COPY_SOURCE state), or null to show it as is. `pwl`: the
+ // front buffer is k_2_10_10_10, so the display uses the PWL ramp. REGPU_NO_GAMMA_PWL=1: always the table.
+ // With `direct`, a pass that grades fills *direct (valid) for the frame end and returns null.
+-ID3D12Resource* GradeFrontBuffer(ID3D12Resource* image, bool pwl, GradeJob* direct = nullptr)
++// `into` (VR stereo): graded into that image (UAV-capable, state COMMON before and after) instead of g_gammaOut.
++ID3D12Resource* GradeFrontBuffer(ID3D12Resource* image, bool pwl, GradeJob* direct = nullptr, ID3D12Resource* into = nullptr)
+ {
+     static LiveSwitch off("REGPU_NO_GAMMA"), noPwl("REGPU_NO_GAMMA_PWL");
+     pwl = pwl && !noPwl && g_gammaPwlSet.load(std::memory_order_relaxed);
+@@ -8594,7 +8608,7 @@ ID3D12Resource* GradeFrontBuffer(ID3D12Resource* image, bool pwl, GradeJob* dire
+     FrameResources& f = Frame();
+     if (f.descriptorsUsed + 2 > kDescriptorsPerFrame)
+         return nullptr;
+-    if (direct && g_upscale.gammaDraw)
++    if (direct && !into && g_upscale.gammaDraw)
+     {
+         direct->slots = f.descriptorBase + f.descriptorsUsed;
+         f.descriptorsUsed += 1;
+@@ -8613,7 +8627,7 @@ ID3D12Resource* GradeFrontBuffer(ID3D12Resource* image, bool pwl, GradeJob* dire
+         g_drawState.Invalidate(); // (the frame end sets the compute pipeline)
+         return nullptr;
+     }
+-    if (!g_gammaOut || g_gammaOut->GetDesc().Width != desc.Width || g_gammaOut->GetDesc().Height != desc.Height)
++    if (!into && (!g_gammaOut || g_gammaOut->GetDesc().Width != desc.Width || g_gammaOut->GetDesc().Height != desc.Height))
+     {
+         D3D12_RESOURCE_DESC td = desc;
+         td.MipLevels = 1;
+@@ -8633,7 +8647,17 @@ ID3D12Resource* GradeFrontBuffer(ID3D12Resource* image, bool pwl, GradeJob* dire
+     D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+     uav.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+     uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+-    g_r.device->CreateUnorderedAccessView(g_gammaOut.Get(), nullptr, &uav, Cpu(g_r.srvHeap.Get(), slots + 1, g_r.srvStride));
++    ID3D12Resource* out = into ? into : g_gammaOut.Get();
++    g_r.device->CreateUnorderedAccessView(out, nullptr, &uav, Cpu(g_r.srvHeap.Get(), slots + 1, g_r.srvStride));
++    if (into)
++    {
++        D3D12_RESOURCE_BARRIER b{};
++        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++        b.Transition.pResource = into;
++        b.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
++        b.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++        C().list->ResourceBarrier(1, &b);
++    }
+     uint32_t c[24] = {};
+     memcpy(c, points, sizeof(points));
+     c[20] = uint32_t(desc.Width);
+@@ -8646,12 +8670,12 @@ ID3D12Resource* GradeFrontBuffer(ID3D12Resource* image, bool pwl, GradeJob* dire
+     C().list->Dispatch(UINT((desc.Width + 7) / 8), (desc.Height + 7) / 8, 1);
+     D3D12_RESOURCE_BARRIER b{};
+     b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+-    b.Transition.pResource = g_gammaOut.Get();
++    b.Transition.pResource = out;
+     b.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+-    b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
++    b.Transition.StateAfter = into ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_SOURCE;
+     C().list->ResourceBarrier(1, &b);
+     g_drawState.Invalidate(); // the compute pipeline replaced the draw's
+-    return g_gammaOut.Get();
++    return out;
+ }
+ 
+ // Enhanced lighting (Settings::enhance): the frame through the local-contrast pass. `image` is
+@@ -9707,7 +9731,9 @@ void Resolve()
+         if (request.mode == regpu::Writeback::Mode::None && !keepMark)
+             if (auto it = g_r.resolved.find(base); it != g_r.resolved.end())
+                 it->second.writtenBack = false;
+-        if (request.mode == regpu::Writeback::Mode::Now && !depth && anyFormat)
++        if (g_stereoReplay)
++            ; // (VR stereo's second eye: the guest has the first eye's)
++        else if (request.mode == regpu::Writeback::Mode::Now && !depth && anyFormat)
+             WriteResolveToGuest(base, width, height, info);
+         else if (request.mode == regpu::Writeback::Mode::Deferred && (depth || anyFormat))
+             QueueDeferredWriteback(base, width, height, info, depth, rect, request);
+@@ -13212,7 +13238,9 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+     vc->info[0] = uint32_t(listOffset);
+     vc->info[1] = (initiator & 0x3F) == 1 ? 2 : 0;
+     vc->vdepth[0] = PolygonOffsetDepth();
+-    vc->vdepth[1] = vc->vdepth[2] = vc->vdepth[3] = 0;
++    // VR stereo: this eye's clip-space x offset for the main view's perspective geometry (hlsl.cpp; RendererSetStereoEye).
++    vc->vdepth[1] = WidePass() ? g_stereoClipX : 0.0f;
++    vc->vdepth[2] = vc->vdepth[3] = 0;
+     // Viewport transform in the vertex shader (see hlsl.cpp).
+     vc->vscale[0] = RegFloat(PA_CL_VPORT_XSCALE);
+     vc->vscale[1] = RegFloat(PA_CL_VPORT_YSCALE);
+@@ -14818,6 +14846,44 @@ void Push(std::chrono::steady_clock::time_point now, uint64_t draws)
+ }
+ }
+ 
++bool RendererMainViewNow() { return WidePass(); }
++void RendererSetStereoEye(float clipX) { g_stereoClipX = clipX; }
++void RendererSetStereoReplay(bool on) { g_stereoReplay = on; }
++
++void RendererStereoCaptureEye(int eye, uint32_t frontBuffer)
++{
++    if (!g_r.ok)
++        return;
++    auto it = g_r.resolved.find(frontBuffer);
++    if (it == g_r.resolved.end() || it->second.width != kWidth || it->second.height != kHeight || it->second.format != DXGI_FORMAT_R8G8B8A8_UNORM)
++        return;
++    ID3D12Resource* image = it->second.resource.Get();
++    const D3D12_RESOURCE_DESC d = image->GetDesc();
++    ID3D12Resource* target = regpu::xr::StereoTarget(eye, uint32_t(d.Width), d.Height);
++    if (!target)
++        return;
++    BeginFrameIfNeeded();
++    // The presenter's grading (the display's gamma table), so both eyes look as the desktop picture does.
++    if (GradeFrontBuffer(image, it->second.guestFormat == 7, nullptr, target))
++        return;
++    D3D12_RESOURCE_BARRIER b[2]{};
++    for (auto& x : b)
++        x.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++    b[0].Transition.pResource = image;
++    b[0].Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
++    b[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
++    b[1].Transition.pResource = target;
++    b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
++    b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
++    C().list->ResourceBarrier(2, b);
++    D3D12_TEXTURE_COPY_LOCATION dst{ target, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }, src{ image, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX };
++    dst.SubresourceIndex = src.SubresourceIndex = 0;
++    C().list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
++    for (auto& x : b)
++        std::swap(x.Transition.StateBefore, x.Transition.StateAfter);
++    C().list->ResourceBarrier(2, b);
++}
++
+ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer);
+ void RendererOnSwap(uint64_t frameNumber, uint32_t frontBuffer)
+ {
+diff --git a/src/gpu/renderer.h b/src/gpu/renderer.h
+index 63faf36..c5222ff 100644
+--- a/src/gpu/renderer.h
++++ b/src/gpu/renderer.h
+@@ -8,6 +8,14 @@ void RendererSetShader(uint32_t type, const uint32_t* microcodeBE, uint32_t used
+ void RendererOnDraw(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize);
+ // frontBuffer: physical address of the resolved image to show.
+ void RendererOnSwap(uint64_t frame, uint32_t frontBuffer);
++// VR stereo (gpu.cpp stereo::): the draw is in the main view (the full-width surface); the eye being drawn (clip-space x
++// offset of the main view's perspective geometry, 0 none); the front buffer as resolved so far, graded as the presenter
++// shows it, into the headset's image for `eye`.
++bool RendererMainViewNow();
++void RendererSetStereoEye(float clipX);
++// The second eye's pass runs: resolves are not written back to guest memory (the first pass did).
++void RendererSetStereoReplay(bool on);
++void RendererStereoCaptureEye(int eye, uint32_t frontBuffer);
+ // Lookahead hooks (see GpuLookahead): shader loads and draws the command processor has
+ // not executed yet, seen on a shadow copy of the registers.
+ void RendererPredictBegin();
+diff --git a/src/render/xr.cpp b/src/render/xr.cpp
+index fa99448..c00dcfc 100644
+--- a/src/render/xr.cpp
++++ b/src/render/xr.cpp
+@@ -6,6 +6,7 @@
+ #include <cstring>
+ #include <string>
+ 
++#include "live_switch.h"
+ #include "log.h"
+ #include "regpu/regpu.h"
+ 
+@@ -25,6 +26,8 @@ bool Wanted()
+ }
+ void Start(ID3D12Device*, ID3D12CommandQueue*) {}
+ void CaptureFrame(ID3D12GraphicsCommandList*, ID3D12Resource*) {}
++bool StereoFrame(float&, float&) { return false; }
++ID3D12Resource* StereoTarget(int, uint32_t, uint32_t) { return nullptr; }
+ }
+ namespace regpu::vr
+ {
+@@ -97,6 +100,16 @@ XrSpace g_poseLocal = XR_NULL_HANDLE, g_poseView = XR_NULL_HANDLE;
+ std::atomic<int64_t> g_predicted{ 0 };
+ XrFovf g_eyeFov{};
+ std::atomic<uint64_t> g_captured{ 0 };
++// Stereo (REGPU_VR=stereo): the two eyes' images of the newest stereo frame (renderer.cpp RendererStereoCaptureEye
++// grades into them; COMMON between uses), and whether the frame CaptureFrame took was one.
++ComPtr<ID3D12Resource> g_eyes[2];          // (g_screenMutex)
++std::atomic<bool> g_eyesThisFrame{ false }; // both eyes written since the last CaptureFrame
++bool g_screenStereo = false;                // (g_screenMutex) the captured frame has its eyes in g_eyes
++// The newest frame pose handed in (for StereoFrame on the draw thread): head-tracked or not, its field of view; and the
++// headset's eye distance.
++std::atomic<bool> g_lastPosed{ false };
++std::atomic<float> g_lastFovY{ 0.0f };
++std::atomic<float> g_ipd{ 0.064f };
+ ComPtr<ID3D12Device> g_device;
+ ComPtr<ID3D12CommandQueue> g_queue;
+ 
+@@ -156,6 +169,22 @@ bool LoadInstanceFunctions(XrInstance instance)
+     return ok;
+ }
+ 
++// Half the eye distance for stereo: the headset's (from its two views), or REGPU_VR_IPD (millimetres).
++float HalfIpd()
++{
++    static const float fixed = EnvFloat("REGPU_VR_IPD", 0.0f) * 0.001f;
++    return 0.5f * (fixed > 0.0f ? fixed : g_ipd.load(std::memory_order_relaxed));
++}
++
++bool StereoMode()
++{
++    static const bool on = [] {
++        const char* v = getenv("REGPU_VR");
++        return v && strcmp(v, "stereo") == 0;
++    }();
++    return on;
++}
++
+ // One OpenXR instance + session at a time; the thread makes a new one after a loss or when no headset was there yet.
+ struct Session
+ {
+@@ -165,6 +194,10 @@ struct Session
+     XrSpace local = XR_NULL_HANDLE, view = XR_NULL_HANDLE;
+     XrSwapchain quad = XR_NULL_HANDLE;
+     uint32_t quadW = 0, quadH = 0;
++    // Stereo: one swapchain image holding both eyes side by side (left in the left half).
++    XrSwapchain pair = XR_NULL_HANDLE;
++    uint32_t pairW = 0, pairH = 0;
++    std::vector<ID3D12Resource*> pairImages;
+     int64_t quadFormat = 0;
+     std::vector<ID3D12Resource*> images;
+     static constexpr uint32_t kLists = 3;
+@@ -188,6 +221,8 @@ struct Session
+             xrDestroySpace(view);
+         if (quad)
+             xrDestroySwapchain(quad);
++        if (pair)
++            xrDestroySwapchain(pair);
+         if (local)
+             xrDestroySpace(local);
+         if (session)
+@@ -342,6 +377,46 @@ struct Session
+         return true;
+     }
+ 
++    // The stereo pair's swapchain: two eyes of w x h side by side.
++    bool EnsurePair(uint32_t w, uint32_t h)
++    {
++        if (pair && pairW == w && pairH == h)
++            return true;
++        if (pair)
++        {
++            WaitIdle();
++            xrDestroySwapchain(pair);
++            pair = XR_NULL_HANDLE;
++            pairImages.clear();
++        }
++        if (!quadFormat && !EnsureQuad(w, h)) // (picks the format)
++            return false;
++        XrSwapchainCreateInfo ci{ XR_TYPE_SWAPCHAIN_CREATE_INFO };
++        ci.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
++        ci.format = quadFormat;
++        ci.sampleCount = 1;
++        ci.width = w * 2;
++        ci.height = h;
++        ci.faceCount = 1;
++        ci.arraySize = 1;
++        ci.mipCount = 1;
++        if (XrResult r = xrCreateSwapchain(session, &ci, &pair); XR_FAILED(r))
++        {
++            Log("vr: xrCreateSwapchain %ux%u (stereo) failed: %s", w * 2, h, ResultText(instance, r).c_str());
++            pair = XR_NULL_HANDLE;
++            return false;
++        }
++        uint32_t count = 0;
++        xrEnumerateSwapchainImages(pair, 0, &count, nullptr);
++        std::vector<XrSwapchainImageD3D12KHR> imgs(count, { XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR });
++        xrEnumerateSwapchainImages(pair, count, &count, reinterpret_cast<XrSwapchainImageBaseHeader*>(imgs.data()));
++        for (const auto& i : imgs)
++            pairImages.push_back(i.texture);
++        pairW = w, pairH = h;
++        Log("vr: stereo, %ux%u per eye", w, h);
++        return true;
++    }
++
+     void WaitIdle()
+     {
+         const uint64_t v = nextFence++;
+@@ -354,14 +429,19 @@ struct Session
+     }
+ 
+     // Copies the latest captured frame into the quad's next image.
+-    bool DrawQuad(FramePose& pose)
++    bool DrawQuad(FramePose& pose, bool& stereo)
+     {
+-        ComPtr<ID3D12Resource> screen;
++        ComPtr<ID3D12Resource> screen, eyes[2];
+         {
+             std::lock_guard lock(g_screenMutex);
+             screen = g_screen;
+             pose = g_screenPose;
++            stereo = g_screenStereo && g_eyes[0] && g_eyes[1] && pose.valid;
++            if (stereo)
++                eyes[0] = g_eyes[0], eyes[1] = g_eyes[1];
+         }
++        if (stereo)
++            return DrawPair(eyes);
+         if (!screen)
+             return false;
+         const D3D12_RESOURCE_DESC d = screen->GetDesc();
+@@ -399,6 +479,49 @@ struct Session
+         return true;
+     }
+ 
++    // Copies the two eyes of the newest stereo frame into the pair's next image, side by side.
++    bool DrawPair(ComPtr<ID3D12Resource> (&eyes)[2])
++    {
++        const D3D12_RESOURCE_DESC d = eyes[0]->GetDesc();
++        if (!EnsurePair(uint32_t(d.Width), d.Height))
++            return false;
++        uint32_t index = 0;
++        XrSwapchainImageAcquireInfo ai{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
++        if (XR_FAILED(xrAcquireSwapchainImage(pair, &ai, &index)))
++            return false;
++        XrSwapchainImageWaitInfo wi{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
++        wi.timeout = XR_INFINITE_DURATION;
++        xrWaitSwapchainImage(pair, &wi);
++        const uint32_t li = listIndex++ % kLists;
++        if (fence->GetCompletedValue() < fenceValues[li])
++        {
++            fence->SetEventOnCompletion(fenceValues[li], fenceEvent);
++            WaitForSingleObject(fenceEvent, 1000);
++        }
++        allocators[li]->Reset();
++        list->Reset(allocators[li].Get(), nullptr);
++        ID3D12Resource* image = pairImages[index];
++        Barrier(list.Get(), image, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_DEST);
++        for (int e = 0; e < 2; e++)
++        {
++            Barrier(list.Get(), eyes[e].Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
++            D3D12_TEXTURE_COPY_LOCATION dst{ image, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }, src{ eyes[e].Get(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX };
++            dst.SubresourceIndex = src.SubresourceIndex = 0;
++            const D3D12_BOX box{ 0, 0, 0, std::min(uint32_t(eyes[e]->GetDesc().Width), pairW), std::min(eyes[e]->GetDesc().Height, pairH), 1 };
++            list->CopyTextureRegion(&dst, e ? pairW : 0, 0, 0, &src, &box);
++            Barrier(list.Get(), eyes[e].Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
++        }
++        Barrier(list.Get(), image, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RENDER_TARGET);
++        list->Close();
++        ID3D12CommandList* lists[] = { list.Get() };
++        g_queue->ExecuteCommandLists(1, lists);
++        fenceValues[li] = nextFence++;
++        g_queue->Signal(fence.Get(), fenceValues[li]);
++        XrSwapchainImageReleaseInfo ri{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
++        xrReleaseSwapchainImage(pair, &ri);
++        return true;
++    }
++
+     // Runs until the session ends or is lost.
+     void Run()
+     {
+@@ -467,6 +590,14 @@ struct Session
+                 {
+                     std::lock_guard lock(g_poseMutex);
+                     g_eyeFov = views[0].fov;
++                    if (n >= 2)
++                    {
++                        const float dx = views[1].pose.position.x - views[0].pose.position.x, dy = views[1].pose.position.y - views[0].pose.position.y,
++                                    dz = views[1].pose.position.z - views[0].pose.position.z;
++                        const float ipd = sqrtf(dx * dx + dy * dy + dz * dz);
++                        if (ipd > 0.04f && ipd < 0.09f)
++                            g_ipd.store(ipd, std::memory_order_relaxed);
++                    }
+                 }
+             }
+             xrBeginFrame(session, nullptr);
+@@ -476,8 +607,35 @@ struct Session
+             const XrCompositionLayerBaseHeader* layers[1] = { reinterpret_cast<XrCompositionLayerBaseHeader*>(&layer) };
+             uint32_t layerCount = 0;
+             FramePose framePose;
+-            const bool drawn = fs.shouldRender && DrawQuad(framePose);
+-            if (drawn && framePose.valid)
++            bool stereo = false;
++            const bool drawn = fs.shouldRender && DrawQuad(framePose, stereo);
++            if (drawn && stereo)
++            {
++                // A stereo frame: each eye from the head pose moved half the eye distance along the head's x axis (as
++                // it was drawn: gpu.cpp stereo::), across the field of view it was drawn with.
++                const float tanY = tanf(framePose.fovY * 0.5f), tanX = tanY * float(pairW) / float(std::max(pairH, 1u));
++                const auto& p = framePose.pose;
++                const float x = p.orientation[0], y = p.orientation[1], z = p.orientation[2], w = p.orientation[3];
++                // The head's x axis in the local space: the rotation's first column.
++                const float ax[3] = { 1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w) };
++                const float half = HalfIpd();
++                for (int e = 0; e < 2; e++)
++                {
++                    const float sgn = e ? half : -half;
++                    eyes[e].pose.orientation = { x, y, z, w };
++                    eyes[e].pose.position = { p.position[0] + ax[0] * sgn, p.position[1] + ax[1] * sgn, p.position[2] + ax[2] * sgn };
++                    eyes[e].fov = { -atanf(tanX), atanf(tanX), atanf(tanY), -atanf(tanY) };
++                    eyes[e].subImage.swapchain = pair;
++                    eyes[e].subImage.imageRect = { { int32_t(e ? pairW : 0), 0 }, { int32_t(pairW), int32_t(pairH) } };
++                }
++                projection.space = local;
++                projection.viewCount = 2;
++                projection.views = eyes;
++                layers[0] = reinterpret_cast<XrCompositionLayerBaseHeader*>(&projection);
++                layerCount = 1;
++                shown++;
++            }
++            else if (drawn && framePose.valid)
+             {
+                 // A head-tracked frame: both eyes see it from the pose it was rendered with (mono), across the field
+                 // of view it was rendered with; the runtime turns it for the head's movement since.
+@@ -572,6 +730,56 @@ void Start(ID3D12Device* device, ID3D12CommandQueue* queue)
+     std::thread(Thread).detach();
+ }
+ 
++bool StereoFrame(float& clipPerMetre, float& halfIpd)
++{
++    if (!StereoMode())
++        return false;
++    // REGPU_VR_STEREO_TEST=1 (live): stereo without a headset, for screenshots (the desktop shows the eye drawn second;
++    // REGPU_VR_SHOW=left (gpu.cpp) swaps the order).
++    static LiveSwitch test("REGPU_VR_STEREO_TEST");
++    if (!(g_capturing.load(std::memory_order_relaxed) || test) || !g_lastPosed.load(std::memory_order_relaxed))
++        return false;
++    const float fovY = g_lastFovY.load(std::memory_order_relaxed);
++    if (fovY < 0.1f || fovY > 3.0f)
++        return false;
++    // P00 of a 16:9 symmetric projection with that vertical field of view (the game's main view).
++    clipPerMetre = 1.0f / (tanf(fovY * 0.5f) * (16.0f / 9.0f));
++    halfIpd = HalfIpd();
++    return true;
++}
++
++ID3D12Resource* StereoTarget(int eye, uint32_t w, uint32_t h)
++{
++    if (eye < 0 || eye > 1 || !g_capturing.load(std::memory_order_relaxed))
++        return nullptr;
++    std::lock_guard lock(g_screenMutex);
++    ComPtr<ID3D12Resource>& t = g_eyes[eye];
++    if (!t || t->GetDesc().Width != w || t->GetDesc().Height != h)
++    {
++        D3D12_RESOURCE_DESC d{};
++        d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
++        d.Width = w;
++        d.Height = h;
++        d.DepthOrArraySize = 1;
++        d.MipLevels = 1;
++        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
++        d.SampleDesc.Count = 1;
++        d.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
++        D3D12_HEAP_PROPERTIES heap{ D3D12_HEAP_TYPE_DEFAULT };
++        ComPtr<ID3D12Resource> made;
++        if (FAILED(g_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &d, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&made))))
++            return nullptr;
++        if (t)
++            g_oldScreens.push_back(t);
++        while (g_oldScreens.size() > 8)
++            g_oldScreens.erase(g_oldScreens.begin());
++        t = made;
++    }
++    if (eye == 1)
++        g_eyesThisFrame = true;
++    return t.Get();
++}
++
+ void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer)
+ {
+     if (!g_capturing.load(std::memory_order_relaxed))
+@@ -605,6 +813,7 @@ void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer)
+         }
+         else
+             g_screenPose.valid = false;
++        g_screenStereo = g_eyesThisFrame.exchange(false);
+     }
+     Barrier(list, backBuffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+     Barrier(list, screen.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+@@ -640,6 +849,8 @@ bool GetHeadPose(HeadPose& out)
+ 
+ void SubmitFramePose(const HeadPose* pose, float renderFovY)
+ {
++    g_lastPosed.store(pose != nullptr, std::memory_order_relaxed);
++    g_lastFovY.store(renderFovY, std::memory_order_relaxed);
+     if (!g_capturing.load(std::memory_order_relaxed))
+         return;
+     FramePose f;
+diff --git a/src/render/xr.h b/src/render/xr.h
+index 3e8db7f..25f1be0 100644
+--- a/src/render/xr.h
++++ b/src/render/xr.h
+@@ -19,4 +19,12 @@ void Start(ID3D12Device* device, ID3D12CommandQueue* queue);
+ // The back buffer holds the finished frame (state COPY_DEST, left so): copies it for the headset. No-op unless a
+ // headset session runs.
+ void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer);
++
++// Step 3, true stereo (REGPU_VR=stereo, gpu.cpp stereo::): the frame's main view drawn twice, once per eye.
++// StereoFrame: this frame is to be drawn in stereo (a head-tracked frame, from SubmitFramePose; or REGPU_VR_STEREO_TEST
++// without a headset); `clipPerMetre` = P00 of the frame's projection (clip x per metre of sideways offset at w 1),
++// `halfIpd` = half the eye distance (metres).
++bool StereoFrame(float& clipPerMetre, float& halfIpd);
++// The headset's image for eye 0 (left) or 1 (right) at w x h, state COMMON (to be left so), or null without a session.
++ID3D12Resource* StereoTarget(int eye, uint32_t w, uint32_t h);
+ }

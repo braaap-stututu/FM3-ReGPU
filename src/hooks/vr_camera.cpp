@@ -13,7 +13,8 @@
 // So for that call, with an in-car camera active, the head pose goes into the matrix and the headset's field of view
 // into +0x110, and both are put back after: the renderer draws from the head, the camera's own state stays as it is.
 //
-// Settings: vr=cockpit (or FM3_VR / REGPU_VR) with ReGPU's VR on. FM3_VR_FAKE="yaw pitch roll x y z" (degrees, cm;
+// Settings: vr=cockpit (or FM3_VR / REGPU_VR) with ReGPU's VR on; vr=stereo the same, and ReGPU draws the main view
+// once more for the second eye (session 38, ReGPU patch regpu-vr-stereo; eye sign: src/gpu_host.cpp). FM3_VR_FAKE="yaw pitch roll x y z" (degrees, cm;
 // read twice a second) poses the camera without a headset, to check the transform on screenshots.
 // FM3_VR_FOV_MARGIN (degrees, default 5) widens the rendered field of view past the headset's.
 #include <windows.h>

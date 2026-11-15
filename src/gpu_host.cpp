@@ -472,6 +472,11 @@ void GpuStart()
         DefaultEnv("REGPU_VR", v);
     else if (const std::string vr = GetSettings().Extra("vr"); !vr.empty() && vr != "off" && vr != "0")
         DefaultEnv("REGPU_VR", vr.c_str());
+    // vr=stereo (session 38): ReGPU draws the main view a second time for the other eye. FM3 draws its scene turned
+    // 180 degrees (the resolved scene image is upside down and mirrored; the final composite turns it back), so camera
+    // +x lands at clip -x: the eye offsets are swapped (measured on the grid: unswapped, near objects moved right from
+    // the left eye's picture to the right eye's; FM3_VR_FAKE head moves were the right way round).
+    DefaultEnv("REGPU_VR_EYE_FLIP", "1");
     Log("gpu: shader compiler %s", getenv("REGPU_DXC") && *getenv("REGPU_DXC") && strcmp(getenv("REGPU_DXC"), "0") ? "DXC (if its DLLs load)" : "FXC");
     Log("gpu: upload ring in VRAM %s", getenv("REGPU_GPU_UPLOAD_RING") && strcmp(getenv("REGPU_GPU_UPLOAD_RING"), "0") ? "on (if resizable BAR)" : "off");
     // Sun glare size (session 14): FM3 sizes the glare from the occlusion query's raw sample count (not

@@ -1,6 +1,36 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-15, session 37)
+## ▶ Current status / next step  (updated 2026-11-15, session 38)
+
+### ▶ Start here (session 39): state at the end of session 38 (2026-11-15)
+- **VR step 3, true stereo, built and checked without a headset** (`vr=stereo` in settings.ini, or `FM3_VR=stereo`;
+  ReGPU patch 63 `regpu-vr-stereo`; 63 ReGPU patches). Not yet seen in a headset: **next, ask the user to try
+  `vr=stereo` (and `vr=cockpit`) in the headset**; then the HUD on its own panel, camera shake off, recentre, eye
+  limits, headset pacing (FH1R v6), the cabin pass, a launcher option.
+- **How it works:** FM3's frame order (capture `out/perf/s38-stereo/capture1.log`, `passes1.txt`): passes 0-9 shadow
+  maps, reflection cube, mirror (pitch 280-560), pass 10 the main scene (1,804 draws, pitch 1280), 11-24 the post
+  chain (bloom, luminance), 25 the final pass: HUD drawn first onto a cleared surface, then the tone-map composite
+  (`ps 5b7efac9b0c87a00`, "layer 1", blend 010B010B) under it by destination alpha, resolved to the front buffer.
+  ReGPU's draw thread keeps every work record from the frame's first full-width draw to the swap, plus the register
+  file and current shaders at that draw; at the swap the front buffer (first eye) is graded into the headset's left
+  image, the records run again for the right eye (fences, ordered stores, occlusion queries + their draws and resolve
+  write-backs skipped), and that picture goes to the right image and the desktop. The eye = clip x += P00 x half IPD
+  on non-flat geometry in the main view (vdepth.y; the line is in the vertex shaders only in stereo mode, so other
+  shader caches are untouched; the first stereo boot compiles the vertex shaders again). The HUD is in both eyes for
+  now (zero parallax). Upscalers and AA filters are off in stereo.
+- **FM3 draws its scene turned 180 degrees** (the resolved scene image `17F96000` is upside down and mirrored; the
+  composite turns it back), so camera +x lands at clip -x: `src/gpu_host.cpp` sets `REGPU_VR_EYE_FLIP=1`. Found by
+  measurement: unswapped, near objects moved +8 px from the left eye's picture to the right eye's; now -8..-9 px (car
+  ~4 m ahead), far scenery -1 px; `FM3_VR_FAKE` head moves were already right (30 cm right -> near objects 40 px left).
+- **Cost (frozen grid, 1440p, user's settings):** mono 356 fps, first eye only (`REGPU_VR_NO_SECOND_EYE=1`) 337,
+  stereo 196 (5,540 draws, 0 skipped): ~2.1 ms more a frame; ~2 MB of records a frame.
+- **Test without a headset:** `Start-Grid @{FM3_VR='stereo'; REGPU_VR_STEREO_TEST='1'; FM3_VR_FAKE='0 0 0 0 0 0'}`,
+  then `. tools/vr_incar.ps1; Set-Fm3InCarCamera` (finds the camera director with `findhex` and makes the CCamDriver
+  active: the chase position, posed), shots with `REGPU_VR_SHOW_LEFT` 0/1, `python -I tools/analysis/stereoshift.py
+  left.png right.png x0,y0,x1,y1 ...` (shift per box; near objects should move left from left to right). Second eye
+  checked clean on the frozen grid and with the race running (HUD, minimap, cars).
+- Not done: XR eye images never ran with a real session (the swapchain pair path, poses per eye); the user's
+  `fm3.log` from before was copied to `out/logs/user-s38/`.
 
 ### ▶ Start here (session 38): state at the end of session 37 (2026-11-15)
 - **In short (details in the bullets below):** FM2 PR 33's scan fix ported (patch 58, no effect in FM3); draw-thread
