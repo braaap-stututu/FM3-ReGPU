@@ -19,7 +19,7 @@ const PRESETS = [
 // Mild and up turn these on by themselves (src/gpu_host.cpp ApplyPerfPreset): shown on and locked there; Off and
 // Turbo leave them to their own switches.
 const PRESET_OPTIONS = ["oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "carLodFar"]
-const SWITCHES = ["vsync", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "dxcShaders", "eqaa", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
+const SWITCHES = ["vsync", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "uploadRingAuto", "dxcShaders", "eqaa", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
 
 // ---- host calls
 

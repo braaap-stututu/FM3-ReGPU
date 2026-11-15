@@ -1,0 +1,92 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 1060632..f8f5105 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -3143,14 +3143,85 @@ void BeginFrameIfNeeded()
+         if (used > f.ringSize / 2)
+             Log("renderer: upload ring peak %llu MB of %llu", (unsigned long long)(used >> 20), (unsigned long long)(f.ringSize >> 20));
+     }
++    // REGPU_UPLOAD_RING_AUTO=1 (start-time; FM3 port, session 36): the ring's place chosen by measuring. In VRAM the GPU
++    // reads the per-draw constants locally but the draw thread writes them over PCIe (it stalls on the store buffer);
++    // in system memory the writes are cheap and the GPU reads them over PCIe. FM3's grid at 1440p, RX 7900 XTX: no
++    // MSAA (draw thread the limit) system memory +5.5% (GPU 2.0 -> 2.95 ms); 4x MSAA VRAM +1.6%; 4K: VRAM by far
++    // (session 31). Every 30 s: four interleaved pairs of windows (30 frames to settle, then 120 measured, median frame
++    // time); a mode that wins at least 3 of the 4 pairs by over 1.5% on average is kept, else the current one stays
++    // (a frame cap makes them equal). Same picture either way. Off: REGPU_GPU_UPLOAD_RING decides, as before.
++    struct RingAuto
++    {
++        bool on = false, wantVram = true;
++        std::chrono::steady_clock::time_point last{}, nextTrial{};
++        int window = -1, frames = 0; // window: -1 holding; 0..7 in a trial (even: the current mode, odd: the other)
++        bool trialStartVram = true;
++        std::vector<float> samples;
++        float medians[8] = {};
++    };
++    static RingAuto ringAuto = [] {
++        RingAuto a;
++        a.on = getenv("REGPU_UPLOAD_RING_AUTO") && atoi(getenv("REGPU_UPLOAD_RING_AUTO")) != 0;
++        a.nextTrial = std::chrono::steady_clock::now() + std::chrono::seconds(30);
++        return a;
++    }();
++    static LiveSwitch vramRing("REGPU_GPU_UPLOAD_RING");
++    if (ringAuto.on && g_gpuUploadHeap && f.ringAlt)
++    {
++        const auto now = std::chrono::steady_clock::now();
++        const float ms = ringAuto.last.time_since_epoch().count() ? std::chrono::duration<float, std::milli>(now - ringAuto.last).count() : 0.0f;
++        ringAuto.last = now;
++        if (ringAuto.window < 0 && now >= ringAuto.nextTrial)
++        {
++            ringAuto.window = 0;
++            ringAuto.frames = 0;
++            ringAuto.trialStartVram = ringAuto.wantVram;
++            ringAuto.samples.clear();
++        }
++        else if (ringAuto.window >= 0 && ms > 0.0f)
++        {
++            if (++ringAuto.frames > 30)
++                ringAuto.samples.push_back(ms);
++            if (ringAuto.frames >= 150)
++            {
++                std::sort(ringAuto.samples.begin(), ringAuto.samples.end());
++                ringAuto.medians[ringAuto.window] = ringAuto.samples[ringAuto.samples.size() / 2];
++                ringAuto.samples.clear();
++                ringAuto.frames = 0;
++                if (++ringAuto.window == 8)
++                {
++                    float cur = 0, other = 0;
++                    int otherWins = 0, curWins = 0;
++                    for (int p = 0; p < 4; p++)
++                    {
++                        cur += ringAuto.medians[2 * p], other += ringAuto.medians[2 * p + 1];
++                        otherWins += ringAuto.medians[2 * p + 1] < ringAuto.medians[2 * p];
++                        curWins += ringAuto.medians[2 * p] < ringAuto.medians[2 * p + 1];
++                    }
++                    const bool switchTo = otherWins >= 3 && other < cur * 0.985f;
++                    ringAuto.wantVram = switchTo ? !ringAuto.trialStartVram : ringAuto.trialStartVram;
++                    static bool lastLogged = true, logged = false;
++                    if (!logged || ringAuto.wantVram != lastLogged)
++                        Log("renderer: upload ring auto: %s %.2f ms, %s %.2f ms a frame (median): %s", ringAuto.trialStartVram ? "VRAM" : "system memory",
++                            cur / 4, ringAuto.trialStartVram ? "system memory" : "VRAM", other / 4, ringAuto.wantVram ? "VRAM" : "system memory");
++                    logged = true, lastLogged = ringAuto.wantVram;
++                    ringAuto.window = -1;
++                    ringAuto.nextTrial = now + std::chrono::seconds(30);
++                }
++            }
++        }
++    }
++    const bool wantVram = ringAuto.on && g_gpuUploadHeap && f.ringAlt
++        ? (ringAuto.window >= 0 ? ((ringAuto.window & 1) ? !ringAuto.trialStartVram : ringAuto.trialStartVram) : ringAuto.wantVram)
++        : bool(vramRing);
+     // REGPU_GPU_UPLOAD_RING: this slot's ring in VRAM or system memory (its last use finished with its frame).
+-    if (static LiveSwitch vramRing("REGPU_GPU_UPLOAD_RING"); f.ringAlt && bool(vramRing) != f.ringInVram)
++    if (f.ringAlt && wantVram != f.ringInVram)
+     {
+         std::swap(f.ring, f.ringAlt);
+         std::swap(f.ringCpu, f.ringAltCpu);
+         std::swap(f.ringSize, f.ringAltSize);
+         f.ringInVram = !f.ringInVram;
+-        if (frameIndex == 0)
++        if (frameIndex == 0 && !ringAuto.on)
+             Log("renderer: upload ring in %s", f.ringInVram ? "VRAM (GPU upload heap)" : "system memory");
+     }
+     if (const UINT64 want = g_ringWant.load(); want > f.ringSize)

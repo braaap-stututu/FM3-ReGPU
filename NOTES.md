@@ -48,6 +48,12 @@
   helpers ~5%, motion bookkeeping 4% with FSR/TAA. Motion maps -> flat tables, shader-pair memo: FSR 3 Quality 287 ->
   303-308 fps, TAA 290 -> 303, native same (~299). **FSR 3 at 1440p is now as fast as native.** Next candidates:
   bytes per draw (bool/loop constants, vertex constants), the pass-size helpers.
+- **Bytes per draw (user: "try it", ReGPU patch 57 `regpu-ring-auto`):** 1,044 bytes a draw written; the ~11% stall
+  is store throughput into write-combined VRAM. Whole-line writes -0.4% (removed), block reuse -6.3% (staging costs
+  more). **The ring in system memory is +5.5% at 1440p 1x** (draw thread the limit; GPU 2.0 -> 2.95 ms) but -1.6% at
+  4x and far worse at 4K, so: an automatic choice by measured frame time, opt-in (launcher Testing "Upload ring: pick
+  automatically" = `upload_ring_auto=1`; trials every 30 s): 1x -> system memory, 4x -> VRAM on the grid. Make it the
+  default after the user tries it? Results `out/perf/s36-ring*`, `s36-lines`, `s36-reuse`.
 - **Next (ask the user):** their look at each mode in a drive; TAA tuning if it ghosts (`REGPU_TAA_BLEND`,
   `REGPU_TAA_CLIP`, live via `Fm3 "env ..."`); SMAA 2x/T2x (SMAA with TAA) if wanted.
 
