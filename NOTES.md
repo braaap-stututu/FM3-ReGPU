@@ -1,6 +1,22 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-15, session 36)
+## ▶ Current status / next step  (updated 2026-11-15, session 37)
+
+### ▶ Start here (session 38): state at the end of session 37 (2026-11-15)
+- **In short (details in the bullets below):** FM2 PR 33's scan fix ported (patch 58, no effect in FM3); draw-thread
+  "bigger changes" tried and dropped (ring writes on the replay thread -0.4%, draw workers -7.6%, spliced parallel
+  pieces -10..-12% on 4-8 threads: weak CPUs are saturated); total CPU cut (patch 59: command processor -15%,
+  index binds 1,985 -> 9); 1% lows analysed (patch 60: fetch variants read off the draw thread; at the cap pacing
+  is tight); **VR**: step 1 virtual screen (patch 61, `vr=screen`) and step 2 head-tracked cockpit (patch 62 +
+  `src/hooks/vr_camera.cpp`, `vr=cockpit`), neither seen in a headset yet (the user's runtime: Virtual Desktop).
+- **62 ReGPU patches**, all committed and pushed (last: bacf982). OpenXR SDK 1.1.65 lives in `thirdparty/openxr`
+  (local, not in git; how to fetch it: the VR bullet below).
+- **Next (user's plan: VR "all the way to stereo"):** step 3 **true stereo** in ReGPU (FH1R v5 design, RESEARCH.md
+  "VR, after FH1R's design": keep the frame's commands from the scene's start to the first HUD draw, restore the
+  register state, run that segment again for the second eye with clip.x -= P00*d in the vertex shaders, second
+  eye's targets, guest uploads of the first pass repeated, fences/queries/interrupts not); then the HUD on its own
+  panel, camera shake off, recentre, eye limits, headset pacing (FH1R v6), the cabin pass (v7-8), a launcher
+  option. Ask the user to try `vr=screen` / `vr=cockpit` in the headset whenever they can.
 
 ### Session 37 (2026-11-15): FM2 ReGPU PR 33 checked
 - The user asked whether zer0ducksgiven/Forza-Motorsport-2-ReGPU PR 33 had anything new. Its Vulkan "copy only the
