@@ -465,8 +465,9 @@ void GpuStart()
     // directly. Needs dxcompiler.dll + dxil.dll beside fm3.exe (else FXC, with a log line).
     if (GetSettings().Extra("shader_compiler") == "dxc")
         DefaultEnv("REGPU_DXC", "1");
-    // VR (session 37, ReGPU src/render/xr.cpp): settings.ini vr=screen (or FM3_VR / REGPU_VR) puts the game on a virtual
-    // screen in an OpenXR headset (the active runtime: Virtual Desktop, SteamVR, Oculus, ...); the window stays.
+    // VR (session 37, ReGPU src/render/xr.cpp): settings.ini vr=screen|cockpit (or FM3_VR / REGPU_VR) puts the game on a virtual
+    // screen in an OpenXR headset (the active runtime: Virtual Desktop, SteamVR, Oculus, ...); cockpit also head-tracks
+    // the in-car view (src/hooks/vr_camera.cpp); the window stays.
     if (const char* v = getenv("FM3_VR"); v && *v)
         DefaultEnv("REGPU_VR", v);
     else if (const std::string vr = GetSettings().Extra("vr"); !vr.empty() && vr != "off" && vr != "0")

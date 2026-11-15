@@ -80,6 +80,7 @@ $regpuPatches = @(
     'regpu-cpu-cuts'                 # wake-ups between the command processor and the draw thread only for a waiter (CP -15% CPU), clock reads every 4096 calls, whole-buffer index views (REGPU_ALWAYS_NOTIFY / REGPU_NO_WIDE_INDEX_VIEWS: old)
     'regpu-variant-load'             # fetch-variant bytecode read from the disk cache by the compile worker, not mid-frame on the draw thread (REGPU_VARIANT_LOAD_NOW=1 old); REGPU_FRAME_HISTOGRAM=1 frame-time histogram in the light log
     'regpu-vr-screen'                # VR step 1 (REGPU_VR=screen, REGPU_OPENXR_DIR): OpenXR session on ReGPU's D3D12 device, the presented frame on a virtual screen in the headset
+    'regpu-vr-headpose'              # VR step 2: regpu::vr::GetHeadPose / SubmitFramePose (host poses its camera; frames paired with their pose, shown as a mono projection layer), debug server findhex
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

@@ -45,6 +45,7 @@
 #include <windows.h>
 
 #include "hooks/frame_time.h"
+#include "hooks/vr_camera.h"
 #include "kernel/imports.h"
 #include "live_switch.h"
 #include "log.h"
@@ -247,6 +248,7 @@ PPC_FUNC(sub_821F6AF8)
         __imp__sub_821F6AF8(ctx, base);
         return;
     }
+    VrCameraMainFrame(); // (once per main-loop frame: the last frame's head pose to ReGPU, src/hooks/vr_camera.cpp)
     if (g_targetFps.load(std::memory_order_relaxed) == 60 || !Precise())
     {
         __imp__sub_821F6AF8(ctx, base);

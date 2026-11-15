@@ -1,0 +1,320 @@
+diff --git a/include/regpu/regpu.h b/include/regpu/regpu.h
+index 39ecf23..c66249d 100644
+--- a/include/regpu/regpu.h
++++ b/include/regpu/regpu.h
+@@ -210,4 +210,22 @@ void SetFrameLimit(uint32_t maxFps, bool vsync);
+ // that many samples at most (2-16) for every wrapping linear fetch. Applies to the 2D pixel fetches of
+ // REGPU_LEAN_FETCH (its sampler table); others keep their samplers.
+ void SetAnisotropy(int maxAnisotropy);
++
++// VR (REGPU_VR, a build with OpenXR; src/render/xr.cpp). The host poses its camera with the headset and tells ReGPU
++// which pose each game frame was rendered with; frames without one go on the virtual screen.
++namespace vr
++{
++struct HeadPose
++{
++    float orientation[4] = { 0, 0, 0, 1 }; // x, y, z, w (OpenXR: right-handed, y up, -z forward)
++    float position[3] = {};                 // metres from where the runtime was recentred
++    float fovLeft = 0, fovRight = 0, fovUp = 0, fovDown = 0; // the headset's eye field of view (radians, left eye)
++};
++// The head's pose predicted for the next headset frame. false: no running headset session.
++bool GetHeadPose(HeadPose& out);
++// Once per game frame, in frame order: the head pose the frame's 3D view was rendered with and the vertical field of
++// view it used (radians, the whole angle), or nullptr for a frame shown on the virtual screen. Paired with the
++// presented frames in order.
++void SubmitFramePose(const HeadPose* pose, float renderFovY);
++} // namespace vr
+ } // namespace regpu
+diff --git a/src/debug.cpp b/src/debug.cpp
+index fe5922a..8bab339 100644
+--- a/src/debug.cpp
++++ b/src/debug.cpp
+@@ -499,6 +499,41 @@ std::string Handle(const std::string& line)
+         }
+         return Ok("\"hits\":[" + out + "]");
+     }
++    // findhex HEXBYTES: guest addresses holding those bytes (as written: big-endian words like 8200206C), at 4-byte
++    // aligned places, the first 64. E.g. a vtable pointer finds the objects of that class (FM3 port, session 37).
++    if (cmd == "findhex")
++    {
++        std::string hex;
++        in >> hex;
++        std::string needle;
++        for (size_t i = 0; i + 1 < hex.size(); i += 2)
++            needle += char(std::stoi(hex.substr(i, 2), nullptr, 16));
++        if (needle.empty())
++            return Error("findhex HEXBYTES");
++        std::string out;
++        int found = 0;
++        for (uint64_t a = 0x10000; a < 0x100000000ull && found < 64;)
++        {
++            MEMORY_BASIC_INFORMATION mi{};
++            if (!VirtualQuery(g_base + a, &mi, sizeof(mi)))
++                break;
++            const uint64_t start = uint64_t(static_cast<uint8_t*>(mi.BaseAddress) - g_base), end = start + mi.RegionSize;
++            if (mi.State == MEM_COMMIT && !(mi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
++            {
++                const std::string_view region(reinterpret_cast<const char*>(g_base + start), size_t(end - start));
++                for (size_t at = region.find(needle); at != std::string_view::npos && found < 64; at = region.find(needle, at + 1))
++                    if (((start + at) & 3) == 0)
++                    {
++                        char buf[32];
++                        snprintf(buf, sizeof(buf), "%s\"%08llX\"", out.empty() ? "" : ",", (unsigned long long)(start + at));
++                        out += buf;
++                        found++;
++                    }
++            }
++            a = end;
++        }
++        return Ok("\"hits\":[" + out + "]");
++    }
+     // env NAME [value]: set (or clear) an environment variable, for the switches that take a value (read once
+     // at their first use, so mostly before that happens).
+     if (cmd == "env")
+diff --git a/src/render/xr.cpp b/src/render/xr.cpp
+index 3c677d2..fa99448 100644
+--- a/src/render/xr.cpp
++++ b/src/render/xr.cpp
+@@ -7,6 +7,7 @@
+ #include <string>
+ 
+ #include "log.h"
++#include "regpu/regpu.h"
+ 
+ #if !REGPU_OPENXR
+ 
+@@ -25,6 +26,11 @@ bool Wanted()
+ void Start(ID3D12Device*, ID3D12CommandQueue*) {}
+ void CaptureFrame(ID3D12GraphicsCommandList*, ID3D12Resource*) {}
+ }
++namespace regpu::vr
++{
++bool GetHeadPose(HeadPose&) { return false; }
++void SubmitFramePose(const HeadPose*, float) {}
++}
+ 
+ #else
+ 
+@@ -37,6 +43,8 @@ void CaptureFrame(ID3D12GraphicsCommandList*, ID3D12Resource*) {}
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
++#include <cmath>
++#include <deque>
+ #include <mutex>
+ #include <thread>
+ #include <vector>
+@@ -58,7 +66,7 @@ namespace
+     X(xrDestroySession) X(xrCreateReferenceSpace) X(xrDestroySpace) X(xrEnumerateSwapchainFormats) X(xrCreateSwapchain)          \
+     X(xrDestroySwapchain) X(xrEnumerateSwapchainImages) X(xrAcquireSwapchainImage) X(xrWaitSwapchainImage)                      \
+     X(xrReleaseSwapchainImage) X(xrPollEvent) X(xrBeginSession) X(xrEndSession) X(xrWaitFrame) X(xrBeginFrame) X(xrEndFrame)     \
+-    X(xrResultToString) X(xrEnumerateViewConfigurationViews)
++    X(xrResultToString) X(xrEnumerateViewConfigurationViews) X(xrLocateSpace) X(xrLocateViews)
+ 
+ PFN_xrGetInstanceProcAddr xrGetInstanceProcAddr = nullptr;
+ #define REGPU_XR_DECLARE(name) PFN_##name name = nullptr;
+@@ -72,6 +80,22 @@ std::mutex g_screenMutex;
+ ComPtr<ID3D12Resource> g_screen;
+ std::vector<ComPtr<ID3D12Resource>> g_oldScreens; // replaced ones, kept a while (commands in flight may read them)
+ std::atomic<bool> g_capturing{ false };
++// Head-tracked frames (regpu::vr): the pose each game frame was rendered with, in frame order, paired with the captured
++// frames in order; the screen's own pose comes with it.
++struct FramePose
++{
++    bool valid = false;
++    regpu::vr::HeadPose pose;
++    float fovY = 0;
++};
++std::deque<FramePose> g_framePoses; // (g_screenMutex)
++FramePose g_screenPose;             // (g_screenMutex) the captured frame's
++// For GetHeadPose from the game's threads: the running session's spaces and the next display time.
++std::mutex g_poseMutex;
++XrSession g_poseSession = XR_NULL_HANDLE;
++XrSpace g_poseLocal = XR_NULL_HANDLE, g_poseView = XR_NULL_HANDLE;
++std::atomic<int64_t> g_predicted{ 0 };
++XrFovf g_eyeFov{};
+ std::atomic<uint64_t> g_captured{ 0 };
+ ComPtr<ID3D12Device> g_device;
+ ComPtr<ID3D12CommandQueue> g_queue;
+@@ -138,7 +162,7 @@ struct Session
+     XrInstance instance = XR_NULL_HANDLE;
+     XrSystemId system = XR_NULL_SYSTEM_ID;
+     XrSession session = XR_NULL_HANDLE;
+-    XrSpace local = XR_NULL_HANDLE;
++    XrSpace local = XR_NULL_HANDLE, view = XR_NULL_HANDLE;
+     XrSwapchain quad = XR_NULL_HANDLE;
+     uint32_t quadW = 0, quadH = 0;
+     int64_t quadFormat = 0;
+@@ -156,6 +180,12 @@ struct Session
+     ~Session()
+     {
+         g_capturing = false;
++        {
++            std::lock_guard lock(g_poseMutex);
++            g_poseSession = XR_NULL_HANDLE;
++        }
++        if (view)
++            xrDestroySpace(view);
+         if (quad)
+             xrDestroySwapchain(quad);
+         if (local)
+@@ -238,6 +268,12 @@ struct Session
+             Log("vr: xrCreateReferenceSpace failed: %s", ResultText(instance, r).c_str());
+             return false;
+         }
++        rs.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
++        if (XrResult r = xrCreateReferenceSpace(session, &rs, &view); XR_FAILED(r))
++        {
++            Log("vr: xrCreateReferenceSpace (view) failed: %s", ResultText(instance, r).c_str());
++            return false;
++        }
+         for (uint32_t i = 0; i < kLists; i++)
+             if (FAILED(g_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocators[i]))))
+                 return false;
+@@ -318,12 +354,13 @@ struct Session
+     }
+ 
+     // Copies the latest captured frame into the quad's next image.
+-    bool DrawQuad()
++    bool DrawQuad(FramePose& pose)
+     {
+         ComPtr<ID3D12Resource> screen;
+         {
+             std::lock_guard lock(g_screenMutex);
+             screen = g_screen;
++            pose = g_screenPose;
+         }
+         if (!screen)
+             return false;
+@@ -388,12 +425,18 @@ struct Session
+                         {
+                             running = true;
+                             g_capturing = true;
++                            std::lock_guard lock(g_poseMutex);
++                            g_poseSession = session, g_poseLocal = local, g_poseView = view;
+                         }
+                     }
+                     else if (sc.state == XR_SESSION_STATE_STOPPING)
+                     {
+                         running = false;
+                         g_capturing = false;
++                        {
++                            std::lock_guard lock(g_poseMutex);
++                            g_poseSession = XR_NULL_HANDLE;
++                        }
+                         xrEndSession(session);
+                     }
+                     else if (sc.state == XR_SESSION_STATE_EXITING || sc.state == XR_SESSION_STATE_LOSS_PENDING)
+@@ -411,11 +454,51 @@ struct Session
+             XrFrameState fs{ XR_TYPE_FRAME_STATE };
+             if (XR_FAILED(xrWaitFrame(session, nullptr, &fs)))
+                 return;
++            g_predicted.store(fs.predictedDisplayTime, std::memory_order_relaxed);
++            {
++                XrViewLocateInfo vli{ XR_TYPE_VIEW_LOCATE_INFO };
++                vli.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
++                vli.displayTime = fs.predictedDisplayTime;
++                vli.space = local;
++                XrViewState vs{ XR_TYPE_VIEW_STATE };
++                XrView views[2] = { { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
++                uint32_t n = 0;
++                if (XR_SUCCEEDED(xrLocateViews(session, &vli, &vs, 2, &n, views)) && n >= 1)
++                {
++                    std::lock_guard lock(g_poseMutex);
++                    g_eyeFov = views[0].fov;
++                }
++            }
+             xrBeginFrame(session, nullptr);
+             XrCompositionLayerQuad layer{ XR_TYPE_COMPOSITION_LAYER_QUAD };
++            XrCompositionLayerProjection projection{ XR_TYPE_COMPOSITION_LAYER_PROJECTION };
++            XrCompositionLayerProjectionView eyes[2] = { { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW }, { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW } };
+             const XrCompositionLayerBaseHeader* layers[1] = { reinterpret_cast<XrCompositionLayerBaseHeader*>(&layer) };
+             uint32_t layerCount = 0;
+-            if (fs.shouldRender && DrawQuad())
++            FramePose framePose;
++            const bool drawn = fs.shouldRender && DrawQuad(framePose);
++            if (drawn && framePose.valid)
++            {
++                // A head-tracked frame: both eyes see it from the pose it was rendered with (mono), across the field
++                // of view it was rendered with; the runtime turns it for the head's movement since.
++                const float tanY = tanf(framePose.fovY * 0.5f), tanX = tanY * float(quadW) / float(std::max(quadH, 1u));
++                for (XrCompositionLayerProjectionView& e : eyes)
++                {
++                    const auto& p = framePose.pose;
++                    e.pose.orientation = { p.orientation[0], p.orientation[1], p.orientation[2], p.orientation[3] };
++                    e.pose.position = { p.position[0], p.position[1], p.position[2] };
++                    e.fov = { -atanf(tanX), atanf(tanX), atanf(tanY), -atanf(tanY) };
++                    e.subImage.swapchain = quad;
++                    e.subImage.imageRect = { { 0, 0 }, { int32_t(quadW), int32_t(quadH) } };
++                }
++                projection.space = local;
++                projection.viewCount = 2;
++                projection.views = eyes;
++                layers[0] = reinterpret_cast<XrCompositionLayerBaseHeader*>(&projection);
++                layerCount = 1;
++                shown++;
++            }
++            else if (drawn)
+             {
+                 layer.space = local;
+                 layer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+@@ -511,6 +594,17 @@ void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer)
+             g_screen = made;
+         }
+         screen = g_screen;
++        // This captured frame's pose (the oldest game frame not shown yet). More than a few waiting: the two counts
++        // went apart (a frame drawn twice or not at all); start again from the newest.
++        while (g_framePoses.size() > 4)
++            g_framePoses.pop_front();
++        if (!g_framePoses.empty())
++        {
++            g_screenPose = g_framePoses.front();
++            g_framePoses.pop_front();
++        }
++        else
++            g_screenPose.valid = false;
+     }
+     Barrier(list, backBuffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+     Barrier(list, screen.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+@@ -521,4 +615,41 @@ void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer)
+ }
+ }
+ 
++namespace regpu::vr
++{
++bool GetHeadPose(HeadPose& out)
++{
++    std::lock_guard lock(g_poseMutex);
++    if (!g_poseSession)
++        return false;
++    XrSpaceLocation loc{ XR_TYPE_SPACE_LOCATION };
++    const XrTime time = g_predicted.load(std::memory_order_relaxed);
++    if (!time || XR_FAILED(xrLocateSpace(g_poseView, g_poseLocal, time, &loc)))
++        return false;
++    if (!(loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT))
++        return false;
++    out.orientation[0] = loc.pose.orientation.x, out.orientation[1] = loc.pose.orientation.y;
++    out.orientation[2] = loc.pose.orientation.z, out.orientation[3] = loc.pose.orientation.w;
++    const bool hasPosition = loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT;
++    out.position[0] = hasPosition ? loc.pose.position.x : 0.0f;
++    out.position[1] = hasPosition ? loc.pose.position.y : 0.0f;
++    out.position[2] = hasPosition ? loc.pose.position.z : 0.0f;
++    out.fovLeft = g_eyeFov.angleLeft, out.fovRight = g_eyeFov.angleRight, out.fovUp = g_eyeFov.angleUp, out.fovDown = g_eyeFov.angleDown;
++    return true;
++}
++
++void SubmitFramePose(const HeadPose* pose, float renderFovY)
++{
++    if (!g_capturing.load(std::memory_order_relaxed))
++        return;
++    FramePose f;
++    f.valid = pose != nullptr;
++    if (pose)
++        f.pose = *pose;
++    f.fovY = renderFovY;
++    std::lock_guard lock(g_screenMutex);
++    g_framePoses.push_back(f);
++}
++}
++
+ #endif

@@ -81,7 +81,25 @@
     headset it retries every 3 s, game unaffected (grid 356 fps). OpenXR SDK 1.1.65 in `thirdparty/openxr` (not in
     git: download `openxr_loader_windows-1.1.65.zip` from KhronosGroup/OpenXR-SDK-Source and copy `include/`,
     `x64/bin/openxr_loader.dll` -> `bin/`, `x64/lib` -> `lib/`, LICENSE; CMake finds it, post-build copies the DLL).
-  - **Next:** the user tries the screen in the headset (Virtual Desktop connected, `vr=screen`); then step 2.
+  - The user skipped the headset test for now ("keep building").
+  - **Step 2 built, checked without a headset: head-tracked cockpit** (`vr=cockpit`; ReGPU patch 62
+    `regpu-vr-headpose` + `src/hooks/vr_camera.cpp`). **FM3's camera director** (found with the new debug command
+    `findhex 8200206C` = CCamDriver objects, then what points at them): FH1's layout with every field 32 bytes earlier:
+    +0x14 active camera, +0x18.. the player's cameras (created in `sub_8246DF78`), +0x90 position, +0xB0 forward,
+    +0xC0 up, **+0xD0 the view matrix** (world to camera, row vectors, left-handed; checked: translation row =
+    -position . axes), **+0x110 vertical FOV** (0.925 rad = 53 deg on the grid's chase camera). The matrix's only
+    accessor `sub_821E3990` (r3 + 208) is called only by **`sub_821E9B50`** (view object: +4 director, +36
+    presentation camera; matrix by value to the camera's virtual +116), FOV accessor `sub_821ED758` (+272). The hook
+    wraps `sub_821E9B50` while the active camera is CCamDriver (0x8200206C) or CCamCockpit (0x82034FC4): view' =
+    V * T(-t) * Rlh (OpenXR pose to left-handed: z negated), FOV = headset's vertical + 5 deg (`FM3_VR_FOV_MARGIN`),
+    both restored after; the pose goes to ReGPU once per main frame (`VrCameraMainFrame` from `frame_time.cpp`).
+    `FM3_VR_FAKE="yaw pitch roll x y z"` (deg, cm; live) poses without a headset. **Checked on the grid** (active
+    camera poked to the CCamDriver, so the chase position): yaw 30 turns left, pitch -15 looks down, the scene stays
+    whole at the new edges (culling follows), FOV 53 -> 108 deg. Shots `out/shots/vr-poke-*.png`. Camera buttons on
+    the frozen grid (RB, BACK, Y, RS) did not change the view.
+  - **Not done yet:** the HUD on its own panel (it is in the head-tracked picture now), camera shake/G lean off,
+    recentre key, eye limits, real in-car test (user), true stereo (step 3), headset pacing, cabin pass, launcher
+    option.
 
 ### ▶ Start here (session 37): state at the end of session 36 (2026-11-15)
 - **In short:** anti-aliasing filters (user's request: FXAA, EQAA, MLAA, SRAA, SSAA, TAA, CMAA, SMAA; the user chose to
