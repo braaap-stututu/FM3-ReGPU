@@ -39,6 +39,15 @@
   Native 246 (GPU-bound: FSR 4 on RDNA 3). The rest of the gap = motion vectors (GPU ~0.6 ms, draw thread a little).
   Upscaling pays where the GPU limits (4K 4x, iGPU). **Native AA** added to the launcher (Upscaler quality "Native
   (anti-aliasing only)" = `upscale_quality=0`). Results `out/perf/s36-fsr2`.
+- **FSR 4 INT8 (user asked):** already used: the RX 7900 XTX's driver (32.0.32015) offers FSR 4.1.2, which on RDNA 3
+  can only be AMD's INT8 model; the iGPU's RDNA 2 branch (32.0.21045) offers only 3.1.5/2.3.4, so FSR 4 falls back
+  there (log line). Our code takes whatever 4.x the driver lists.
+- **Draw thread cut further (ReGPU patch 56 `regpu-motion-table`):** profile at 1440p (`out/perf/s36-prof*`): DrawImpl
+  37% (of which ~11% one epilogue instruction = the store buffer draining the constants over PCIe into the VRAM ring:
+  only fewer bytes per draw can cut it), index-buffer hashing ~5% (write watch tried in session 31: no gain), pass-size
+  helpers ~5%, motion bookkeeping 4% with FSR/TAA. Motion maps -> flat tables, shader-pair memo: FSR 3 Quality 287 ->
+  303-308 fps, TAA 290 -> 303, native same (~299). **FSR 3 at 1440p is now as fast as native.** Next candidates:
+  bytes per draw (bool/loop constants, vertex constants), the pass-size helpers.
 - **Next (ask the user):** their look at each mode in a drive; TAA tuning if it ghosts (`REGPU_TAA_BLEND`,
   `REGPU_TAA_CLIP`, live via `Fm3 "env ..."`); SMAA 2x/T2x (SMAA with TAA) if wanted.
 

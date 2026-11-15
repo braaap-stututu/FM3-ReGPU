@@ -74,6 +74,7 @@ $regpuPatches = @(
     'regpu-dxc-tuning'               # DXC -O1 default (same code, faster compiles), REGPU_DXC_SM; vertex-shader rectangle path with one GuestVS call site (VS compile -22% FXC, -43% DXC)
     'regpu-postaa'                   # anti-aliasing filters: FXAA 3.11 / SMAA / CMAA 2 (REGPU_AA_DIR sources), TAA, SSAA, EQAA (Config::postAA, ssaa, eqaa)
     'regpu-fsr4'                     # FSR contexts kept per setup (the FSR 3 driver timeout: contexts destroyed under the GPU), SDK 2.1 version descriptor, FSR 4 (Config::Upscaler::Fsr4)
+    'regpu-motion-table'             # motion-vector bookkeeping in flat tables (FSR/TAA draw thread -4%), shader-pair memo, FSR 4 fallback message
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

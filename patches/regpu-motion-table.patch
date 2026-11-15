@@ -1,0 +1,126 @@
+diff --git a/src/gpu/fsr3.cpp b/src/gpu/fsr3.cpp
+index 798ad2b..1ec9aa5 100644
+--- a/src/gpu/fsr3.cpp
++++ b/src/gpu/fsr3.cpp
+@@ -106,7 +106,7 @@ Fsr3Context* ContextFor(ID3D12Device* device, const DlssSetup& setup)
+     {
+         static bool logged = false;
+         if (!logged)
+-            Log("fsr: FSR 4 is not offered on this GPU (RDNA 4 / RX 9000 series): FSR 3 instead");
++            Log("fsr: FSR 4 is not offered on this GPU by its driver (RDNA 4; RDNA 3 with recent drivers, INT8): FSR 3 instead");
+         logged = true;
+         version = g_fsr3.fsr3Version;
+         versionName = g_fsr3.fsr3Name.c_str();
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 7c104b3..1060632 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -150,8 +150,60 @@ struct Upscale
+         uint32_t frame = 0;                    // the temporal frame that last drew it
+         D3D12_GPU_VIRTUAL_ADDRESS address[2]{}; // its vertex constants in that frame's ring, by frame parity
+     };
+-    std::unordered_map<uint64_t, DrawConstants> constants;
+-    std::unordered_map<uint64_t, uint32_t> occurrences;
++    // Flat open-addressing tables (FM3 port, session 36): two std::unordered_map lookups a draw and a per-frame clear of
++    // ~3,300 nodes were ~4% of the draw thread with FSR 3 at 1440p. Occurrences carry their frame instead of a clear.
++    struct MotionTable
++    {
++        struct Slot
++        {
++            uint64_t key = 0; // 0 = empty (keys are forced odd)
++            uint32_t occFrame = 0, occ = 0;
++            DrawConstants c;
++        };
++        std::vector<Slot> slots;
++        size_t used = 0;
++        Slot& At(uint64_t key)
++        {
++            key |= 1;
++            if (slots.empty() || (used + 1) * 2 > slots.size())
++                Grow();
++            const size_t mask = slots.size() - 1;
++            for (size_t i = (key * 0x9E3779B97F4A7C15ull) >> 20 & mask;; i = (i + 1) & mask)
++            {
++                Slot& e = slots[i];
++                if (e.key == key)
++                    return e;
++                if (!e.key)
++                {
++                    e.key = key;
++                    used++;
++                    return e;
++                }
++            }
++        }
++        // Doubles, dropping draws not seen for a while (as the old map's sweep every 600 frames did).
++        void Grow(uint32_t frame = 0)
++        {
++            std::vector<Slot> old = std::move(slots);
++            size_t live = 0;
++            for (const Slot& e : old)
++                live += e.key && e.c.frame + 600 >= frame;
++            slots.assign(std::max<size_t>(8192, size_t(1) << (64 - __builtin_clzll(uint64_t(live * 4 + 1)))), Slot{});
++            used = 0;
++            const size_t mask = slots.size() - 1;
++            for (const Slot& e : old)
++                if (e.key && e.c.frame + 600 >= frame)
++                {
++                    size_t i = (e.key * 0x9E3779B97F4A7C15ull) >> 20 & mask;
++                    while (slots[i].key)
++                        i = (i + 1) & mask;
++                    slots[i] = e;
++                    used++;
++                }
++        }
++    };
++    MotionTable occurrences; // by draw (before its occurrence): how often it came up this frame
++    MotionTable constants;   // by draw and occurrence: its constants' addresses
+     uint32_t constantsFrame = 0;
+ } g_upscale;
+ 
+@@ -7995,9 +8047,9 @@ void BeginTemporalFrame()
+     g_upscale.jitterNdc[0] = 2.0f * g_upscale.jitterPx[0] / float(std::max(1u, g_upscale.renderWidth));
+     g_upscale.jitterNdc[1] = -2.0f * g_upscale.jitterPx[1] / float(std::max(1u, g_upscale.renderHeight));
+     g_upscale.constantsFrame++;
+-    g_upscale.occurrences.clear();
++    // (occurrences: counted per frame by their own stamp, MotionTable)
+     if (g_upscale.constantsFrame % 600 == 0) // draws not seen for a while
+-        std::erase_if(g_upscale.constants, [](const auto& e) { return e.second.frame + 2 < g_upscale.constantsFrame; });
++        g_upscale.constants.Grow(g_upscale.constantsFrame), g_upscale.occurrences.Grow(g_upscale.constantsFrame);
+     const float zero[4] = {};
+     C().list->ClearRenderTargetView(g_upscale.motionRtv, zero, 0, nullptr);
+ }
+@@ -12569,7 +12621,13 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         // right away; now that set covers the game, and the 512 MB scan (~18 ms on this
+         // thread) only showed as a frame spike, so once the game runs the low-priority
+         // background scan is enough.
+-        const bool unseen = g_r.shaders.find(C().vsHash) == g_r.shaders.end() || g_r.shaders.find(C().psHash) == g_r.shaders.end();
++        // (FM3 port, session 36: two map lookups a draw, ~1.4% of the draw thread at 1440p; consecutive draws mostly share
++        // shaders and known shaders are never removed, so a pair found known is remembered.)
++        thread_local uint64_t knownVs = 0, knownPs = 0;
++        const bool samePair = C().vsHash == knownVs && C().psHash == knownPs && knownVs;
++        const bool unseen = !samePair && (g_r.shaders.find(C().vsHash) == g_r.shaders.end() || g_r.shaders.find(C().psHash) == g_r.shaders.end());
++        if (!samePair && !unseen)
++            knownVs = C().vsHash, knownPs = C().psHash;
+         static auto lastScan = std::chrono::steady_clock::time_point{};
+         LiveSwitch &noScan = g_sw_REGPU_NO_SHADER_SCAN;
+         if (unseen && !noScan)
+@@ -12944,10 +13002,16 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+                 key = (key ^ gpureg::Get(gpureg::FetchConstants + k * 2)) * 0xFF51AFD7ED558CCDull;
+                 break; // the first vertex buffer is enough to tell draws apart
+             }
+-            key ^= uint64_t(g_upscale.occurrences[key]++) * 0xC2B2AE3D27D4EB4Full;
++            {
++                auto& o = g_upscale.occurrences.At(key);
++                if (o.occFrame != g_upscale.constantsFrame)
++                    o.occFrame = g_upscale.constantsFrame, o.occ = 0;
++                o.c.frame = g_upscale.constantsFrame; // (kept alive by Grow's sweep)
++                key ^= uint64_t(o.occ++) * 0xC2B2AE3D27D4EB4Full;
++            }
+             // Last frame's constants are still in last frame's ring (it is reused only after
+             // kFrames): the draw reads them there (b2).
+-            auto& entry = g_upscale.constants[key];
++            auto& entry = g_upscale.constants.At(key).c;
+             const uint32_t parity = g_upscale.constantsFrame & 1;
+             const D3D12_GPU_VIRTUAL_ADDRESS now = f.ring->GetGPUVirtualAddress() + vsOffset;
+             const bool known = entry.frame + 1 == g_upscale.constantsFrame && !g_upscale.reset;
