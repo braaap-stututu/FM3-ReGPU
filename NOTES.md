@@ -64,6 +64,17 @@
     Shots `out/shots/s38-cab*.png`, `s38-cs-*.png`.
   - **Pad recentre:** both stick clicks held for 1 s (`src/kernel/imports_xam.cpp`, any pad, only with VR on) call
     `regpu::vr::Recentre()`, as F8 does; checked with the virtual pad (`press LS+RS 1600`).
+- **In-car camera motion off in VR** (user: "keep building"): FM3's camera motion is data, `Media\Camera\CameraPhysics.xml`:
+  per camera (`FollowCam`, `FollowCam2`, `DriverCam` 37 layers, `Hood` 31, `BumperHigh` 32) a stack of layers that each
+  turn an input (G-forces, slip, speed, road bumps, suspension, collisions) into a car- or camera-space offset, turn,
+  impulse, noise or the field of view, each with `Enabled="1"`. With VR on (not `screen`) `src/kernel/imports_io.cpp`
+  serves a copy with every layer of the in-car, hood and bumper cameras off (`<user>r\CameraPhysics.xml`, made once a
+  run; log `vr: in-car camera motion off (100 camera layers ...)`); chase cameras keep theirs; a mod of the file wins.
+  `vr_camera_motion=1` in settings.ini (or `FM3_VR_CAMERA_MOTION=1`) keeps the game's motion (no launcher toggle yet).
+  **Measured** with FM3's AI driving the player car (`FM3_AI_PLAYER=1`, in-car view, head pose zero, 8 shots over
+  2.1 s, dashboard box tracked with `stereoshift.py --vmax`): motion on, the dashboard moved up to 8 px up and 4 px
+  sideways; off, 0 px in every frame. (`CameraSettings.ini` has the rest: `TuneFX\ShakyCam`, `Driver\DefaultOffsetFrom
+  SteeringWheel*`, per-camera FOVs.) The developer option `nocameravibration` is dead in retail.
 - Not done: XR eye images never ran with a real session (the swapchain pair path, poses per eye); the user's
   `fm3.log` from before was copied to `out/logs/user-s38/`.
 

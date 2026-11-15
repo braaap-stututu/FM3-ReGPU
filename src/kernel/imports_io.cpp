@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <atomic>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <mutex>
 #include <set>
 #include <unordered_map>
@@ -247,6 +249,53 @@ bool VfsResolve(std::string guest, fs::path& host, bool* readOnly)
                 if (logged.insert(host.string()).second)
                     Log("mods: %s from %s", guest.c_str(), host.string().c_str());
             }
+        }
+    }
+    // VR (session 38): FM3's in-car cameras move on their own: shake from slip, road bumps and speed, lean and nod from
+    // G-forces, knocks from collisions, a wider view with speed (Media\Camera\CameraPhysics.xml: per camera, layers
+    // that turn an input into an offset, a turn, noise or the field of view). In a headset that motion isn't the head's
+    // and makes people sick, so with VR on the in-car, hood and bumper cameras' layers are switched off in a copy of the
+    // file (<user>\vr\CameraPhysics.xml, made once a run; the chase cameras keep theirs; a mod of the file wins).
+    // FM3_VR_CAMERA_MOTION=1 (settings.ini vr_camera_motion=1): the game's motion stays.
+    if (ro && root == GameDir() && host.native().rfind((UserDir() / "mods").native(), 0) != 0 &&
+        Lower(rest) == "media\\camera\\cameraphysics.xml")
+    {
+        const char* vr = getenv("REGPU_VR");
+        const char* motion = getenv("FM3_VR_CAMERA_MOTION");
+        if (vr && *vr && strcmp(vr, "0") != 0 && strcmp(vr, "off") != 0 && strcmp(vr, "screen") != 0 && !(motion && *motion && strcmp(motion, "0") != 0))
+        {
+            static std::mutex m;
+            static fs::path made;
+            std::lock_guard lock(m);
+            if (made.empty())
+            {
+                std::ifstream in(host, std::ios::binary);
+                std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                int off = 0;
+                for (const char* section : { "DriverCam", "Hood", "BumperHigh", "BumperLow" })
+                {
+                    const std::string open = std::string("<") + section + " ", close = std::string("</") + section + ">";
+                    const size_t a = text.find(open), b = a == std::string::npos ? a : text.find(close, a);
+                    if (b == std::string::npos)
+                        continue;
+                    for (size_t at = text.find("Enabled=\"1\"", a); at != std::string::npos && at < b; at = text.find("Enabled=\"1\"", at))
+                    {
+                        text[at + 9] = '0';
+                        off++;
+                    }
+                }
+                std::error_code ec;
+                fs::create_directories(UserDir() / "vr", ec);
+                const fs::path out = UserDir() / "vr" / "CameraPhysics.xml";
+                if (!text.empty() && off > 0 && std::ofstream(out, std::ios::binary).write(text.data(), std::streamsize(text.size())))
+                {
+                    made = out;
+                    Log("vr: in-car camera motion off (%d camera layers switched off in %s)", off, out.string().c_str());
+                }
+                else
+                    made = host;
+            }
+            host = made;
         }
     }
     if (readOnly)

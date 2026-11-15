@@ -1,7 +1,9 @@
 """Horizontal shift between two screenshots in boxes (session 38, VR stereo): which way and how far each box moved from
 A to B (best match of a box's luminance in B over shifts -max..max pixels).
 
-  python -I tools/analysis/stereoshift.py A.png B.png [x0,y0,x1,y1 ...] [--max N]
+  python -I tools/analysis/stereoshift.py A.png B.png [x0,y0,x1,y1 ...] [--max N] [--vmax M]
+
+--vmax M also searches vertical shifts -M..M (VR camera-motion checks: how far the dashboard moved between frames).
 
 Boxes are in the screenshots' pixels. For a stereo pair (A left eye, B right eye) near objects move left from A to B
 (negative shift), far ones barely move.
@@ -23,10 +25,13 @@ def luma_box(rows, bpp, x0, y0, x1, y1):
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
-    mx = 24
+    mx, my = 24, 0
     if '--max' in sys.argv:
         mx = int(sys.argv[sys.argv.index('--max') + 1])
         args = [a for a in args if a != str(mx)]
+    if '--vmax' in sys.argv:
+        my = int(sys.argv[sys.argv.index('--vmax') + 1])
+        args = [a for a in args if a != str(my)]
     a, b = args[0], args[1]
     boxes = [tuple(int(v) for v in s.split(',')) for s in args[2:]]
     wa, ha, bppa, ra = read_png(a)
@@ -34,14 +39,18 @@ def main():
     for (x0, y0, x1, y1) in boxes:
         ref = luma_box(ra, bppa, x0, y0, x1, y1)
         best = None
-        for d in range(-mx, mx + 1):
-            if x0 + d < 0 or x1 + d > wb:
+        for e in range(-my, my + 1):
+            if y0 + e < 0 or y1 + e > hb:
                 continue
-            cand = luma_box(rb, bppb, x0 + d, y0, x1 + d, y1)
-            err = sum(abs(p - q) for ra_, rb_ in zip(ref, cand) for p, q in zip(ra_, rb_)) / ((x1 - x0) * (y1 - y0))
-            if best is None or err < best[1]:
-                best = (d, err)
-        print(f'box {x0},{y0}-{x1},{y1}: shift {best[0]:+d} px (mean error {best[1]:.2f})')
+            for d in range(-mx, mx + 1):
+                if x0 + d < 0 or x1 + d > wb:
+                    continue
+                cand = luma_box(rb, bppb, x0 + d, y0 + e, x1 + d, y1 + e)
+                err = sum(abs(p - q) for ra_, rb_ in zip(ref, cand) for p, q in zip(ra_, rb_)) / ((x1 - x0) * (y1 - y0))
+                if best is None or err < best[1]:
+                    best = (d, err, e)
+        extra = f', {best[2]:+d} px down' if my else ''
+        print(f'box {x0},{y0}-{x1},{y1}: shift {best[0]:+d} px{extra} (mean error {best[1]:.2f})')
 
 
 main()

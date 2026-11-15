@@ -477,6 +477,9 @@ void GpuStart()
     // +x lands at clip -x: the eye offsets are swapped (measured on the grid: unswapped, near objects moved right from
     // the left eye's picture to the right eye's; FM3_VR_FAKE head moves were the right way round).
     DefaultEnv("REGPU_VR_EYE_FLIP", "1");
+    // In-car camera motion (shake, G lean) is off with VR (src/kernel/imports_io.cpp); vr_camera_motion=1 keeps it.
+    if (GetSettings().Extra("vr_camera_motion") == "1")
+        DefaultEnv("FM3_VR_CAMERA_MOTION", "1");
     // The HUD on its own panel in the headset (stereo): FM3's last pass draws the HUD onto a cleared surface first and
     // then the tone-map composite under it by destination alpha (session 38 capture); this is that composite's pixel
     // shader, so ReGPU takes the HUD from the surface before it and draws the composite opaque.
