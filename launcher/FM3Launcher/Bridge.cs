@@ -241,6 +241,7 @@ public sealed class Bridge
                 fps = Options.Fps,
                 msaa = Options.Msaa.Select(x => new { value = x.Value, name = x.Name }),
                 aa = Options.Aa.Select(x => new { value = x.Value, name = x.Name }),
+                vr = Options.Vr.Select(x => new { value = x.Value, name = x.Name }),
                 ssaa = Options.Ssaa.Select(x => new { value = x.Value, name = x.Name }),
                 upscalers = Options.Upscalers.Select(x => new { value = x.Value, name = x.Name }),
                 upscale = Options.Upscale.Select(x => new { value = x.Value, name = x.Name }),

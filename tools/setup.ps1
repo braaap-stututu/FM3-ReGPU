@@ -82,6 +82,7 @@ $regpuPatches = @(
     'regpu-vr-screen'                # VR step 1 (REGPU_VR=screen, REGPU_OPENXR_DIR): OpenXR session on ReGPU's D3D12 device, the presented frame on a virtual screen in the headset
     'regpu-vr-headpose'              # VR step 2: regpu::vr::GetHeadPose / SubmitFramePose (host poses its camera; frames paired with their pose, shown as a mono projection layer), debug server findhex
     'regpu-vr-stereo'                # VR step 3: true stereo (REGPU_VR=stereo): the draw thread replays the frame from its first main-view draw for the second eye (clip x offset in the vertex shaders), both eyes to the headset
+    'regpu-vr-hud'                   # VR: the HUD on its own panel in stereo (REGPU_VR_HUD_UNDER = the composite drawn under a HUD drawn first), regpu::vr::Recentre / F8
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

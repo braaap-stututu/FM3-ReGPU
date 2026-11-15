@@ -202,6 +202,7 @@ function render() {
   // Edge filter, supersampling, EQAA (session 36). TAA is off under FSR 3 (it does its own); SSAA not with an upscaler
   // (fm3.exe turns it off, src/settings.cpp); EQAA only means something with MSAA.
   fill($("aa"), o.aa, set.aa)
+  if (o.vr) fill($("vr"), o.vr, set.vr)
   fill($("ssaa"), o.ssaa, set.ssaa)
   const noSsaa = set.upscaler !== "off"
   $("ssaa").disabled = noSsaa
@@ -360,6 +361,7 @@ $("customFps").onchange = (e) => {
 }
 $("msaa").onchange = (e) => change({ msaa: +e.target.value })
 $("aa").onchange = (e) => change({ aa: e.target.value })
+$("vr").onchange = (e) => change({ vr: e.target.value })
 $("ssaa").onchange = (e) => change({ ssaa: e.target.value })
 $("gpu").onchange = (e) => change({ gpu: e.target.value })
 $("perfPreset").oninput = (e) => { const p = PRESETS[+e.target.value]; $("perfPreset-v").textContent = p.name; $("perfPreset-note").textContent = p.note }

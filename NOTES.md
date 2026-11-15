@@ -4,9 +4,8 @@
 
 ### ▶ Start here (session 39): state at the end of session 38 (2026-11-15)
 - **VR step 3, true stereo, built and checked without a headset** (`vr=stereo` in settings.ini, or `FM3_VR=stereo`;
-  ReGPU patch 63 `regpu-vr-stereo`; 63 ReGPU patches). Not yet seen in a headset: **next, ask the user to try
-  `vr=stereo` (and `vr=cockpit`) in the headset**; then the HUD on its own panel, camera shake off, recentre, eye
-  limits, headset pacing (FH1R v6), the cabin pass, a launcher option.
+  ReGPU patch 63 `regpu-vr-stereo`). Not yet seen in a headset: **next, ask the user to try the launcher's "VR
+  headset" = Stereo cockpit (and Head-tracked cockpit) in the headset**; then camera shake, the cabin pass, pacing.
 - **How it works:** FM3's frame order (capture `out/perf/s38-stereo/capture1.log`, `passes1.txt`): passes 0-9 shadow
   maps, reflection cube, mirror (pitch 280-560), pass 10 the main scene (1,804 draws, pitch 1280), 11-24 the post
   chain (bloom, luminance), 25 the final pass: HUD drawn first onto a cleared surface, then the tone-map composite
@@ -29,6 +28,26 @@
   active: the chase position, posed), shots with `REGPU_VR_SHOW_LEFT` 0/1, `python -I tools/analysis/stereoshift.py
   left.png right.png x0,y0,x1,y1 ...` (shift per box; near objects should move left from left to right). Second eye
   checked clean on the frozen grid and with the race running (HUD, minimap, cars).
+- **Then (user: "keep building"): HUD panel, recentre, eye limits, launcher option** (ReGPU patch 64 `regpu-vr-hud`;
+  64 ReGPU patches):
+  - **HUD on its own panel:** in FM3's last pass the HUD is drawn first onto a cleared surface (colour premultiplied,
+    coverage in alpha), then the composite (`ps 5b7efac9b0c87a00`) under it by destination alpha (checked: tinting that
+    shader turns everything but the HUD magenta). `src/gpu_host.cpp` sets `REGPU_VR_HUD_UNDER` to that hash; on a
+    stereo frame ReGPU copies the surface just before the composite (the HUD alone, `REGPU_VR_SHOW_HUD=1` shows it on
+    the desktop: HUD on black), grades it for the headset's quad layer (1.4 m wide, 1.1 m ahead, 5 cm below eye level:
+    `REGPU_VR_HUD_WIDTH/_DISTANCE/_HEIGHT`), and draws the composite opaque, so the eyes (and the desktop) have no HUD.
+    Trap found: the front-buffer resolve is a copy packet with the composite's shaders still loaded; the first version
+    caught it too (no resolve: stale front buffer; and a second HUD copy that would have been the whole scene).
+  - **Recentre:** F8 in the game window or `regpu::vr::Recentre()`: a LOCAL space at the head's position and heading
+    (level) replaces the room origin (view, virtual screen, HUD panel). Not bound to a pad button yet.
+  - **Eye limit:** the head's offset from the seat clamped to +-30 cm each way (`FM3_VR_EYE_LIMIT` cm, 0 off;
+    `src/hooks/vr_camera.cpp`): a fake 60 cm lean draws the same picture as 30 cm.
+  - **Launcher:** Graphics > Display "VR headset (experimental)": Off / Virtual screen / Head-tracked cockpit / Stereo
+    cockpit (3D) = settings.ini `vr=off|screen|cockpit|stereo`.
+  - Not done: camera shake/G-force lean (FM3's `nocameravibration` option is written by the option parser but read
+    nowhere: dead in retail; would need the in-car camera's update reverse-engineered: wait for the headset test), the
+    cabin pass (needs a real cockpit drive), headset pacing (the headset thread already has its own lists and never
+    holds the game's queue; a cap matched to the headset rate may help: test first).
 - Not done: XR eye images never ran with a real session (the swapchain pair path, poses per eye); the user's
   `fm3.log` from before was copied to `out/logs/user-s38/`.
 

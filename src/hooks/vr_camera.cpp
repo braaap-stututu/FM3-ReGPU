@@ -166,6 +166,15 @@ PPC_FUNC(sub_821E9B50)
         __imp__sub_821E9B50(ctx, base);
         return;
     }
+    // The eye stays within a box round the seat (FM3_VR_EYE_LIMIT, cm each way, default 30; 0 = no limit): leaning
+    // further doesn't put the camera through the car's body. The frame keeps the limited pose (it is what was drawn).
+    static const float limit = [] {
+        const char* v = getenv("FM3_VR_EYE_LIMIT");
+        return (v && *v ? float(atof(v)) : 30.0f) * 0.01f;
+    }();
+    if (limit > 0)
+        for (float& c : pose.position)
+            c = std::fmax(-limit, std::fmin(limit, c));
     // (Two player views: only the first director's view is posed; the rear-view mirror has its own camera.)
     float viewM[16], posed[16];
     uint32_t saved[16];
