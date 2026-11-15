@@ -51,6 +51,13 @@ without the replay wait; **CPU-bound grid ~288 fps**. Upload hashing: 6 MB/frame
 `REGPU_UPLOAD_STABLE_REUSE` +1.2% (off: stale-for-a-frame risk). L10: 18% of draws are second-tile copies (the upside).
 The user drove part 2: "a good deal to raise the FPS floor" (log: lowest stretch 200, 1% low 200.5 at 1440p 4x).
 
+## Session 35 outcome (why DXC lost on the iGPU)
+- **Vertex shaders, not pixel shaders:** the VS wrapper's point/rectangle path kept `float4 vq[3][16]` indexed at run
+  time: scratch with FXC (816 bytes a vertex), ~240-255 VGPRs with DXC (AMD drivers). **ReGPU patch 51
+  `regpu-vs-corners`** (default, exact; `REGPU_OLD_VS_CORNERS=1` old): iGPU races FXC +10.2% (+13.5% at equal draws),
+  DXC +14.5% over old FXC; 4K FXC +0.2%, DXC +2.5% at equal draws. Details NOTES "Start here (session 36)".
+- DXC (I7/L48) now faster than FXC on both GPUs; still off until its driver-crash question is settled.
+
 ## Session 34 outcome (the iGPU list below, all five steps done)
 1. Per-shader time on the iGPU (specialisation on, frozen grid 720p, `out/perf/s34-igpu-shaders`): car paint 2.09 of
    21.7 ms (63 draws), 0A7F9F87/28968ECC 1.13 (228 draws), the road material 686F41F7/B76C24BB 1.04 (9 draws, full

@@ -1089,6 +1089,11 @@ the game, DXIL root signature check, its own shader cache), and FXC's own optimi
 **Built the same session (ReGPU patch 50 `regpu-dxc`, `REGPU_DXC=1`) and measured: 4K 4x races +2.2% (+1.3% at
 equal draws), iGPU races -16.4%** (GPU +21%; every shader slower, also with `-Od`), 2 of 9 cached boots crashed in
 AMD's driver. Off. The offline instruction counts (RDNA3 code from the dGPU's driver) did not predict the iGPU.
+**Session 35: the cause was the vertex shaders.** RGA offline with the iGPU driver's own `amdxc64.dll` (`--offline
+--amdxc ... -c gfx1036`) showed DXC vertex shaders at ~240 VGPRs vs FXC ~100: the wrapper's `float4 vq[3][16]`
+(rectangle corners, indexed at run time) sat in scratch with FXC but in registers with DXC. Removed (ReGPU patch 51):
+vertex shaders ~62 VGPRs with both; iGPU races FXC +10%, DXC +14.5% over old FXC (DXC now ahead), 4K DXC +2.5%.
+The pixel-shader counts above held on the iGPU's compiler too (DXC slightly better).
 
 **Session 33 note (user asked about Intel HD 630 / Iris):** whether DXC alone beats FXC on Intel can't be said without
 testing (no Intel GPU here): FXC's DXBC is translated by Intel's driver, DXC's DXIL is its native input but less

@@ -1,6 +1,38 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-15, session 34)
+## ▶ Current status / next step  (updated 2026-11-15, session 35)
+
+### ▶ Start here (session 36): state at the end of session 35 (2026-11-15)
+- **In short:** the user asked why DXC lost on the iGPU. Answer: **every translated vertex shader carried a
+  `float4 vq[3][16]` array** (the `main` wrapper's point-sprite / rectangle-list path keeps the three corners' outputs,
+  indexed at run time). FXC put it in scratch (816 bytes a vertex); AMD's drivers keep DXC's in registers: ~240-255
+  VGPRs in every vertex shader (both driver branches), so vertex waves starve on the 2-CU iGPU. Pixel shaders were never
+  the problem (DXC's are slightly better there). **Fixed in ReGPU patch 51 `regpu-vs-corners` (default, exact):** no
+  array; rectangles take the corners' positions first, then run the guest shader again for the outputs they need, added
+  in the old order. `REGPU_OLD_VS_CORNERS=1` = the old form (start-time, cache keys change).
+
+  | Races, one each (`out/bench/matrix-{igpu,4k}-vs-*`) | FXC old wrapper | FXC new | DXC new |
+  |---|---|---|---|
+  | iGPU 720p 1x, all options pinned | 62.4 fps, GPU 15.6 ms | **68.8 (+10.2%; +13.5% at equal draws, GPU -12%)** | **71.5 (+14.5%; +18.8% at equal draws, GPU -16%)** |
+  | 7900 XTX 4K 4x | 282.7 fps | 284.9 (+0.2% at equal draws) | 296.0 (+2.5% at equal draws) |
+
+  Frozen grid on the iGPU (`out/perf/s35-vs`): FXC 17.8 -> 15.0 ms GPU, DXC 21.9 -> 15.2 ms. Pictures: old vs new
+  within cross-boot noise on both GPUs (iGPU and 4K; the change is exact by construction); 0 compile failures; vertex
+  shader compile times unchanged (median ~0.4 s). The first boot after this build recompiles every vertex shader.
+- **How it was found (reusable):** RGP refuses the iGPU ("GPU not supported"), and RGA's normal DX12 targets stop at
+  RDNA3. But **RGA's offline mode takes the installed driver's own compiler**: `rga -s dx12 --offline --amdxc
+  <DriverStore>ȅ305...\amdxc64.dll -c gfx1036 --vs-blob .. --ps-blob .. --rs-bin out/rga/rootsig.bin --gpso ..`
+  gives the iGPU's real ISA. The two GPUs run **different driver branches** (`Get-CimInstance Win32_VideoController`):
+  iGPU 32.0.21045 (RDNA2 maintenance branch, amdxc64 82 MB), 7900 XTX 32.0.32015 (143 MB). Pairs of cached blobs
+  (`out/user/shadercache/<key>.dxbc` vs `<key>.dxil`, same key = same HLSL) compiled side by side: vertex shaders DXC
+  239 vs FXC 100 VGPRs (25/25 worse), pixel shaders DXC slightly better. `dxc -dumpbin` showed four `[48 x float]`
+  allocas = `vq[3][16]` split per component. After the fix: vertex shaders ~62 VGPRs with both compilers, no scratch.
+- **DXC now wins on both GPUs** (above), but stays off: the open item is the **driver crash** (2 of 9 cached DXC boots
+  crashed in `amdxc64.dll` in session 34, before this fix; today's 4 DXC boots (2 grid, 2 races): none). Whether the 256-VGPR vertex
+  shaders caused it is unknown. **Next (ask the user):** a DXC stability series (e.g. 10 cached boots on each GPU), then
+  DXC as a launcher option or the default; DXC also opens 16-bit types and wave intrinsics (RESEARCH "16-bit shaders").
+- **Not checked by the user yet:** a drive with the new vertex shaders (on by default), plus session 34's list (launcher
+  Bilinear entry, session 33 defaults). User's settings.ini untouched.
 
 ### ▶ Start here (session 35): state at the end of session 34 (2026-11-15)
 - **In short:** session 34 worked through the five remaining iGPU steps (PERF-PLAN "Session 34 outcome"). New
