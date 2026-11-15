@@ -27,6 +27,8 @@ Settings::Upscaler ParseUpscaler(const std::string& v)
         return Settings::Upscaler::Dlss;
     if (v == "fsr4")
         return Settings::Upscaler::Fsr4;
+    if (v == "bilinear")
+        return Settings::Upscaler::Bilinear;
     return Settings::Upscaler::Off;
 }
 
@@ -38,6 +40,7 @@ const char* UpscalerName(Settings::Upscaler u)
     case Settings::Upscaler::Fsr3: return "fsr3";
     case Settings::Upscaler::Dlss: return "dlss";
     case Settings::Upscaler::Fsr4: return "fsr4";
+    case Settings::Upscaler::Bilinear: return "bilinear";
     default: return "off";
     }
 }

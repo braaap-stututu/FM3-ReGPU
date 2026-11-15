@@ -58,7 +58,7 @@ public sealed class GameSettings
     public int Msaa { get; set; } = 1;
     // gpu: the graphics card the game renders on, by name (Options.Gpus; the game's REGPU_ADAPTER); "" = Windows' choice.
     public string Gpu { get; set; } = "";
-    // The 3D scene's upscaler: off, fsr1 or fsr3 (settings.ini "upscaler"), at Upscale = the game's upscale_quality
+    // The 3D scene's upscaler: off, fsr1, fsr3 or bilinear (session 34: plain upscale, no sharpening) (settings.ini "upscaler"), at Upscale = the game's upscale_quality
     // (1 quality to 4 ultra performance). FSR 4 needs a newer ReGPU than FM3 has.
     public string Upscaler { get; set; } = "off";
     public int Upscale { get; set; } = 1;
@@ -207,7 +207,7 @@ public static class Options
     public static readonly int[] Fps = [30, 60, 120, 144, 165, 240, 360];
     public static readonly (string Value, string Name)[] Aspects = [("auto", "Auto (match resolution)"), ("16:9", "16:9"), ("21:9", "21:9 (experimental)"), ("32:9", "32:9 (experimental)")];
     public static readonly (int Value, string Name)[] Msaa = [(1, "Off"), (2, "2x MSAA"), (4, "4x MSAA")];
-    public static readonly (string Value, string Name)[] Upscalers = [("off", "Off (native)"), ("fsr1", "FSR 1 (any graphics card)"), ("fsr3", "FSR 3 (any graphics card)")];
+    public static readonly (string Value, string Name)[] Upscalers = [("off", "Off (native)"), ("fsr1", "FSR 1 (any graphics card)"), ("fsr3", "FSR 3 (any graphics card)"), ("bilinear", "Bilinear (fastest, softer; for slow GPUs)")];
     public static readonly (int Value, string Name)[] Upscale = [(1, "Quality"), (2, "Balanced"), (3, "Performance"), (4, "Ultra performance")];
     public static readonly (int Value, string Name)[] Sharpening = [(0, "Off"), (25, "Low"), (50, "Medium"), (75, "High"), (100, "Maximum")];
 

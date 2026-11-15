@@ -1062,6 +1062,8 @@ Don't port: `SplitMainListAsync(false)` (rexglue-driver 0bc61d1; our pin reverte
 FH1R's perf branches (ReIGlue/Xenia, not ReGPU; ideas only: a 540p scene under a 720p HUD for an iGPU preset).
 
 ## 16-bit (half-precision) shaders for lower-end GPUs (session 18, 2026-11-09)
+**Session 34 probe (ReGPU patch 49, `REGPU_EXP_MIN16=1`):** every pixel-shader register and ALU temporary as FXC `min16float` (an upper bound, no dataflow care): on the 9800X3D iGPU (RDNA2) the driver runs it at 16 bits (texture coordinates go blocky) and the frozen grid gets **slower**, GPU 17.9 -> 19.7 ms, from 16/32-bit conversions against the 32-bit constants. So no gain on this AMD iGPU without a careful typing pass, which has no measured upside: parked. Intel Gen9/Gen12 (2x FP16) stay untested; ReGPU has no DXC path.
+
 **Session 33 note (user asked about Intel HD 630 / Iris):** whether DXC alone beats FXC on Intel can't be said without
 testing (no Intel GPU here): FXC's DXBC is translated by Intel's driver, DXC's DXIL is its native input but less
 pre-optimised. The bigger reason for DXC there is this section's 16-bit math: Gen9 (HD 630) and Gen12 (Iris Xe) run

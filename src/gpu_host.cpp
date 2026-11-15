@@ -63,6 +63,14 @@ void ApplySettings(regpu::Config& c)
         Log("settings: upscaler=fsr4 is not in this ReGPU; using fsr3");
         c.upscaler = regpu::Config::Upscaler::Fsr3;
     }
+    else if (s.upscaler == Settings::Upscaler::Bilinear)
+    {
+        // L63 (session 34): FSR 1's scene scaling with a plain bilinear upscale instead of EASU + RCAS (ReGPU patch 49,
+        // REGPU_UPSCALE_BILINEAR, live): for small GPUs (2-CU iGPU, Low preset: frozen grid 77 -> 85 fps); softer.
+        c.upscaler = regpu::Config::Upscaler::Fsr1;
+        if (!getenv("REGPU_UPSCALE_BILINEAR"))
+            _putenv_s("REGPU_UPSCALE_BILINEAR", "1");
+    }
     else
         c.upscaler = regpu::Config::Upscaler(uint32_t(s.upscaler));
     c.quality = s.quality;

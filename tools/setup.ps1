@@ -67,6 +67,7 @@ $regpuPatches = @(
     'regpu-surface-release'          # EDRAM surfaces unused for 3600 frames released (VRAM), REGPU_TRACE_SURFACE_USE
     'regpu-adapter-choice'           # REGPU_ADAPTER: the GPU to render on (launcher Graphics card); own pipeline library per non-default GPU
     'regpu-fetch-specialize'         # 2D fetches specialised by their fetch-constant words (car paint 117 -> 22 KB); draw-cost and plain-fetch traces; plain multiply in vertex shaders (off)
+    'regpu-igpu-leads'               # L62 cube/3D fetches specialised too (TFetchK); L63 bilinear upscale (REGPU_UPSCALE_BILINEAR); 16-bit probe REGPU_EXP_MIN16 (off)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

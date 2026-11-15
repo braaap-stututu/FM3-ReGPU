@@ -210,7 +210,7 @@ function render() {
   fill($("upscale"), o.upscale, set.upscale)
   fill($("sharpening"), o.sharpening, set.sharpening)
   $("upscaleField").hidden = set.upscaler === "off"
-  $("sharpeningField").hidden = set.upscaler === "off"
+  $("sharpeningField").hidden = set.upscaler === "off" || set.upscaler === "bilinear"
   for (const b of $("display").children) b.classList.toggle("on", (b.dataset.full === "1") === set.fullscreen)
   for (const k of SWITCHES) $(k).classList.toggle("on", !!set[k])
   const preset = Math.max(0, PRESETS.findIndex((p) => p.value === set.perfPreset))

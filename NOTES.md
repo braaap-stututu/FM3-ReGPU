@@ -1,6 +1,38 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-14, session 33)
+## ▶ Current status / next step  (updated 2026-11-15, session 34)
+
+### ▶ Start here (session 35): state at the end of session 34 (2026-11-15)
+- **In short:** session 34 worked through the five remaining iGPU steps (PERF-PLAN "Session 34 outcome"). New
+  ReGPU patch 49 `regpu-igpu-leads` (49 patches):
+
+  | What | Default? | Measured | Switch |
+  |---|---|---|---|
+  | L62: cube/3D fetches specialised too (`TFetchK`) | **on** (part of fetch specialisation) | frozen grid GPU iGPU 720p 17.54 -> 17.36 ms (-1.0%), 7900 XTX 4K 4x 3.735 -> 3.686 ms (-1.3%), 0 pixels both | `REGPU_NO_FETCH_SPECIALIZE_FULL=1` (live, new variants) |
+  | L63: bilinear upscale instead of FSR 1 | opt-in: launcher Upscaler "Bilinear" (`upscaler=bilinear`; scene scale from Upscaler quality or the preset) | iGPU Low preset: grid GPU 12.40 -> 11.20 ms; races 79.2 -> 84.7 fps (+6.9%, p99 14.4 -> 13.8 ms); softer picture, no ringing | `REGPU_UPSCALE_BILINEAR=1` (live) |
+  | 16-bit probe (I7) | off, measurement only | iGPU 17.9 -> 19.7 ms (slower) and blocky texture coordinates: parked for AMD | `REGPU_EXP_MIN16=1` (start-time) |
+
+- **Per-shader list on the iGPU** (specialisation on, frozen grid 720p, every option off; `out/perf/s34-igpu-shaders`,
+  HLSL in `out/run/out/hlsl34/`): car paint 2.09 of 21.7 ms, then 28968ECC 1.13 (228 draws), the road material
+  B76C24BB 1.04 (9 full-screen-sized draws), DF4F62D3 0.67, 8B27A974 0.65, tone map B0C87A00 0.60 (2 draws). No
+  lossless per-shader cut left worth building: the remaining cost is the game's own math, its full-screen fetches and
+  the fixed per-draw cost (~1.8 us x ~2,700 draws).
+- **Not checked by the user yet:** the launcher's new "Bilinear" upscaler entry (built; the real window not looked at;
+  the sharpening field hides for it), a drive with it on the iGPU, and still session 33's defaults (gamma into the back
+  buffer, surface release, 720 rows, fetch specialisation).
+- **User's settings.ini** unchanged since session 33 (`gpu=AMD Radeon RX 7900 XTX`, `max_fps=120`, `one_tile=1`,
+  `mirror_rate=2`, `shadow_rate=2`, `reflect_rate=1`, `perf_preset=off`). Their logs from before today's boots are in
+  `out/logs/s34-user-logs/`.
+- **Next (ask the user):** the iGPU list is done. What is left for small GPUs trades the picture (fewer draws via FM3's
+  LOD distances or AI car count, shadow-map size in the presets) or has no lead (fixed per-draw cost). Other open
+  areas: Steam Deck (L52), OPEN-ISSUES V (iGPU visible window logs GPU 0.00 ms), U (FSR 3 at 4K, ask first), the
+  1080p shadow atlas at 768 (quality lead).
+- **Scripts used today** (scratch, re-creatable): live A/B on the iGPU grid = `Start-Grid` with the pinned env of
+  CLAUDE.md's iGPU bullet, then `Set-Live switch NAME 0/1` + `Get-LiteGpu 4` interleaved, `Save-Shot` + `Get-PixelDiff`;
+  `REGPU_GPU_SHADERS=1` for the per-shader list; full hashes for `Fm3 "hlsl"` from a `capture` in the same boot.
+- **Lessons:** a start-time shader switch on the iGPU needs ~2.5 min after the grid for every shader to recompile (the
+  first reading is far too fast: draws skipped while compiling); a live switch that changes the specialisation id
+  makes its own variants, so it A/Bs live.
 
 ### ▶ Start here (session 34): state at the end of session 33 (2026-11-14)
 - **In short:** session 33 fixed the stutters (long-frame log, index-cache sweep, texture streaming), built the
