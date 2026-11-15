@@ -455,11 +455,9 @@ void GpuStart()
         DefaultEnv("REGPU_ANISO_FROM_FETCH", "1");
     if (GetSettings().Extra("vram_upload_ring") != "0")
         DefaultEnv("REGPU_GPU_UPLOAD_RING", "1");
-    // Upload ring placed by measurement (session 36, ReGPU patch 57): every 30 s a short trial of VRAM vs system memory,
-    // the faster kept (1440p 1x grid: system memory +5.5%; 4x MSAA and 4K: VRAM). Off by default; settings.ini
-    // upload_ring_auto=1 (launcher Settings > Testing "Upload ring: pick automatically"); REGPU_UPLOAD_RING_AUTO=1 directly.
-    if (GetSettings().Extra("upload_ring_auto") == "1")
-        DefaultEnv("REGPU_UPLOAD_RING_AUTO", "1");
+    // (The VRAM ring wins where the GPU is the limit, system memory where ReGPU's draw thread is: session 36, 1440p 1x
+    // grid +5.5% with vram_upload_ring=0, 4x MSAA -1.6%, 4K far worse. The launcher's tooltip says so; the user's choice
+    // (session 36) is that toggle, not an automatic pick. REGPU_UPLOAD_RING_AUTO=1, ReGPU patch 57, stays for tests.)
     // DXC shader compiler (session 35, ReGPU patches regpu-dxc, regpu-vs-corners, regpu-pso-lock): translated shaders
     // compiled by DXC to DXIL instead of by FXC to DXBC. Races: iGPU 720p +4% over FXC, RX 7900 XTX 4K 4x +2.5% at
     // equal draws, same picture; its own shader and pipeline caches (the first boot after switching compiles everything).
