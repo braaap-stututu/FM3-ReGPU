@@ -69,6 +69,15 @@
     Now the flags travel with the frame (`regpu::xr::TakeFrameFlags`, in patch 68). Not reproducible without a
     headset session. **Next: user check.** (Open: the eye images are single-buffered, so at a hitch a frame's eyes
     can be the next frame's with its own pose: small, double-buffer if it shows.)
+- **Controller navigation in the launcher (user):** `launcher/FM3Launcher/wwwroot/gamepad.js` (Gamepad API: works in
+  the launcher's window and in browser mode under Proton; only standard-layout controllers, so a racing wheel doesn't
+  drive the menus while being bound). LB/RB tabs; D-pad and left stick move to the nearest option that way (repeat
+  after 350 ms, every 110 ms); A presses buttons and switches, opens lists as a controller menu (up/down, A picks),
+  slider and number boxes adjust with left/right (A or B done); B closes the menu / adjusting / dialog (Cancel),
+  cancels a wheel Bind or Calibrate, else back to the Play tab; Start = the tab's Play button. Focus ring, and a hint
+  bar with the buttons and the focused option's explanation; the mouse moving hides both. Focus stays inside an open
+  dialog. Checked in the browser pane with a simulated pad (tabs, moving, list pick, switch, slider, B paths, the real
+  confirm dialog). Polling uses animation frames (stops while the window is hidden, as intended).
 - **Proton-compatible launcher (user):** the Windows launcher needs WebView2, which doesn't run under Wine. Now
   (`launcher/FM3Launcher/Shell.cs`): `IShell` between Bridge and the window; `PhotinoShell` (the window) or
   `BrowserShell`: a small web server on raw sockets (not HttpListener: http.sys is partial in Wine) on 127.0.0.1, a

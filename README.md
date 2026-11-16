@@ -83,6 +83,10 @@ light performance logs, and toggles: draw workers, asynchronous present, upload 
 half-rate mirror, engine sound crossfade). It edits `settings.ini` in the user folder and starts
 `fm3.exe` from `out\run`. `FM3Launcher.exe --play` starts the game with the saved settings, without the window.
 
+**Controller:** the launcher works with a gamepad (Xbox, PlayStation, Steam Deck): LB/RB switch tabs, the D-pad or left
+stick moves, A selects (lists open as a menu, sliders adjust with left/right), B backs out, Start plays. A bar at the
+bottom shows the buttons and what the focused option does.
+
 **Proton / Wine (the Windows build on Linux):** install with the Windows installer (or copy the install folder) and
 run `launcher\FM3Launcher.exe` through Proton, e.g. as a non-Steam game in Steam with Proton forced. WebView2 can't run
 under Wine, so the launcher detects it and opens its page in your Linux browser instead (served by the launcher on
