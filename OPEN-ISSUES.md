@@ -15,6 +15,7 @@ race-load crash. See NOTES.md for those.
 ## Rendering
 
 ### D. Upper third of the screen slightly washed out (pre-race menu, photo mode)
+**Session 40: the user sees no band in the pre-race menu any more** (no change aimed at it: fixed by some later ReGPU/host fix). Photo mode's band not re-checked; the one-tile yellow photo mode below is a separate, still open problem.
 - **Seen:** pre-race menu (timer 119.3) and photo mode (1219.9). A lighter band over the top of the 3D view, with a
   straight lower edge at about row 262 of 720. Not seen while racing.
 - **Known:** nothing in the log yet. Both screens show the 3D scene behind a menu, or a paused, re-rendered scene,

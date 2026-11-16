@@ -7,6 +7,7 @@
 - **Session 40 (cloud, research only), second question:** in-game options menu + quit tab + restart prompt: RESEARCH.md "In-game options menu, quit tab and restart prompt" (host overlay with ImGui via a ReGPU present callback, `ReadPad` input capture + freeze, quit via `WM_CLOSE`, restart via a supervisor fm3.exe and exit code 3, prompt compares with the values the process started with).
 - **Session 40 (cloud, research only), third question:** ReXenon instead of XenonRecomp: RESEARCH.md "ReXenon instead of XenonRecomp" (carries 4 of our 5 patches; loud failures, `PPC_MFTB`, relaxed-atomic guest accesses; days old, no human playtests: trial side by side in `out/ppc-rx`, steps there).
 - **Session 40, fourth request:** `docs/FH1R-REGPU-PERF-PLAN.md`: our ReGPU performance work written up as an ordered plan for FH1R's ReGPU branch (`fh1`, read up to `35bb5d8`): measuring method, frame anatomy, phases A-I (how built, nuances, FM3 results, what to check in FH1), the dropped list, an order by machine.
+- **Session 40, user reports (2026-11-16):** (1) **Triple screen:** the small-picture-on-the-centre-screen fix looks right ("gone, I think"); the shimmering shadows stay open. (2) **Steam Deck:** the **native Linux launcher needs a library SteamOS doesn't have** (not named; Photino on Linux needs WebKitGTK, the likely one: see RESEARCH "A launcher without a web view"); the **Proton-compatible Windows launcher (browser mode) works**. Performance at 1280x800, MSAA 2x, anisotropy as the game asks, DXC, one tile on: **70-90 fps on a full grid, the 120 cap without AI cars** (cap 120). (3) **Racing wheels:** worked for what the user tried (split steering/calibration not said). (4) **OPEN-ISSUES D, the pre-race menu's washed-out top band: gone**, unchanged code for it, so fixed as a side effect of something since session 9 (photo mode and the one-tile yellow not re-checked).
 - **In short:** a long session of user requests, all committed (last commit after 9c07e64; 70 ReGPU patches):
   TAAU research; Windows installer + Disc 1 import from the .iso; the remaining VR parts (lens crop, pacing, mono HUD
   panel, seat keys) and three VR fixes from the user's Quest 2 tests (pose tags, stereo hold, flags with the frame);
@@ -22,18 +23,18 @@
     Unlimited head movement (default) not yet tried. Logs: `out/logs/user-s39/`.
   - **Triple screen (user's rig: 3x 2560x1440 as one AMD Eyefinity display, 7680x1440):** first test showed the picture
     a third of the size on the centre screen: fixed (fullscreen spans the monitor row; a forced `aspect=16:9` had
-    shrunk each screen to 853x480; grid now draws 7680x1440). **Not yet confirmed by the user in a race.**
+    shrunk each screen to 853x480; grid now draws 7680x1440). **User (session 40): looks fixed.**
     **Open: shimmering shadow lines** in triple mode: FM3 fits its shadows to the camera's view, which triple widens
     (up to 166 deg) so the side screens aren't culled; texels spread ~15x and thin shadows crawl. `FM3_TRIPLE_NARROW=1`
     (experiment) keeps the camera narrow: shadows normal but the side screens lose buildings/cars to culling. **Next:**
     find where FM3 fits its shadow frustum to the presentation camera (after `sub_821E9B50`'s hand-off) and give it the
     centre screen's view while culling keeps the wide one (the user asked whether to; not yet decided: offer it).
   - **Launchers:** the user confirmed the controller navigation works (VSync reachability fixed after). The user is
-    trying the Windows installer on their Steam Deck under Proton (browser mode): **result pending**. The native Linux
+    tried the Windows installer on their Steam Deck under Proton (browser mode): **works** (session 40; native one lacks a SteamOS library). The native Linux
     package (`installer/build-linux.ps1`) is untested on Linux. Installer last built: 0.39.4 (it lacks the VSync
     reachability fix and both triple-screen fixes); rebuild (`installer/build-installer.ps1`) before handing one out.
   - **Wheels:** split steering and calibration built and unit-tested (20 cases) and clicked through with a simulated
-    wheel; never tried with a real wheel.
+    wheel; **user (session 40): a real wheel worked for what they tried.**
   - **Boot screen:** done as the user asked (their own edited picture with the plate, `out/user/boot/`, shipped by the
     installer; `background.txt` = `clear 655 236 1024 572`).
 - **Next, in the user's order of interest (ask):** their Steam Deck result; a triple race (and the shadow fix if they
