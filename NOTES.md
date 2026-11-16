@@ -3,6 +3,7 @@
 ## ▶ Current status / next step  (updated 2026-11-16, session 39)
 
 ### ▶ Start here (session 40): state at the end of session 39 (2026-11-16)
+- **Session 40 (cloud, research only):** launcher without a web view for SteamOS game mode: RESEARCH.md "A launcher without a web view, for SteamOS game mode". Recommended: options + installer inside `fm3.exe` (ImGui on ReGPU, Unleashed Recompiled pattern); alternative Avalonia + SDL3; stopgap: Steam shortcut runs `--play`. User to choose.
 - **In short:** a long session of user requests, all committed (last commit after 9c07e64; 70 ReGPU patches):
   TAAU research; Windows installer + Disc 1 import from the .iso; the remaining VR parts (lens crop, pacing, mono HUD
   panel, seat keys) and three VR fixes from the user's Quest 2 tests (pose tags, stereo hold, flags with the frame);

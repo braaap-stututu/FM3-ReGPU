@@ -26,6 +26,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Vendor-specific speed-ups](#vendor-specific-speed-ups-amd-nvidia-intel-session-29-2026-11-12) (session 29) | AMD first (testable here): an RGP capture of the frozen grid for **decompress barriers** (RDNA colour/depth compression lost to copies, barriers or UAV flags), then GPU upload heaps (ReBAR), compute wave size (needs DXC), async compute, AFMF 2. NVIDIA/Intel: mostly features (DLSS/Reflex/Smooth Motion, XeSS); Arc needs ReBAR. As far as we know untried in any 360 recomp: write results up for the sibling ports. PERF-PLAN L45-L50 |
 | [Linux, Proton and the Steam Deck](#linux-proton-and-the-steam-deck-session-29-2026-11-12) (session 29) | Run through Proton (vkd3d-proton on RADV), no native port. Launcher (WebView2) likely broken under Wine: run `fm3.exe` with `settings.ini` or port the launcher natively. Per-platform defaults under Wine (vertex arena write watch, sleeps, workers), Deck preset, gamescope for caps/FSR. **User has 3 dual-boot machines** (7900 XTX, 6650 XT, Deck OLED + Win11 SD): same-hardware Windows vs Proton A/Bs. PERF-PLAN L51-L53 |
 | [TAAU (TAA upscaling)](#taau-taa-upscaling-session-39-2026-11-16) (session 39) | Feasible and small: our TAA already has jitter, motion vectors, depth, history and the mip bias; TAAU = the same resolve run at output size from a lower-res scene (one new compute pass + an `upscaler=taau` entry). Worth it mainly for weak GPUs (iGPU, Steam Deck): cheaper than FSR 3, much sharper than FSR 1/bilinear; on the 7900 XTX at 1440p no gain (draw-thread bound). Measure the motion vectors' cost on the iGPU first |
+| [A launcher without a web view, for SteamOS game mode](#a-launcher-without-a-web-view-for-steamos-game-mode-session-40-2026-11-16) (session 40) | Game mode = gamescope: one app window on screen, X11 via Xwayland, **no file-picker portal**, Steam must keep tracking the process it started. Recommended: **options and installer inside `fm3.exe`** (Dear ImGui on ReGPU's D3D12 = vkd3d-proton there; the Unleashed Recompiled pattern), the existing C# launcher kept for desktop; headless `--install-disc1/2` reused. Alternative keeping C#: **Avalonia** (X11, Skia) + SDL3 for the pad. Zero-work stopgap: Steam shortcut runs `--play`, set up in desktop mode |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -1942,3 +1943,68 @@ Antialiasing Techniques" (Yang, Liu, Salvi 2020), Karis "High Quality Temporal S
 **Suggested order if the user wants it:** (1) the iGPU measurement above; (2) build `upscaler=taau` behind the launcher
 entry, off by default (picture trade: opt-in); (3) grid crops vs FSR 1 / bilinear / FSR 3 at the same scale + the
 user's drive for ghosting; (4) tooltip "for weak GPUs; FSR 3 looks better where it runs fast enough".
+
+## A launcher without a web view, for SteamOS game mode (session 40, 2026-11-16)
+Cloud research, no code. Question (user): a launcher that doesn't use a web view and works in SteamOS game mode.
+
+**Today:** `launcher/FM3Launcher` is Photino (WebView2 on Windows, WebKitGTK on Linux) with the UI in `wwwroot`
+(~50 options, VR/Triple/Wheel/Profiles/Benchmark tabs, controller navigation in `gamepad.js`) and the logic in C#
+(`Bridge.cs` commands, `Install.cs` settings.ini, `Disc1/Disc2/XIso/Stfs` installers, `Runner.cs` umu/Proton/Wine).
+Under Proton it falls back to browser mode (a local web server + the Linux browser), which needs a second app window.
+
+**What game mode imposes (gamescope session):**
+- One app shown at a time, fullscreen; apps reach it through Xwayland (X11). A toolkit that opens popups/dialogs as
+  separate windows (dropdowns, GTK menus, file dialogs) may show them wrong or not at all.
+- **No xdg-desktop-portal in game mode:** portal file pickers don't open. Unleashed Recompiled documents exactly this
+  for its installer (workaround: use desktop mode once); its native-dialog change didn't help in game mode either.
+  So picking the Disc 1/2 `.iso` needs our own controller-driven file browser (list `~`, `/run/media/*` for SD cards).
+- Steam tracks the process it launched: a launcher that hands off to a child and exits loses the game (spinner,
+  no focus). umu-launcher's FAQ: in Steam mode it relies on Proton's `waitforexitandrun` + the shortcut's app id.
+  Our launcher must stay alive until `fm3.exe` exits (or exec into it).
+- Input: Steam Input presents the Deck's controls as an Xbox-style pad to the app (SDL/XInput see a normal pad);
+  text entry via the Steam keyboard (STEAM+X), so avoid text fields where possible (profile names are the only one).
+- Read-only root: no packages; everything ships self-contained in the install folder.
+
+**Options, best first:**
+1. **Options and installer inside `fm3.exe` (recommended for game mode).** Dear ImGui drawn by ReGPU on its D3D12
+   device (vkd3d-proton under Proton), input from the XInput path we already have. This is how Unleashed Recompiled
+   does it (installer, options and achievements menus in ImGui, full controller navigation, from the title screen or
+   pause menu). Pros: the one process Steam starts is the whole thing (no hand-off, no second window, no focus
+   problem), identical on Windows, Proton and the Deck, no new runtime (no .NET or GTK on Linux), and the boot screen
+   (`src/boot_screen.cpp`, ReGPU `Host::bootScreen`) already draws a host UI before the game runs. Settings that need a
+   restart (resolution, MSAA, VR/triple, upscaler) write `settings.ini` and restart the game process in place
+   (Windows `CreateProcess` + exit is a hand-off: rather re-run the boot inside the same process or have a tiny
+   `fm3.exe` stub that loops while the game asks for a restart, so Steam's tracked process never exits).
+   Disc installs: run the existing headless `FM3Launcher.exe --install-disc1/--install-disc2` (needs a self-contained
+   win-x64 publish to run under Proton), or port the ISO/STFS readers to C++ (~1.5k lines of C#). Cost: the UI
+   rewritten in ImGui (gamepad nav via `ImGuiConfigFlags_NavEnableGamepad`, fed from XInput ourselves: other recomps
+   note the SDL backend's pad path isn't always there), plus our own file browser. The C# launcher stays for desktop.
+2. **Avalonia (keep all the C#).** Native Skia rendering, no web view; X11 backend by default (works under gamescope's
+   Xwayland), native Wayland only from 12.1; self-contained linux-x64 publish. `Bridge.cs` logic, installers, profiles
+   and `Runner.cs` carry over; only `wwwroot` is redone in XAML. No built-in gamepad support: read the pad with SDL3
+   (C# bindings) and map it to focus moves; set popups to draw inside the main window (Avalonia's overlay-popups
+   option; to verify on X11) so dropdowns don't become extra windows; own file browser still needed (portals). Two
+   processes (launcher + Proton game): keep the launcher alive until the game exits. Windows can use the same build.
+3. **Native SDL3 + Dear ImGui launcher (C++, linux-x64 + win-x64).** Small, no runtime, good pad support, but every
+   piece of C# logic rewritten; same two-process caveat as 2. Only worth it over 1 if the UI must exist outside the game.
+4. **Keep the HTML UI with a bundled browser engine** (Electron, or CEF via CefGlue): no system web view, reuses
+   `wwwroot` and `gamepad.js` nearly unchanged; launchers like Heroic run in game mode this way. Cost: ~150-200 MB
+   and a Chromium to keep updated; file picker and hand-off issues as above.
+5. **Stopgap, no code:** the Steam shortcut runs `fm3-launcher.sh --play` (the launcher's existing windowless mode) or
+   `fm3.exe` through Proton directly; settings chosen in desktop mode. Works today, no in-game-mode settings.
+
+**Suggested path:** 5 now for the user's Deck; then 1 (an in-game "ReGPU options" page reachable from the boot screen
+and the pause menu, ini-backed, restart in place), keeping the desktop launcher as is. First step: an ImGui overlay
+on ReGPU's presenter with one page (resolution, MSAA, fps cap, preset) driven by the pad, tried in a Deck game-mode
+session. Unknowns to check on the Deck: Win32 dialogs from Proton in game mode, overlay-popups in Avalonia/X11.
+
+Sources: [Unleashed Recompiled Steam Deck notes](https://mintlify.wiki/hedge-dev/UnleashedRecomp/installation/steam-deck),
+[its architecture (ImGui menus)](https://mintlify.wiki/hedge-dev/UnleashedRecomp/building/architecture),
+[UnleashedRecomp PR 1437 (file dialog in game mode)](https://github.com/hedge-dev/UnleashedRecomp/pull/1437),
+[no portal in game mode (Steam forum)](https://steamcommunity.com/app/1675200/discussions/2/3267932441830585132),
+[umu-launcher FAQ (Steam mode)](https://github.com/Open-Wine-Components/umu-launcher/wiki/Frequently-asked-questions-(FAQ)),
+[non-Steam focus in gamescope (steam-for-linux 8513)](https://github.com/ValveSoftware/steam-for-linux/issues/8513),
+[Avalonia on Linux](https://docs.avaloniaui.net/docs/platform-specific-guides/linux),
+[Avalonia Wayland (12.1)](https://avaloniaui.net/blog/bringing-wayland-support-to-avalonia),
+[Trouble Makers recomp: ImGui pad bridge](https://newreleases.io/project/github/ThiagoLira/trouble-makers-pc-recomp/release/v0.7.0),
+[Electron apps on the Deck](https://brainhub.eu/library/making-electron-apps-steam-deck-compatible).
