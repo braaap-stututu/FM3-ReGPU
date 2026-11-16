@@ -69,6 +69,15 @@
     Now the flags travel with the frame (`regpu::xr::TakeFrameFlags`, in patch 68). Not reproducible without a
     headset session. **Next: user check.** (Open: the eye images are single-buffered, so at a hitch a frame's eyes
     can be the next frame's with its own pose: small, double-buffer if it shows.)
+- **Launcher: VR and Triple screens tabs with their own settings and Play buttons (user):** the Graphics tab is the
+  normal setup and the Play tab's button always starts without VR or triple (FM3_VR=off, FM3_TRIPLE=0). VR tab: headset
+  mode (stereo / cockpit / virtual screen: settings.ini `vr_mode`), camera motion, frame-rate matching, head movement,
+  its own resolution (`vr_resolution`, "same" = Graphics), "Play in VR" (FM3_VR=<mode>, FM3_RESOLUTION). Triple
+  screens tab: the layout, the simple field of view (only in simple mode), its own resolution (`triple_resolution`:
+  display modes and three of each 16:9 mode) and fullscreen (`triple_fullscreen`), "Play on triple screens"
+  (FM3_TRIPLE=1, FM3_RESOLUTION, FM3_FULLSCREEN). settings.ini `vr` is written `off` and `triple` 0 (an old `vr=stereo`
+  becomes the VR tab's mode), so play.cmd and launcher --play start normally; the game no longer sets REGPU_VR when
+  FM3_VR is off. Pages checked in the browser pane with a sample state.
 - **Triple screen setup page (user: like the SimRigBuild FOV calculator, with bezel and screen spacing correction and
   independent monitor angles):** `src/hooks/triple_screen.cpp` (moved out of vr_camera.cpp) + ReGPU patch 69
   `regpu-triple-geometry` (69 patches). Physical layout (`triple_mode=physical`): `triple_diag` (inches, 16:9),

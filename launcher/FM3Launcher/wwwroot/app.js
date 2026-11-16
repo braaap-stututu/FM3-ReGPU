@@ -6,7 +6,7 @@ let state = null
 let customFps = false // "Custom…" picked in the Max FPS list
 let nextId = 1
 const pending = new Map()
-const PAGES = ["play", "profiles", "graphics", "triple", "wheel", "settings", "about"]
+const PAGES = ["play", "profiles", "graphics", "vr", "triple", "wheel", "settings", "about"]
 // The speed presets (settings.ini perf_preset; src/gpu_host.cpp ApplyPerfPreset), sharpest first.
 const PRESETS = [
   { value: "off", name: "Off", note: "Everything drawn as the console does." },
@@ -19,7 +19,7 @@ const PRESETS = [
 // Mild and up turn these on by themselves (src/gpu_host.cpp ApplyPerfPreset): shown on and locked there; Off and
 // Turbo leave them to their own switches.
 const PRESET_OPTIONS = ["oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "carLodFar"]
-const SWITCHES = ["vsync", "vrCameraMotion", "vrPace", "triple", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "dxcShaders", "eqaa", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
+const SWITCHES = ["vsync", "vrCameraMotion", "vrPace", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "dxcShaders", "eqaa", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
 
 // ---- host calls
 
@@ -203,7 +203,14 @@ function render() {
   // Edge filter, supersampling, EQAA (session 36). TAA is off under FSR 3 (it does its own); SSAA not with an upscaler
   // (fm3.exe turns it off, src/settings.cpp); EQAA only means something with MSAA.
   fill($("aa"), o.aa, set.aa)
-  if (o.vr) fill($("vr"), o.vr, set.vr)
+  if (o.vrModes) fill($("vrMode"), o.vrModes, set.vrMode)
+  {
+    // Resolutions of the VR and Triple screens tabs' own runs ("same" = the Graphics tab's).
+    const same = [{ value: "same", name: `Same as Graphics (${set.resolution})` }]
+    fill($("vrResolution"), same.concat(o.resolutions.map((r) => ({ value: r, name: r }))), set.vrResolution)
+    fill($("tri-res-pick"), same.concat((o.tripleResolutions || []).map((r) => ({ value: r, name: r }))), set.tripleResolution)
+    $("tri-full").classList.toggle("on", !!set.tripleFullscreen)
+  }
   if (o.tripleFov) fill($("tripleFov"), o.tripleFov, set.tripleFov)
   if (o.vrEyeLimit) fill($("vrEyeLimit"), o.vrEyeLimit, set.vrEyeLimit)
   // Linux (Runner.cs): how the game runs; hidden on Windows.
@@ -279,6 +286,10 @@ function render() {
   item(s.shaders.exists, s.shaders.exists ? `Shaders compiled (${s.shaders.shaders.toLocaleString()})` : "The first start compiles shaders")
   $("launch").disabled = !s.checks.exe || !s.checks.game || s.checks.running
   $("launch").textContent = s.checks.running ? "Running" : "Play"
+  for (const [id, label] of [["vr-launch", "Play in VR"], ["tri-launch", "Play on triple screens"]]) {
+    $(id).disabled = $("launch").disabled
+    $(id).textContent = s.checks.running ? "Running" : label
+  }
 
   // game tile
   $("gameFolder").value = s.paths.gameDir
@@ -374,7 +385,10 @@ $("customFps").onchange = (e) => {
 }
 $("msaa").onchange = (e) => change({ msaa: +e.target.value })
 $("aa").onchange = (e) => change({ aa: e.target.value })
-$("vr").onchange = (e) => change({ vr: e.target.value })
+$("vrMode").onchange = (e) => change({ vrMode: e.target.value })
+$("vrResolution").onchange = (e) => change({ vrResolution: e.target.value })
+$("tri-res-pick").onchange = (e) => change({ tripleResolution: e.target.value })
+$("tri-full").onclick = () => change({ tripleFullscreen: !state.settings.tripleFullscreen })
 $("tripleFov").onchange = (e) => change({ tripleFov: e.target.value })
 $("vrEyeLimit").onchange = (e) => change({ vrEyeLimit: e.target.value })
 $("linuxRunner").onchange = (e) => change({ linuxRunner: e.target.value })
@@ -468,22 +482,28 @@ $("gameCheck").onclick = () => runTile(async () => {
 
 // ---- actions
 
-$("launch").onclick = () => guarded(async () => {
-  const status = $("status")
-  $("launch").disabled = true
-  status.className = "status"
-  status.textContent = state.shaders.exists ? "Starting…" : "Starting: the first start compiles shaders."
-  try {
-    await call("launch", { settings: { ...state.settings } })
-    status.className = "status done"
-    status.textContent = "Game started."
-    setTimeout(refresh, 2500)
-  } catch (e) {
-    status.className = "status error"
-    status.textContent = e.message
-    $("launch").disabled = false
-  }
-})
+// Play buttons: the Play tab's (no VR, no triple screen) and the VR / Triple screens tabs' own.
+function launchFrom(button, statusId, mode) {
+  return () => guarded(async () => {
+    const status = $(statusId)
+    $(button).disabled = true
+    status.className = "status"
+    status.textContent = state.shaders.exists ? "Starting…" : "Starting: the first start compiles shaders."
+    try {
+      await call("launch", { settings: { ...state.settings }, mode })
+      status.className = "status done"
+      status.textContent = "Game started."
+      setTimeout(refresh, 2500)
+    } catch (e) {
+      status.className = "status error"
+      status.textContent = e.message
+      $(button).disabled = false
+    }
+  })
+}
+$("launch").onclick = launchFrom("launch", "status", "normal")
+$("vr-launch").onclick = launchFrom("vr-launch", "vr-status", "vr")
+$("tri-launch").onclick = launchFrom("tri-launch", "tri-status", "triple")
 
 $("shaders-delete").onclick = () => guarded(async () => {
   if (!await confirmBox("Delete the shader cache?", "The next start compiles every shader again. Saves and settings are kept.", "Delete")) return

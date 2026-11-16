@@ -63,9 +63,12 @@ public sealed class GameSettings
     public bool Eqaa { get; set; }
     // gpu: the graphics card the game renders on, by name (Options.Gpus; the game's REGPU_ADAPTER); "" = Windows' choice.
     public string Gpu { get; set; } = "";
-    // vr: a VR headset through OpenXR (sessions 37-38; read by the game): off, screen (the game on a virtual screen), cockpit
-    // (the in-car view follows the head), stereo (cockpit in true 3D, the HUD on a panel).
-    public string Vr { get; set; } = "off";
+    // The VR tab (session 39): the headset mode its Play button starts (screen = the game on a virtual screen, cockpit = the
+    // in-car view follows the head, stereo = cockpit in true 3D) and its resolution ("same" = the Graphics tab's). Saved
+    // as vr_mode / vr_resolution; settings.ini's vr itself stays off, so a start without the VR tab (Play, play.cmd) is
+    // a normal one (FM3_VR from the VR tab's Play button turns it on for that run).
+    public string VrMode { get; set; } = "stereo";
+    public string VrResolution { get; set; } = "same";
     // vr_camera_motion: keep FM3's in-car camera motion (shake, G-force lean, bumps) in VR (session 38: off with VR).
     public bool VrCameraMotion { get; set; }
     // vr_pace: the frame cap follows the headset's display rate in the head-tracked modes (session 39; on by default).
@@ -79,7 +82,10 @@ public sealed class GameSettings
     // triple: one view across three monitors (session 39; the resolution is the three together); triple_fov: each
     // screen's vertical field of view in degrees ("0" = the camera's own where three fit). triple_angle/_bezel stay
     // settings.ini-only (kept as they are).
-    public bool Triple { get; set; }
+    // The Triple screens tab's Play button: its resolution ("same" = the Graphics tab's; normally three screens together)
+    // and fullscreen. Like VR, triple screen is on only for runs started there (settings.ini triple stays 0).
+    public string TripleResolution { get; set; } = "same";
+    public bool TripleFullscreen { get; set; } = true;
     public string TripleFov { get; set; } = "0";
     // The Triple screens page (session 39): triple_mode auto (TripleFov above) or physical (this layout: screen diagonal
     // in inches, eye distance in cm, one screen's bezel and the gap between two screens in mm, each side screen's angle in
@@ -129,7 +135,7 @@ public sealed class GameSettings
     static double Num(string v, double fallback, double min, double max) =>
         double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? Math.Clamp(d, min, max) : fallback;
 
-    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "triple_mode", "triple_diag", "triple_dist", "triple_bezel_mm", "triple_gap_mm", "triple_angle_left", "triple_angle_right", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
+    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_mode", "vr_resolution", "triple_resolution", "triple_fullscreen", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "triple_mode", "triple_diag", "triple_dist", "triple_bezel_mm", "triple_gap_mm", "triple_angle_left", "triple_angle_right", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
 
     public static GameSettings Load()
     {
@@ -148,7 +154,11 @@ public sealed class GameSettings
                 case "ssaa": s.Ssaa = Options.Ssaa.Any(x => x.Value == v) ? v : "1"; break;
                 case "eqaa": s.Eqaa = v == "1"; break;
                 case "gpu": s.Gpu = v; break;
-                case "vr": s.Vr = Options.Vr.Any(x => x.Value == v) ? v : "off"; break;
+                case "vr": if (Options.VrModes.Any(x => x.Value == v)) s.VrMode = v; break; // (before session 39: the mode itself)
+                case "vr_mode": s.VrMode = Options.VrModes.Any(x => x.Value == v) ? v : "stereo"; break;
+                case "vr_resolution": s.VrResolution = v is { Length: > 0 } ? v : "same"; break;
+                case "triple_resolution": s.TripleResolution = v is { Length: > 0 } ? v : "same"; break;
+                case "triple_fullscreen": s.TripleFullscreen = v != "0"; break;
                 case "upscaler": s.Upscaler = Options.Upscalers.Any(u => u.Value == v) ? v : "off"; break;
                 case "upscale_quality": s.Upscale = int.TryParse(v, out var q) ? Math.Clamp(q, 0, 4) : 1; break;
                 case "sharpness":
@@ -179,7 +189,6 @@ public sealed class GameSettings
                 case "linux_proton": s.LinuxProton = v; break;
                 case "linux_prefix": s.LinuxPrefix = v; break;
                 case "vr_eye_limit": s.VrEyeLimit = Options.VrEyeLimit.Any(x => x.Value == v) ? v : "0"; break;
-                case "triple": s.Triple = v == "1"; break;
                 case "triple_mode": s.TripleMode = v == "physical" ? "physical" : "auto"; break;
                 case "triple_diag": s.TripleDiag = Num(v, 27, 10, 100); break;
                 case "triple_dist": s.TripleDist = Num(v, 60, 20, 300); break;
@@ -209,14 +218,14 @@ public sealed class GameSettings
         sb.Append($"msaa={(Options.Msaa.Any(x => x.Value == Msaa) ? Msaa : 1)}\n");
         sb.Append("aa=" + (Options.Aa.Any(x => x.Value == Aa) ? Aa : "off") + "\nssaa=" + (Options.Ssaa.Any(x => x.Value == Ssaa) ? Ssaa : "1") + "\neqaa=" + B(Eqaa) + "\n");
         sb.Append($"gpu={new string(Gpu.Where(c => !char.IsControl(c) && c != '=').ToArray()).Trim()}\n");
-        sb.Append("vr=" + (Options.Vr.Any(x => x.Value == Vr) ? Vr : "off") + "\n");
+        sb.Append($"vr=off\nvr_mode={(Options.VrModes.Any(x => x.Value == VrMode) ? VrMode : "stereo")}\nvr_resolution={VrResolution}\ntriple_resolution={TripleResolution}\ntriple_fullscreen={B(TripleFullscreen)}\n");
         string N(double d) => Math.Round(d, 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
         sb.Append($"triple_mode={(TripleMode == "physical" ? "physical" : "auto")}\ntriple_diag={N(TripleDiag)}\ntriple_dist={N(TripleDist)}\ntriple_bezel_mm={N(TripleBezelMm)}\ntriple_gap_mm={N(TripleGapMm)}\ntriple_angle_left={N(TripleAngleLeft)}\ntriple_angle_right={N(TripleAngleRight)}\n");
         sb.Append($"upscaler={(Options.Upscalers.Any(u => u.Value == Upscaler) ? Upscaler : "off")}\nupscale_quality={Math.Clamp(Upscale, 0, 4)}\nsharpness={sharp}\n");
         sb.Append($"language={Language}\n");
         sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n"); // (session 23: these three were read but never saved)
         sb.Append($"perf_preset={(PerfPresets.Contains(PerfPreset) ? PerfPreset : "off")}\n");
-        sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\nvr_camera_motion={B(VrCameraMotion)}\nvr_pace={B(VrPace)}\nlinux_runner={LinuxRunner}\nlinux_proton={LinuxProton}\nlinux_prefix={LinuxPrefix}\nvr_eye_limit={(Options.VrEyeLimit.Any(x => x.Value == VrEyeLimit) ? VrEyeLimit : "0")}\ntriple={B(Triple)}\ntriple_fov={(Options.TripleFov.Any(x => x.Value == TripleFov) ? TripleFov : "0")}\ndebug_server={B(DebugServer)}\n");
+        sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\nvr_camera_motion={B(VrCameraMotion)}\nvr_pace={B(VrPace)}\nlinux_runner={LinuxRunner}\nlinux_proton={LinuxProton}\nlinux_prefix={LinuxPrefix}\nvr_eye_limit={(Options.VrEyeLimit.Any(x => x.Value == VrEyeLimit) ? VrEyeLimit : "0")}\ntriple=0\ntriple_fov={(Options.TripleFov.Any(x => x.Value == TripleFov) ? TripleFov : "0")}\ndebug_server={B(DebugServer)}\n");
         sb.Append(DxcShaders ? "shader_compiler=dxc\n" : "shader_compiler=fxc\n");
         sb.Append($"game_folder={Clean(GameFolder)}\n");
         foreach (var (k, v) in keep) sb.Append($"{k}={v}\n");
@@ -271,7 +280,22 @@ public static class Options
     public static readonly (int Value, string Name)[] Msaa = [(1, "Off"), (2, "2x MSAA"), (4, "4x MSAA")];
     public static readonly (string Value, string Name)[] VrEyeLimit = [("0", "No limit"), ("30", "30 cm each way"), ("60", "60 cm each way"), ("100", "1 m each way")];
     public static readonly (string Value, string Name)[] TripleFov = [("0", "Auto (the camera's own, narrowed to fit)"), ("20", "20 degrees"), ("25", "25 degrees"), ("30", "30 degrees"), ("35", "35 degrees"), ("40", "40 degrees")];
-    public static readonly (string Value, string Name)[] Vr = [("off", "Off"), ("screen", "Virtual screen"), ("cockpit", "Head-tracked cockpit"), ("stereo", "Stereo cockpit (3D)")];
+    public static readonly (string Value, string Name)[] VrModes = [("stereo", "Stereo cockpit (3D)"), ("cockpit", "Head-tracked cockpit"), ("screen", "Virtual screen")];
+
+    /// <summary>Resolutions for the Triple screens tab: the display's modes (an Eyefinity/Surround desktop lists its
+    /// whole width) and three of each 16:9 mode side by side.</summary>
+    public static List<string> TripleResolutions()
+    {
+        var set = new HashSet<(int, int)>();
+        foreach (var r in Resolutions())
+        {
+            var p = r.Split('x');
+            if (p.Length != 2 || !int.TryParse(p[0], out var w) || !int.TryParse(p[1], out var h)) continue;
+            set.Add((w, h));
+            if (w * 9 == h * 16) set.Add((w * 3, h));
+        }
+        return set.Where(m => m.Item1 * 9 >= m.Item2 * 40).OrderBy(m => (long)m.Item1 * m.Item2).Select(m => $"{m.Item1}x{m.Item2}").ToList();
+    }
     public static readonly (string Value, string Name)[] Aa = [("off", "Off"), ("fxaa", "FXAA (fastest, softest)"), ("smaa", "SMAA (sharp)"), ("cmaa2", "CMAA 2 (sharpest, keeps fine detail)"), ("taa", "TAA (smoothest; can ghost in motion)")];
     public static readonly (string Value, string Name)[] Ssaa = [("1", "Off"), ("1.5", "1.5x (2.25x the pixels)"), ("2", "2x (4x the pixels)")];
     public static readonly (string Value, string Name)[] Upscalers = [("off", "Off (native)"), ("fsr1", "FSR 1 (any graphics card)"), ("fsr3", "FSR 3 (any graphics card)"), ("fsr4", "FSR 4 (RX 9000; RX 7000 with recent drivers; else FSR 3)"), ("bilinear", "Bilinear (fastest, softer; for slow GPUs)")];
@@ -420,7 +444,9 @@ public static class Game
     });
 
     /// <summary>Starts fm3.exe; `extra` adds environment variables for this run (the benchmark's). The caller disposes the process.</summary>
-    public static Process? Launch(IReadOnlyDictionary<string, string>? extra = null)
+    /// <summary>`mode`: "normal" (the Play tab: no VR, no triple screen), "vr" (the VR tab's headset mode and resolution),
+    /// "triple" (the Triple screens tab's resolution and fullscreen).</summary>
+    public static Process? Launch(IReadOnlyDictionary<string, string>? extra = null, string mode = "normal")
     {
         if (!File.Exists(Paths.Exe)) throw new InvalidOperationException($"fm3.exe isn't at {Paths.Exe}.");
         if (!File.Exists(Path.Combine(Paths.GameDir, "default.xex"))) throw new InvalidOperationException("No game files yet: choose the game folder (the extracted Disc 1) on the Play tab.");
@@ -451,6 +477,12 @@ public static class Game
         if (settings.DrawWorkers) psi.Environment["FM3_DRAW_THREAD_PIECES"] = "1";
         // The live debug server (127.0.0.1 only, tools\fm3ctl.ps1): status, captures, live switches.
         if (settings.DebugServer) psi.Environment["REGPU_DEBUG"] = "1";
+        // This run's mode (the game reads FM3_VR, FM3_TRIPLE, FM3_RESOLUTION, FM3_FULLSCREEN before settings.ini).
+        psi.Environment["FM3_VR"] = mode == "vr" ? settings.VrMode : "off";
+        psi.Environment["FM3_TRIPLE"] = mode == "triple" ? "1" : "0";
+        var res = mode == "vr" ? settings.VrResolution : mode == "triple" ? settings.TripleResolution : "same";
+        if (res != "same") psi.Environment["FM3_RESOLUTION"] = res;
+        if (mode == "triple") psi.Environment["FM3_FULLSCREEN"] = settings.TripleFullscreen ? "1" : "0";
         if (extra is not null)
             foreach (var (k, v) in extra) psi.Environment[k] = v;
         return Process.Start(psi);

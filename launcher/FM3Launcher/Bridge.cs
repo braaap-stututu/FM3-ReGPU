@@ -112,7 +112,8 @@ public sealed class Bridge
                 }
             case "launch":
                 if (a?["settings"].Deserialize<GameSettings>(Json) is { } toSave) SaveFromPage(toSave);
-                Game.Launch()?.Dispose();
+                // (The Play tab, or the VR / Triple screens tab's own Play button.)
+                Game.Launch(null, a?["mode"]?.GetValue<string>() is "vr" or "triple" ? a["mode"]!.GetValue<string>() : "normal")?.Dispose();
                 return null;
             case "benchmark.run":
                 {
@@ -254,7 +255,8 @@ public sealed class Bridge
                 fps = Options.Fps,
                 msaa = Options.Msaa.Select(x => new { value = x.Value, name = x.Name }),
                 aa = Options.Aa.Select(x => new { value = x.Value, name = x.Name }),
-                vr = Options.Vr.Select(x => new { value = x.Value, name = x.Name }),
+                vrModes = Options.VrModes.Select(x => new { value = x.Value, name = x.Name }),
+                tripleResolutions = Options.TripleResolutions(),
                 tripleFov = Options.TripleFov.Select(x => new { value = x.Value, name = x.Name }),
                 vrEyeLimit = Options.VrEyeLimit.Select(x => new { value = x.Value, name = x.Name }),
                 ssaa = Options.Ssaa.Select(x => new { value = x.Value, name = x.Name }),

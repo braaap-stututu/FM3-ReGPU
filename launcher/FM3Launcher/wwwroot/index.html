@@ -18,6 +18,7 @@
       <button data-tab="play" class="on">Play</button>
       <button data-tab="profiles">Profiles</button>
       <button data-tab="graphics">Graphics</button>
+      <button data-tab="vr">VR</button>
       <button data-tab="triple">Triple screens</button>
       <button data-tab="wheel">Wheel stuff</button>
       <button data-tab="settings">Settings</button>
@@ -155,30 +156,6 @@
           <button data-full="1" data-tip="Fills the main display without changing its mode. A narrower aspect ratio is centred with black bars.">Fullscreen</button>
         </div>
       </div>
-      <label class="field" data-tip="A VR headset through OpenXR (the runtime that is active: Virtual Desktop, SteamVR, Oculus...). The desktop window stays. Virtual screen: the game on a big screen in front of you. Head-tracked cockpit: in the in-car view the camera follows your head (one picture for both eyes). Stereo cockpit: the same in true 3D (the car is drawn twice, about 2 ms more a frame; upscalers and edge filters are off), the HUD on a panel in front of you. The HUD sits on its own panel in front of you in both head-tracked modes. F8 in the game window (or both stick clicks held) recentres; numeric keypad 8/2, 9/3, 4/6 move the seat forward/back, up/down, right/left, 5 resets it. The log names the resolution that matches the headset's pixels. Without a headset the game runs as normal. Experimental; read when the game starts.">
-        <span>VR headset (experimental)</span>
-        <select id="vr"></select>
-      </label>
-      <div class="toggle-row" data-tip="With a VR headset the in-car, hood and bumper cameras normally hold still in the car (your own head moves the view): their shake, G-force lean and bump motion are off, which is far more comfortable. On: the game's camera motion is kept, as on a screen. Only matters with the VR headset option on. Read when the game starts.">
-        <div><div class="toggle-title">VR: in-car camera motion</div><div class="toggle-sub">Shake and G-force lean in VR, off by default</div></div>
-        <button class="switch" id="vrCameraMotion" role="switch"></button>
-      </div>
-      <div class="toggle-row" data-tip="In the head-tracked modes (cockpit, stereo) the game's frame rate is held to the headset's refresh rate while the headset runs (72, 90, 120 Hz ...), so every headset frame gets a new game frame and none are drawn for nothing; the headset also waits a moment for a frame that is nearly done instead of showing the last one twice. Off: the frame cap decides, as on a screen. Only matters with the VR headset option on. Read when the game starts.">
-        <div><div class="toggle-title">VR: match the headset's frame rate</div><div class="toggle-sub">Headset pacing, on by default</div></div>
-        <button class="switch" id="vrPace" role="switch"></button>
-      </div>
-      <label class="field" data-tip="How far your head may move from the driver's seat in VR before the view stops following. No limit: you can lean anywhere, through the car's body or out of the window if you go that far. A limit keeps the camera inside the car. Only matters with the VR headset option on. Read when the game starts.">
-        <span>VR: head movement</span>
-        <select id="vrEyeLimit"></select>
-      </label>
-      <div class="toggle-row" data-tip="One view across three monitors, each showing the world from its own angle, like three windows around you (not one stretched picture). Set the resolution to the three screens together (e.g. 7680x1440 for three 2560x1440 monitors) on one wide desktop (AMD Eyefinity, NVIDIA Surround) and fullscreen. The side screens are drawn as extra passes: about 2.3x the frame time (the centre's draws three times); the HUD is on the centre screen; upscalers and edge filters are off. Not together with VR. Read when the game starts.">
-        <div><div class="toggle-title">Triple screen</div><div class="toggle-sub">Three monitors, one view, experimental, off by default</div></div>
-        <button class="switch" id="triple" role="switch"></button>
-      </div>
-      <label class="field" data-tip="Each screen's vertical field of view. Physically right: the angle a screen fills from your eyes (for 27-inch monitors at 70 cm about 30 degrees). Auto uses the camera's own and narrows it where the three screens would not fit one view (the in-car camera's 45 degrees becomes about 33). The side screens are turned by one screen's width, so the pictures meet edge to edge (settings.ini triple_angle and triple_bezel change that).">
-        <span>Triple screen: field of view</span>
-        <select id="tripleFov"></select>
-      </label>
     </section>
 
     <section class="panel">
@@ -244,6 +221,39 @@
   </main>
 
   <!-- PROFILES -->
+  <main class="page grid3" id="page-vr" hidden>
+    <section class="panel">
+      <div class="panel-head"><h2>Headset</h2></div>
+      <p class="hint">An OpenXR headset (the runtime that is active: Virtual Desktop, SteamVR, Oculus...). In the car (hold RB to change the view) the camera follows your head. F8 or both stick clicks held for a second recentre; the numeric keypad moves the seat (8/2 forward/back, 9/3 up/down, 4/6 right/left, 5 resets).</p>
+      <label class="field" data-tip="A VR headset through OpenXR (the runtime that is active: Virtual Desktop, SteamVR, Oculus...). The desktop window stays. Virtual screen: the game on a big screen in front of you. Head-tracked cockpit: in the in-car view the camera follows your head (one picture for both eyes). Stereo cockpit: the same in true 3D (the car is drawn twice, about 2 ms more a frame; upscalers and edge filters are off), the HUD on a panel in front of you. The HUD sits on its own panel in front of you in both head-tracked modes. F8 in the game window (or both stick clicks held) recentres; numeric keypad 8/2, 9/3, 4/6 move the seat forward/back, up/down, right/left, 5 resets it. The log names the resolution that matches the headset's pixels. Experimental; read when the game starts.">
+        <span>Headset mode</span>
+        <select id="vrMode"></select>
+      </label>
+      <div class="toggle-row" data-tip="With a VR headset the in-car, hood and bumper cameras normally hold still in the car (your own head moves the view): their shake, G-force lean and bump motion are off, which is far more comfortable. On: the game's camera motion is kept, as on a screen. Read when the game starts.">
+        <div><div class="toggle-title">VR: in-car camera motion</div><div class="toggle-sub">Shake and G-force lean in VR, off by default</div></div>
+        <button class="switch" id="vrCameraMotion" role="switch"></button>
+      </div>
+      <div class="toggle-row" data-tip="In the head-tracked modes (cockpit, stereo) the game's frame rate is held to the headset's refresh rate while the headset runs (72, 90, 120 Hz ...), so every headset frame gets a new game frame and none are drawn for nothing; the headset also waits a moment for a frame that is nearly done instead of showing the last one twice. Off: the frame cap decides, as on a screen. Read when the game starts.">
+        <div><div class="toggle-title">VR: match the headset's frame rate</div><div class="toggle-sub">Headset pacing, on by default</div></div>
+        <button class="switch" id="vrPace" role="switch"></button>
+      </div>
+      <label class="field" data-tip="How far your head may move from the driver's seat in VR before the view stops following. No limit: you can lean anywhere, through the car's body or out of the window if you go that far. A limit keeps the camera inside the car. Read when the game starts.">
+        <span>VR: head movement</span>
+        <select id="vrEyeLimit"></select>
+      </label>
+      <label class="field" data-tip="The game's resolution for VR runs (the desktop window's; each eye's picture comes from it). The log names the one that matches your headset's pixels. Same as Graphics: the Graphics tab's.">
+        <span>Resolution</span>
+        <select id="vrResolution"></select>
+      </label>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Play in VR</h2></div>
+      <p class="hint">Starts the game with the headset on, using this tab and the Graphics tab's other settings (upscalers and edge filters are off in stereo). The Play tab's button starts it without VR.</p>
+      <button class="launch" id="vr-launch" data-tip="Saves these settings and starts the game with the headset.">Play in VR</button>
+      <div class="status" id="vr-status"></div>
+    </section>
+  </main>
+
   <main class="page" id="page-triple" hidden>
     <div class="tri-top">
       <section class="panel">
@@ -264,10 +274,6 @@
       </section>
       <section class="panel">
         <div class="panel-head"><h2>Layout</h2></div>
-        <div class="toggle-row" data-tip="One view across three monitors, each from its own angle. Set the resolution (Graphics) to the three together, e.g. 7680x1440. Read when the game starts.">
-          <div><div class="toggle-title">Triple screen</div><div class="toggle-sub">Three monitors, one view</div></div>
-          <button class="switch" id="tri-on" role="switch"></button>
-        </div>
         <span class="tri-label">Field of view</span>
         <div class="segmented" id="tri-mode">
           <button data-mode="physical" data-tip="The view your monitors really show from your seat: worked out from their size, angles, distance, bezels and spacing (this page).">From these screens</button>
@@ -287,6 +293,10 @@
           <div class="tri-in"><input type="range" id="tri-right-r" min="0" max="85" step="0.5"><input type="number" id="tri-right" min="0" max="89" step="0.5"></div>
         </label>
         <label class="tri-link tri-angle"><input type="checkbox" id="tri-link"> Same angle both sides</label>
+        <label class="field tri-simple" data-tip="Each screen's vertical field of view. Physically right: the angle a screen fills from your eyes (for 27-inch monitors at 70 cm about 30 degrees). Auto uses the camera's own and narrows it where the three screens would not fit one view (the in-car camera's 45 degrees becomes about 33). The side screens are turned by one screen's width, so the pictures meet edge to edge (settings.ini triple_angle and triple_bezel change that).">
+        <span>Simple field of view</span>
+        <select id="tripleFov"></select>
+        </label>
       </section>
       <section class="panel">
         <div class="panel-head"><h2>Viewing distance</h2></div>
@@ -296,6 +306,17 @@
         </label>
         <p class="hint">Sit as you race and measure from your eyes to the centre screen. A shorter distance means a wider view, as on the real screens.</p>
         <div class="tri-warn" id="tri-warn" hidden></div>
+        <div class="panel-head sub"><h2>Play on triple screens</h2></div>
+        <label class="field" data-tip="The three screens together (one wide desktop: AMD Eyefinity, NVIDIA Surround). Same as Graphics: the Graphics tab's resolution.">
+          <span>Resolution</span>
+          <select id="tri-res-pick"></select>
+        </label>
+        <div class="toggle-row" data-tip="Fills the wide desktop; off: a window.">
+          <div><div class="toggle-title">Fullscreen</div><div class="toggle-sub">Across all three screens</div></div>
+          <button class="switch" id="tri-full" role="switch"></button>
+        </div>
+        <button class="launch" id="tri-launch" data-tip="Saves these settings and starts the game across the three screens.">Play on triple screens</button>
+        <div class="status" id="tri-status"></div>
       </section>
     </div>
     <section class="panel tri-result">

@@ -472,8 +472,12 @@ void GpuStart()
     // VR (session 37, ReGPU src/render/xr.cpp): settings.ini vr=screen|cockpit (or FM3_VR / REGPU_VR) puts the game on a virtual
     // screen in an OpenXR headset (the active runtime: Virtual Desktop, SteamVR, Oculus, ...); cockpit also head-tracks
     // the in-car view (src/hooks/vr_camera.cpp); the window stays.
+    // (The launcher passes FM3_VR on every run since session 39: its VR tab's mode, or off from the other Play buttons.)
     if (const char* v = getenv("FM3_VR"); v && *v)
-        DefaultEnv("REGPU_VR", v);
+    {
+        if (strcmp(v, "off") != 0 && strcmp(v, "0") != 0)
+            DefaultEnv("REGPU_VR", v);
+    }
     else if (const std::string vr = GetSettings().Extra("vr"); !vr.empty() && vr != "off" && vr != "0")
         DefaultEnv("REGPU_VR", vr.c_str());
     // vr=stereo (session 38): ReGPU draws the main view a second time for the other eye. FM3 draws its scene turned

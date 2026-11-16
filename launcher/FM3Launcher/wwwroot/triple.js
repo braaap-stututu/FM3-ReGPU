@@ -79,7 +79,7 @@ function tripleRender() {
   put("tri-left", shownL); put("tri-left-r", shownL)
   put("tri-right", shownR); put("tri-right-r", shownR)
   $("tri-link").checked = triLinked
-  $("tri-on").classList.toggle("on", !!set.triple)
+  for (const e of document.querySelectorAll(".tri-simple")) e.hidden = set.tripleMode === "physical"
   for (const b of $("tri-mode").children) b.classList.toggle("on", b.dataset.mode === (set.tripleMode === "physical" ? "physical" : "auto"))
   for (const b of $("tri-angle-mode").children) b.classList.toggle("on", (b.dataset.amode === "manual") === manual)
   for (const e of document.querySelectorAll(".tri-angle")) e.classList.toggle("off", !manual)
@@ -164,7 +164,6 @@ $("tri-link").onchange = (e) => {
   triLinked = e.target.checked
   if (triLinked) triSave({ tripleAngleRight: state.settings.tripleAngleLeft })
 }
-$("tri-on").onclick = () => triSave({ triple: !state.settings.triple })
 $("tri-mode").onclick = (e) => { const b = e.target.closest("button"); if (b) triSave({ tripleMode: b.dataset.mode }) }
 $("tri-angle-mode").onclick = (e) => {
   const b = e.target.closest("button")
