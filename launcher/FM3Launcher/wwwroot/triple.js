@@ -86,13 +86,15 @@ function tripleRender() {
   for (const id of ["tri-left", "tri-left-r", "tri-right", "tri-right-r", "tri-link"]) $(id).disabled = !manual
   $("tri-rec").textContent = `facing you: ${(L.facing / TRI_D2R).toFixed(1)}°`
   // Per-screen resolution from the Graphics tab's (the three together).
-  const [rw, rh] = String(set.resolution || "").split("x").map(Number)
+  // (The Triple screens tab's own resolution; "same" = the Graphics tab's.)
+  const triRes = set.tripleResolution && set.tripleResolution !== "same" ? set.tripleResolution : set.resolution
+  const [rw, rh] = String(triRes || "").split("x").map(Number)
   const res = $("tri-res")
   res.replaceChildren()
   const kv = (k, v) => { res.append(el("span", "k", k), el("span", "v", v)) }
   if (rw && rh) {
     const each = Math.floor(rw / 3)
-    kv("Resolution", `${rw}×${rh} (Graphics): ${each}×${Math.min(rh, Math.round(each * 9 / 16))} per screen`)
+    kv("Resolution", `${rw}×${rh}${triRes === set.resolution && (!set.tripleResolution || set.tripleResolution === "same") ? " (Graphics)" : ""}: ${each}×${Math.min(rh, Math.round(each * 9 / 16))} per screen`)
     if (Math.abs(rw / rh - 48 / 9) > 0.05) kv("Note", "not 3 × 16:9: set the resolution to three screens side by side (e.g. 7680×1440)")
   }
   const ppd = rw ? (Math.floor(rw / 3) / F.hfovCentre).toFixed(0) : "–"

@@ -1,8 +1,16 @@
 diff --git a/src/render/presenter.cpp b/src/render/presenter.cpp
-index 15b7591..e6b5624 100644
+index 15b7591..b7be546 100644
 --- a/src/render/presenter.cpp
 +++ b/src/render/presenter.cpp
-@@ -199,6 +199,8 @@ void EnsureDevice()
+@@ -34,6 +34,7 @@ constexpr UINT kWidth = 1280, kHeight = 720;
+ struct Presenter
+ {
+     HWND window = nullptr;
++    HWND surface = nullptr; // fullscreen: the child window the swap chain is on (else the window itself)
+     ComPtr<ID3D12Device> device;
+     ComPtr<ID3D12CommandQueue> queue;
+     ComPtr<IDXGISwapChain3> swapChain;
+@@ -199,6 +200,8 @@ void EnsureDevice()
  // area the window is placed at its top left, title bar on screen. Pixels are physical: the process is
  // made per-monitor DPI aware before ReGPU opens a window (a host's window has its own awareness).
  // Maximised or borderless (fullscreen) windows are left alone. Asynchronous: safe off the window's thread.
@@ -11,7 +19,7 @@ index 15b7591..e6b5624 100644
  void SizeWindow(HWND hwnd, uint32_t width, uint32_t height)
  {
      if (!hwnd || !width || !height || IsZoomed(hwnd))
-@@ -211,6 +213,8 @@ void SizeWindow(HWND hwnd, uint32_t width, uint32_t height)
+@@ -211,6 +214,8 @@ void SizeWindow(HWND hwnd, uint32_t width, uint32_t height)
      const int w = r.right - r.left, h = r.bottom - r.top;
      MONITORINFO mi{ sizeof(mi) };
      GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi);
@@ -20,7 +28,7 @@ index 15b7591..e6b5624 100644
      RECT now{};
      GetWindowRect(hwnd, &now);
      // Kept on the work area as far as it fits; its top left (the title bar) always is.
-@@ -221,6 +225,50 @@ void SizeWindow(HWND hwnd, uint32_t width, uint32_t height)
+@@ -221,6 +226,50 @@ void SizeWindow(HWND hwnd, uint32_t width, uint32_t height)
      Log("presenter: window client %ux%u", width, height);
  }
  
@@ -71,7 +79,7 @@ index 15b7591..e6b5624 100644
  void CreateWindowAndDevice()
  {
      // Physical pixels for the window ReGPU opens (an unaware window at 125% scaling would be stretched).
-@@ -252,9 +300,17 @@ void CreateWindowAndDevice()
+@@ -252,9 +301,17 @@ void CreateWindowAndDevice()
      {
          // Borderless window over the whole display; its black background shows around the picture.
          // The picture (the swap chain) is a child window: the largest rectangle of the chosen
@@ -92,7 +100,7 @@ index 15b7591..e6b5624 100644
          LONG w = sw, h = sh;
          if (int64_t(sw) * outH > int64_t(sh) * outW)
              w = LONG(int64_t(sh) * outW / outH);
-@@ -267,7 +323,10 @@ void CreateWindowAndDevice()
+@@ -267,7 +324,10 @@ void CreateWindowAndDevice()
      {
          g_p.window = CreateWindowW(L"regpu", GetSettings().windowTitle.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
              CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr, wc.hInstance, nullptr);
@@ -104,3 +112,64 @@ index 15b7591..e6b5624 100644
          SizeWindow(g_p.window, outW, outH);
          ShowWindow(g_p.window, SW_SHOW);
      }
+@@ -292,6 +352,7 @@ void CreateWindowAndDevice()
+     ComPtr<IDXGISwapChain1> sc1;
+     Check(factory->CreateSwapChainForHwnd(g_p.queue.Get(), surface ? surface : g_p.window, &sd, nullptr, nullptr, &sc1), "CreateSwapChainForHwnd");
+     Check(sc1.As(&g_p.swapChain), "IDXGISwapChain3");
++    g_p.surface = surface ? surface : g_p.window;
+     factory->MakeWindowAssociation(g_p.window, DXGI_MWA_NO_ALT_ENTER);
+ 
+     D3D12_DESCRIPTOR_HEAP_DESC hd{};
+@@ -601,9 +662,37 @@ bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, I
+ uint32_t RegpuFrameCap();
+ bool RegpuPerfLiteOn();
+ 
++// The window, the picture's own window and the swap chain, in physical pixels: logged at the first present and whenever
++// they change (session 39: a triple-screen picture shown at a third of its size on the centre screen).
++void LogWindowSizes()
++{
++    static RECT lastWin{}, lastSurf{};
++    static UINT lastW = 0, lastH = 0;
++    if (!g_p.window || !g_p.swapChain)
++        return;
++    RECT win{}, surf{};
++    GetWindowRect(g_p.window, &win);
++    GetWindowRect(g_p.surface ? g_p.surface : g_p.window, &surf);
++    DXGI_SWAP_CHAIN_DESC1 d{};
++    g_p.swapChain->GetDesc1(&d);
++    if (memcmp(&win, &lastWin, sizeof(win)) == 0 && memcmp(&surf, &lastSurf, sizeof(surf)) == 0 && d.Width == lastW && d.Height == lastH)
++        return;
++    lastWin = win, lastSurf = surf, lastW = d.Width, lastH = d.Height;
++    Log("presenter: window %ld,%ld %ldx%ld, picture %ld,%ld %ldx%ld, swap chain %ux%u, DPI %u", win.left, win.top, win.right - win.left, win.bottom - win.top,
++        surf.left, surf.top, surf.right - surf.left, surf.bottom - surf.top, d.Width, d.Height, GetDpiForWindow(g_p.window));
++}
++
+ void PresenterPresent()
+ {
+     using Clock = std::chrono::steady_clock;
++    {
++        static Clock::time_point lastCheck{};
++        if (Clock::now() - lastCheck > std::chrono::seconds(5))
++        {
++            lastCheck = Clock::now();
++            LogWindowSizes();
++        }
++    }
+     // REGPU_PRESENT_PACE=1 (live, session 33 of the FM3 port): presents held to an even spacing at the frame cap. The cap
+     // gates the title's VdSwap, at the start of the pipeline; the frame then reaches here after the command processor,
+     // the draw thread and the replay thread, whose time varies with the frame's load: the presents came unevenly (the
+diff --git a/src/settings.cpp b/src/settings.cpp
+index f7933e8..14a83c9 100644
+--- a/src/settings.cpp
++++ b/src/settings.cpp
+@@ -67,6 +67,10 @@ void Config::ShownSize(uint32_t& w, uint32_t& h) const
+ {
+     w = width;
+     h = height;
++    // Triple screen: the resolution is the three screens together and each is 16:9 (RenderSize); a forced aspect ratio
++    // (a single screen's 16:9) would shrink all three into a third (FM3 port session 39: 853x480 per screen at 7680x1440).
++    if (const char* t = getenv("REGPU_TRIPLE"); t && *t && strcmp(t, "0") != 0)
++        return;
+     // The forced aspect, or the resolution's own; never narrower than 16:9 (narrower views
+     // are not supported yet: such resolutions get 16:9 with bars).
+     uint64_t aw = aspectW, ah = aspectH;

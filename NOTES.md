@@ -75,7 +75,7 @@
     monitor. Fullscreen covered only the primary display (SM_CXSCREEN): fine on an Eyefinity group (one 7680x1440
     display, which this PC reports now), not on separate monitors. ReGPU patch 70 `regpu-triple-span`: fullscreen over
     the row of monitors beside the primary; windowed starts at the row's left. Checked: log `presenter: fullscreen over
-    the monitors at 0,0, 7680x1440` here.
+    the monitors at 0,0, 7680x1440` here. **Second test: still a third:** the user's `aspect=16:9` (forced, a single screen's) made ShownSize fit 16:9 into 7680x1440 (2560x1440) and so 853x480 per screen (the launcher showed it); triple mode now ignores the forced aspect (grid: composite 7680x1440, `out/shots/s39-full2.png`); the launcher's per-screen line now reads the Triple tab's resolution; window/picture/swap-chain sizes logged (`presenter: window ...`).
   - "Spazzing lines when the car moves": reproduced with the AI driving (`out/shots/s39-td-drive-*.png`): a thin dashed
     shadow line on the tarmac that changes every frame; not in the same drive without triple (`s39-td-mono-*`). Cause:
     FM3 fits its shadows to the camera's view, and triple mode widens that view (166 deg for the auto layout) so the
