@@ -1,0 +1,420 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index f24eddf..b05d459 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -1960,6 +1960,9 @@ uint32_t FrameCap()
+     uint32_t c = s.maxFps;
+     if (s.vsync)
+         c = std::min(c, refresh);
++    // VR headset pacing (render/xr.h PaceCap): the headset's display rate while a session runs.
++    if (const uint32_t pace = regpu::xr::PaceCap())
++        c = std::min(c, pace);
+     c = std::max(c, 30u);
+     static std::atomic<uint32_t> logged{ 0 };
+     if (logged.exchange(c) != c)
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 36566fa..dfec55e 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -12199,6 +12199,7 @@ void RendererRunPieces(uint32_t n, const std::function<void(uint32_t)>& translat
+ // composite's pixel shader (REGPU_VR_HUD_UNDER=<hash>, the port's). On a stereo frame the surface just before that draw
+ // is the HUD alone: it goes to the headset's HUD panel (first eye's pass), and the composite is drawn opaque, so neither
+ // eye has the HUD in its picture. REGPU_VR_HUD_IN_VIEW=1 (live): the HUD stays in both eyes' pictures, as before.
++// Head-tracked mono frames (REGPU_VR=cockpit, regpu::xr::MonoHudPanel) do the same (FM3 port session 39).
+ ComPtr<ID3D12Resource> g_hudCopy;
+ bool StereoHudDraw()
+ {
+@@ -12208,7 +12209,7 @@ bool StereoHudDraw()
+     }();
+     static LiveSwitch inView("REGPU_VR_HUD_IN_VIEW");
+     // (Not the resolve that follows: a copy packet runs with the composite's shaders still loaded.)
+-    return hudUnder && g_stereoClipX != 0.0f && C().psHash == hudUnder && WidePass() && !inView && C().color && !RendererIsResolveDraw();
++    return hudUnder && (g_stereoClipX != 0.0f || regpu::xr::MonoHudPanel()) && C().psHash == hudUnder && WidePass() && !inView && C().color && !RendererIsResolveDraw();
+ }
+ 
+ void StereoCaptureHud()
+diff --git a/src/render/xr.cpp b/src/render/xr.cpp
+index 5fe70db..7111b7e 100644
+--- a/src/render/xr.cpp
++++ b/src/render/xr.cpp
+@@ -27,6 +27,8 @@ bool Wanted()
+ void Start(ID3D12Device*, ID3D12CommandQueue*) {}
+ void CaptureFrame(ID3D12GraphicsCommandList*, ID3D12Resource*) {}
+ bool StereoFrame(float&, float&) { return false; }
++bool MonoHudPanel() { return false; }
++uint32_t PaceCap() { return 0; }
+ ID3D12Resource* StereoTarget(int, uint32_t, uint32_t) { return nullptr; }
+ void StereoHudCaptured() {}
+ }
+@@ -49,6 +51,7 @@ void Recentre() {}
+ #include <atomic>
+ #include <chrono>
+ #include <cmath>
++#include <condition_variable>
+ #include <deque>
+ #include <mutex>
+ #include <thread>
+@@ -101,7 +104,12 @@ XrSession g_poseSession = XR_NULL_HANDLE;
+ XrSpace g_poseLocal = XR_NULL_HANDLE, g_poseView = XR_NULL_HANDLE;
+ std::atomic<int64_t> g_predicted{ 0 };
+ XrFovf g_eyeFov{};
++XrFovf g_eyeFovs[2]{}; // (g_poseMutex) both eyes' fields of view, for the lens crop
+ std::atomic<uint64_t> g_captured{ 0 };
++// Headset pacing: the headset's display rate (0 without a running session), and a wake-up when a game frame is captured.
++std::atomic<uint32_t> g_headsetHz{ 0 };
++std::mutex g_capturedMutex;
++std::condition_variable g_capturedCv;
+ // Stereo (REGPU_VR=stereo): the two eyes' images of the newest stereo frame (renderer.cpp RendererStereoCaptureEye
+ // grades into them; COMMON between uses), and whether the frame CaptureFrame took was one.
+ ComPtr<ID3D12Resource> g_eyes[3];          // (g_screenMutex) [2]: the HUD panel's image (premultiplied alpha)
+@@ -190,6 +198,56 @@ bool StereoMode()
+     return on;
+ }
+ 
++bool CockpitMode()
++{
++    static const bool on = [] {
++        const char* v = getenv("REGPU_VR");
++        return v && strcmp(v, "cockpit") == 0;
++    }();
++    return on;
++}
++
++// Headset pacing (REGPU_VR_PACE; the port turns it on in cockpit and stereo, 0 = off): the game's frame cap follows the
++// headset's display rate, and the headset thread waits a little for a game frame that is nearly done.
++bool PaceOn()
++{
++    static const bool on = [] {
++        const char* v = getenv("REGPU_VR_PACE");
++        return v && *v && strcmp(v, "0") != 0;
++    }();
++    return on;
++}
++
++// The part of an eye's image its lens shows (session 39 of the FM3 port): the frame is drawn symmetric, 16:9, with the
++// vertical field of view fitted to the lens (and a margin), so it reaches far past the lens at the sides. Each eye is
++// handed to the runtime as the rectangle of its own lens field (plus REGPU_VR_CROP_MARGIN degrees, default 3, for the
++// runtime's reprojection) with that rectangle's exact angles. tanX/tanY: the frame's half extents (tangents).
++void LensCrop(const XrFovf& lens, float tanX, float tanY, uint32_t w, uint32_t h, XrRect2Di& rect, XrFovf& fov)
++{
++    static const float margin = EnvFloat("REGPU_VR_CROP_MARGIN", 3.0f) * 3.14159265f / 180.0f;
++    static LiveSwitch full("REGPU_VR_NO_CROP"); // A/B: the whole frame for each eye, as before
++    float l = -tanX, r = tanX, u = tanY, d = -tanY;
++    const bool valid = lens.angleRight > lens.angleLeft && lens.angleUp > lens.angleDown && lens.angleLeft > -1.5f && lens.angleRight < 1.5f &&
++                       lens.angleUp < 1.5f && lens.angleDown > -1.5f;
++    if (valid && !full)
++    {
++        l = std::max(-tanX, tanf(std::max(lens.angleLeft - margin, -1.5f)));
++        r = std::min(tanX, tanf(std::min(lens.angleRight + margin, 1.5f)));
++        u = std::min(tanY, tanf(std::min(lens.angleUp + margin, 1.5f)));
++        d = std::max(-tanY, tanf(std::max(lens.angleDown - margin, -1.5f)));
++    }
++    const int32_t x0 = std::clamp(int32_t(floorf((l / tanX + 1) * 0.5f * float(w))), 0, int32_t(w) - 1);
++    const int32_t x1 = std::clamp(int32_t(ceilf((r / tanX + 1) * 0.5f * float(w))), x0 + 1, int32_t(w));
++    const int32_t y0 = std::clamp(int32_t(floorf((1 - u / tanY) * 0.5f * float(h))), 0, int32_t(h) - 1);
++    const int32_t y1 = std::clamp(int32_t(ceilf((1 - d / tanY) * 0.5f * float(h))), y0 + 1, int32_t(h));
++    rect = { { x0, y0 }, { x1 - x0, y1 - y0 } };
++    // The rectangle's own angles (whole pixels).
++    fov.angleLeft = atanf((2.0f * float(x0) / float(w) - 1) * tanX);
++    fov.angleRight = atanf((2.0f * float(x1) / float(w) - 1) * tanX);
++    fov.angleUp = atanf((1 - 2.0f * float(y0) / float(h)) * tanY);
++    fov.angleDown = atanf((1 - 2.0f * float(y1) / float(h)) * tanY);
++}
++
+ // One OpenXR instance + session at a time; the thread makes a new one after a loss or when no headset was there yet.
+ struct Session
+ {
+@@ -222,10 +280,13 @@ struct Session
+     uint32_t listIndex = 0;
+     HANDLE fenceEvent = nullptr;
+     bool running = false;
++    uint32_t recommendedW = 0, recommendedH = 0;
++    bool densityLogged = false;
+ 
+     ~Session()
+     {
+         g_capturing = false;
++        g_headsetHz = 0;
+         {
+             std::lock_guard lock(g_poseMutex);
+             g_poseSession = XR_NULL_HANDLE;
+@@ -497,9 +558,11 @@ struct Session
+             screen = g_screen;
+             pose = g_screenPose;
+             stereo = g_screenStereo && g_eyes[0] && g_eyes[1] && pose.valid;
+-            withHud = stereo && g_screenHud && g_eyes[2];
++            // The HUD on its panel: stereo frames, and head-tracked mono ones (cockpit) whose HUD was taken apart.
++            withHud = pose.valid && g_screenHud && g_eyes[2];
+             if (stereo)
+-                eyes[0] = g_eyes[0], eyes[1] = g_eyes[1], eyes[2] = withHud ? g_eyes[2] : nullptr;
++                eyes[0] = g_eyes[0], eyes[1] = g_eyes[1];
++            eyes[2] = withHud ? g_eyes[2] : nullptr;
+         }
+         if (stereo)
+             return DrawPair(eyes, withHud);
+@@ -508,6 +571,19 @@ struct Session
+         const D3D12_RESOURCE_DESC d = screen->GetDesc();
+         if (!EnsureQuad(uint32_t(d.Width), d.Height))
+             return false;
++        uint32_t hudIndex = 0;
++        if (withHud)
++        {
++            const D3D12_RESOURCE_DESC hd = eyes[2]->GetDesc();
++            XrSwapchainImageAcquireInfo hai{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
++            withHud = EnsureHud(uint32_t(hd.Width), hd.Height) && XR_SUCCEEDED(xrAcquireSwapchainImage(hud, &hai, &hudIndex));
++            if (withHud)
++            {
++                XrSwapchainImageWaitInfo hwi{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
++                hwi.timeout = XR_INFINITE_DURATION;
++                xrWaitSwapchainImage(hud, &hwi);
++            }
++        }
+         uint32_t index = 0;
+         XrSwapchainImageAcquireInfo ai{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+         if (XR_FAILED(xrAcquireSwapchainImage(quad, &ai, &index)))
+@@ -530,6 +606,8 @@ struct Session
+         list->CopyResource(image, screen.Get());
+         Barrier(list.Get(), image, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RENDER_TARGET);
+         Barrier(list.Get(), screen.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
++        if (withHud)
++            CopyHud(hudIndex, eyes[2].Get());
+         list->Close();
+         ID3D12CommandList* lists[] = { list.Get() };
+         g_queue->ExecuteCommandLists(1, lists);
+@@ -537,9 +615,22 @@ struct Session
+         g_queue->Signal(fence.Get(), fenceValues[li]);
+         XrSwapchainImageReleaseInfo ri{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+         xrReleaseSwapchainImage(quad, &ri);
++        if (withHud)
++            xrReleaseSwapchainImage(hud, &ri);
+         return true;
+     }
+ 
++    // The HUD's image into the HUD panel's swapchain image `index` (in the open list).
++    void CopyHud(uint32_t index, ID3D12Resource* src)
++    {
++        ID3D12Resource* hudImage = hudImages[index];
++        Barrier(list.Get(), hudImage, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_DEST);
++        Barrier(list.Get(), src, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
++        list->CopyResource(hudImage, src);
++        Barrier(list.Get(), src, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
++        Barrier(list.Get(), hudImage, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RENDER_TARGET);
++    }
++
+     // Copies the two eyes of the newest stereo frame into the pair's next image, side by side.
+     bool DrawPair(ComPtr<ID3D12Resource> (&eyes)[3], bool& withHud)
+     {
+@@ -587,14 +678,7 @@ struct Session
+         }
+         Barrier(list.Get(), image, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RENDER_TARGET);
+         if (withHud)
+-        {
+-            ID3D12Resource* hudImage = hudImages[hudIndex];
+-            Barrier(list.Get(), hudImage, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_DEST);
+-            Barrier(list.Get(), eyes[2].Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE);
+-            list->CopyResource(hudImage, eyes[2].Get());
+-            Barrier(list.Get(), eyes[2].Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
+-            Barrier(list.Get(), hudImage, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RENDER_TARGET);
+-        }
++            CopyHud(hudIndex, eyes[2].Get());
+         list->Close();
+         ID3D12CommandList* lists[] = { list.Get() };
+         g_queue->ExecuteCommandLists(1, lists);
+@@ -663,6 +747,16 @@ struct Session
+                         {
+                             running = true;
+                             g_capturing = true;
++                            // What the headset asks for per eye, to compare with what the game's frame gives across
++                            // the lens (logged at the first stereo frame).
++                            uint32_t n = 0;
++                            XrViewConfigurationView cv[2] = { { XR_TYPE_VIEW_CONFIGURATION_VIEW }, { XR_TYPE_VIEW_CONFIGURATION_VIEW } };
++                            if (XR_SUCCEEDED(xrEnumerateViewConfigurationViews(instance, system, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, 2, &n, cv)) && n)
++                            {
++                                recommendedW = cv[0].recommendedImageRectWidth, recommendedH = cv[0].recommendedImageRectHeight;
++                                Log("vr: the headset recommends %ux%u per eye (most %ux%u)", recommendedW, recommendedH, cv[0].maxImageRectWidth,
++                                    cv[0].maxImageRectHeight);
++                            }
+                             std::lock_guard lock(g_poseMutex);
+                             g_poseSession = session, g_poseLocal = local, g_poseView = view;
+                         }
+@@ -671,6 +765,7 @@ struct Session
+                     {
+                         running = false;
+                         g_capturing = false;
++                        g_headsetHz = 0;
+                         {
+                             std::lock_guard lock(g_poseMutex);
+                             g_poseSession = XR_NULL_HANDLE;
+@@ -693,6 +788,12 @@ struct Session
+             if (XR_FAILED(xrWaitFrame(session, nullptr, &fs)))
+                 return;
+             g_predicted.store(fs.predictedDisplayTime, std::memory_order_relaxed);
++            if (fs.predictedDisplayPeriod > 0)
++            {
++                const uint32_t hz = uint32_t(std::lround(1e9 / double(fs.predictedDisplayPeriod)));
++                if (g_headsetHz.exchange(hz) != hz)
++                    Log("vr: headset at %u Hz%s", hz, PaceOn() ? " (the game's frame cap follows it: REGPU_VR_PACE)" : "");
++            }
+             {
+                 // F8 in the game window (edge), or regpu::vr::Recentre.
+                 static bool wasDown = false;
+@@ -717,6 +818,8 @@ struct Session
+                 {
+                     std::lock_guard lock(g_poseMutex);
+                     g_eyeFov = views[0].fov;
++                    g_eyeFovs[0] = views[0].fov;
++                    g_eyeFovs[1] = n >= 2 ? views[1].fov : views[0].fov;
+                     if (n >= 2)
+                     {
+                         const float dx = views[1].pose.position.x - views[0].pose.position.x, dy = views[1].pose.position.y - views[0].pose.position.y,
+@@ -736,7 +839,34 @@ struct Session
+             uint32_t layerCount = 0;
+             FramePose framePose;
+             bool stereo = false, withHud = false;
++            if (PaceOn() && fs.shouldRender)
++            {
++                // Pacing: no new game frame since the last headset frame: wait a little for one (REGPU_VR_FRAME_WAIT_US,
++                // default 1500), rather than show the same frame twice. The copy is all this thread draws, so the wait
++                // comes out of the time the runtime gave it.
++                static const auto wait = std::chrono::microseconds(int(EnvFloat("REGPU_VR_FRAME_WAIT_US", 1500.0f)));
++                static uint64_t lastShown = 0;
++                std::unique_lock lock(g_capturedMutex);
++                g_capturedCv.wait_for(lock, wait, [] { return g_captured.load() != lastShown; });
++                lastShown = g_captured.load();
++            }
+             const bool drawn = fs.shouldRender && DrawQuad(framePose, stereo, withHud);
++            // The HUD on a panel in front of the seat, fixed in the room (REGPU_VR_HUD_WIDTH / _DISTANCE / _HEIGHT,
++            // metres), its own alpha over the view (premultiplied, as the title drew it): stereo and head-tracked frames.
++            auto addHud = [&] {
++                if (!withHud)
++                    return;
++                hudLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
++                hudLayer.space = local;
++                hudLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
++                hudLayer.subImage.swapchain = hud;
++                hudLayer.subImage.imageRect = { { 0, 0 }, { int32_t(hudW), int32_t(hudH) } };
++                hudLayer.pose.orientation.w = 1;
++                hudLayer.pose.position = { 0, hudHeight, -hudDistance };
++                hudLayer.size = { hudWidth, hudWidth * float(hudH) / float(std::max(hudW, 1u)) };
++                layers[1] = reinterpret_cast<XrCompositionLayerBaseHeader*>(&hudLayer);
++                layerCount = 2;
++            };
+             if (drawn && stereo)
+             {
+                 // A stereo frame: each eye from the head pose moved half the eye distance along the head's x axis (as
+@@ -747,35 +877,40 @@ struct Session
+                 // The head's x axis in the local space: the rotation's first column.
+                 const float ax[3] = { 1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w) };
+                 const float half = HalfIpd();
++                XrFovf lens[2];
++                {
++                    std::lock_guard lock(g_poseMutex);
++                    lens[0] = g_eyeFovs[0], lens[1] = g_eyeFovs[1];
++                }
+                 for (int e = 0; e < 2; e++)
+                 {
+                     const float sgn = e ? half : -half;
+                     eyes[e].pose.orientation = { x, y, z, w };
+                     eyes[e].pose.position = { p.position[0] + ax[0] * sgn, p.position[1] + ax[1] * sgn, p.position[2] + ax[2] * sgn };
+-                    eyes[e].fov = { -atanf(tanX), atanf(tanX), atanf(tanY), -atanf(tanY) };
++                    // Only the part each lens shows (LensCrop), at that part's angles.
++                    XrRect2Di rect;
++                    LensCrop(lens[e], tanX, tanY, pairW, pairH, rect, eyes[e].fov);
++                    rect.offset.x += int32_t(e ? pairW : 0);
+                     eyes[e].subImage.swapchain = pair;
+-                    eyes[e].subImage.imageRect = { { int32_t(e ? pairW : 0), 0 }, { int32_t(pairW), int32_t(pairH) } };
++                    eyes[e].subImage.imageRect = rect;
++                }
++                if (!densityLogged && recommendedH)
++                {
++                    // Pixels across the lens vs the headset's own wish: the game's resolution for a 1:1 match.
++                    densityLogged = true;
++                    const XrRect2Di& r = eyes[0].subImage.imageRect;
++                    const float scale = float(recommendedH) / float(std::max(r.extent.height, 1));
++                    Log("vr: each eye shows %dx%d of the %ux%u frame across its lens (the headset recommends %ux%u): a resolution of "
++                        "about %ux%u matches it",
++                        r.extent.width, r.extent.height, pairW, pairH, recommendedW, recommendedH, uint32_t(float(pairW) * scale) & ~1u,
++                        uint32_t(float(pairH) * scale) & ~1u);
+                 }
+                 projection.space = local;
+                 projection.viewCount = 2;
+                 projection.views = eyes;
+                 layers[0] = reinterpret_cast<XrCompositionLayerBaseHeader*>(&projection);
+                 layerCount = 1;
+-                if (withHud)
+-                {
+-                    // The HUD on a panel in front of the seat, fixed in the room (REGPU_VR_HUD_WIDTH / _DISTANCE /
+-                    // _HEIGHT, metres), its own alpha over the view (premultiplied, as the title drew it).
+-                    hudLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+-                    hudLayer.space = local;
+-                    hudLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+-                    hudLayer.subImage.swapchain = hud;
+-                    hudLayer.subImage.imageRect = { { 0, 0 }, { int32_t(hudW), int32_t(hudH) } };
+-                    hudLayer.pose.orientation.w = 1;
+-                    hudLayer.pose.position = { 0, hudHeight, -hudDistance };
+-                    hudLayer.size = { hudWidth, hudWidth * float(hudH) / float(std::max(hudW, 1u)) };
+-                    layers[1] = reinterpret_cast<XrCompositionLayerBaseHeader*>(&hudLayer);
+-                    layerCount = 2;
+-                }
++                addHud();
+                 shown++;
+             }
+             else if (drawn && framePose.valid)
+@@ -797,6 +932,7 @@ struct Session
+                 projection.views = eyes;
+                 layers[0] = reinterpret_cast<XrCompositionLayerBaseHeader*>(&projection);
+                 layerCount = 1;
++                addHud();
+                 shown++;
+             }
+             else if (drawn)
+@@ -926,6 +1062,21 @@ ID3D12Resource* StereoTarget(int eye, uint32_t w, uint32_t h)
+ 
+ void StereoHudCaptured() { g_hudThisFrame = true; }
+ 
++bool MonoHudPanel()
++{
++    static LiveSwitch test("REGPU_VR_STEREO_TEST");
++    return CockpitMode() && (g_capturing.load(std::memory_order_relaxed) || test) && g_lastPosed.load(std::memory_order_relaxed);
++}
++
++uint32_t PaceCap()
++{
++    if (!PaceOn() || !(CockpitMode() || StereoMode()) || !g_capturing.load(std::memory_order_relaxed))
++        return 0;
++    static const float mult = std::clamp(EnvFloat("REGPU_VR_PACE_MULT", 1.0f), 0.25f, 4.0f);
++    const uint32_t hz = g_headsetHz.load(std::memory_order_relaxed);
++    return hz >= 30 ? uint32_t(std::lround(float(hz) * mult)) : 0;
++}
++
+ void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer)
+ {
+     if (!g_capturing.load(std::memory_order_relaxed))
+@@ -967,7 +1118,11 @@ void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer)
+     list->CopyResource(screen.Get(), backBuffer);
+     Barrier(list, screen.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COMMON);
+     Barrier(list, backBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
+-    g_captured++;
++    {
++        std::lock_guard lock(g_capturedMutex);
++        g_captured++;
++    }
++    g_capturedCv.notify_all();
+ }
+ }
+ 
+diff --git a/src/render/xr.h b/src/render/xr.h
+index c255772..54ba005 100644
+--- a/src/render/xr.h
++++ b/src/render/xr.h
+@@ -29,4 +29,10 @@ bool StereoFrame(float& clipPerMetre, float& halfIpd);
+ // (eye 2: the HUD panel's image, premultiplied alpha; StereoHudCaptured once it is written this frame.)
+ ID3D12Resource* StereoTarget(int eye, uint32_t w, uint32_t h);
+ void StereoHudCaptured();
++// Head-tracked mono frames (REGPU_VR=cockpit) take the HUD apart too (the same capture as stereo: renderer.cpp
++// StereoHudDraw): true on a posed frame while a headset session runs (or REGPU_VR_STEREO_TEST).
++bool MonoHudPanel();
++// Headset pacing (REGPU_VR_PACE, default on in cockpit/stereo; 0 off): the frame cap the headset wants (its display
++// rate x REGPU_VR_PACE_MULT, default 1), or 0 (no session, pacing off).
++uint32_t PaceCap();
+ }

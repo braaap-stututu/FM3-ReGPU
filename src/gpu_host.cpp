@@ -484,6 +484,11 @@ void GpuStart()
     // then the tone-map composite under it by destination alpha (session 38 capture); this is that composite's pixel
     // shader, so ReGPU takes the HUD from the surface before it and draws the composite opaque.
     DefaultEnv("REGPU_VR_HUD_UNDER", "5b7efac9b0c87a00");
+    // Headset pacing (session 39, FH1R's scheme): in the head-tracked modes the frame cap follows the headset's display
+    // rate while a headset session runs (a new frame for every headset frame, none wasted), and the headset thread
+    // waits a moment for a frame that is nearly done. vr_pace=0 in settings.ini (launcher: off) leaves the cap as set.
+    if (GetSettings().Extra("vr_pace") != "0")
+        DefaultEnv("REGPU_VR_PACE", "1");
     Log("gpu: shader compiler %s", getenv("REGPU_DXC") && *getenv("REGPU_DXC") && strcmp(getenv("REGPU_DXC"), "0") ? "DXC (if its DLLs load)" : "FXC");
     Log("gpu: upload ring in VRAM %s", getenv("REGPU_GPU_UPLOAD_RING") && strcmp(getenv("REGPU_GPU_UPLOAD_RING"), "0") ? "on (if resizable BAR)" : "off");
     // Sun glare size (session 14): FM3 sizes the glare from the occlusion query's raw sample count (not

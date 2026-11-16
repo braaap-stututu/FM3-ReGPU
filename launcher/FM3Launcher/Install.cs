@@ -66,6 +66,10 @@ public sealed class GameSettings
     // vr: a VR headset through OpenXR (sessions 37-38; read by the game): off, screen (the game on a virtual screen), cockpit
     // (the in-car view follows the head), stereo (cockpit in true 3D, the HUD on a panel).
     public string Vr { get; set; } = "off";
+    // vr_camera_motion: keep FM3's in-car camera motion (shake, G-force lean, bumps) in VR (session 38: off with VR).
+    public bool VrCameraMotion { get; set; }
+    // vr_pace: the frame cap follows the headset's display rate in the head-tracked modes (session 39; on by default).
+    public bool VrPace { get; set; } = true;
     // The 3D scene's upscaler: off, fsr1, fsr3 or bilinear (session 34: plain upscale, no sharpening) (settings.ini "upscaler"), at Upscale = the game's upscale_quality
     // (1 quality to 4 ultra performance). FSR 4 (session 36): RDNA 4 GPUs; FSR 3 on others.
     public string Upscaler { get; set; } = "off";
@@ -101,7 +105,7 @@ public sealed class GameSettings
     public string GameFolder { get; set; } = "";
 
     // The racing wheel's wheel_* keys are the Wheel stuff tab's (Wheel.cs); Save keeps them like any other key it doesn't know.
-    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
+    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_camera_motion", "vr_pace", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
 
     public static GameSettings Load()
     {
@@ -145,6 +149,8 @@ public sealed class GameSettings
                 case "vram_upload_ring": s.VramUploadRing = v == "1"; break;
                 case "shader_compiler": s.DxcShaders = v == "dxc"; break;
                 case "one_tile": s.OneTile = v == "1"; break;
+                case "vr_camera_motion": s.VrCameraMotion = v == "1"; break;
+                case "vr_pace": s.VrPace = v != "0"; break;
                 case "mirror_rate": s.HalfRateMirror = v == "2"; break;
                 case "shadow_rate": s.HalfRateShadows = v == "2"; break;
                 case "reflect_rate": s.HalfRateReflections = v == "2"; break;
@@ -171,7 +177,7 @@ public sealed class GameSettings
         sb.Append($"language={Language}\n");
         sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n"); // (session 23: these three were read but never saved)
         sb.Append($"perf_preset={(PerfPresets.Contains(PerfPreset) ? PerfPreset : "off")}\n");
-        sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\ndebug_server={B(DebugServer)}\n");
+        sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\nvr_camera_motion={B(VrCameraMotion)}\nvr_pace={B(VrPace)}\ndebug_server={B(DebugServer)}\n");
         sb.Append(DxcShaders ? "shader_compiler=dxc\n" : "shader_compiler=fxc\n");
         sb.Append($"game_folder={Clean(GameFolder)}\n");
         foreach (var (k, v) in keep) sb.Append($"{k}={v}\n");

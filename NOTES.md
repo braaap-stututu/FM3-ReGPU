@@ -5,6 +5,31 @@
 ### Session 39 (2026-11-16)
 - **TAAU research** (RESEARCH.md "TAAU"): feasible and small (our TAA's jitter/motion/history at output size, one
   compute pass + `upscaler=taau`); for weak GPUs; first step = the motion vectors' cost on the iGPU (FSR 1 vs FSR 3).
+- **VR: the remaining parts that need no headset** (user: "implement the remaining VR parts"; ReGPU patch 65
+  `regpu-vr-pace-crop`, 65 ReGPU patches):
+  - **Per-eye render shape:** each stereo eye goes to the runtime as the rectangle of its own lens field of view
+    (both views' fovs kept now) + 3 degrees (`REGPU_VR_CROP_MARGIN`), at that rectangle's exact angles, instead of
+    the whole 16:9 frame (with a ~108 deg vertical fov the 16:9 frame reaches ~135 deg sideways; a lens shows ~100).
+    `REGPU_VR_NO_CROP=1` (live) = the old whole frame. At session start the log gives the headset's recommended size
+    per eye; at the first stereo frame `vr: each eye shows WxH of the frame ... a resolution of about RxS matches it`
+    (the game resolution for 1:1 pixels across the lens; set it in the launcher). Not done: drawing only those
+    columns (perf lead), or a narrower-than-16:9 render (ReGPU's aspect code supports only wider).
+  - **Headset pacing** (FH1R's scheme): `REGPU_VR_PACE` (the port sets it in cockpit/stereo; settings `vr_pace=0` /
+    launcher "VR: match the headset's frame rate" off): the frame cap = headset rate (`predictedDisplayPeriod`) x
+    `REGPU_VR_PACE_MULT` (1) while a session runs (`gpu: frame cap` logs it), and the headset thread waits up to
+    `REGPU_VR_FRAME_WAIT_US` (1500) for a game frame when none came since its last frame.
+  - **HUD panel in mono cockpit** (`vr=cockpit`): the same capture as stereo (`regpu::xr::MonoHudPanel`), a quad
+    layer over the head-tracked projection. Grid check (`REGPU_VR_STEREO_TEST`, in-car): the view has no HUD,
+    `REGPU_VR_SHOW_HUD=1` shows the HUD alone (`out/shots/s39-mono-*.png`); stereo re-checked (`s39-stereo-*`).
+  - **Seat adjustment** (`src/hooks/vr_camera.cpp`): numeric keypad in the game window, 8/2 forward/back, 9/3
+    up/down, 4/6 right/left, 5 reset; 1 cm a press (repeats while held), +-50 cm; saved in `<user>/vr/seat.txt`
+    ("right up forward" cm), logged. The camera moves, the pose handed to the headset stays the head's (else the
+    runtime's reprojection would shift the picture). Checked on the grid with a 10 cm forward seat file (log line,
+    cabin closer; head 10 cm back puts it back).
+  - **Launcher:** Graphics "VR: in-car camera motion" (`vr_camera_motion`, off) and "VR: match the headset's frame
+    rate" (`vr_pace`, on).
+  - **Untested without a headset:** pacing, the crop, the HUD layer in mono, plus session 38's list (swapchain pair,
+    UNORM->sRGB copies, per-eye poses). **Next: the user's headset test.**
 - **Installer for another PC** (user's request): `installer/fm3.iss` + `installer/build-installer.ps1` (Inno Setup
   6.7.3, installed per user with winget) -> `out/installer/dist/FM3-ReGPU-Setup-<version>.exe` (~83 MB): fm3.exe +
   DLLs + pdb, launcher published self-contained, licences; per user in `%LOCALAPPDATA%\FM3-ReGPU`, no game files.

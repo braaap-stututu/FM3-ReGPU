@@ -83,6 +83,7 @@ $regpuPatches = @(
     'regpu-vr-headpose'              # VR step 2: regpu::vr::GetHeadPose / SubmitFramePose (host poses its camera; frames paired with their pose, shown as a mono projection layer), debug server findhex
     'regpu-vr-stereo'                # VR step 3: true stereo (REGPU_VR=stereo): the draw thread replays the frame from its first main-view draw for the second eye (clip x offset in the vertex shaders), both eyes to the headset
     'regpu-vr-hud'                   # VR: the HUD on its own panel in stereo (REGPU_VR_HUD_UNDER = the composite drawn under a HUD drawn first), regpu::vr::Recentre / F8
+    'regpu-vr-pace-crop'             # VR: headset pacing (REGPU_VR_PACE: cap = headset rate, short wait for a due frame), each eye cropped to its lens, the HUD panel in mono cockpit, recommended-resolution log
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

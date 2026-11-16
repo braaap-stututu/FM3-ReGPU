@@ -27,8 +27,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 
 #include "hooks/vr_camera.h"
+#include "kernel/runtime.h"
 #include "log.h"
 #include "regpu/regpu.h"
 
@@ -138,6 +140,89 @@ void PoseView(const float v[16], const regpu::vr::HeadPose& p, float out[16])
     }
 }
 
+// Seat adjustment (session 39): the eye point moved from where FM3 puts the driver's eyes, in centimetres in the
+// headset's recentred space (x right, y up, z back as OpenXR has it; kept as forward here). Keys in the game window
+// (numeric keypad, not used by the game's keyboard controls): 8/2 forward/back, 9/3 up/down, 4/6 left/right, 5 back
+// to zero; 1 cm a press, repeating while held. Saved in <user>\vr\seat.txt ("x y forward", cm) and read at start.
+struct Seat
+{
+    float x = 0, y = 0, forward = 0;
+};
+std::filesystem::path SeatFile() { return UserDir() / "vr" / "seat.txt"; }
+Seat LoadSeat()
+{
+    Seat s;
+    if (FILE* f = _wfopen(SeatFile().c_str(), L"r"))
+    {
+        if (fscanf_s(f, "%f %f %f", &s.x, &s.y, &s.forward) != 3)
+            s = {};
+        fclose(f);
+    }
+    return s;
+}
+void SaveSeat(const Seat& s)
+{
+    std::error_code ec;
+    std::filesystem::create_directories(SeatFile().parent_path(), ec);
+    if (FILE* f = _wfopen(SeatFile().c_str(), L"w"))
+    {
+        fprintf(f, "%.0f %.0f %.0f\n", s.x, s.y, s.forward);
+        fclose(f);
+    }
+}
+// The seat offset now (metres, OpenXR axes), after this frame's key presses.
+void SeatOffset(float out[3])
+{
+    static Seat seat = [] {
+        const Seat s = LoadSeat();
+        if (s.x || s.y || s.forward)
+            Log("vr: seat offset %.0f cm right, %.0f cm up, %.0f cm forward (%s)", s.x, s.y, s.forward, SeatFile().string().c_str());
+        return s;
+    }();
+    static DWORD nextRepeat[7] = {};
+    static bool wasDown[7] = {};
+    DWORD pid = 0;
+    GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+    if (pid == GetCurrentProcessId())
+    {
+        static const int keys[7] = { VK_NUMPAD8, VK_NUMPAD2, VK_NUMPAD9, VK_NUMPAD3, VK_NUMPAD6, VK_NUMPAD4, VK_NUMPAD5 };
+        bool changed = false;
+        const DWORD now = GetTickCount();
+        for (int i = 0; i < 7; i++)
+        {
+            const bool down = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
+            // A press acts at once, then every 100 ms after the first 400 while held.
+            const bool act = down && (!wasDown[i] || int(now - nextRepeat[i]) >= 0);
+            if (down && !wasDown[i])
+                nextRepeat[i] = now + 400;
+            else if (act)
+                nextRepeat[i] = now + 100;
+            wasDown[i] = down;
+            if (!act)
+                continue;
+            changed = true;
+            switch (i)
+            {
+            case 0: seat.forward += 1; break;
+            case 1: seat.forward -= 1; break;
+            case 2: seat.y += 1; break;
+            case 3: seat.y -= 1; break;
+            case 4: seat.x += 1; break;
+            case 5: seat.x -= 1; break;
+            default: seat = {}; break;
+            }
+            for (float* c : { &seat.x, &seat.y, &seat.forward })
+                *c = std::fmax(-50.0f, std::fmin(50.0f, *c));
+        }
+        if (changed)
+        {
+            SaveSeat(seat);
+            Log("vr: seat %.0f cm right, %.0f cm up, %.0f cm forward", seat.x, seat.y, seat.forward);
+        }
+    }
+    out[0] = seat.x * 0.01f, out[1] = seat.y * 0.01f, out[2] = -seat.forward * 0.01f;
+}
+
 // The pose the current main frame's view was rendered with (handed to ReGPU at the next main frame).
 regpu::vr::HeadPose g_framePose;
 float g_frameFov = 0;
@@ -198,6 +283,15 @@ PPC_FUNC(sub_821E9B50)
     if (limit > 0)
         for (float& c : pose.position)
             c = std::fmax(-limit, std::fmin(limit, c));
+    // The seat adjustment moves the camera, not the head: the frame is drawn from head + seat, and handed to the headset
+    // with the head's own pose (the runtime compares it with where the head is when shown).
+    regpu::vr::HeadPose drawn = pose;
+    {
+        float seat[3];
+        SeatOffset(seat);
+        for (int i = 0; i < 3; i++)
+            drawn.position[i] += seat[i];
+    }
     // (Two player views: only the first director's view is posed; the rear-view mirror has its own camera.)
     float viewM[16], posed[16];
     uint32_t saved[16];
@@ -207,7 +301,7 @@ PPC_FUNC(sub_821E9B50)
         viewM[i] = LoadF(base, director + kDirectorView + i * 4);
     }
     const float fovSaved = LoadF(base, director + kDirectorFov);
-    PoseView(viewM, pose, posed);
+    PoseView(viewM, drawn, posed);
     static const float margin = [] {
         const char* m = getenv("FM3_VR_FOV_MARGIN");
         return (m && *m ? float(atof(m)) : 5.0f) * 3.14159265f / 180.0f;

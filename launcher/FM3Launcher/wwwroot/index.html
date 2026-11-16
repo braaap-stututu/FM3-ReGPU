@@ -154,10 +154,18 @@
           <button data-full="1" data-tip="Fills the main display without changing its mode. A narrower aspect ratio is centred with black bars.">Fullscreen</button>
         </div>
       </div>
-      <label class="field" data-tip="A VR headset through OpenXR (the runtime that is active: Virtual Desktop, SteamVR, Oculus...). The desktop window stays. Virtual screen: the game on a big screen in front of you. Head-tracked cockpit: in the in-car view the camera follows your head (one picture for both eyes). Stereo cockpit: the same in true 3D (the car is drawn twice, about 2 ms more a frame; upscalers and edge filters are off), the HUD on a panel in front of you. F8 in the game window recentres. Without a headset the game runs as normal. Experimental; read when the game starts.">
+      <label class="field" data-tip="A VR headset through OpenXR (the runtime that is active: Virtual Desktop, SteamVR, Oculus...). The desktop window stays. Virtual screen: the game on a big screen in front of you. Head-tracked cockpit: in the in-car view the camera follows your head (one picture for both eyes). Stereo cockpit: the same in true 3D (the car is drawn twice, about 2 ms more a frame; upscalers and edge filters are off), the HUD on a panel in front of you. The HUD sits on its own panel in front of you in both head-tracked modes. F8 in the game window (or both stick clicks held) recentres; numeric keypad 8/2, 9/3, 4/6 move the seat forward/back, up/down, right/left, 5 resets it. The log names the resolution that matches the headset's pixels. Without a headset the game runs as normal. Experimental; read when the game starts.">
         <span>VR headset (experimental)</span>
         <select id="vr"></select>
       </label>
+      <div class="toggle-row" data-tip="With a VR headset the in-car, hood and bumper cameras normally hold still in the car (your own head moves the view): their shake, G-force lean and bump motion are off, which is far more comfortable. On: the game's camera motion is kept, as on a screen. Only matters with the VR headset option on. Read when the game starts.">
+        <div><div class="toggle-title">VR: in-car camera motion</div><div class="toggle-sub">Shake and G-force lean in VR, off by default</div></div>
+        <button class="switch" id="vrCameraMotion" role="switch"></button>
+      </div>
+      <div class="toggle-row" data-tip="In the head-tracked modes (cockpit, stereo) the game's frame rate is held to the headset's refresh rate while the headset runs (72, 90, 120 Hz ...), so every headset frame gets a new game frame and none are drawn for nothing; the headset also waits a moment for a frame that is nearly done instead of showing the last one twice. Off: the frame cap decides, as on a screen. Only matters with the VR headset option on. Read when the game starts.">
+        <div><div class="toggle-title">VR: match the headset's frame rate</div><div class="toggle-sub">Headset pacing, on by default</div></div>
+        <button class="switch" id="vrPace" role="switch"></button>
+      </div>
     </section>
 
     <section class="panel">
