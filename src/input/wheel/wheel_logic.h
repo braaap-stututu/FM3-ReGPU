@@ -63,6 +63,27 @@ inline std::map<std::string, int> ParseKv(const std::string& s)
 
 inline float Norm(int16_t v) { return v < 0 ? v / 32768.0f : v / 32767.0f; }
 
+// Calibrated axes (wheel_cal_*, session 39). A pedal-like axis: 0 at `released`, 1 at `pressed`, whichever way round and
+// however short the travel; a small dead band at rest.
+inline float CalPressed(int16_t raw, double released, double pressed)
+{
+    const double span = pressed - released;
+    if (std::fabs(span) < 64.0)
+        return 0.0f;
+    const float p = float((double(raw) - released) / span);
+    const float d0 = 0.02f;
+    return std::clamp((p - d0) / (1.0f - d0), 0.0f, 1.0f);
+}
+// A centred axis (steering, one-axis pedals): -1 at `low`, 0 at `centre`, 1 at `high`, each side scaled on its own, so
+// an axis that doesn't rest at 0 or turns further one way still reaches both ends.
+inline float CalCentred(int16_t raw, double low, double centre, double high)
+{
+    const double v = raw;
+    if (v >= centre)
+        return std::fabs(high - centre) < 64.0 ? 0.0f : std::clamp(float((v - centre) / (high - centre)), -1.0f, 1.0f);
+    return std::fabs(centre - low) < 64.0 ? 0.0f : std::clamp(float(-(centre - v) / (centre - low)), -1.0f, 1.0f);
+}
+
 // Wheels -----------------------------------------------------------------------------------------
 
 inline bool ContainsCI(std::string_view h, std::string_view needle)

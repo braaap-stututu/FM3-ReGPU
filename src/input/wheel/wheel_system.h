@@ -63,7 +63,8 @@ struct PlanView
 {
     int wheel = -1, pedals = -1, shifter = -1, handbrakeDev = -1;
     Source steer, pedal[3], handbrake;
-    bool combined = false;
+    Source steerLeft, steerRight; // wheel_steer_mode split
+    bool combined = false, split = false;
     std::vector<std::pair<std::string, Source>> buttons; // pad button -> wheel button
     std::vector<std::pair<std::string, Source>> gears;   // "r", "1".."7", "up", "down"
 };

@@ -171,7 +171,8 @@ int ProbeMain()
              ",\"shifter\":" + std::to_string(plan.shifter) + ",\"handbrakeDev\":" + std::to_string(plan.handbrakeDev) +
              ",\"steer\":" + Src(plan.steer) + ",\"throttle\":" + Src(plan.pedal[0]) + ",\"brake\":" + Src(plan.pedal[1]) +
              ",\"clutch\":" + Src(plan.pedal[2]) + ",\"handbrake\":" + Src(plan.handbrake) +
-             ",\"combined\":" + (plan.combined ? "true" : "false") + ",\"buttons\":{";
+             ",\"combined\":" + (plan.combined ? "true" : "false") + ",\"split\":" + (plan.split ? "true" : "false") +
+             ",\"steer_left\":" + Src(plan.steerLeft) + ",\"steer_right\":" + Src(plan.steerRight) + ",\"buttons\":{";
         for (size_t i = 0; i < plan.buttons.size(); i++)
             s += (i ? "," : "") + Esc(plan.buttons[i].first) + ":" + Src(plan.buttons[i].second);
         s += "},\"gears\":{";

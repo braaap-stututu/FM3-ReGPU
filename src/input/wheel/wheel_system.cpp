@@ -481,7 +481,8 @@ struct System::Impl
         Dev* wheel = nullptr;
         Dev *pedals = nullptr, *shifterDev = nullptr, *hbDev = nullptr;
         Ax steer, pedal[3], handbrake;
-        bool combined = false;
+        Ax steerLeft, steerRight; // wheel_steer_mode split: the two steering axes (on the wheel)
+        bool combined = false, split = false;
         std::map<std::string, int> buttons, overrides;
         ShifterMap shifter;
         Dev* shifterOn = nullptr;
@@ -548,12 +549,27 @@ struct System::Impl
         const HandbrakePlan hb = PlanHandbrake(cfg.axes, p.hbDev != nullptr, cfg.handbrakeAxis);
         const bool hbOnPedals = hb.source == HandbrakeSource::Device && p.pedals && p.hbDev == p.pedals;
         if (!prof)
-            DetectPedalAxes(pedal, fromWheel, steer, hb.source == HandbrakeSource::Wheel ? RestWithout(w.rest, hb.axis) : w.rest, p.combined);
+        {
+            // (Split steering's two axes rest at an end like pedals: not taken for pedals.)
+            std::vector<int16_t> rest = hb.source == HandbrakeSource::Wheel ? RestWithout(w.rest, hb.axis) : w.rest;
+            if (cfg.steerMode == "split")
+                for (const char* k : { "steer_left", "steer_right" })
+                    if (auto it = cfg.axes.find(k); it != cfg.axes.end())
+                        rest = RestWithout(rest, it->second);
+            DetectPedalAxes(pedal, fromWheel, steer, rest, p.combined);
+        }
         int auxPedal[3] = { -1, -1, -1 };
         if (src.Any() && p.pedals)
             PedalDeviceAxes(auxPedal, src.fromAux, cfg.pedalAxes, FindAuxModel(p.pedals->info.vid, p.pedals->info.pid),
                             hbOnPedals ? RestWithout(p.pedals->rest, hb.axis) : p.pedals->rest, p.combined);
         p.steer = { &w, steer, false };
+        p.split = cfg.steerMode == "split";
+        if (p.split)
+        {
+            // Two steering axes (wheel_axes steer_left / steer_right, on the wheel); the combined axis isn't read.
+            p.steerLeft = { &w, over("steer_left"), false };
+            p.steerRight = { &w, over("steer_right"), false };
+        }
         for (int k = 0; k < 3; k++)
             p.pedal[k] = src.fromAux[k] ? Ax{ p.pedals, auxPedal[k], false } : Ax{ &w, pedal[k], prof != nullptr };
         if (hb.source == HandbrakeSource::Wheel)
@@ -573,13 +589,16 @@ struct System::Impl
         return p;
     }
 
-    // A pedal (or handbrake) axis, 0 released .. 1 pressed. Nothing until it has been seen at rest.
-    static float Pressed(const Ax& x, bool invert)
+    // A pedal (or handbrake) axis, 0 released .. 1 pressed. Nothing until it has been seen at rest. With a calibration
+    // (wheel_cal_<name>: released, pressed) the values decide, not the rest or the invert switch.
+    float Pressed(const Ax& x, bool invert, const char* name)
     {
         Dev* d = x.dev;
         const int a = x.axis;
         if (!d || a < 0 || a >= d->numAxes)
             return 0.0f;
+        if (auto c = cfg.cal.find(name); c != cfg.cal.end())
+            return CalPressed(d->raw.axes[a], c->second[0], c->second[1]);
         const float v = Norm(d->raw.axes[a]);
         const float r = x.known ? 1.0f : Norm(d->rest[a]);
         bool highRest = r > 0.0f;
@@ -604,26 +623,44 @@ struct System::Impl
         float thr, brk;
         if (p.combined)
         {
+            // One axis for both: the throttle on its negative side, the brake on its positive (wheel_invert_throttle
+            // swaps them); calibrated (wheel_cal_combined: throttle end, rest, brake end) when its rest isn't the centre.
             const Ax& t = p.pedal[0];
-            const float v = t.dev && t.axis >= 0 && t.axis < t.dev->numAxes ? Norm(t.dev->raw.axes[t.axis]) : 0.0f;
-            const float flip = cfg.invertThrottle ? -1.0f : 1.0f;
-            thr = std::clamp(-v * flip, 0.0f, 1.0f);
-            brk = std::clamp(v * flip, 0.0f, 1.0f);
+            const bool ok = t.dev && t.axis >= 0 && t.axis < t.dev->numAxes;
+            float v = 0.0f;
+            if (ok)
+            {
+                if (auto c = cfg.cal.find("combined"); c != cfg.cal.end())
+                    v = CalCentred(t.dev->raw.axes[t.axis], c->second[0], c->second[1], c->second[2]);
+                else
+                    v = Norm(t.dev->raw.axes[t.axis]) * (cfg.invertThrottle ? -1.0f : 1.0f);
+            }
+            thr = std::clamp(-v, 0.0f, 1.0f);
+            brk = std::clamp(v, 0.0f, 1.0f);
         }
         else
         {
-            thr = Pressed(p.pedal[0], cfg.invertThrottle);
-            brk = Pressed(p.pedal[1], cfg.invertBrake);
+            thr = Pressed(p.pedal[0], cfg.invertThrottle, "throttle");
+            brk = Pressed(p.pedal[1], cfg.invertBrake, "brake");
         }
         thr = std::pow(thr, float(cfg.throttleCurve));
         brk = std::pow(brk, float(cfg.brakeCurve));
-        const float clutch = cfg.clutch ? Pressed(p.pedal[2], cfg.invertClutch) : 0.0f;
-        const float handbrake = Pressed(p.handbrake, cfg.invertHandbrake);
+        const float clutch = cfg.clutch ? Pressed(p.pedal[2], cfg.invertClutch, "clutch") : 0.0f;
+        const float handbrake = Pressed(p.handbrake, cfg.invertHandbrake, "handbrake");
 
+        // Steering: one axis (calibrated: wheel_cal_steer left, centre, right; else centred at 0), or two (split: the
+        // right axis's travel minus the left's, each like a pedal).
         float s = 0.0f;
-        if (p.steer.axis >= 0 && p.steer.axis < w.numAxes)
-            s = Norm(w.raw.axes[p.steer.axis]);
-        s *= float(cfg.rotation) / float(std::max(1, cfg.lock)) * (cfg.invertSteering ? -1.0f : 1.0f);
+        if (p.split)
+            s = Pressed(p.steerRight, cfg.invertSteerRight, "steer_right") - Pressed(p.steerLeft, cfg.invertSteerLeft, "steer_left");
+        else if (p.steer.axis >= 0 && p.steer.axis < w.numAxes)
+        {
+            if (auto c = cfg.cal.find("steer"); c != cfg.cal.end())
+                s = CalCentred(w.raw.axes[p.steer.axis], c->second[0], c->second[1], c->second[2]);
+            else
+                s = Norm(w.raw.axes[p.steer.axis]) * (cfg.invertSteering ? -1.0f : 1.0f);
+        }
+        s *= float(cfg.rotation) / float(std::max(1, cfg.lock));
         const float dz = float(cfg.deadzone), as = std::fabs(s);
         s = as <= dz ? 0.0f : std::copysign(std::min(1.0f, (as - dz) / (1.0f - dz)), s);
         // In the 270 degree mode the game filters the steering and has an inner deadzone: any movement
@@ -1343,6 +1380,9 @@ void System::Snapshot(uint32_t& serial, std::vector<DeviceView>& devices, std::v
         plan.pedal[k] = src(p.pedal[k]);
     plan.handbrake = src(p.handbrake);
     plan.combined = p.combined;
+    plan.split = p.split;
+    plan.steerLeft = src(p.steerLeft);
+    plan.steerRight = src(p.steerRight);
     for (auto& [k, v] : p.buttons)
         plan.buttons.push_back({ k, Source{ v >= 0 && v < w.numButtons ? plan.wheel : -1, v } });
     const int shifterDev = m.SourceIndex(p.shifterOn);

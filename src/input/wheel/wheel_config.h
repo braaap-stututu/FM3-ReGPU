@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <functional>
 #include <map>
+#include <vector>
 #include <string>
 
 #include "input/wheel/wheel_logic.h"
@@ -24,6 +25,16 @@ struct Config
     bool steering900 = true;       // full-range (900 degree) steering; false: the 360 wheel's 270 degree mode
     std::string pedals = "auto";   // auto/separate, combined
     bool invertThrottle = false, invertBrake = false, invertClutch = false, invertHandbrake = false;
+    // Steering on one axis (combined: left negative, right positive) or two (split: wheel_axes steer_left and
+    // steer_right, each read like a pedal, e.g. a steering yoke or a pair of hand levers).
+    std::string steerMode = "combined";
+    bool invertSteerLeft = false, invertSteerRight = false;
+    // Calibration (session 39): wheel_cal_<control> in the axis's raw units (-32768..32767). steer and combined (one-
+    // axis pedals): "low,centre,high" (low = full left / full throttle side, high = full right / full brake side; the
+    // centre needn't be 0). throttle, brake, clutch, handbrake, steer_left, steer_right: "released,pressed" (pressed
+    // below released for a reversed axis; an axis that never reaches an end still gives 0..1). A calibrated control
+    // ignores its invert switch (the values say which way it goes) and where it rested when opened.
+    std::map<std::string, std::vector<double>> cal;
     double throttleCurve = 1.0, brakeCurve = 1.0;
     std::map<std::string, int> axes, buttons, pedalAxes, shifterButtons, shifterDeviceButtons;
     bool clutch = true;
@@ -93,6 +104,27 @@ struct Config
         flag("wheel_invert_brake", c.invertBrake);
         flag("wheel_invert_clutch", c.invertClutch);
         flag("wheel_invert_handbrake", c.invertHandbrake);
+        lower("wheel_steer_mode", c.steerMode, { "combined", "split" });
+        flag("wheel_invert_steer_left", c.invertSteerLeft);
+        flag("wheel_invert_steer_right", c.invertSteerRight);
+        for (const char* k : { "steer", "combined", "throttle", "brake", "clutch", "handbrake", "steer_left", "steer_right" })
+        {
+            const std::string v = get((std::string("wheel_cal_") + k).c_str());
+            std::vector<double> nums;
+            for (size_t at = 0; at < v.size();)
+            {
+                const size_t comma = v.find(',', at);
+                const std::string part = v.substr(at, comma == std::string::npos ? std::string::npos : comma - at);
+                if (!part.empty())
+                    nums.push_back(std::clamp(std::atof(part.c_str()), -32768.0, 32767.0));
+                if (comma == std::string::npos)
+                    break;
+                at = comma + 1;
+            }
+            const bool three = std::string(k) == "steer" || std::string(k) == "combined";
+            if (nums.size() == (three ? 3u : 2u))
+                c.cal[k] = nums;
+        }
         num("wheel_throttle_curve", c.throttleCurve, 0.2, 4.0);
         num("wheel_brake_curve", c.brakeCurve, 0.2, 4.0);
         c.axes = ParseKv(get("wheel_axes"));

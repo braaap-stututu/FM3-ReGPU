@@ -174,6 +174,10 @@ own autocentre. `wheel_report_ffb = 0` only hides it from the game.
 | `wheel_pedals` | `auto` | `combined`: one axis, throttle one way and brake the other |
 | `wheel_invert_throttle`, `_brake`, `_clutch`, `_handbrake` | 0 | Pedals or handbrake found backwards |
 | `wheel_throttle_curve`, `wheel_brake_curve` | 1 | Gamma: above 1 softer at the start |
+| `wheel_steer_mode` | `combined` | `split`: steering on two axes, `wheel_axes` `steer_left` and `steer_right`, each read like a pedal (right minus left) |
+| `wheel_invert_steer_left`, `_steer_right` | 0 | Split steering axes found backwards |
+| `wheel_cal_steer`, `wheel_cal_combined` | none | Calibration in raw units (-32768..32767): `low,centre,high` (steering: full left, centre, full right; combined pedals: throttle end, rest, brake end). The centre needn't be 0; each side is scaled on its own. Replaces the invert switch |
+| `wheel_cal_throttle`, `_brake`, `_clutch`, `_handbrake`, `_steer_left`, `_steer_right` | none | `released,pressed` in raw units: an axis that goes the other way (pressed below released) or never reaches its end still reads 0 to 1. Replaces the invert switch and the rest detection. The launcher's Calibrate button on each axis row writes these |
 | `wheel_axes` | detected | On the wheel: `steer=0,throttle=1,brake=2,clutch=3,handbrake=4`; 99 unbinds |
 | `wheel_buttons` | by model | `a=0,b=1,x=2,y=3,lb=5,rb=4,back=8,start=9,ls=11,rs=10,up=..,down=..,left=..,right=..`; -1 unmaps; a d-pad direction set here replaces the hat's |
 | `wheel_clutch` | 1 | The clutch pedal as the game's analog clutch |

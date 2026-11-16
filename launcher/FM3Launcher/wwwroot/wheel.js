@@ -13,6 +13,7 @@ const WH_DEFAULTS = {
   wheel_ffb: "1", wheel_ffb_strength: "60", wheel_ffb_spring_strength: "100", wheel_ffb_min_strength: "0",
   wheel_rumble_road_strength: "80", wheel_rumble_engine_strength: "50", wheel_rumble_style: "fine", wheel_ffb_reverse: "0",
   wheel_ffb_mode: "port", wheel_fm2_strength: "50", wheel_fm2_spring: "50", wheel_rumble: "1",
+  wheel_steer_mode: "combined", wheel_invert_steer_left: "0", wheel_invert_steer_right: "0",
 }
 const NO_AXIS = 99 // an axis number past every device's: unbound
 
@@ -20,6 +21,8 @@ const NO_AXIS = 99 // an axis number past every device's: unbound
 const WH_ROWS = [
   { group: "Steering and pedals" },
   { id: "steer", label: "Steering", kind: "axis", prompt: "Turn the wheel to the right (a quarter turn)" },
+  { id: "steer_left", label: "Steer left (two axes)", kind: "axis", prompt: "Move the left steering control all the way" },
+  { id: "steer_right", label: "Steer right (two axes)", kind: "axis", prompt: "Move the right steering control all the way" },
   { id: "throttle", label: "Throttle", kind: "axis", prompt: "Press the throttle pedal all the way" },
   { id: "brake", label: "Brake", kind: "axis", prompt: "Press the brake pedal all the way" },
   { id: "clutch", label: "Clutch", kind: "axis", prompt: "Press the clutch pedal all the way" },
@@ -102,6 +105,7 @@ function wheelEvent(d) {
   } else if (d.t === "state") {
     wh.state = d
     if (wh.bind) whFeedBind(d)
+    if (wh.cal) whFeedCal(d)
     if (!wh.frame) wh.frame = requestAnimationFrame(() => { wh.frame = 0; whRenderLive() })
   } else if (d.t === "log") {
     console.log(d.line)
@@ -122,6 +126,7 @@ async function wheelShow() {
 function wheelHide() {
   if (!wh.shown) return
   wh.shown = false
+  wh.cal = null
   whCancelBind()
   call("wheel.stop").catch(() => {})
 }
@@ -287,7 +292,10 @@ function whIsSet(row) {
 function whRowText(row) {
   const plan = whPlan()
   if (row.kind === "axis") {
+    const split = whGet("wheel_steer_mode") === "split"
     if (row.id === "brake" && plan.combined) return { text: "Combined with the throttle (one axis)", off: true }
+    if (row.id === "steer" && split) return { text: "Steering on two axes (Steer left, Steer right)", off: true }
+    if ((row.id === "steer_left" || row.id === "steer_right") && !split) return { text: "Only with steering on two axes (Options)", off: true }
     const t = whSourceText(plan[row.id], "axis")
     return { text: t || "Not bound" }
   }
@@ -319,6 +327,8 @@ function whRenderBindings(force) {
     info.append(el("div", "title", row.label))
     const meta = el("div", "meta" + (t.warn ? " warn" : ""), wh.bind && wh.bind.row === row ? row.prompt || "Press the button" : t.text)
     if (!t.off && !(wh.bind && wh.bind.row === row)) meta.append(el("span", "wh-def", whIsSet(row) ? "" : " · default"))
+    if (row.kind === "axis" && !t.off && wh.settings[whCalKey(row)]) meta.append(el("span", "wh-def", " · calibrated"))
+    if (wh.cal && wh.cal.row === row) { meta.textContent = whCalText(); wh.cal.meta = meta }
     info.append(meta)
     const bind = el("button", "ghost small", wh.bind && wh.bind.row === row ? "Cancel" : "Bind")
     bind.disabled = !!t.off || (!!wh.bind && wh.bind.row !== row) || !wh.state
@@ -331,7 +341,19 @@ function whRenderBindings(force) {
     reset.disabled = !!wh.bind || !whIsSet(row)
     reset.onclick = () => whReset(row)
     if ((row.kind === "gear" && !row.seq && mode !== "h") || (row.seq && mode !== "sequential")) r.classList.add("dim")
-    r.append(info, bind, clear, reset)
+    if (t.off && row.kind === "axis") r.classList.add("dim")
+    if (row.kind === "axis") {
+      // Calibrate: the axis's whole travel (and its centre or resting place) as the game should read it.
+      const calibrating = wh.cal && wh.cal.row === row
+      const cal = el("button", "ghost small", calibrating ? "Done" : "Calibrate")
+      cal.dataset.tip = row.id === "steer"
+        ? "Turn the wheel fully left and fully right, let it come back to the centre, then Done: the centre needn't be 0 and each side reaches full steering."
+        : "Press it all the way and let it go, then Done: an axis that goes the other way or never reaches its end still reads 0 to 100%."
+      cal.disabled = !!t.off || !!wh.bind || (!!wh.cal && !calibrating) || !wh.state || !whSourceOf(row)
+      cal.onclick = () => calibrating ? whFinishCal() : whStartCal(row)
+      if (calibrating) { bind.textContent = "Cancel"; bind.disabled = false; bind.onclick = () => { wh.cal = null; whRenderBindings(true) } }
+      r.append(info, bind, cal, clear, reset)
+    } else r.append(info, bind, clear, reset)
     box.append(r)
   }
   // inputs that two rows share
@@ -399,6 +421,15 @@ function whApplyAxis(row, dev, axis, dir, rest) {
     whChange(patch)
     return toast(`Steering: axis ${axis} (${d.axes[axis]}) on ${d.name}${dir < 0 ? ", inverted" : ""}.`, true)
   }
+  if (row.id === "steer_left" || row.id === "steer_right") {
+    // Two-axis steering: each axis like a pedal (rests at one end), on the wheel (the device becomes the wheel).
+    if (plan.wheel !== dev) wh.settings.wheel_device = whDevId(dev)
+    whSetKv("wheel_axes", row.id, axis)
+    const high = (d.rest && d.rest[axis] !== undefined ? d.rest[axis] : rest) > 0
+    wh.settings["wheel_invert_" + row.id] = (high ? dir > 0 : dir < 0) ? "1" : "0"
+    whChange(patch)
+    return toast(`${row.label}: axis ${axis} (${d.axes[axis]}) on ${d.name}${wh.settings["wheel_invert_" + row.id] === "1" ? ", inverted" : ""}.`, true)
+  }
   if (plan.wheel < 0) { whChange(); return toast("Bind the steering first: the device you turn becomes the wheel.") }
   // A pedal or handbrake rests at one end; the game takes pressing towards the other end as pressed, from where it rested
   // when opened (a known Logitech wheel's pedals: from the maximum). Pressed the other way, its invert switch goes on.
@@ -429,6 +460,65 @@ function whApplyAxis(row, dev, axis, dir, rest) {
   }
   whChange(patch)
   toast(`${row.label}: axis ${axis} (${d.axes[axis]}) on ${d.name}${wh.settings["wheel_invert_" + (row.id === "handbrake" ? "handbrake" : row.id)] === "1" ? ", inverted" : ""}.`, true)
+}
+
+// ---- calibration (wheel_cal_*: src/input/wheel/wheel_config.h)
+
+// The setting a row's calibration goes to: combined pedals calibrate the throttle row's one axis as "combined".
+function whCalKey(row) {
+  return "wheel_cal_" + (row.id === "throttle" && whPlan().combined ? "combined" : row.id)
+}
+// [device, axis] the row reads now (the probe's plan), or null.
+function whSourceOf(row) {
+  const src = whPlan()[row.id]
+  return src && src[0] >= 0 && src[1] >= 0 ? src : null
+}
+function whStartCal(row) {
+  const src = whSourceOf(row)
+  if (!src || !wh.state) return
+  const v = wh.state.raw[src[0]].a[src[1]]
+  wh.cal = { row, dev: src[0], axis: src[1], min: v, max: v, now: v, meta: null }
+  whRenderBindings(true)
+}
+function whCalText() {
+  const c = wh.cal
+  const ask = c.row.id === "steer" ? "Turn fully left and fully right, let it centre, then Done"
+    : whCalKey(c.row) === "wheel_cal_combined" ? "Press both pedals all the way in turn, let go, then Done"
+    : "Press it all the way and let go, then Done"
+  return `${ask} · now ${c.now} (seen ${c.min} to ${c.max})`
+}
+function whFeedCal(s) {
+  const c = wh.cal
+  const dev = s.raw[c.dev]
+  if (!dev || dev.a[c.axis] === undefined) return
+  c.now = dev.a[c.axis]
+  c.min = Math.min(c.min, c.now)
+  c.max = Math.max(c.max, c.now)
+  if (c.meta) c.meta.textContent = whCalText()
+}
+function whFinishCal() {
+  const c = wh.cal
+  wh.cal = null
+  const key = whCalKey(c.row)
+  if (c.max - c.min < 2000) { whRenderBindings(true); return toast("It hardly moved: Calibrate again and move it through its whole travel.") }
+  const patch = {}
+  if (c.row.id === "steer") {
+    // Left is the side the invert switch says (the calibration replaces the switch): low, centre, high.
+    const inv = whFlag("wheel_invert_steering")
+    patch[key] = (inv ? [c.max, c.now, c.min] : [c.min, c.now, c.max]).join(",")
+    toast(`Steering calibrated: centre ${c.now}, ${inv ? "left " + c.max + ", right " + c.min : "left " + c.min + ", right " + c.max}.`, true)
+  } else if (key === "wheel_cal_combined") {
+    // The throttle on the negative side unless its invert switch is on: throttle end, rest, brake end.
+    const inv = whFlag("wheel_invert_throttle")
+    patch[key] = (inv ? [c.max, c.now, c.min] : [c.min, c.now, c.max]).join(",")
+    toast(`Combined pedals calibrated: rest ${c.now}.`, true)
+  } else {
+    // Released where it was let go; pressed at the far end from there.
+    const pressed = Math.abs(c.max - c.now) >= Math.abs(c.min - c.now) ? c.max : c.min
+    patch[key] = `${c.now},${pressed}`
+    toast(`${c.row.label} calibrated: released ${c.now}, pressed ${pressed}${pressed < c.now ? " (reversed)" : ""}.`, true)
+  }
+  whChange(patch)
 }
 
 function whApplyButton(row, dev, n) {
@@ -477,7 +567,8 @@ function whReset(row) {
     whSetKv("wheel_pedal_axes", row.id, null)
     if (row.id === "handbrake") Object.assign(patch, { wheel_handbrake_device: "", wheel_handbrake_axis: "", wheel_invert_handbrake: "" })
     if (row.id === "steer") patch.wheel_invert_steering = ""
-    if (["throttle", "brake", "clutch"].includes(row.id)) patch["wheel_invert_" + row.id] = ""
+    if (["throttle", "brake", "clutch", "steer_left", "steer_right"].includes(row.id)) patch["wheel_invert_" + row.id] = ""
+    patch[whCalKey(row)] = ""
   } else if (row.kind === "button") whSetKv("wheel_buttons", row.id, null)
   else {
     whSetKv("wheel_shifter_buttons", row.id, null)
@@ -490,7 +581,9 @@ $("wh-reset-all").onclick = () => guarded(async () => {
   const patch = {}
   for (const k of ["wheel_axes", "wheel_buttons", "wheel_pedal_axes", "wheel_shifter_buttons", "wheel_shifter_device_buttons", "wheel_device",
     "wheel_pedal_device", "wheel_shifter_device", "wheel_handbrake_device", "wheel_handbrake_axis", "wheel_invert_steering",
-    "wheel_invert_throttle", "wheel_invert_brake", "wheel_invert_clutch", "wheel_invert_handbrake"]) patch[k] = ""
+    "wheel_invert_throttle", "wheel_invert_brake", "wheel_invert_clutch", "wheel_invert_handbrake", "wheel_invert_steer_left",
+    "wheel_invert_steer_right", "wheel_cal_steer", "wheel_cal_combined", "wheel_cal_throttle", "wheel_cal_brake", "wheel_cal_clutch",
+    "wheel_cal_handbrake", "wheel_cal_steer_left", "wheel_cal_steer_right"]) patch[k] = ""
   whChange(patch)
 })
 
@@ -511,6 +604,8 @@ function whDeviceOptions(select, key) {
 }
 function whRenderOptions() {
   for (const b of $("wh-steer-mode").children) b.classList.toggle("on", (b.dataset.v === "1") === whFlag("wheel_900_steering"))
+  whSeg("wh-steer-axes", "wheel_steer_mode")
+  $("wh-split-opts").hidden = whGet("wheel_steer_mode") !== "split"
   whSeg("wh-pedals", "wheel_pedals")
   whSeg("wh-shifter", "wheel_shifter")
   for (const sw of document.querySelectorAll("#page-wheel [data-flag]")) sw.classList.toggle("on", whFlag(sw.dataset.flag))
@@ -541,6 +636,7 @@ function whRenderOptions() {
   whDeviceOptions($("wh-handbrake-device"), "wheel_handbrake_device")
 }
 $("wh-steer-mode").onclick = (e) => { const b = e.target.closest("button"); if (b) whChange({ wheel_900_steering: b.dataset.v }) }
+$("wh-steer-axes").onclick = (e) => { const b = e.target.closest("button"); if (b) whChange({ wheel_steer_mode: b.dataset.v === "combined" ? "" : b.dataset.v }) }
 $("wh-pedals").onclick = (e) => { const b = e.target.closest("button"); if (b) whChange({ wheel_pedals: b.dataset.v === "auto" ? "" : b.dataset.v }) }
 $("wh-shifter").onclick = (e) => { const b = e.target.closest("button"); if (b) whChange({ wheel_shifter: b.dataset.v }) }
 for (const sw of document.querySelectorAll("#page-wheel [data-flag]")) sw.onclick = () => whChange({ [sw.dataset.flag]: whFlag(sw.dataset.flag) ? "0" : "1" })

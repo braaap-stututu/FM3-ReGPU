@@ -69,6 +69,18 @@
     Now the flags travel with the frame (`regpu::xr::TakeFrameFlags`, in patch 68). Not reproducible without a
     headset session. **Next: user check.** (Open: the eye images are single-buffered, so at a hitch a frame's eyes
     can be the next frame's with its own pose: small, double-buffer if it shows.)
+- **Wheel axes (user: combined axes, separate left/right steering axes, axes not centred at 0, inversion):** combined
+  steering and combined pedals and every invert switch existed; added (`src/input/wheel/`): **split steering**
+  (`wheel_steer_mode=split`, `wheel_axes` `steer_left`/`steer_right`, each read like a pedal, right minus left,
+  `wheel_invert_steer_left/_right`; kept out of pedal auto-detection) and **calibration** (`wheel_cal_steer` /
+  `wheel_cal_combined` = low,centre,high, each side scaled on its own, so an off-centre axis or uneven travel reaches
+  both ends; `wheel_cal_<pedal>` = released,pressed, so a reversed axis or short travel still reads 0..1; a calibrated
+  control ignores its invert switch and the rest detection) (`CalPressed`/`CalCentred` in wheel_logic.h: 20 cases
+  checked in a standalone test). Probe plan adds `split`, `steer_left`, `steer_right`. Launcher Wheel stuff:
+  Options "One axis / Two axes (left, right)" + the two invert switches, rows Steer left / Steer right (Bind like a
+  pedal), a **Calibrate** button on every axis row (move the control through its travel, let go, Done: shows the
+  live and seen values), "calibrated" marker, Reset clears it. Checked in the browser pane with a simulated wheel
+  (off-centre steering, reversed short brake, split binding). Not tried with a real wheel (no wheel here).
 - **Launcher: VR and Triple screens tabs with their own settings and Play buttons (user):** the Graphics tab is the
   normal setup and the Play tab's button always starts without VR or triple (FM3_VR=off, FM3_TRIPLE=0). VR tab: headset
   mode (stereo / cockpit / virtual screen: settings.ini `vr_mode`), camera motion, frame-rate matching, head movement,

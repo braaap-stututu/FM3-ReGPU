@@ -383,6 +383,14 @@
       <section class="panel">
         <div class="panel-head"><h2>Options</h2></div>
         <h3 class="wh-sub">Steering</h3>
+        <div class="segmented" id="wh-steer-axes">
+          <button data-v="combined" data-tip="One axis: left one way, right the other (a wheel).">One axis</button>
+          <button data-v="split" data-tip="Two axes, one for turning left and one for turning right, each moving from released to full like a pedal (a yoke or hand levers set up that way). Bind them on the Steer left and Steer right rows.">Two axes (left, right)</button>
+        </div>
+        <div id="wh-split-opts">
+          <div class="toggle-row"><div><div class="toggle-title">Invert steer left</div></div><button class="switch" data-flag="wheel_invert_steer_left" role="switch"></button></div>
+          <div class="toggle-row"><div><div class="toggle-title">Invert steer right</div></div><button class="switch" data-flag="wheel_invert_steer_right" role="switch"></button></div>
+        </div>
         <div class="segmented" id="wh-steer-mode">
           <button data-v="1" data-tip="The game's full-range wheel steering: the car's wheels follow your wheel's angle from the centre, over its whole rotation.">900° full range</button>
           <button data-v="0" data-tip="The Xbox 360 wheel's 270 degree mode, with the game's steering filter.">270° mode</button>
