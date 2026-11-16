@@ -69,6 +69,20 @@
     Now the flags travel with the frame (`regpu::xr::TakeFrameFlags`, in patch 68). Not reproducible without a
     headset session. **Next: user check.** (Open: the eye images are single-buffered, so at a hitch a frame's eyes
     can be the next frame's with its own pose: small, double-buffer if it shows.)
+- **First triple-screen test (user, video `Radeon ReLive/unknown/unknown_2026.11.16-14.15.mp4`, log
+  `out/logs/user-s39/fm3.triple-user.log`: 7680x1440 fullscreen, auto layout):**
+  - "Only a fraction of my screens, only the centre one has anything": the 48:9 picture shrunk into one 2560x1440
+    monitor. Fullscreen covered only the primary display (SM_CXSCREEN): fine on an Eyefinity group (one 7680x1440
+    display, which this PC reports now), not on separate monitors. ReGPU patch 70 `regpu-triple-span`: fullscreen over
+    the row of monitors beside the primary; windowed starts at the row's left. Checked: log `presenter: fullscreen over
+    the monitors at 0,0, 7680x1440` here.
+  - "Spazzing lines when the car moves": reproduced with the AI driving (`out/shots/s39-td-drive-*.png`): a thin dashed
+    shadow line on the tarmac that changes every frame; not in the same drive without triple (`s39-td-mono-*`). Cause:
+    FM3 fits its shadows to the camera's view, and triple mode widens that view (166 deg for the auto layout) so the
+    side screens aren't culled: the shadow map's texels spread ~15x wider and thin shadows crawl. Keeping the camera
+    narrow (`FM3_TRIPLE_NARROW=1`, experiment, live) culls whole buildings, trees and a car from the side screens
+    (`s39-tn-*.png`), so culling needs the wide view. **Fix still open:** find where FM3 fits its shadow frustum to the
+    presentation camera and give it the centre screen's view while culling keeps the wide one.
 - **Controller navigation in the launcher (user):** `launcher/FM3Launcher/wwwroot/gamepad.js` (Gamepad API: works in
   the launcher's window and in browser mode under Proton; only standard-layout controllers, so a racing wheel doesn't
   drive the menus while being bound). LB/RB tabs; D-pad and left stick move to the nearest option that way (repeat

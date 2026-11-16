@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "live_switch.h"
 #include "log.h"
 #include "regpu/regpu.h"
 
@@ -202,6 +203,11 @@ void TripleHandOff(PPCContext& ctx, uint8_t* base, void (*original)(PPCContext&,
     float tanH = std::max(tanX, tanY * kAspect) * 1.01f;
     if (!fits || tanH > tanf(kMaxHalf))
         tanH = tanf(kMaxHalf);
+    // FM3_TRIPLE_NARROW=1 (experiment, live): FM3's camera keeps the centre screen's field of view (its shadows, fitted to
+    // the view, stay sharp), the side screens drawn from what it didn't cull.
+    static LiveSwitch narrow("FM3_TRIPLE_NARROW");
+    if (narrow)
+        tanH = std::max(screens[1].r, -screens[1].l) / screens[1].d * 1.01f;
     const float p00g = 1.0f / tanH, p11g = kAspect / tanH;
     const float gameFov = 2.0f * atanf(tanH / kAspect);
     regpu::triple::View views[3];

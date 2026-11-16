@@ -88,6 +88,7 @@ $regpuPatches = @(
     'regpu-triple-screen'            # Triple screen (REGPU_TRIPLE): the main view drawn three times (the stereo replay), turned per screen in the vertex shaders, side by side in a window three screens wide
     'regpu-vr-stereo-hold'           # VR: a pose tag older than 250 ms is not used (leftover constants), stereo/flat mixes counted in the log
     'regpu-triple-geometry'          # Triple screen: each screen's own projection (turn + off-axis: regpu::triple::View a b c d e) from the host's screen layout; bezel/gap/independent angles in the port
+    'regpu-triple-span'              # Triple screen: fullscreen over the row of monitors beside the primary one (separate monitors, not only an Eyefinity/Surround desktop)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

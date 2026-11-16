@@ -1,0 +1,106 @@
+diff --git a/src/render/presenter.cpp b/src/render/presenter.cpp
+index 15b7591..e6b5624 100644
+--- a/src/render/presenter.cpp
++++ b/src/render/presenter.cpp
+@@ -199,6 +199,8 @@ void EnsureDevice()
+ // area the window is placed at its top left, title bar on screen. Pixels are physical: the process is
+ // made per-monitor DPI aware before ReGPU opens a window (a host's window has its own awareness).
+ // Maximised or borderless (fullscreen) windows are left alone. Asynchronous: safe off the window's thread.
++RECT MonitorRow();
++bool SpanMonitors();
+ void SizeWindow(HWND hwnd, uint32_t width, uint32_t height)
+ {
+     if (!hwnd || !width || !height || IsZoomed(hwnd))
+@@ -211,6 +213,8 @@ void SizeWindow(HWND hwnd, uint32_t width, uint32_t height)
+     const int w = r.right - r.left, h = r.bottom - r.top;
+     MONITORINFO mi{ sizeof(mi) };
+     GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi);
++    if (SpanMonitors())
++        mi.rcWork = MonitorRow(); // (triple screen: the whole row of monitors, not the nearest one)
+     RECT now{};
+     GetWindowRect(hwnd, &now);
+     // Kept on the work area as far as it fits; its top left (the title bar) always is.
+@@ -221,6 +225,50 @@ void SizeWindow(HWND hwnd, uint32_t width, uint32_t height)
+     Log("presenter: window client %ux%u", width, height);
+ }
+ 
++// Fullscreen over several monitors (REGPU_TRIPLE, or REGPU_FULLSCREEN_SPAN=1; FM3 port session 39): the row of monitors
++// the primary one is in (those beside it that overlap its rows, side by side), as one rectangle. Separate monitors, not
++// an Eyefinity/Surround desktop, show the triple-wide picture this way. One monitor: just it.
++RECT MonitorRow()
++{
++    struct Ctx { RECT primary{}; std::vector<RECT> all; } ctx;
++    EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR m, HDC, LPRECT, LPARAM p) -> BOOL {
++        auto& c = *reinterpret_cast<Ctx*>(p);
++        MONITORINFO mi{ sizeof(mi) };
++        if (GetMonitorInfoW(m, &mi))
++        {
++            c.all.push_back(mi.rcMonitor);
++            if (mi.dwFlags & MONITORINFOF_PRIMARY)
++                c.primary = mi.rcMonitor;
++        }
++        return TRUE;
++    }, LPARAM(&ctx));
++    RECT row = ctx.primary;
++    // Grow left and right with monitors that touch the row's edge and share most of its height.
++    for (bool grew = true; grew;)
++    {
++        grew = false;
++        for (const RECT& r : ctx.all)
++        {
++            const LONG overlap = std::min(r.bottom, row.bottom) - std::max(r.top, row.top);
++            if (overlap < (row.bottom - row.top) / 2)
++                continue;
++            if (std::abs(r.right - row.left) <= 8 && r.left < row.left) { row.left = r.left; grew = true; }
++            if (std::abs(r.left - row.right) <= 8 && r.right > row.right) { row.right = r.right; grew = true; }
++        }
++    }
++    return row;
++}
++
++bool SpanMonitors()
++{
++    static const bool on = [] {
++        const char* t = getenv("REGPU_TRIPLE");
++        const char* s = getenv("REGPU_FULLSCREEN_SPAN");
++        return (t && *t && strcmp(t, "0") != 0) || (s && *s && strcmp(s, "0") != 0);
++    }();
++    return on;
++}
++
+ void CreateWindowAndDevice()
+ {
+     // Physical pixels for the window ReGPU opens (an unaware window at 125% scaling would be stretched).
+@@ -252,9 +300,17 @@ void CreateWindowAndDevice()
+     {
+         // Borderless window over the whole display; its black background shows around the picture.
+         // The picture (the swap chain) is a child window: the largest rectangle of the chosen
+-        // aspect ratio, centred. Other windows cannot cover the black bars this way.
+-        const int sw = GetSystemMetrics(SM_CXSCREEN), sh = GetSystemMetrics(SM_CYSCREEN);
+-        g_p.window = CreateWindowExW(0, L"regpu", GetSettings().windowTitle.c_str(), WS_POPUP | WS_VISIBLE, 0, 0, sw, sh, nullptr, nullptr, wc.hInstance, nullptr);
++        // aspect ratio, centred. Other windows cannot cover the black bars this way. Triple screen: over the row of
++        // monitors (MonitorRow).
++        RECT area{ 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
++        if (SpanMonitors())
++        {
++            area = MonitorRow();
++            Log("presenter: fullscreen over the monitors at %ld,%ld, %ldx%ld", area.left, area.top, area.right - area.left, area.bottom - area.top);
++        }
++        const int sw = area.right - area.left, sh = area.bottom - area.top;
++        g_p.window = CreateWindowExW(0, L"regpu", GetSettings().windowTitle.c_str(), WS_POPUP | WS_VISIBLE, area.left, area.top, sw, sh, nullptr, nullptr,
++            wc.hInstance, nullptr);
+         LONG w = sw, h = sh;
+         if (int64_t(sw) * outH > int64_t(sh) * outW)
+             w = LONG(int64_t(sh) * outW / outH);
+@@ -267,7 +323,10 @@ void CreateWindowAndDevice()
+     {
+         g_p.window = CreateWindowW(L"regpu", GetSettings().windowTitle.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+             CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr, wc.hInstance, nullptr);
+-        SetWindowPos(g_p.window, nullptr, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER); // (sized from the work area's corner)
++        // (Sized from the work area's corner; triple screen: from the monitor row's left edge, so a three-screen-wide window
++        // starts on the left monitor.)
++        const LONG left = SpanMonitors() ? MonitorRow().left : 0;
++        SetWindowPos(g_p.window, nullptr, left, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+         SizeWindow(g_p.window, outW, outH);
+         ShowWindow(g_p.window, SW_SHOW);
+     }
