@@ -94,6 +94,63 @@ const wchar_t* FontFamilyName()
     return name;
 }
 
+// A number plate (EU size, 520 x 110 mm) with `text`, drawn flat and mapped onto the parallelogram `to` (top left, top
+// right, bottom left) with the picture's shade: the plate is lit like the car's rear around it.
+void DrawPlate(Graphics& g, const PointF (&to)[3], const char* text)
+{
+    constexpr int pw = 1040, ph = 220; // 2 px a millimetre
+    Bitmap plate(pw, ph, PixelFormat32bppARGB);
+    {
+        Graphics pg(&plate);
+        pg.SetSmoothingMode(SmoothingModeAntiAlias);
+        pg.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
+        pg.Clear(Color(0, 0, 0, 0));
+        auto rounded = [](GraphicsPath& path, float x, float y, float w, float h, float rad) {
+            path.AddArc(x, y, rad * 2, rad * 2, 180, 90);
+            path.AddArc(x + w - rad * 2, y, rad * 2, rad * 2, 270, 90);
+            path.AddArc(x + w - rad * 2, y + h - rad * 2, rad * 2, rad * 2, 0, 90);
+            path.AddArc(x, y + h - rad * 2, rad * 2, rad * 2, 90, 90);
+            path.CloseFigure();
+        };
+        GraphicsPath body, inner;
+        rounded(body, 2, 2, pw - 4, ph - 4, 22);
+        rounded(inner, 12, 12, pw - 24, ph - 24, 14);
+        LinearGradientBrush white(PointF(0, 0), PointF(0, float(ph)), Color(255, 246, 246, 242), Color(255, 214, 214, 210));
+        pg.FillPath(&white, &body);
+        Pen edge(Color(255, 30, 30, 32), 8.0f);
+        pg.DrawPath(&edge, &inner);
+        // The blue band on the left (a European plate), then the text.
+        GraphicsPath band;
+        band.AddRectangle(RectF(16, 16, 86, ph - 32));
+        SolidBrush blue(Color(255, 16, 58, 160));
+        pg.FillPath(&blue, &band);
+        SolidBrush star(Color(255, 255, 204, 0));
+        for (int i = 0; i < 12; i++)
+        {
+            const float a = i * 2 * kPi / 12;
+            pg.FillEllipse(&star, 59 + 26 * cosf(a) - 4, 72 + 26 * sinf(a) - 4, 8.0f, 8.0f);
+        }
+        FontFamily family(FontFamilyName());
+        Font tiny(&family, 44, FontStyleBold, UnitPixel);
+        SolidBrush whiteText(Color(255, 255, 255, 255));
+        StringFormat centre;
+        centre.SetAlignment(StringAlignmentCenter);
+        centre.SetLineAlignment(StringAlignmentCenter);
+        pg.DrawString(L"RG", -1, &tiny, PointF(59, 165), &centre, &whiteText);
+        wchar_t wide[64] = {};
+        MultiByteToWideChar(CP_UTF8, 0, text, -1, wide, 63);
+        Font big(&family, 150, FontStyleBold, UnitPixel);
+        SolidBrush black(Color(255, 22, 22, 24));
+        pg.DrawString(wide, -1, &big, PointF(102 + (pw - 102) * 0.5f, ph * 0.53f), &centre, &black);
+    }
+    // Onto the car, then shaded as the panel around it (the rear is in soft shadow, darker at the bottom).
+    g.DrawImage(&plate, to, 3);
+    const PointF br(to[1].X + to[2].X - to[0].X, to[1].Y + to[2].Y - to[0].Y);
+    PointF quad[4] = { to[0], to[1], br, to[2] };
+    LinearGradientBrush shade(to[0], to[2], Color(95, 10, 10, 12), Color(150, 6, 6, 8));
+    g.FillPolygon(&shade, quad, 4);
+}
+
 // The background and the dial's fixed parts (ring, face, ticks, numerals, red zone), drawn once.
 void BuildBase(Screen& s)
 {
@@ -115,6 +172,23 @@ void BuildBase(Screen& s)
         s.cx = 1030, s.cy = 500, s.r = 172;
         // <user>\boot\background.txt "logo x0 y0 x1 y1" (picture pixels): that part of the picture (a title or logo)
         // moved sideways so it is centred over the dial; its old place is filled with black.
+        // "plate x0 y0 x1 y1 x2 y2 TEXT" (picture pixels: the plate's top left, top right, bottom left corners): a number
+        // plate with TEXT drawn there, in the picture's light (session 39: "ReGPU" on the key art's R8).
+        if (FILE* f = _wfopen((UserDir() / "boot" / "background.txt").c_str(), L"r"))
+        {
+            char line[256];
+            while (fgets(line, sizeof(line), f))
+            {
+                float q[6];
+                char text[64] = {};
+                if (sscanf_s(line, " plate %f %f %f %f %f %f %63s", &q[0], &q[1], &q[2], &q[3], &q[4], &q[5], text, unsigned(sizeof(text))) == 7)
+                {
+                    const PointF to[3] = { PointF(ox + q[0] * k, oy + q[1] * k), PointF(ox + q[2] * k, oy + q[3] * k), PointF(ox + q[4] * k, oy + q[5] * k) };
+                    DrawPlate(g, to, text);
+                }
+            }
+            fclose(f);
+        }
         if (FILE* f = _wfopen((UserDir() / "boot" / "background.txt").c_str(), L"r"))
         {
             float lx0, ly0, lx1, ly1;
