@@ -3,8 +3,8 @@
 // the compile's progress, climbing to the rev limiter, with the compiled-shader count inside the dial. Our own drawing
 // (GDI+, built into Windows); no maker's logo or typeface.
 //
-// The background is loaded from <user>\boot\background.png (or .jpg) when it exists (the player's own picture, e.g. the
-// game's key art); without it the counter is drawn on black. <user>\boot\background.txt "logo x0 y0 x1 y1" moves that
+// The background is loaded from <user>\boot\background.png (or .jpg: the player's own picture), else from boot\ beside
+// fm3.exe (the one the installer ships); without one the counter is drawn on black. The background.txt beside it: <user>\boot\background.txt "logo x0 y0 x1 y1" moves that
 // part of the picture so it is centred over the dial; "clear x0 y0 x1 y1" paints a part black; "plate ..." draws a
 // number plate (DrawPlate).
 // FM3_BOOT_SCREEN_TEST=<folder>: at start, the screen at 0, 45 and 100 % written there as PNGs (to look at it without a
@@ -68,11 +68,27 @@ void DrawCentred(Graphics& g, const wchar_t* text, const Font& font, const Brush
     g.DrawString(text, -1, &font, PointF(x, y), &f, &brush);
 }
 
+// The folder the picture comes from: the user folder's boot\ when it has one, else boot\ beside fm3.exe (shipped by
+// the installer).
+std::filesystem::path BootDir()
+{
+    static const std::filesystem::path dir = [] {
+        std::error_code ec;
+        for (const char* name : { "background.png", "background.jpg", "background.jpeg" })
+            if (std::filesystem::exists(UserDir() / "boot" / name, ec))
+                return UserDir() / "boot";
+        wchar_t exe[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        return std::filesystem::path(exe).parent_path() / "boot";
+    }();
+    return dir;
+}
+
 std::unique_ptr<Bitmap> LoadBackground()
 {
     for (const char* name : { "background.png", "background.jpg", "background.jpeg" })
     {
-        const std::filesystem::path p = UserDir() / "boot" / name;
+        const std::filesystem::path p = BootDir() / name;
         std::error_code ec;
         if (!std::filesystem::exists(p, ec))
             continue;
@@ -209,7 +225,7 @@ void BuildBase(Screen& s)
         // moved sideways so it is centred over the dial; its old place is filled with black.
         // "plate x0 y0 x1 y1 x2 y2 TEXT" (picture pixels: the plate's top left, top right, bottom left corners): a number
         // plate with TEXT drawn there, in the picture's light (session 39: "ReGPU" on the key art's R8).
-        if (FILE* f = _wfopen((UserDir() / "boot" / "background.txt").c_str(), L"r"))
+        if (FILE* f = _wfopen((BootDir() / "background.txt").c_str(), L"r"))
         {
             char line[256];
             while (fgets(line, sizeof(line), f))
@@ -232,7 +248,7 @@ void BuildBase(Screen& s)
             }
             fclose(f);
         }
-        if (FILE* f = _wfopen((UserDir() / "boot" / "background.txt").c_str(), L"r"))
+        if (FILE* f = _wfopen((BootDir() / "background.txt").c_str(), L"r"))
         {
             float lx0, ly0, lx1, ly1;
             if (fscanf_s(f, " logo %f %f %f %f", &lx0, &ly0, &lx1, &ly1) == 4 && lx1 > lx0 && ly1 > ly0)

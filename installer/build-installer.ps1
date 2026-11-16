@@ -34,6 +34,15 @@ $rel = Join-Path $root "build\rel"
 Copy-Item "$rel\fm3.exe", "$rel\fm3.pdb" $stage
 Get-ChildItem $rel -Filter *.dll | Copy-Item -Destination $stage
 
+# The boot screen's picture and its layout (src/boot_screen.cpp: boot\ beside fm3.exe, used when the player's user
+# folder has none), from this PC's user folder: kept out of the repository, shipped in the installer (user's decision).
+$bootSrc = Join-Path $root "out\user\boot"
+if (Test-Path "$bootSrc\background.png") {
+    New-Item -ItemType Directory -Force "$stage\boot" | Out-Null
+    Copy-Item "$bootSrc\background.png" "$stage\boot\"
+    if (Test-Path "$bootSrc\background.txt") { Copy-Item "$bootSrc\background.txt" "$stage\boot\" }
+} else { Write-Warning "No boot screen picture in out\user\boot: the installed game shows the rev counter on black." }
+
 # The launcher, self-contained (the other PC needs no .NET; WebView2 comes with Windows 10/11).
 & $dotnet publish "launcher\FM3Launcher" -c Release -r win-x64 --self-contained true -o "$stage\launcher" --nologo -p:DebugType=none
 if ($LASTEXITCODE) { throw "Launcher publish failed." }
