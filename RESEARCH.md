@@ -27,6 +27,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Linux, Proton and the Steam Deck](#linux-proton-and-the-steam-deck-session-29-2026-11-12) (session 29) | Run through Proton (vkd3d-proton on RADV), no native port. Launcher (WebView2) likely broken under Wine: run `fm3.exe` with `settings.ini` or port the launcher natively. Per-platform defaults under Wine (vertex arena write watch, sleeps, workers), Deck preset, gamescope for caps/FSR. **User has 3 dual-boot machines** (7900 XTX, 6650 XT, Deck OLED + Win11 SD): same-hardware Windows vs Proton A/Bs. PERF-PLAN L51-L53 |
 | [TAAU (TAA upscaling)](#taau-taa-upscaling-session-39-2026-11-16) (session 39) | Feasible and small: our TAA already has jitter, motion vectors, depth, history and the mip bias; TAAU = the same resolve run at output size from a lower-res scene (one new compute pass + an `upscaler=taau` entry). Worth it mainly for weak GPUs (iGPU, Steam Deck): cheaper than FSR 3, much sharper than FSR 1/bilinear; on the 7900 XTX at 1440p no gain (draw-thread bound). Measure the motion vectors' cost on the iGPU first |
 | [A launcher without a web view, for SteamOS game mode](#a-launcher-without-a-web-view-for-steamos-game-mode-session-40-2026-11-16) (session 40) | Game mode = gamescope: one app window on screen, X11 via Xwayland, **no file-picker portal**, Steam must keep tracking the process it started. Recommended: **options and installer inside `fm3.exe`** (Dear ImGui on ReGPU's D3D12 = vkd3d-proton there; the Unleashed Recompiled pattern), the existing C# launcher kept for desktop; headless `--install-disc1/2` reused. Alternative keeping C#: **Avalonia** (X11, Skia) + SDL3 for the pad. Zero-work stopgap: Steam shortcut runs `--play`, set up in desktop mode |
+| [In-game options menu, quit tab and restart prompt](#in-game-options-menu-quit-tab-and-restart-prompt-session-40-2026-11-16) (session 40) | A **host overlay menu** (Dear ImGui on ReGPU's present, one new ReGPU host callback), not a tab in FM3's own menus (unknown UI system, fonts lack glyphs). Opened by F1 / BACK+START; while open the game gets a neutral pad (`ReadPad`) and the world is held (`FM3_FREEZE_TIME` hook). Quit = the existing `WM_CLOSE` save-and-exit. Restart prompt: every setting tagged live / restart in one shared schema; on closing the menu, restart keys that differ from the values this process **started** with list in a dialog (Restart now / Later / Undo). Restart = exit code 3 to a supervisor `fm3.exe` that relaunches (Steam keeps tracking it) |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -2008,3 +2009,101 @@ Sources: [Unleashed Recompiled Steam Deck notes](https://mintlify.wiki/hedge-dev
 [Avalonia Wayland (12.1)](https://avaloniaui.net/blog/bringing-wayland-support-to-avalonia),
 [Trouble Makers recomp: ImGui pad bridge](https://newreleases.io/project/github/ThiagoLira/trouble-makers-pc-recomp/release/v0.7.0),
 [Electron apps on the Deck](https://brainhub.eu/library/making-electron-apps-steam-deck-compatible).
+
+## In-game options menu, quit tab and restart prompt (session 40, 2026-11-16)
+Cloud research, no code (the ReGPU submodule and `out/ppc` aren't in the cloud checkout: the ReGPU hook point below
+is from our patches and must be confirmed in `src/render/presenter.cpp` locally). User's question: an in-game options
+menu (or menu tab), a quit tab, and a prompt to restart when a changed setting needs it. Follows "A launcher without a
+web view" above (option 1 there).
+
+### Where the menu lives
+1. **A tab in FM3's own pause/options menu: not recommended.** Nothing is known about FM3's UI system (no Scaleform or
+   XUI evidence found; its screens are data-driven from the disc files). Adding a tab means reversing the screen
+   format and the action handlers, the game's fonts lack glyphs (OPEN-ISSUES: `.`, `'`, `-` show as boxes), and each
+   option still has to reach our host code. Weeks of reversing for a look the overlay can imitate.
+2. **A host overlay menu (recommended).** Drawn by us over the finished frame, like the timer and the fps panel
+   already are (`regpu-timer-overlay`, `regpu-fps-panel`: GDI bitmaps uploaded and composited in
+   `PresenterRecordCopy` at present, also under Wine). Two ways to draw it:
+   - **Dear ImGui (recommended):** MIT, D3D12 backend, layout, scrolling, tabs, modal popups and gamepad/keyboard
+     navigation built in (`ImGuiConfigFlags_NavEnableGamepad`); styled to look like a game menu (Unleashed Recompiled
+     does its options and installer menus this way). Needs one small ReGPU patch: a host callback
+     `Host::drawUi(list, rtv, w, h)` recorded into the presenter's command list after the overlays and before
+     Present (with async present on, on the presenter's list, not the draw thread's), plus the device and queue for
+     ImGui's font texture. Ship a free font (OFL, e.g. Noto Sans) next to the exe.
+   - **GDI bitmap, no new library:** the whole menu painted with GDI+ (as `src/boot_screen.cpp`) into a 1280x720
+     BGRA image only when it changes, composited as one more overlay. Smallest ReGPU change (another overlay slot),
+     but widgets, focus and scrolling are ours to write (the launcher's `gamepad.js` rules can be ported).
+   - VR: draw it on the HUD panel (`regpu-vr-hud`); triple screen: the centre screen only.
+
+### Opening it, and keeping the game out of the way
+- **Open/close:** keyboard F1 (Esc is the game's START); pad: hold BACK+START ~0.5 s (a chord no menu uses; LS+RS is
+  already VR recentre). On the Steam Deck a back paddle can be bound to F1 in Steam Input. Optional hint "F1 / BACK+START:
+  ReGPU options" while the game's own pause menu is up (needs the pause state found; skip at first).
+- **Input:** every pad, wheel and keyboard read goes through `ReadPad` (`src/kernel/imports_xam.cpp`). While the menu is
+  open: read user 0's state there for the menu (pad + wheel buttons + keyboard, so a wheel's D-pad works too) and hand
+  the game a neutral `PadState` (no buttons, sticks centred) until every button is released after closing, so the A
+  that closed the menu doesn't also press something in the game. Mouse: ImGui's Win32 handlers on ReGPU's window.
+- **Pausing:** in a race the world should stop. Use the existing freeze hook (`FM3_FREEZE_TIME`, grid_test.cpp:
+  stops race time anywhere, the game keeps drawing). To check: engine sound while frozen (may need a mute), and that
+  unfreezing mid-race is clean (the tests so far unfroze on the grid). Alternative: inject one START to open the game's
+  own pause menu, but that needs to know whether the game is in a race and already paused.
+
+### Settings: one schema for the launcher and the menu
+- Today the option lists live in the launcher (`Install.cs` `Options`, `wwwroot`), and the game reads `settings.ini`
+  (`src/settings.cpp`, plus `extra` keys read in `gpu_host.cpp` and the hooks). Two copies would drift: generate both
+  from one `settings-schema.json` (key, label, help text, type, values, section, **apply = live | restart**), embedded
+  in fm3.exe and read by the launcher.
+- `SaveSettings()` already writes the whole file and keeps unknown keys (`extra`). New rule: the game now writes
+  `settings.ini` (until now only the launcher did); the launcher must reload it when it regains focus, or it will save
+  stale values over the menu's.
+- Environment overrides (`FM3_RESOLUTION`, `FM3_VR`, `FM3_TRIPLE` from the VR/Triple Play buttons, `play.cmd`'s
+  `FM3_PROFILE`) win over the file: the menu should show such a setting as "set by the launcher for this run" and the
+  restart should drop that one variable.
+- **Apply classes (first pass, to verify per key):**
+  - *Live now* (LiveSwitches or present-time state): fps panel, timer, half-rate mirror/shadows/reflections
+    (`FM3_MIRROR_RATE`, `FM3_SHADOW_RATE`, `FM3_REFLECT_RATE`), far-car detail (`FM3_CAR_LOD_FAR`), sharpness, VR camera
+    motion; likely vsync and the fps cap (present interval, frame limiter: `frame_time.cpp` reads the cap at start:
+    make it live), fullscreen (window style; check with triple's monitor span).
+  - *Restart:* resolution, aspect, MSAA, EQAA, AA filter and SSAA (surface sizes), upscaler + quality, graphics card,
+    shader compiler, VR mode / triple layout, one tile, vertex arena, upload ring, async present, perf preset, language,
+    profile, skip intro. (Making resolution/MSAA live means ReGPU recreating every EDRAM-backed surface: later, if ever.)
+
+### The restart prompt
+- At boot keep a copy of the values the process **started with** (after env overrides). When the menu closes (or on
+  "Apply"), compare the restart-class keys with that copy, not with the last save: changing MSAA 4x to 2x and back
+  gives no prompt.
+- If any differ: a modal listing them ("MSAA 4x -> 2x, Resolution 2560x1440 -> 1920x1080. These take effect after a
+  restart. Progress in the current race is lost.") with **Restart now / Later / Undo these**. "Later" keeps them saved
+  for the next start and shows a small "restart pending" note on the menu.
+- Mark restart-class rows in the menu itself (an icon and "needs restart" in the help line), as many PC games do, so
+  the prompt is never a surprise.
+
+### Quit and restart
+- **Quit tab:** "Quit to desktop" with a confirm ("Unsaved progress in this race is lost"). Use the same path as the
+  window's close button: `PostMessage(hwnd, WM_CLOSE)` (grid_test.cpp does this; the game saves its profile on that exit
+  as normal), with `regpu::SaveCaches()` as the replay/tour exits do. Not `XamLoaderTerminateTitle`/`_Exit` (no saves).
+  Also "Restart game" here (same as the prompt's Restart now).
+- **Restarting without losing Steam:** fm3.exe spawning a new fm3.exe and exiting is a hand-off, which in game mode can
+  lose the game (previous section). Instead make fm3.exe its own supervisor: `main()` first checks for `--child`; without
+  it, before any guest memory or D3D set-up, it starts `fm3.exe --child <args>` with the same environment, waits, and if
+  the child exits with code **3** ("restart requested") starts it again (minus the dropped overrides, plus
+  `FM3_SKIP_INTRO=1` so a restart is quick); any other code ends the supervisor with it. The process Steam/the launcher
+  started lives for the whole session, so play.cmd, the launcher, shortcuts and Proton all get restarts for free. The
+  child's exit code 3 is set by the restart path after the normal save-and-close. Cost: one idle process (a few MB);
+  the debug server, crash handler and logs belong to the child (log rotation: keep `fm3.prev.log` per restart).
+- Simpler alternative if the supervisor is unwanted: the launcher (and `fm3-launcher.sh`) relaunch on exit code 3;
+  restarts then don't work from `play.cmd` or a bare `fm3.exe` shortcut.
+
+### Suggested build order
+1. ReGPU host UI callback + ImGui with one page (fps cap, vsync, fps panel, timer) and the input capture/freeze. Check
+   on Windows, then under Proton on the Deck in game mode.
+2. Quit tab (close-button path). 3. Supervisor + exit code 3 + the restart prompt with the started-with copy.
+4. The settings schema shared with the launcher, then the remaining pages (graphics, performance, VR, triple, wheel).
+Open questions for the user: the open chord, whether the menu should also be reachable from the title screen
+(automatically, via a hint), and the look (game-like vs plain).
+
+Sources: [Unleashed Recompiled: options menu from the title screen or pause menu](https://cdn.jsdelivr.net/gh/hedge-dev/unleashedrecomp@main/README.md),
+[its architecture (ImGui menus)](https://mintlify.wiki/hedge-dev/UnleashedRecomp/building/architecture),
+[its config docs (menu applies changes at once; some keys only in the file)](https://mintlify.wiki/hedge-dev/UnleashedRecomp/configuration/overview),
+[video settings](https://mintlify.wiki/hedge-dev/UnleashedRecomp/configuration/video),
+[Forza forum: a restart prompt shown when not needed](https://forums.forza.net/t/graphics-settings-popup-message-about-required-restart-shows-unnecessarily-1568770/626503).
