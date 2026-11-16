@@ -38,6 +38,7 @@
 #include "hooks/frame_time.h"
 #include "pipeline_seed.h"
 #include "static_shaders.h"
+#include "boot_screen.h"
 
 std::string CurrentHostStack(int maxFrames); // crash.cpp
 void LogAllHostThreadStacks(const char* why); // hang.cpp
@@ -282,6 +283,9 @@ void GpuStart()
     host.staticShaders = [] { return StaticShaders(); };
     host.staticShadersSaved = [] { return StaticShadersSaved(); };
     host.pipelineSeed = [] { return kPipelineSeed; };
+    // The first-boot shader compile screen (session 39): a rev counter climbing to the limiter (src/boot_screen.cpp).
+    host.bootScreen = BootScreen;
+    BootScreenTest();
 
     // The bar across the 3D view (rows ~360-511, ending at the EDRAM tile seam: FM3 draws its 2x MSAA 720p
     // scene in two tiles, 1280x512 and 1280x208): ReGPU's "foreign MSAA" path, which reinterprets a surface's

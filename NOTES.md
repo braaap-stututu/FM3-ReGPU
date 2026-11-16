@@ -69,6 +69,15 @@
     Now the flags travel with the frame (`regpu::xr::TakeFrameFlags`, in patch 68). Not reproducible without a
     headset session. **Next: user check.** (Open: the eye images are single-buffered, so at a hitch a frame's eyes
     can be the next frame's with its own pose: small, double-buffer if it shows.)
+- **Boot shader-compile screen (user's design):** `src/boot_screen.cpp` (ReGPU `Host::bootScreen`, which the port
+  never set: ReGPU showed its plain overlay): a rev counter in the style of the first-generation Audi R8's (black face,
+  chrome ring, 0-9 x1000/min, red from 8,250, red needle; our own GDI+ drawing, Bahnschrift, no maker's logo or font)
+  whose needle climbs to the limiter with the compile's progress, the compiled-shader count inside the dial, a shift
+  light near the end, flutter on the limiter when done, idle wobble while shaders are being found. Background: the
+  player's own picture from `<user>ootackground.png` (or .jpg), never shipped or committed (the user's FM3 key
+  art is in `out/user/boot/` here, gitignored); black without it. `FM3_BOOT_SCREEN_TEST=<folder>` writes the screen at
+  0/45/100 % as PNGs at start (`out/shots/boot/`). Checked on a real first boot (scratch user folder): PREPARING, then
+  COMPILING SHADERS (828 in 28 s) on the new screen.
 - **VR head movement limit (user: "increase the distance I'm allowed to move my head; clipping through the car is not
   an issue"):** the eye limit round the seat is now off by default (`FM3_VR_EYE_LIMIT` unset = no limit; was 30 cm);
   settings.ini `vr_eye_limit` (cm each way, 0 = none) and launcher Graphics "VR: head movement" (No limit / 30 cm /
