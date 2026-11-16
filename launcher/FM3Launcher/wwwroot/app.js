@@ -6,7 +6,7 @@ let state = null
 let customFps = false // "Custom…" picked in the Max FPS list
 let nextId = 1
 const pending = new Map()
-const PAGES = ["play", "profiles", "graphics", "wheel", "settings", "about"]
+const PAGES = ["play", "profiles", "graphics", "triple", "wheel", "settings", "about"]
 // The speed presets (settings.ini perf_preset; src/gpu_host.cpp ApplyPerfPreset), sharpest first.
 const PRESETS = [
   { value: "off", name: "Off", note: "Everything drawn as the console does." },
@@ -289,6 +289,7 @@ function render() {
   }
   renderTile()
   renderDisc2()
+  if (window.tripleRender) tripleRender() // the Triple screens page (triple.js)
 
   // settings page
   const st = $("shader-stats")

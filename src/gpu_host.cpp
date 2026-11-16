@@ -504,11 +504,18 @@ void GpuStart()
         {
             DefaultEnv("REGPU_TRIPLE", "1");
             DefaultEnv("REGPU_TRIPLE_FLIP", "1");
-            for (const char* key : { "fov", "angle", "bezel" })
+            // settings.ini triple_<key> -> FM3_TRIPLE_<KEY> (src/hooks/triple_screen.cpp): the auto layout's fov, angle,
+            // bezel (degrees), the physical layout's mode=physical, diag (inches), dist (cm), bezel_mm, gap_mm,
+            // angle_left, angle_right (degrees; 0 = facing the eye).
+            for (const char* key : { "fov", "angle", "bezel", "mode", "diag", "dist", "bezel_mm", "gap_mm", "angle_left", "angle_right" })
             {
                 const std::string v = GetSettings().Extra((std::string("triple_") + key).c_str());
-                if (!v.empty())
-                    DefaultEnv((std::string("FM3_TRIPLE_") + (key[0] == 'f' ? "FOV" : key[0] == 'a' ? "ANGLE" : "BEZEL")).c_str(), v.c_str());
+                if (v.empty())
+                    continue;
+                std::string name = std::string("FM3_TRIPLE_") + key;
+                for (char& c : name)
+                    c = char(toupper(static_cast<unsigned char>(c)));
+                DefaultEnv(name.c_str(), v.c_str());
             }
         }
     }

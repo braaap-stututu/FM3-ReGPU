@@ -1,0 +1,251 @@
+diff --git a/include/regpu/regpu.h b/include/regpu/regpu.h
+index 7b3d34e..42381a6 100644
+--- a/include/regpu/regpu.h
++++ b/include/regpu/regpu.h
+@@ -240,13 +240,20 @@ void Recentre();
+ } // namespace vr
+ 
+ // Triple screen (REGPU_TRIPLE=1, FM3 port session 39): one simulation, three screens. The main view (the frame from
+-// its first full-width draw to the swap) is drawn three times, each turned about the eye to face its screen, side by
+-// side in a window three screens wide (the resolution is the three together). The title's camera must draw with a
+-// frustum wide enough for all three (its culling): `gameFovY` is the vertical field of view it was given (radians,
+-// 16:9), `screenFovY` each screen's, `angle` the turn between the centre screen's axis and a side screen's. Once per
+-// game frame while a 3D view is drawn; without a recent call a frame is drawn once, in the middle.
++// its first full-width draw to the swap) is drawn three times, once per screen, side by side in a window three screens
++// wide (the resolution is the three together). The title's camera must draw with a frustum wide enough for all three
++// (its culling); each screen's pass maps that frustum's clip position (x, y, z, w) to the screen's own projection:
++//   x' = a x + b w,  w' = c x + d w,  y' = e y,  z' = z + (w' - w)
++// (a turn about the eye and an off-axis projection onto the screen's plane; depth exact for z = w + B). The host works
++// these out from its screens' layout (sizes, distance, bezels, gaps, angles) in the camera's own clip convention.
++// views: 0 left, 1 centre, 2 right. Once per game frame while a 3D view is drawn; without a recent call a frame is
++// drawn once, in the middle.
+ namespace triple
+ {
+-void SubmitFrame(float gameFovY, float screenFovY, float angle);
++struct View
++{
++    float a = 0, b = 0, c = 0, d = 1, e = 0;
++};
++void SubmitViews(const View (&views)[3]);
+ } // namespace triple
+ } // namespace regpu
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index 7bf9a9f..806e216 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -675,10 +675,11 @@ bool Mode()
+     }();
+     return on;
+ }
+-// Triple screen (regpu::triple::SubmitFrame): the newest frame's fields of view and turn, and when they came.
+-std::atomic<float> g_tripleGameFov{ 0 }, g_tripleScreenFov{ 0 }, g_tripleAngleIn{ 0 };
+-std::atomic<int64_t> g_tripleAt{ 0 };
+-float g_tripleK = 0, g_tripleP00 = 0, g_tripleTurn = 0; // this frame's (BeforeDraw)
++// Triple screen (regpu::triple::SubmitViews): the newest views and when they came; this frame's (BeforeDraw).
++std::mutex g_tripleMutex;
++regpu::triple::View g_tripleIn[3];
++int64_t g_tripleAt = 0; // (g_tripleMutex)
++float g_tripleViews[3][5] = {};
+ bool g_checked = false; // this frame's first main-view draw seen (and the frame's choice made)
+ bool g_armed = false;   // recording this frame for the second eye
+ float g_clip = 0;       // P00 * half the eye distance: the left eye's clip x offset (the right eye's negated)
+@@ -710,23 +711,30 @@ void BeforeDraw()
+     {
+         // A frame whose camera reported its fields of view in the last 100 ms (else drawn once, untouched).
+         const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
+-        const float gameFov = g_tripleGameFov.load(), screenFov = g_tripleScreenFov.load();
+-        if (now - g_tripleAt.load() > 100 || gameFov <= 0.1f || gameFov >= 3.1f || screenFov <= 0.05f || screenFov > gameFov)
+         {
+-            RendererSetTripleView(0, 0, 0, false);
+-            return;
++            std::lock_guard lock(g_tripleMutex);
++            if (now - g_tripleAt > 100 || g_tripleIn[1].e == 0.0f)
++            {
++                RendererSetTripleView(nullptr, false);
++                return;
++            }
++            // REGPU_TRIPLE_FLIP: a title whose clip x is mirrored (FM3 draws its scene turned 180 degrees): the views
++            // taken in the mirrored convention (b and c change sign).
++            static LiveSwitch flip("REGPU_TRIPLE_FLIP");
++            const float f = flip ? -1.0f : 1.0f;
++            for (int i = 0; i < 3; i++)
++            {
++                const regpu::triple::View& v = g_tripleIn[i];
++                const float out[5] = { v.a, v.b * f, v.c * f, v.d, v.e };
++                memcpy(g_tripleViews[i], out, sizeof(out));
++            }
+         }
+-        static LiveSwitch flip("REGPU_TRIPLE_FLIP");
+-        const float ts = tanf(screenFov * 0.5f);
+-        g_tripleK = tanf(gameFov * 0.5f) / ts;
+-        g_tripleP00 = 1.0f / (ts * (16.0f / 9.0f));
+-        g_tripleTurn = g_tripleAngleIn.load() * (flip ? -1.0f : 1.0f);
+         g_startFile = work::g_file;
+         for (int t = 0; t < 2; t++)
+             g_startShader[t] = g_shader[t], g_startShaderAddress[t] = g_shaderAddress[t];
+         g_log.clear();
+         g_armed = true;
+-        RendererSetTripleView(0, g_tripleK, g_tripleP00, false); // the game's own pass: the centre screen
++        RendererSetTripleView(g_tripleViews[1], false); // the game's own pass: the centre screen
+         return;
+     }
+     float p00 = 0, half = 0;
+@@ -804,17 +812,16 @@ void TripleAtSwap(uint32_t frontBuffer)
+     if (!centreOnly)
+         for (int side : { 0, 2 })
+         {
+-            RendererSetTripleView(side == 0 ? -g_tripleTurn : g_tripleTurn, g_tripleK, g_tripleP00, true);
++            RendererSetTripleView(g_tripleViews[side], true);
+             Replay();
+             RendererTripleCapture(side, frontBuffer);
+         }
+-    RendererSetTripleView(0, 0, 0, false);
++    RendererSetTripleView(nullptr, false);
+     memcpy(work::g_file.data(), g_endFile.data(), g_endFile.size());
+     g_frames++;
+     g_words += g_log.size();
+     if (g_frames == 1 || g_frames % 3600 == 0)
+-        Log("triple: frame %llu: %zu KB of records drawn again for each side screen (k %.3f, turn %.1f deg)", (unsigned long long)g_frames,
+-            g_log.size() * 4 / 1024, g_tripleK, g_tripleTurn * 57.2958f);
++        Log("triple: frame %llu: %zu KB of records drawn again for each side screen", (unsigned long long)g_frames, g_log.size() * 4 / 1024);
+ }
+ 
+ // At the swap, before the frame is presented: the second eye.
+@@ -826,7 +833,7 @@ void AtSwap(uint32_t frontBuffer)
+     if (!armed)
+     {
+         RendererSetStereoEye(0);
+-        RendererSetTripleView(0, 0, 0, false);
++        RendererSetTripleView(nullptr, false);
+         return;
+     }
+     if (TripleMode())
+@@ -2187,11 +2194,11 @@ void PaceSwap(uint64_t frame)
+ // (For the presenter's pacing, render/presenter.cpp.)
+ uint32_t RegpuFrameCap() { return FrameCap(); }
+ 
+-void regpu::triple::SubmitFrame(float gameFovY, float screenFovY, float angle)
++void regpu::triple::SubmitViews(const View (&views)[3])
+ {
+-    stereo::g_tripleGameFov = gameFovY;
+-    stereo::g_tripleScreenFov = screenFovY;
+-    stereo::g_tripleAngleIn = angle;
++    std::lock_guard lock(stereo::g_tripleMutex);
++    for (int i = 0; i < 3; i++)
++        stereo::g_tripleIn[i] = views[i];
+     stereo::g_tripleAt = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
+ }
+ 
+diff --git a/src/gpu/hlsl.cpp b/src/gpu/hlsl.cpp
+index 540f283..e3b5330 100644
+--- a/src/gpu/hlsl.cpp
++++ b/src/gpu/hlsl.cpp
+@@ -1229,8 +1229,8 @@ float Mul9(float a, float b) { return a * b; }
+ float Dot9(float4 a, float4 b) { return dot(a, b); })";
+ 
+ // REGPU_VR=stereo (read once): the vertex shaders take the eye offset (see the viewport transform below).
+-// Triple screen (REGPU_TRIPLE, FM3 port session 39): the main view's perspective geometry turned about the eye for a side
+-// screen and narrowed from the game's wide frustum to the screen's own (vdepth.y turn, z k, w the screen's P00).
++// Triple screen (REGPU_TRIPLE, FM3 port session 39): the main view's perspective geometry mapped from the game's wide
++// frustum to each screen's own projection (regpu::triple::View: vtriple = a b c d, vdepth.z = e, vdepth.w = 1 on).
+ bool TripleShaders()
+ {
+     static const bool on = [] {
+@@ -1252,6 +1252,9 @@ bool StereoShaders()
+ std::string Preamble(bool plainMul, bool plainMulVertex = false)
+ {
+     std::string h = kPreamble;
++    // Triple screen: the pass's view in the slot after vwide (renderer.cpp's vjitter: no motion variants in triple).
++    if (TripleShaders())
++        ReplaceOnce(h, "    float4 vwide;\n};", "    float4 vwide;\n    float4 vtriple;\n};");
+     if (LeanVertexFetch())
+         ReplaceOnce(h, kOrigVFetch, kLeanVFetch);
+     if (plainMulVertex)
+@@ -1650,17 +1653,14 @@ TranslatedShader TranslateShader(const Shader& shader)
+         // main view). Only in stereo mode, so the shaders (and their cache entries) stay as they were otherwise.
+         if (StereoShaders())
+             h += "    if (!flat) r.pos.x += vdepth.y;\n";
+-        // Triple screen: clip (x, w) back to the eye's view (x_v = x k / P00, z_v = w), turned by vdepth.y, projected
+-        // with the screen's P00; y narrowed by k (both frustums 16:9); depth kept for the turned view (z += w' - w: exact
+-        // for a projection with z = w + B, close for far >> near).
++        // Triple screen: the screen's view of the game's wide frustum (x' = a x + b w, w' = c x + d w, y' = e y; depth
++        // kept for the screen's view: z += w' - w, exact for a projection with z = w + B, close for far >> near).
+         if (TripleShaders())
+-            h += "    if (!flat && vdepth.z != 0.0)\n"
++            h += "    if (!flat && vdepth.w != 0.0)\n"
+                  "    {\n"
+-                 "        float ts, tc;\n"
+-                 "        sincos(vdepth.y, ts, tc);\n"
+                  "        const float x0 = r.pos.x, w0 = r.pos.w;\n"
+-                 "        const float w1 = ts * x0 * vdepth.z / vdepth.w + tc * w0;\n"
+-                 "        r.pos.x = vdepth.z * tc * x0 - vdepth.w * ts * w0;\n"
++                 "        const float w1 = vtriple.z * x0 + vtriple.w * w0;\n"
++                 "        r.pos.x = vtriple.x * x0 + vtriple.y * w0;\n"
+                  "        r.pos.y *= vdepth.z;\n"
+                  "        r.pos.z += w1 - w0;\n"
+                  "        r.pos.w = w1;\n"
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 492c44c..cbec8d7 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -431,7 +431,7 @@ bool WidePass() { return (gpureg::Get(0x2000 /* RB_SURFACE_INFO */) & 0x3FFF) ==
+ float g_stereoClipX = 0.0f;
+ bool g_stereoReplay = false; // the second eye's pass (no write-backs to guest memory)
+ // Triple screen (FM3 port, session 39): the pass's view (RendererSetTripleView) and the triple-wide picture.
+-float g_tripleAngle = 0.0f, g_tripleK = 0.0f, g_tripleP00 = 0.0f;
++float g_tripleView[5] = {}; // a b c d e of this pass (RendererSetTripleView), e 0 = off
+ bool g_tripleSide = false;
+ bool g_tripleReady = false; // all three screens captured this frame (the swap shows g_tripleImage)
+ ComPtr<ID3D12Resource> g_tripleImage, g_tripleScreen[3];
+@@ -13362,12 +13362,13 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+     // VR stereo: this eye's clip-space x offset for the main view's perspective geometry (hlsl.cpp; RendererSetStereoEye).
+     vc->vdepth[1] = WidePass() ? g_stereoClipX : 0.0f;
+     vc->vdepth[2] = vc->vdepth[3] = 0;
+-    // Triple screen: the pass's turn (y), k (z, 0 = no turn: outside the main view) and the screen's P00 (w) (hlsl.cpp).
+-    if (g_tripleK != 0.0f && WidePass())
++    // Triple screen: the pass's view (hlsl.cpp): vtriple = a b c d (in vjitter's place: triple mode has no motion
++    // variants), vdepth.z = e, vdepth.w = 1 (on: the main view only).
++    if (g_tripleView[4] != 0.0f && WidePass())
+     {
+-        vc->vdepth[1] = g_tripleAngle;
+-        vc->vdepth[2] = g_tripleK;
+-        vc->vdepth[3] = g_tripleP00;
++        memcpy(vc->vjitter, g_tripleView, sizeof(float) * 4);
++        vc->vdepth[2] = g_tripleView[4];
++        vc->vdepth[3] = 1.0f;
+     }
+     // Viewport transform in the vertex shader (see hlsl.cpp).
+     vc->vscale[0] = RegFloat(PA_CL_VPORT_XSCALE);
+@@ -14987,9 +14988,11 @@ bool TripleMode()
+     return on;
+ }
+ 
+-void RendererSetTripleView(float angle, float k, float p00, bool side)
++void RendererSetTripleView(const float* view, bool side)
+ {
+-    g_tripleAngle = angle, g_tripleK = k, g_tripleP00 = p00, g_tripleSide = side;
++    for (int i = 0; i < 5; i++)
++        g_tripleView[i] = view ? view[i] : 0.0f;
++    g_tripleSide = side;
+ }
+ 
+ // A pass's front buffer, graded as the presenter grades, into screen `slot` of the triple-wide picture (COPY_SOURCE
+diff --git a/src/gpu/renderer.h b/src/gpu/renderer.h
+index 585dbe7..6d7fee9 100644
+--- a/src/gpu/renderer.h
++++ b/src/gpu/renderer.h
+@@ -16,10 +16,10 @@ void RendererSetStereoEye(float clipX);
+ // The second eye's pass runs: resolves are not written back to guest memory (the first pass did).
+ void RendererSetStereoReplay(bool on);
+ void RendererStereoCaptureEye(int eye, uint32_t frontBuffer);
+-// Triple screen (REGPU_TRIPLE, gpu.cpp stereo::): this pass's view (turn about the eye in radians, k = the game's wide
+-// projection over this screen's, P00 of this screen's projection; k 0 = off) and whether it is a side screen (no HUD);
+-// the pass's front buffer into screen `slot` (0 left, 1 centre, 2 right) of the triple-wide picture.
+-void RendererSetTripleView(float angle, float k, float p00, bool side);
++// Triple screen (REGPU_TRIPLE, gpu.cpp stereo::): this pass's view (regpu::triple::View's a b c d e; null = off) and
++// whether it is a side screen (no HUD); the pass's front buffer into screen `slot` (0 left, 1 centre, 2 right) of the
++// triple-wide picture.
++void RendererSetTripleView(const float* view, bool side);
+ void RendererTripleCapture(int slot, uint32_t frontBuffer);
+ bool TripleMode();
+ // Lookahead hooks (see GpuLookahead): shader loads and draws the command processor has

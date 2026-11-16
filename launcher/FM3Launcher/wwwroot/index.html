@@ -18,6 +18,7 @@
       <button data-tab="play" class="on">Play</button>
       <button data-tab="profiles">Profiles</button>
       <button data-tab="graphics">Graphics</button>
+      <button data-tab="triple">Triple screens</button>
       <button data-tab="wheel">Wheel stuff</button>
       <button data-tab="settings">Settings</button>
     </nav>
@@ -243,6 +244,69 @@
   </main>
 
   <!-- PROFILES -->
+  <main class="page" id="page-triple" hidden>
+    <div class="tri-top">
+      <section class="panel">
+        <div class="panel-head"><h2>Screens</h2></div>
+        <label class="field" data-tip="Each monitor's diagonal (16:9 screens: each one shows a 16:9 picture).">
+          <span>Diagonal, inches</span>
+          <div class="tri-in"><input type="range" id="tri-diag-r" min="17" max="65" step="0.5"><input type="number" id="tri-diag" min="10" max="100" step="0.5"></div>
+        </label>
+        <label class="field" data-tip="One monitor's bezel (the frame round its picture), in millimetres. Between two pictures there are two bezels.">
+          <span>Bezel width, mm</span>
+          <div class="tri-in"><input type="range" id="tri-bezel-r" min="0" max="40" step="0.5"><input type="number" id="tri-bezel" min="0" max="100" step="0.5"></div>
+        </label>
+        <label class="field" data-tip="Space between two monitors' frames, in millimetres (0 when they touch).">
+          <span>Screen spacing, mm</span>
+          <div class="tri-in"><input type="range" id="tri-gap-r" min="0" max="100" step="1"><input type="number" id="tri-gap" min="0" max="300" step="1"></div>
+        </label>
+        <div class="kv" id="tri-res"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Layout</h2></div>
+        <div class="toggle-row" data-tip="One view across three monitors, each from its own angle. Set the resolution (Graphics) to the three together, e.g. 7680x1440. Read when the game starts.">
+          <div><div class="toggle-title">Triple screen</div><div class="toggle-sub">Three monitors, one view</div></div>
+          <button class="switch" id="tri-on" role="switch"></button>
+        </div>
+        <span class="tri-label">Field of view</span>
+        <div class="segmented" id="tri-mode">
+          <button data-mode="physical" data-tip="The view your monitors really show from your seat: worked out from their size, angles, distance, bezels and spacing (this page).">From these screens</button>
+          <button data-mode="auto" data-tip="All three screens alike, from the Graphics tab's field of view setting.">Simple</button>
+        </div>
+        <span class="tri-label">Side screen angles <small id="tri-rec"></small></span>
+        <div class="segmented" id="tri-angle-mode">
+          <button data-amode="auto" data-tip="Each side screen turned to face your eyes (the angle that puts you on its centre line).">Facing me</button>
+          <button data-amode="manual" data-tip="The angles your monitors are really at: each side on its own.">Manual</button>
+        </div>
+        <label class="field tri-angle" data-tip="How far the left monitor is turned in from the centre monitor's plane, in degrees.">
+          <span>Left, degrees</span>
+          <div class="tri-in"><input type="range" id="tri-left-r" min="0" max="85" step="0.5"><input type="number" id="tri-left" min="0" max="89" step="0.5"></div>
+        </label>
+        <label class="field tri-angle" data-tip="How far the right monitor is turned in from the centre monitor's plane, in degrees.">
+          <span>Right, degrees</span>
+          <div class="tri-in"><input type="range" id="tri-right-r" min="0" max="85" step="0.5"><input type="number" id="tri-right" min="0" max="89" step="0.5"></div>
+        </label>
+        <label class="tri-link tri-angle"><input type="checkbox" id="tri-link"> Same angle both sides</label>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Viewing distance</h2></div>
+        <label class="field" data-tip="From your eyes to the centre monitor's picture, in centimetres.">
+          <span>Eye distance, cm</span>
+          <div class="tri-in"><input type="range" id="tri-dist-r" min="30" max="150" step="1"><input type="number" id="tri-dist" min="20" max="300" step="1"></div>
+        </label>
+        <p class="hint">Sit as you race and measure from your eyes to the centre screen. A shorter distance means a wider view, as on the real screens.</p>
+        <div class="tri-warn" id="tri-warn" hidden></div>
+      </section>
+    </div>
+    <section class="panel tri-result">
+      <div class="tri-figs" id="tri-figs"></div>
+      <div class="tri-sub" id="tri-sub"></div>
+    </section>
+    <section class="panel tri-vis">
+      <svg id="tri-svg" viewBox="0 0 1000 520" preserveAspectRatio="xMidYMid meet"></svg>
+    </section>
+  </main>
+
   <main class="page grid2" id="page-profiles" hidden>
     <section class="panel">
       <div class="panel-head">
@@ -526,5 +590,6 @@
   <script src="host.js"></script>
   <script src="app.js"></script>
   <script src="wheel.js"></script>
+  <script src="triple.js"></script>
 </body>
 </html>

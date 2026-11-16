@@ -330,3 +330,22 @@ input[type=range] { padding: 0; accent-color: var(--accent); background: transpa
 .tile-path { width: 100%; min-width: 0; text-overflow: ellipsis; font-size: 12px; padding: 5px 8px; }
 #page-play { grid-template-rows: auto minmax(0, 1fr); }
 .tiles-panel { min-height: min-content; }
+
+/* Triple screens page (triple.js, session 39) */
+#page-triple { display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+.tri-top { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.tri-top .panel { overflow: visible; }
+.tri-in { display: grid; grid-template-columns: 1fr 76px; gap: 10px; align-items: center; }
+.tri-in input[type=number] { width: 100%; }
+.tri-label { display: block; color: var(--muted); font-size: 12.5px; margin: 10px 0 6px; }
+.tri-label small { color: var(--accent-2); margin-left: 6px; }
+.tri-link { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
+.tri-warn { border-left: 2px solid var(--warn); padding: 6px 10px; font-size: 12.5px; color: var(--text); background: var(--panel-2); border-radius: 6px; }
+.tri-result { flex-shrink: 0; }
+.tri-figs { display: grid; grid-template-columns: repeat(5, 1fr); text-align: center; padding: 6px 0 10px; border-bottom: 1px solid var(--line); }
+.tri-figs b { display: block; font-size: 22px; font-weight: 700; }
+.tri-figs span { color: var(--muted); font-size: 12px; }
+.tri-sub { text-align: center; color: var(--muted); font-size: 12.5px; padding-top: 8px; }
+.tri-sub b { color: var(--text); }
+.tri-vis { flex-shrink: 0; padding: 8px; }
+#tri-svg { width: 100%; height: 360px; display: block; }

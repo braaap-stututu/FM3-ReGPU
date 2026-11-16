@@ -69,6 +69,19 @@
     Now the flags travel with the frame (`regpu::xr::TakeFrameFlags`, in patch 68). Not reproducible without a
     headset session. **Next: user check.** (Open: the eye images are single-buffered, so at a hitch a frame's eyes
     can be the next frame's with its own pose: small, double-buffer if it shows.)
+- **Triple screen setup page (user: like the SimRigBuild FOV calculator, with bezel and screen spacing correction and
+  independent monitor angles):** `src/hooks/triple_screen.cpp` (moved out of vr_camera.cpp) + ReGPU patch 69
+  `regpu-triple-geometry` (69 patches). Physical layout (`triple_mode=physical`): `triple_diag` (inches, 16:9),
+  `triple_dist` (cm), `triple_bezel_mm`, `triple_gap_mm`, `triple_angle_left` / `_right` (degrees in from the centre
+  plane, 0 = facing the eye). Each screen: the camera turned to face its plane and an off-axis projection over its
+  picture (bezels and gaps move the side pictures out), sent to ReGPU as `View{a,b,c,d,e}` per screen; FM3's frustum
+  widened to cover every corner (166 deg max; the log and the page warn when the outer edges are cut). Matches the
+  calculator: 27" at 60 cm: facing angle 53.0 deg, 164.3 deg across at 60 deg, 31.3 deg high. Auto layout (old
+  `triple_fov`/`triple_angle`/`triple_bezel`) kept, now through the same views. Launcher tab **Triple screens**
+  (`wwwroot/triple.js`): screens (diagonal, bezel, spacing), layout (on/off, field of view from these screens /
+  simple, facing me / manual, left and right angles, same-both-sides), eye distance; figures (H-FOV, V-FOV, angles,
+  span, pixels per degree), warning, top view (SVG). Grid: physical 60/45 deg + 10 mm bezel + 5 mm gap (160.6 deg
+  across, `out/shots/s39-triple-phys.png`) and auto (unchanged) checked; the page checked in the browser pane.
 - **Linux launcher (user's request):** the launcher (Photino: WebKitGTK on Linux) builds for linux-x64; the game is the
   Windows fm3.exe run through Proton or Wine (`launcher/FM3Launcher/Runner.cs`): settings.ini `linux_runner`
   (auto | umu | proton | wine; auto = umu-run, then Steam's newest Proton with GE-Proton first, then wine),

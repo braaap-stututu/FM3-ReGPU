@@ -81,6 +81,16 @@ public sealed class GameSettings
     // settings.ini-only (kept as they are).
     public bool Triple { get; set; }
     public string TripleFov { get; set; } = "0";
+    // The Triple screens page (session 39): triple_mode auto (TripleFov above) or physical (this layout: screen diagonal
+    // in inches, eye distance in cm, one screen's bezel and the gap between two screens in mm, each side screen's angle in
+    // from the centre screen's plane in degrees, 0 = facing the eye). src/hooks/triple_screen.cpp.
+    public string TripleMode { get; set; } = "auto";
+    public double TripleDiag { get; set; } = 27;
+    public double TripleDist { get; set; } = 60;
+    public double TripleBezelMm { get; set; }
+    public double TripleGapMm { get; set; }
+    public double TripleAngleLeft { get; set; }
+    public double TripleAngleRight { get; set; }
     // The 3D scene's upscaler: off, fsr1, fsr3 or bilinear (session 34: plain upscale, no sharpening) (settings.ini "upscaler"), at Upscale = the game's upscale_quality
     // (1 quality to 4 ultra performance). FSR 4 (session 36): RDNA 4 GPUs; FSR 3 on others.
     public string Upscaler { get; set; } = "off";
@@ -116,7 +126,10 @@ public sealed class GameSettings
     public string GameFolder { get; set; } = "";
 
     // The racing wheel's wheel_* keys are the Wheel stuff tab's (Wheel.cs); Save keeps them like any other key it doesn't know.
-    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
+    static double Num(string v, double fallback, double min, double max) =>
+        double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? Math.Clamp(d, min, max) : fallback;
+
+    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "triple_mode", "triple_diag", "triple_dist", "triple_bezel_mm", "triple_gap_mm", "triple_angle_left", "triple_angle_right", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
 
     public static GameSettings Load()
     {
@@ -167,6 +180,13 @@ public sealed class GameSettings
                 case "linux_prefix": s.LinuxPrefix = v; break;
                 case "vr_eye_limit": s.VrEyeLimit = Options.VrEyeLimit.Any(x => x.Value == v) ? v : "0"; break;
                 case "triple": s.Triple = v == "1"; break;
+                case "triple_mode": s.TripleMode = v == "physical" ? "physical" : "auto"; break;
+                case "triple_diag": s.TripleDiag = Num(v, 27, 10, 100); break;
+                case "triple_dist": s.TripleDist = Num(v, 60, 20, 300); break;
+                case "triple_bezel_mm": s.TripleBezelMm = Num(v, 0, 0, 100); break;
+                case "triple_gap_mm": s.TripleGapMm = Num(v, 0, 0, 300); break;
+                case "triple_angle_left": s.TripleAngleLeft = Num(v, 0, 0, 89); break;
+                case "triple_angle_right": s.TripleAngleRight = Num(v, 0, 0, 89); break;
                 case "triple_fov": s.TripleFov = Options.TripleFov.Any(x => x.Value == v) ? v : "0"; break;
                 case "mirror_rate": s.HalfRateMirror = v == "2"; break;
                 case "shadow_rate": s.HalfRateShadows = v == "2"; break;
@@ -190,6 +210,8 @@ public sealed class GameSettings
         sb.Append("aa=" + (Options.Aa.Any(x => x.Value == Aa) ? Aa : "off") + "\nssaa=" + (Options.Ssaa.Any(x => x.Value == Ssaa) ? Ssaa : "1") + "\neqaa=" + B(Eqaa) + "\n");
         sb.Append($"gpu={new string(Gpu.Where(c => !char.IsControl(c) && c != '=').ToArray()).Trim()}\n");
         sb.Append("vr=" + (Options.Vr.Any(x => x.Value == Vr) ? Vr : "off") + "\n");
+        string N(double d) => Math.Round(d, 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        sb.Append($"triple_mode={(TripleMode == "physical" ? "physical" : "auto")}\ntriple_diag={N(TripleDiag)}\ntriple_dist={N(TripleDist)}\ntriple_bezel_mm={N(TripleBezelMm)}\ntriple_gap_mm={N(TripleGapMm)}\ntriple_angle_left={N(TripleAngleLeft)}\ntriple_angle_right={N(TripleAngleRight)}\n");
         sb.Append($"upscaler={(Options.Upscalers.Any(u => u.Value == Upscaler) ? Upscaler : "off")}\nupscale_quality={Math.Clamp(Upscale, 0, 4)}\nsharpness={sharp}\n");
         sb.Append($"language={Language}\n");
         sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n"); // (session 23: these three were read but never saved)
