@@ -70,6 +70,11 @@ public sealed class GameSettings
     public bool VrCameraMotion { get; set; }
     // vr_pace: the frame cap follows the headset's display rate in the head-tracked modes (session 39; on by default).
     public bool VrPace { get; set; } = true;
+    // triple: one view across three monitors (session 39; the resolution is the three together); triple_fov: each
+    // screen's vertical field of view in degrees ("0" = the camera's own where three fit). triple_angle/_bezel stay
+    // settings.ini-only (kept as they are).
+    public bool Triple { get; set; }
+    public string TripleFov { get; set; } = "0";
     // The 3D scene's upscaler: off, fsr1, fsr3 or bilinear (session 34: plain upscale, no sharpening) (settings.ini "upscaler"), at Upscale = the game's upscale_quality
     // (1 quality to 4 ultra performance). FSR 4 (session 36): RDNA 4 GPUs; FSR 3 on others.
     public string Upscaler { get; set; } = "off";
@@ -105,7 +110,7 @@ public sealed class GameSettings
     public string GameFolder { get; set; } = "";
 
     // The racing wheel's wheel_* keys are the Wheel stuff tab's (Wheel.cs); Save keeps them like any other key it doesn't know.
-    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_camera_motion", "vr_pace", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
+    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_camera_motion", "vr_pace", "triple", "triple_fov", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
 
     public static GameSettings Load()
     {
@@ -151,6 +156,8 @@ public sealed class GameSettings
                 case "one_tile": s.OneTile = v == "1"; break;
                 case "vr_camera_motion": s.VrCameraMotion = v == "1"; break;
                 case "vr_pace": s.VrPace = v != "0"; break;
+                case "triple": s.Triple = v == "1"; break;
+                case "triple_fov": s.TripleFov = Options.TripleFov.Any(x => x.Value == v) ? v : "0"; break;
                 case "mirror_rate": s.HalfRateMirror = v == "2"; break;
                 case "shadow_rate": s.HalfRateShadows = v == "2"; break;
                 case "reflect_rate": s.HalfRateReflections = v == "2"; break;
@@ -177,7 +184,7 @@ public sealed class GameSettings
         sb.Append($"language={Language}\n");
         sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n"); // (session 23: these three were read but never saved)
         sb.Append($"perf_preset={(PerfPresets.Contains(PerfPreset) ? PerfPreset : "off")}\n");
-        sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\nvr_camera_motion={B(VrCameraMotion)}\nvr_pace={B(VrPace)}\ndebug_server={B(DebugServer)}\n");
+        sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\nvr_camera_motion={B(VrCameraMotion)}\nvr_pace={B(VrPace)}\ntriple={B(Triple)}\ntriple_fov={(Options.TripleFov.Any(x => x.Value == TripleFov) ? TripleFov : "0")}\ndebug_server={B(DebugServer)}\n");
         sb.Append(DxcShaders ? "shader_compiler=dxc\n" : "shader_compiler=fxc\n");
         sb.Append($"game_folder={Clean(GameFolder)}\n");
         foreach (var (k, v) in keep) sb.Append($"{k}={v}\n");
@@ -230,6 +237,7 @@ public static class Options
     public static readonly int[] Fps = [30, 60, 120, 144, 165, 240, 360];
     public static readonly (string Value, string Name)[] Aspects = [("auto", "Auto (match resolution)"), ("16:9", "16:9"), ("21:9", "21:9 (experimental)"), ("32:9", "32:9 (experimental)")];
     public static readonly (int Value, string Name)[] Msaa = [(1, "Off"), (2, "2x MSAA"), (4, "4x MSAA")];
+    public static readonly (string Value, string Name)[] TripleFov = [("0", "Auto (the camera's own, narrowed to fit)"), ("20", "20 degrees"), ("25", "25 degrees"), ("30", "30 degrees"), ("35", "35 degrees"), ("40", "40 degrees")];
     public static readonly (string Value, string Name)[] Vr = [("off", "Off"), ("screen", "Virtual screen"), ("cockpit", "Head-tracked cockpit"), ("stereo", "Stereo cockpit (3D)")];
     public static readonly (string Value, string Name)[] Aa = [("off", "Off"), ("fxaa", "FXAA (fastest, softest)"), ("smaa", "SMAA (sharp)"), ("cmaa2", "CMAA 2 (sharpest, keeps fine detail)"), ("taa", "TAA (smoothest; can ghost in motion)")];
     public static readonly (string Value, string Name)[] Ssaa = [("1", "Off"), ("1.5", "1.5x (2.25x the pixels)"), ("2", "2x (4x the pixels)")];

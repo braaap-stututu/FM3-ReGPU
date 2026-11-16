@@ -1,0 +1,493 @@
+diff --git a/include/regpu/regpu.h b/include/regpu/regpu.h
+index 5e33710..7b3d34e 100644
+--- a/include/regpu/regpu.h
++++ b/include/regpu/regpu.h
+@@ -238,4 +238,15 @@ void SubmitTaggedPose(uint32_t tag, const HeadPose& pose, float renderFovY);
+ // HUD panel follow. F8 in the game window does the same.
+ void Recentre();
+ } // namespace vr
++
++// Triple screen (REGPU_TRIPLE=1, FM3 port session 39): one simulation, three screens. The main view (the frame from
++// its first full-width draw to the swap) is drawn three times, each turned about the eye to face its screen, side by
++// side in a window three screens wide (the resolution is the three together). The title's camera must draw with a
++// frustum wide enough for all three (its culling): `gameFovY` is the vertical field of view it was given (radians,
++// 16:9), `screenFovY` each screen's, `angle` the turn between the centre screen's axis and a side screen's. Once per
++// game frame while a 3D view is drawn; without a recent call a frame is drawn once, in the middle.
++namespace triple
++{
++void SubmitFrame(float gameFovY, float screenFovY, float angle);
++} // namespace triple
+ } // namespace regpu
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index b05d459..7bf9a9f 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -671,10 +671,14 @@ bool Mode()
+ {
+     static const bool on = [] {
+         const char* v = getenv("REGPU_VR");
+-        return v && strcmp(v, "stereo") == 0;
++        return (v && strcmp(v, "stereo") == 0) || TripleMode();
+     }();
+     return on;
+ }
++// Triple screen (regpu::triple::SubmitFrame): the newest frame's fields of view and turn, and when they came.
++std::atomic<float> g_tripleGameFov{ 0 }, g_tripleScreenFov{ 0 }, g_tripleAngleIn{ 0 };
++std::atomic<int64_t> g_tripleAt{ 0 };
++float g_tripleK = 0, g_tripleP00 = 0, g_tripleTurn = 0; // this frame's (BeforeDraw)
+ bool g_checked = false; // this frame's first main-view draw seen (and the frame's choice made)
+ bool g_armed = false;   // recording this frame for the second eye
+ float g_clip = 0;       // P00 * half the eye distance: the left eye's clip x offset (the right eye's negated)
+@@ -702,6 +706,29 @@ void BeforeDraw()
+     if (!Mode() || g_checked || !RendererMainViewNow())
+         return;
+     g_checked = true;
++    if (TripleMode())
++    {
++        // A frame whose camera reported its fields of view in the last 100 ms (else drawn once, untouched).
++        const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
++        const float gameFov = g_tripleGameFov.load(), screenFov = g_tripleScreenFov.load();
++        if (now - g_tripleAt.load() > 100 || gameFov <= 0.1f || gameFov >= 3.1f || screenFov <= 0.05f || screenFov > gameFov)
++        {
++            RendererSetTripleView(0, 0, 0, false);
++            return;
++        }
++        static LiveSwitch flip("REGPU_TRIPLE_FLIP");
++        const float ts = tanf(screenFov * 0.5f);
++        g_tripleK = tanf(gameFov * 0.5f) / ts;
++        g_tripleP00 = 1.0f / (ts * (16.0f / 9.0f));
++        g_tripleTurn = g_tripleAngleIn.load() * (flip ? -1.0f : 1.0f);
++        g_startFile = work::g_file;
++        for (int t = 0; t < 2; t++)
++            g_startShader[t] = g_shader[t], g_startShaderAddress[t] = g_shaderAddress[t];
++        g_log.clear();
++        g_armed = true;
++        RendererSetTripleView(0, g_tripleK, g_tripleP00, false); // the game's own pass: the centre screen
++        return;
++    }
+     float p00 = 0, half = 0;
+     if (!regpu::xr::StereoFrame(p00, half))
+         return;
+@@ -729,32 +756,14 @@ void Append(const uint32_t* record, uint32_t words)
+     g_log.insert(g_log.end(), record, record + words);
+ }
+ 
+-// At the swap, before the frame is presented: the second eye.
+-void AtSwap(uint32_t frontBuffer)
++// The recorded frame drawn again from its first main-view draw's state (fences, ordered stores and occlusion queries
++// with their draws are skipped: the guest saw them once).
++void Replay()
+ {
+-    const bool armed = g_armed;
+-    g_armed = false;
+-    g_checked = false;
+-    if (!armed)
+-    {
+-        RendererSetStereoEye(0);
+-        return;
+-    }
+-    RendererStereoCaptureEye(g_firstEye, frontBuffer);
+-    // REGPU_VR_NO_SECOND_EYE=1 (live): the records are kept but not drawn again (the second eye's cost; which pass the
+-    // desktop shows).
+-    static LiveSwitch noSecond("REGPU_VR_NO_SECOND_EYE");
+-    if (noSecond)
+-    {
+-        RendererSetStereoEye(0);
+-        return;
+-    }
+-    g_endFile = work::g_file;
+     memcpy(work::g_file.data(), g_startFile.data(), g_startFile.size());
+     for (int t = 0; t < 2; t++)
+         if (!g_startShader[t].empty())
+             FrameOnShaderLoad(ShaderType(t), g_startShader[t].data(), uint32_t(g_startShader[t].size()), g_startShaderAddress[t]);
+-    RendererSetStereoEye(EyeClip(1 - g_firstEye));
+     RendererSetStereoReplay(true);
+     bool inQuery = false;
+     for (size_t i = 0; i < g_log.size();)
+@@ -777,12 +786,66 @@ void AtSwap(uint32_t frontBuffer)
+         case work::kQuery:
+             inQuery = a[0] == 0;
+             break;
+-        default: // fences, ordered stores: the guest saw them once
++        default:
+             break;
+         }
+         i += size_t(words) + 1;
+     }
+     RendererSetStereoReplay(false);
++}
++
++// Triple screen at the swap: the centre (the game's pass) captured, then the left and right screens drawn again turned.
++void TripleAtSwap(uint32_t frontBuffer)
++{
++    RendererTripleCapture(1, frontBuffer);
++    g_endFile = work::g_file;
++    // REGPU_TRIPLE_CENTRE_ONLY=1 (live): the side screens not drawn (their cost; the centre alone, black sides).
++    static LiveSwitch centreOnly("REGPU_TRIPLE_CENTRE_ONLY");
++    if (!centreOnly)
++        for (int side : { 0, 2 })
++        {
++            RendererSetTripleView(side == 0 ? -g_tripleTurn : g_tripleTurn, g_tripleK, g_tripleP00, true);
++            Replay();
++            RendererTripleCapture(side, frontBuffer);
++        }
++    RendererSetTripleView(0, 0, 0, false);
++    memcpy(work::g_file.data(), g_endFile.data(), g_endFile.size());
++    g_frames++;
++    g_words += g_log.size();
++    if (g_frames == 1 || g_frames % 3600 == 0)
++        Log("triple: frame %llu: %zu KB of records drawn again for each side screen (k %.3f, turn %.1f deg)", (unsigned long long)g_frames,
++            g_log.size() * 4 / 1024, g_tripleK, g_tripleTurn * 57.2958f);
++}
++
++// At the swap, before the frame is presented: the second eye.
++void AtSwap(uint32_t frontBuffer)
++{
++    const bool armed = g_armed;
++    g_armed = false;
++    g_checked = false;
++    if (!armed)
++    {
++        RendererSetStereoEye(0);
++        RendererSetTripleView(0, 0, 0, false);
++        return;
++    }
++    if (TripleMode())
++    {
++        TripleAtSwap(frontBuffer);
++        return;
++    }
++    RendererStereoCaptureEye(g_firstEye, frontBuffer);
++    // REGPU_VR_NO_SECOND_EYE=1 (live): the records are kept but not drawn again (the second eye's cost; which pass the
++    // desktop shows).
++    static LiveSwitch noSecond("REGPU_VR_NO_SECOND_EYE");
++    if (noSecond)
++    {
++        RendererSetStereoEye(0);
++        return;
++    }
++    g_endFile = work::g_file;
++    RendererSetStereoEye(EyeClip(1 - g_firstEye));
++    Replay();
+     RendererSetStereoEye(0);
+     memcpy(work::g_file.data(), g_endFile.data(), g_endFile.size()); // (the same values: the records ran in full)
+     RendererStereoCaptureEye(1 - g_firstEye, frontBuffer);
+@@ -2124,6 +2187,14 @@ void PaceSwap(uint64_t frame)
+ // (For the presenter's pacing, render/presenter.cpp.)
+ uint32_t RegpuFrameCap() { return FrameCap(); }
+ 
++void regpu::triple::SubmitFrame(float gameFovY, float screenFovY, float angle)
++{
++    stereo::g_tripleGameFov = gameFovY;
++    stereo::g_tripleScreenFov = screenFovY;
++    stereo::g_tripleAngleIn = angle;
++    stereo::g_tripleAt = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
++}
++
+ void regpu::SetFrameLimit(uint32_t maxFps, bool vsync)
+ {
+     Settings& s = GetSettings();
+diff --git a/src/gpu/hlsl.cpp b/src/gpu/hlsl.cpp
+index 2d2afa3..540f283 100644
+--- a/src/gpu/hlsl.cpp
++++ b/src/gpu/hlsl.cpp
+@@ -1229,6 +1229,17 @@ float Mul9(float a, float b) { return a * b; }
+ float Dot9(float4 a, float4 b) { return dot(a, b); })";
+ 
+ // REGPU_VR=stereo (read once): the vertex shaders take the eye offset (see the viewport transform below).
++// Triple screen (REGPU_TRIPLE, FM3 port session 39): the main view's perspective geometry turned about the eye for a side
++// screen and narrowed from the game's wide frustum to the screen's own (vdepth.y turn, z k, w the screen's P00).
++bool TripleShaders()
++{
++    static const bool on = [] {
++        const char* v = getenv("REGPU_TRIPLE");
++        return v && *v && strcmp(v, "0") != 0;
++    }();
++    return on;
++}
++
+ bool StereoShaders()
+ {
+     static const bool on = [] {
+@@ -1639,6 +1650,21 @@ TranslatedShader TranslateShader(const Shader& shader)
+         // main view). Only in stereo mode, so the shaders (and their cache entries) stay as they were otherwise.
+         if (StereoShaders())
+             h += "    if (!flat) r.pos.x += vdepth.y;\n";
++        // Triple screen: clip (x, w) back to the eye's view (x_v = x k / P00, z_v = w), turned by vdepth.y, projected
++        // with the screen's P00; y narrowed by k (both frustums 16:9); depth kept for the turned view (z += w' - w: exact
++        // for a projection with z = w + B, close for far >> near).
++        if (TripleShaders())
++            h += "    if (!flat && vdepth.z != 0.0)\n"
++                 "    {\n"
++                 "        float ts, tc;\n"
++                 "        sincos(vdepth.y, ts, tc);\n"
++                 "        const float x0 = r.pos.x, w0 = r.pos.w;\n"
++                 "        const float w1 = ts * x0 * vdepth.z / vdepth.w + tc * w0;\n"
++                 "        r.pos.x = vdepth.z * tc * x0 - vdepth.w * ts * w0;\n"
++                 "        r.pos.y *= vdepth.z;\n"
++                 "        r.pos.z += w1 - w0;\n"
++                 "        r.pos.w = w1;\n"
++                 "    }\n";
+         h += "    if (!flat) r.pos.xy *= vwide.xy;\n"
+              "    float w = r.pos.w;\n"
+              "    // (VTX_W0_FMT set means w is the true W0, the normal case.)\n"
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index c483789..0284816 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -95,6 +95,11 @@ std::atomic<uint32_t> g_outputWidth{ 0 }, g_outputHeight{ 0 };
+ // scene scale, the tall pass, the native MSAA table): PassScales' memo compares it instead of each input.
+ std::atomic<uint32_t> g_passEpoch{ 0 };
+ void BumpPassEpoch() { g_passEpoch.fetch_add(1, std::memory_order_relaxed); }
++// The debug shot's width: the shown picture's (three screens in triple mode, else the render width).
++uint32_t OutputWidth();
++uint32_t DumpWidth() { return ::TripleMode() ? OutputWidth() * 3 : OutputWidth(); }
++uint32_t g_dumpWidth = 0; // the last shot's (set where it is copied)
++
+ void LoadOutputSize()
+ {
+     uint32_t w, h;
+@@ -425,6 +430,11 @@ bool WidePass() { return (gpureg::Get(0x2000 /* RB_SURFACE_INFO */) & 0x3FFF) ==
+ // VR stereo (gpu.cpp stereo::): the eye being drawn, as a clip-space x offset (0: none).
+ float g_stereoClipX = 0.0f;
+ bool g_stereoReplay = false; // the second eye's pass (no write-backs to guest memory)
++// Triple screen (FM3 port, session 39): the pass's view (RendererSetTripleView) and the triple-wide picture.
++float g_tripleAngle = 0.0f, g_tripleK = 0.0f, g_tripleP00 = 0.0f;
++bool g_tripleSide = false;
++bool g_tripleReady = false; // all three screens captured this frame (the swap shows g_tripleImage)
++ComPtr<ID3D12Resource> g_tripleImage, g_tripleScreen[3];
+ // REGPU_NO_PASS_SNAPSHOT=1: worked out at every call (A/B, live).
+ LiveSwitch g_passNoSnapshot("REGPU_NO_PASS_SNAPSHOT"), g_passFullCheck("REGPU_PASS_SNAPSHOT_FULL_CHECK");
+ // Inside DrawImpl: a number for the draw this thread is translating (0 outside one). A draw's surface registers can't
+@@ -2413,7 +2423,7 @@ void Init()
+     hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+     Check(d->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&g_r.blitRtvHeap)), "CreateDescriptorHeap(blit rtv)");
+     InitDepthBlit();
+-    g_r.readback = CreateBuffer(UINT64((OutputWidth() * 4 + 255) & ~255u) * OutputHeight(), D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
++    g_r.readback = CreateBuffer(UINT64((DumpWidth() * 4 + 255) & ~255u) * OutputHeight(), D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+ 
+     kRingSize = (getenv("REGPU_RING_MB") ? std::clamp<UINT64>(UINT64(atoi(getenv("REGPU_RING_MB"))), 16, 2048)
+         // (128 MB with the zero-copy mapping, not 64: new vertex buffers are copied for their first 16 frames,
+@@ -2499,7 +2509,7 @@ void ApplyOutputSize()
+     C().colorBase = C().depthBase = ~0u; // nothing bound: the frame start selects the new surfaces
+     C().color.Reset();
+     C().depth.Reset();
+-    g_r.readback = CreateBuffer(UINT64((OutputWidth() * 4 + 255) & ~255u) * OutputHeight(), D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
++    g_r.readback = CreateBuffer(UINT64((DumpWidth() * 4 + 255) & ~255u) * OutputHeight(), D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+     g_upscale.depth.Reset();
+     g_upscale.motion.Reset();
+     g_upscale.dlaaOut.Reset();
+@@ -3121,7 +3131,7 @@ void BeginFrameIfNeeded()
+                 Log("vr: stereo: upscalers and anti-aliasing filters are off");
+             return on;
+         }();
+-        g_scenePhase = !stereo && (upscale || taa || filter) && g_r.frame >= g_upscale.retryFrame && (!(temporalUpscaler || taa) || TemporalInit());
++        g_scenePhase = !stereo && !TripleMode() && (upscale || taa || filter) && g_r.frame >= g_upscale.retryFrame && (!(temporalUpscaler || taa) || TemporalInit());
+         g_temporal = g_scenePhase && (temporalUpscaler || taa);
+         g_sceneScale = g_scenePhase ? scale : 1.0f;
+         BumpPassEpoch();
+@@ -12209,7 +12219,7 @@ bool StereoHudDraw()
+     }();
+     static LiveSwitch inView("REGPU_VR_HUD_IN_VIEW");
+     // (Not the resolve that follows: a copy packet runs with the composite's shaders still loaded.)
+-    return hudUnder && (g_stereoClipX != 0.0f || regpu::xr::MonoHudPanel()) && C().psHash == hudUnder && WidePass() && !inView && C().color && !RendererIsResolveDraw();
++    return hudUnder && (g_stereoClipX != 0.0f || regpu::xr::MonoHudPanel() || g_tripleSide) && C().psHash == hudUnder && WidePass() && !inView && C().color && !RendererIsResolveDraw();
+ }
+ 
+ void StereoCaptureHud()
+@@ -13350,6 +13360,13 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+     // VR stereo: this eye's clip-space x offset for the main view's perspective geometry (hlsl.cpp; RendererSetStereoEye).
+     vc->vdepth[1] = WidePass() ? g_stereoClipX : 0.0f;
+     vc->vdepth[2] = vc->vdepth[3] = 0;
++    // Triple screen: the pass's turn (y), k (z, 0 = no turn: outside the main view) and the screen's P00 (w) (hlsl.cpp).
++    if (g_tripleK != 0.0f && WidePass())
++    {
++        vc->vdepth[1] = g_tripleAngle;
++        vc->vdepth[2] = g_tripleK;
++        vc->vdepth[3] = g_tripleP00;
++    }
+     // Viewport transform in the vertex shader (see hlsl.cpp).
+     vc->vscale[0] = RegFloat(PA_CL_VPORT_XSCALE);
+     vc->vscale[1] = RegFloat(PA_CL_VPORT_YSCALE);
+@@ -14959,6 +14976,77 @@ bool RendererMainViewNow() { return WidePass(); }
+ void RendererSetStereoEye(float clipX) { g_stereoClipX = clipX; }
+ void RendererSetStereoReplay(bool on) { g_stereoReplay = on; }
+ 
++bool TripleMode()
++{
++    static const bool on = [] {
++        const char* v = getenv("REGPU_TRIPLE");
++        return v && *v && strcmp(v, "0") != 0;
++    }();
++    return on;
++}
++
++void RendererSetTripleView(float angle, float k, float p00, bool side)
++{
++    g_tripleAngle = angle, g_tripleK = k, g_tripleP00 = p00, g_tripleSide = side;
++}
++
++// A pass's front buffer, graded as the presenter grades, into screen `slot` of the triple-wide picture (COPY_SOURCE
++// between frames). The swap shows that picture once the last screen is in.
++void RendererTripleCapture(int slot, uint32_t frontBuffer)
++{
++    if (!g_r.ok || slot < 0 || slot > 2)
++        return;
++    auto it = g_r.resolved.find(frontBuffer);
++    if (it == g_r.resolved.end() || it->second.width != kWidth || it->second.height != kHeight || it->second.format != DXGI_FORMAT_R8G8B8A8_UNORM)
++        return;
++    ID3D12Resource* image = it->second.resource.Get();
++    const D3D12_RESOURCE_DESC d = image->GetDesc();
++    const UINT w = UINT(d.Width), h = d.Height;
++    BeginFrameIfNeeded();
++    auto make = [&](ComPtr<ID3D12Resource>& t, UINT tw, D3D12_RESOURCE_FLAGS flags, D3D12_RESOURCE_STATES state, const char* name) {
++        if (t && t->GetDesc().Width == tw && t->GetDesc().Height == h)
++            return true;
++        D3D12_RESOURCE_DESC td{};
++        td.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
++        td.Width = tw;
++        td.Height = h;
++        td.DepthOrArraySize = 1;
++        td.MipLevels = 1;
++        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
++        td.SampleDesc.Count = 1;
++        td.Flags = flags;
++        RetireTexture(std::move(t));
++        t = CreateTexture(td, state, name);
++        return bool(t);
++    };
++    if (!make(g_tripleImage, w * 3, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_SOURCE, "triple screen") ||
++        !make(g_tripleScreen[slot], w, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON, "triple screen part"))
++        return;
++    // Graded into the screen's own image (COMMON), or the front buffer as it is where grading is off.
++    ID3D12Resource* src = GradeFrontBuffer(image, it->second.guestFormat == 7, nullptr, g_tripleScreen[slot].Get()) ? g_tripleScreen[slot].Get() : image;
++    const D3D12_RESOURCE_STATES srcState = src == image ? (D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
++                                                        : D3D12_RESOURCE_STATE_COMMON;
++    D3D12_RESOURCE_BARRIER b[2]{};
++    for (auto& x : b)
++        x.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++    b[0].Transition.pResource = src;
++    b[0].Transition.StateBefore = srcState;
++    b[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
++    b[1].Transition.pResource = g_tripleImage.Get();
++    b[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
++    b[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
++    C().list->ResourceBarrier(2, b);
++    D3D12_TEXTURE_COPY_LOCATION dst{ g_tripleImage.Get(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX }, from{ src, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX };
++    dst.SubresourceIndex = from.SubresourceIndex = 0;
++    C().list->CopyTextureRegion(&dst, UINT(slot) * w, 0, 0, &from, nullptr);
++    for (auto& x : b)
++        std::swap(x.Transition.StateBefore, x.Transition.StateAfter);
++    C().list->ResourceBarrier(2, b);
++    g_drawState.Invalidate();
++    if (slot == 2)
++        g_tripleReady = true;
++}
++
+ void RendererStereoCaptureEye(int eye, uint32_t frontBuffer)
+ {
+     if (!g_r.ok)
+@@ -15620,7 +15708,7 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         GradeJob& job = g_gradeJobs[g_r.frameIndex];
+         job.valid = false;
+         // (Supersampling grades into a texture first: the downsample reads it.)
+-        graded = GradeFrontBuffer(image, it->second.guestFormat == 7, gammaCopy || GetSettings().enhance || GetSettings().ssaa > 1.0f ? nullptr : &job);
++        graded = GradeFrontBuffer(image, it->second.guestFormat == 7, gammaCopy || GetSettings().enhance || GetSettings().ssaa > 1.0f || TripleMode() ? nullptr : &job);
+         if (job.valid)
+             gradeJob = &job;
+         D3D12_RESOURCE_BARRIER b{};
+@@ -15639,12 +15727,17 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     ID3D12Resource* timer = fromResolve ? PrepareTimer() : nullptr;
+     ID3D12Resource* fps = fromResolve ? PrepareFps() : nullptr;
+     ID3D12Resource* shown = graded ? graded : image;
++    // Triple screen: the three screens' graded pictures side by side (RendererTripleCapture), in COPY_SOURCE.
++    const bool tripleShown = fromResolve && g_tripleReady && g_tripleImage;
++    g_tripleReady = false;
+     if (fromResolve)
+         if (ID3D12Resource* enhanced = EnhanceFrontBuffer(shown))
+             shown = enhanced;
+     // Supersampling (Config::ssaa, session 36): the supersized frame filtered down to the shown size.
+     if (fromResolve)
+         shown = SsaaDownsample(shown);
++    if (tripleShown)
++        shown = g_tripleImage.Get();
+     // REGPU_ASYNC_PRESENT=1 (live; FM3 port, PERF-PLAN L12): the frame's end (back-buffer copy, close, submit, Present,
+     // fence) runs on the replay thread when it reaches this point, and the draw thread goes on with the next frame. It
+     // otherwise waited for the replay here (Real) and then in the driver's Present (frame-queue throttling): ~10% of
+@@ -15752,11 +15845,14 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         D3D12_TEXTURE_COPY_LOCATION dst{};
+         dst.pResource = g_r.readback.Get();
+         dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+-        dst.PlacedFootprint.Footprint = { DXGI_FORMAT_R8G8B8A8_UNORM, OutputWidth(), OutputHeight(), 1, (OutputWidth() * 4 + 255) & ~255u };
+         D3D12_TEXTURE_COPY_LOCATION src{};
+         src.pResource = gradeJob ? GradeIntoTexture(gradeJob) : shown; // (graded only into the back buffer otherwise)
+         src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+-        C().list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
++        // (Triple screen: the shown picture is three screens wide; a frame drawn once is one.)
++        g_dumpWidth = UINT(std::min<UINT64>(src.pResource->GetDesc().Width, DumpWidth()));
++        dst.PlacedFootprint.Footprint = { DXGI_FORMAT_R8G8B8A8_UNORM, g_dumpWidth, OutputHeight(), 1, (g_dumpWidth * 4 + 255) & ~255u };
++        const D3D12_BOX box{ 0, 0, 0, g_dumpWidth, OutputHeight(), 1 };
++        C().list->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
+     }
+     // REGPU_DUMP_RESOLVES=1 (with REGPU_DUMP_FRAME): also write every resolved texture to out/res.
+     static std::vector<ResolveDump> resolveDumps;
+@@ -15948,7 +16044,7 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         uint8_t* data = nullptr;
+         g_r.readback->Map(0, nullptr, reinterpret_cast<void**>(&data));
+         // Written at the render size; the region probes below work on a 1280x720 copy.
+-        const uint32_t dw = OutputWidth(), dh = OutputHeight(), dpitch = (dw * 4 + 255) & ~255u;
++        const uint32_t dw = g_dumpWidth ? g_dumpWidth : OutputWidth(), dh = OutputHeight(), dpitch = (dw * 4 + 255) & ~255u;
+         std::vector<uint8_t> full(size_t(dw) * dh * 4);
+         for (uint32_t y = 0; y < dh; y++)
+             memcpy(&full[size_t(y) * dw * 4], data + size_t(y) * dpitch, size_t(dw) * 4);
+diff --git a/src/gpu/renderer.h b/src/gpu/renderer.h
+index c5222ff..585dbe7 100644
+--- a/src/gpu/renderer.h
++++ b/src/gpu/renderer.h
+@@ -16,6 +16,12 @@ void RendererSetStereoEye(float clipX);
+ // The second eye's pass runs: resolves are not written back to guest memory (the first pass did).
+ void RendererSetStereoReplay(bool on);
+ void RendererStereoCaptureEye(int eye, uint32_t frontBuffer);
++// Triple screen (REGPU_TRIPLE, gpu.cpp stereo::): this pass's view (turn about the eye in radians, k = the game's wide
++// projection over this screen's, P00 of this screen's projection; k 0 = off) and whether it is a side screen (no HUD);
++// the pass's front buffer into screen `slot` (0 left, 1 centre, 2 right) of the triple-wide picture.
++void RendererSetTripleView(float angle, float k, float p00, bool side);
++void RendererTripleCapture(int slot, uint32_t frontBuffer);
++bool TripleMode();
+ // Lookahead hooks (see GpuLookahead): shader loads and draws the command processor has
+ // not executed yet, seen on a shadow copy of the registers.
+ void RendererPredictBegin();
+diff --git a/src/settings.cpp b/src/settings.cpp
+index 952824a..f7933e8 100644
+--- a/src/settings.cpp
++++ b/src/settings.cpp
+@@ -3,6 +3,8 @@
+ #include "settings.h"
+ 
+ #include <algorithm>
++#include <cstdlib>
++#include <cstring>
+ 
+ #include "debug.h"
+ #include "memory.h"
+@@ -40,6 +42,20 @@ void Start()
+ void Config::RenderSize(uint32_t& w, uint32_t& h) const
+ {
+     ShownSize(w, h);
++    // Triple screen (REGPU_TRIPLE, FM3 port session 39): the resolution is the three screens together; each screen's
++    // pass renders at a third of its width (no supersampling).
++    static const bool triple = [] {
++        const char* v = getenv("REGPU_TRIPLE");
++        return v && *v && strcmp(v, "0") != 0;
++    }();
++    if (triple)
++    {
++        // Each screen 16:9 (the title's frame): a third of the width, the height fitted to it.
++        w = (w / 3) & ~1u;
++        h = std::min<uint32_t>(h, w * 9 / 16) & ~1u;
++        w = std::min<uint32_t>(w, h * 16 / 9) & ~1u;
++        return;
++    }
+     if (ssaa > 1.0f)
+     {
+         w = uint32_t(std::lround(double(w) * ssaa)) & ~1u;

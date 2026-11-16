@@ -229,6 +229,75 @@ float g_frameFov = 0;
 bool g_framePosed = false;
 } // namespace
 
+// Triple screen (session 39; ReGPU REGPU_TRIPLE: the main view drawn three times, turned per screen). The camera's
+// field of view is widened for the hand-off so FM3's frustum (and its culling) covers all three screens; ReGPU narrows
+// each pass back to one screen's field. Settings (src/gpu_host.cpp): FM3_TRIPLE_FOV = each screen's vertical field of
+// view in degrees (0 = the camera's own, made smaller where three screens wouldn't fit one frustum: the frustum must
+// stay under ~166 degrees across), FM3_TRIPLE_ANGLE = degrees between the centre screen's axis and a side screen's
+// (0 = one screen's width: the pictures meet edge to edge), FM3_TRIPLE_BEZEL = degrees added for the bezels.
+PPC_FUNC_IMPL(__imp__sub_821E9B50);
+
+bool TripleOn()
+{
+    static const bool on = [] {
+        const char* v = getenv("REGPU_TRIPLE");
+        return v && *v && strcmp(v, "0") != 0;
+    }();
+    return on;
+}
+
+void TripleHandOff(PPCContext& ctx, uint8_t* base)
+{
+    const uint32_t view = ctx.r3.u32;
+    const uint32_t director = view ? Load32(base, view + 4) : 0;
+    if (!director)
+    {
+        __imp__sub_821E9B50(ctx, base);
+        return;
+    }
+    static const float d2r = 3.14159265f / 180.0f;
+    static const float wantFov = float(atof(getenv("FM3_TRIPLE_FOV") ? getenv("FM3_TRIPLE_FOV") : "0")) * d2r;
+    static const float wantAngle = float(atof(getenv("FM3_TRIPLE_ANGLE") ? getenv("FM3_TRIPLE_ANGLE") : "0")) * d2r;
+    static const float bezel = float(atof(getenv("FM3_TRIPLE_BEZEL") ? getenv("FM3_TRIPLE_BEZEL") : "0")) * d2r;
+    constexpr float aspect = 16.0f / 9.0f, maxHalf = 83.0f * 3.14159265f / 180.0f;
+    const float fovSaved = LoadF(base, director + kDirectorFov);
+    if (!(fovSaved > 0.05f && fovSaved < 3.0f))
+    {
+        __imp__sub_821E9B50(ctx, base);
+        return;
+    }
+    // Each screen's vertical field (vs) and horizontal (hs); the turn to a side screen; the frustum's half width.
+    float vs = wantFov > 0.05f ? wantFov : fovSaved;
+    auto hFov = [&](float v) { return 2.0f * atanf(tanf(v * 0.5f) * aspect); };
+    auto turnFor = [&](float v) { return (wantAngle > 0.0f ? wantAngle : hFov(v)) + bezel; };
+    // Too wide for one frustum: the screens' field made smaller until the outer edges fit (bisection).
+    if (turnFor(vs) + hFov(vs) * 0.5f > maxHalf)
+    {
+        float lo = 0.05f, hi = vs;
+        for (int i = 0; i < 30; i++)
+        {
+            const float mid = 0.5f * (lo + hi);
+            (turnFor(mid) + hFov(mid) * 0.5f > maxHalf ? hi : lo) = mid;
+        }
+        vs = lo;
+    }
+    const float angle = std::fmin(turnFor(vs), maxHalf - hFov(vs) * 0.5f);
+    const float half = angle + hFov(vs) * 0.5f;
+    const float gameFov = 2.0f * atanf(tanf(half) / aspect);
+    StoreF(base, director + kDirectorFov, gameFov);
+    __imp__sub_821E9B50(ctx, base);
+    StoreF(base, director + kDirectorFov, fovSaved);
+    regpu::triple::SubmitFrame(gameFov, vs, angle);
+    static float logged = 0;
+    if (std::fabs(logged - vs) > 0.01f)
+    {
+        logged = vs;
+        Log("triple: screens %.1f deg high, %.1f deg wide, side screens turned %.1f deg (camera %.1f deg -> frustum %.1f deg high, %.1f deg "
+            "across)",
+            vs / d2r, hFov(vs) / d2r, angle / d2r, fovSaved / d2r, gameFov / d2r, 2.0f * half / d2r);
+    }
+}
+
 void VrCameraMainFrame()
 {
     if (!Enabled())
@@ -242,7 +311,10 @@ PPC_FUNC(sub_821E9B50)
 {
     if (!Enabled())
     {
-        __imp__sub_821E9B50(ctx, base);
+        if (TripleOn())
+            TripleHandOff(ctx, base);
+        else
+            __imp__sub_821E9B50(ctx, base);
         return;
     }
     const uint32_t view = ctx.r3.u32;

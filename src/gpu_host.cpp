@@ -484,6 +484,27 @@ void GpuStart()
     // then the tone-map composite under it by destination alpha (session 38 capture); this is that composite's pixel
     // shader, so ReGPU takes the HUD from the surface before it and draws the composite opaque.
     DefaultEnv("REGPU_VR_HUD_UNDER", "5b7efac9b0c87a00");
+    // Triple screen (session 39, ReGPU REGPU_TRIPLE; src/hooks/vr_camera.cpp TripleHandOff): settings.ini triple=1 (or
+    // FM3_TRIPLE=1); the resolution is the three screens together (e.g. 7680x1440); triple_fov (each screen's vertical
+    // field of view, degrees; 0 = the camera's own where it fits), triple_angle (degrees between the screens' axes; 0 =
+    // edge to edge), triple_bezel (degrees for the bezels). Not together with VR. FM3 draws its scene turned 180 degrees,
+    // so the turn is flipped in clip space (as the VR eye offset).
+    {
+        const char* t = getenv("FM3_TRIPLE");
+        const std::string triple = t ? t : GetSettings().Extra("triple");
+        const char* vrNow = getenv("REGPU_VR");
+        if (triple == "1" && !(vrNow && *vrNow && strcmp(vrNow, "off") != 0 && strcmp(vrNow, "0") != 0))
+        {
+            DefaultEnv("REGPU_TRIPLE", "1");
+            DefaultEnv("REGPU_TRIPLE_FLIP", "1");
+            for (const char* key : { "fov", "angle", "bezel" })
+            {
+                const std::string v = GetSettings().Extra((std::string("triple_") + key).c_str());
+                if (!v.empty())
+                    DefaultEnv((std::string("FM3_TRIPLE_") + (key[0] == 'f' ? "FOV" : key[0] == 'a' ? "ANGLE" : "BEZEL")).c_str(), v.c_str());
+            }
+        }
+    }
     // Headset pacing (session 39, FH1R's scheme): in the head-tracked modes the frame cap follows the headset's display
     // rate while a headset session runs (a new frame for every headset frame, none wasted), and the headset thread
     // waits a moment for a frame that is nearly done. vr_pace=0 in settings.ini (launcher: off) leaves the cap as set.

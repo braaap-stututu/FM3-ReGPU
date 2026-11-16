@@ -166,6 +166,14 @@
         <div><div class="toggle-title">VR: match the headset's frame rate</div><div class="toggle-sub">Headset pacing, on by default</div></div>
         <button class="switch" id="vrPace" role="switch"></button>
       </div>
+      <div class="toggle-row" data-tip="One view across three monitors, each showing the world from its own angle, like three windows around you (not one stretched picture). Set the resolution to the three screens together (e.g. 7680x1440 for three 2560x1440 monitors) on one wide desktop (AMD Eyefinity, NVIDIA Surround) and fullscreen. The side screens are drawn as extra passes: about 2.3x the frame time (the centre's draws three times); the HUD is on the centre screen; upscalers and edge filters are off. Not together with VR. Read when the game starts.">
+        <div><div class="toggle-title">Triple screen</div><div class="toggle-sub">Three monitors, one view, experimental, off by default</div></div>
+        <button class="switch" id="triple" role="switch"></button>
+      </div>
+      <label class="field" data-tip="Each screen's vertical field of view. Physically right: the angle a screen fills from your eyes (for 27-inch monitors at 70 cm about 30 degrees). Auto uses the camera's own and narrows it where the three screens would not fit one view (the in-car camera's 45 degrees becomes about 33). The side screens are turned by one screen's width, so the pictures meet edge to edge (settings.ini triple_angle and triple_bezel change that).">
+        <span>Triple screen: field of view</span>
+        <select id="tripleFov"></select>
+      </label>
     </section>
 
     <section class="panel">

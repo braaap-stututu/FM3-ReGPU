@@ -48,6 +48,26 @@
     the headset that frame with exactly that pose (`regpu::vr::SubmitTaggedPose`). Grid: every frame tagged, drawn
     3-4 logic frames behind the newest pose (log `vr: frame drawn with pose tag`). **Next: the user re-tests.**
   - The user's settings had `vr_pace=0` and `vr_camera_motion=1` (their choice or a launcher bug: ask).
+- **True triple screen** (user: "try implementing a true triple screen mode"; ReGPU patch 67 `regpu-triple-screen`,
+  67 patches; RESEARCH "Single-instance triple screen" option 3): settings.ini `triple=1` (launcher Graphics
+  "Triple screen" + "Triple screen: field of view" = `triple_fov`; `triple_angle`, `triple_bezel` settings.ini only;
+  env `FM3_TRIPLE`, `FM3_TRIPLE_FOV/ANGLE/BEZEL`; not with VR). The resolution is the three screens together
+  (e.g. 7680x1440); each screen renders 16:9 at a third of the width.
+  - **How:** `src/hooks/vr_camera.cpp` `TripleHandOff` (every camera, not only in-car): FM3's field of view at the
+    camera hand-off is widened so its frustum (and culling) spans all three screens (half width = turn + half a
+    screen, under 83 degrees each side), put back after; each screen's vertical field = `triple_fov` or the camera's
+    own, narrowed by bisection where three screens would not fit (in-car 45 -> 32.9 deg, 55.3 deg wide each, side
+    screens turned 55.3 deg, frustum 166 deg across; logged `triple: screens ...`). ReGPU draws the frame's main view
+    (from its first full-width draw) three times with the stereo replay, each pass turned and narrowed in the vertex
+    shaders (clip-space turn: depth exact for z = w + B), HUD on the centre only (side passes draw the composite
+    opaque), and shows the three graded pictures side by side.
+  - **Grid check** (`FM3_TRIPLE=1 FM3_VR=off FM3_RESOLUTION=3840x720`): one continuous cockpit view across the three
+    screens, seams continuous (fence, bonnet, rear-view mirror across the right seam), HUD centred
+    (`out/shots/s39-triple-*.png`). ~130 fps (9,000 draws, draw thread bound) vs ~300 with `REGPU_TRIPLE_CENTRE_ONLY=1`.
+    VR stereo re-checked after the replay refactor.
+  - **Not done / to check:** a real triple-monitor desktop (Eyefinity/Surround, fullscreen); LOD: FM3 sees a 166 deg
+    frustum and may pick lower detail sooner; chase cameras and menus with 3D (showroom) not looked at; the sun
+    flare's occlusion answers come from the centre pass; bezel/angle settings untested.
 - **Installer for another PC** (user's request): `installer/fm3.iss` + `installer/build-installer.ps1` (Inno Setup
   6.7.3, installed per user with winget) -> `out/installer/dist/FM3-ReGPU-Setup-<version>.exe` (~83 MB): fm3.exe +
   DLLs + pdb, launcher published self-contained, licences; per user in `%LOCALAPPDATA%\FM3-ReGPU`, no game files.

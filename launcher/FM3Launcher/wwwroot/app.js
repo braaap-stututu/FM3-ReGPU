@@ -19,7 +19,7 @@ const PRESETS = [
 // Mild and up turn these on by themselves (src/gpu_host.cpp ApplyPerfPreset): shown on and locked there; Off and
 // Turbo leave them to their own switches.
 const PRESET_OPTIONS = ["oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "carLodFar"]
-const SWITCHES = ["vsync", "vrCameraMotion", "vrPace", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "dxcShaders", "eqaa", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
+const SWITCHES = ["vsync", "vrCameraMotion", "vrPace", "triple", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "dxcShaders", "eqaa", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
 
 // ---- host calls
 
@@ -204,6 +204,7 @@ function render() {
   // (fm3.exe turns it off, src/settings.cpp); EQAA only means something with MSAA.
   fill($("aa"), o.aa, set.aa)
   if (o.vr) fill($("vr"), o.vr, set.vr)
+  if (o.tripleFov) fill($("tripleFov"), o.tripleFov, set.tripleFov)
   fill($("ssaa"), o.ssaa, set.ssaa)
   const noSsaa = set.upscaler !== "off"
   $("ssaa").disabled = noSsaa
@@ -363,6 +364,7 @@ $("customFps").onchange = (e) => {
 $("msaa").onchange = (e) => change({ msaa: +e.target.value })
 $("aa").onchange = (e) => change({ aa: e.target.value })
 $("vr").onchange = (e) => change({ vr: e.target.value })
+$("tripleFov").onchange = (e) => change({ tripleFov: e.target.value })
 $("ssaa").onchange = (e) => change({ ssaa: e.target.value })
 $("gpu").onchange = (e) => change({ gpu: e.target.value })
 $("perfPreset").oninput = (e) => { const p = PRESETS[+e.target.value]; $("perfPreset-v").textContent = p.name; $("perfPreset-note").textContent = p.note }
