@@ -1,8 +1,31 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 0284816..8dea6a7 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -12289,7 +12289,9 @@ void ScanVrTag()
+         if ((v & 0xFFFF0000u) != regpu::vr::kPoseTagBits || !(v & 0xFFFF))
+             continue;
+         const uint32_t tag = v & 0xFFFF;
+-        if (!g_frameVrTag || int16_t(uint16_t(tag - g_frameVrTag)) > 0)
++        // (Only a pose handed in recently: another constant can have the same bit pattern; session 39, the user saw
++        // frames fall back to the flat view, logged as tags without a pose.)
++        if ((!g_frameVrTag || int16_t(uint16_t(tag - g_frameVrTag)) > 0) && regpu::xr::TagKnown(tag))
+             g_frameVrTag = tag;
+     }
+ }
 diff --git a/src/render/xr.cpp b/src/render/xr.cpp
-index b72c8a2..97e71da 100644
+index b72c8a2..1c26a78 100644
 --- a/src/render/xr.cpp
 +++ b/src/render/xr.cpp
-@@ -103,6 +103,7 @@ struct TaggedPose
+@@ -30,6 +30,7 @@ bool StereoFrame(float&, float&) { return false; }
+ bool MonoHudPanel() { return false; }
+ uint32_t PaceCap() { return 0; }
+ void SetCaptureTag(uint32_t) {}
++bool TagKnown(uint32_t) { return false; }
+ ID3D12Resource* StereoTarget(int, uint32_t, uint32_t) { return nullptr; }
+ void StereoHudCaptured() {}
+ }
+@@ -103,6 +104,7 @@ struct TaggedPose
  {
      uint32_t tag = 0;
      FramePose pose;
@@ -10,7 +33,16 @@ index b72c8a2..97e71da 100644
  };
  TaggedPose g_tagged[1024];                // (g_taggedMutex) by tag & 1023
  std::mutex g_taggedMutex;
-@@ -1029,11 +1030,27 @@ bool StereoFrame(float& clipPerMetre, float& halfIpd)
+@@ -971,7 +973,7 @@ struct Session
+             if (std::chrono::steady_clock::now() - lastLog > std::chrono::seconds(30))
+             {
+                 lastLog = std::chrono::steady_clock::now();
+-                Log("vr: %llu headset frames, %llu with the screen, %llu game frames captured, %llu tags without a pose", (unsigned long long)frames,
++                Log("vr: %llu headset frames, %llu with the screen, %llu game frames captured, %llu stereo frames without their own pose", (unsigned long long)frames,
+                     (unsigned long long)shown, (unsigned long long)g_captured.load(), (unsigned long long)g_posesMissing.load());
+             }
+         }
+@@ -1029,11 +1031,27 @@ bool StereoFrame(float& clipPerMetre, float& halfIpd)
      // REGPU_VR_STEREO_TEST=1 (live): stereo without a headset, for screenshots (the desktop shows the eye drawn second;
      // REGPU_VR_SHOW=left (gpu.cpp) swaps the order).
      static LiveSwitch test("REGPU_VR_STEREO_TEST");
@@ -41,7 +73,21 @@ index b72c8a2..97e71da 100644
      // P00 of a 16:9 symmetric projection with that vertical field of view (the game's main view).
      clipPerMetre = 1.0f / (tanf(fovY * 0.5f) * (16.0f / 9.0f));
      halfIpd = HalfIpd();
-@@ -1128,7 +1145,8 @@ void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer)
+@@ -1075,6 +1093,13 @@ ID3D12Resource* StereoTarget(int eye, uint32_t w, uint32_t h)
+ 
+ void StereoHudCaptured() { g_hudThisFrame = true; }
+ 
++bool TagKnown(uint32_t tag)
++{
++    std::lock_guard lock(g_taggedMutex);
++    const TaggedPose& t = g_tagged[tag & 1023];
++    return t.tag == tag && std::chrono::steady_clock::now() - t.at < std::chrono::milliseconds(250);
++}
++
+ void SetCaptureTag(uint32_t tag)
+ {
+     g_captureTag = tag;
+@@ -1128,10 +1153,18 @@ void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer)
          {
              std::lock_guard tl(g_taggedMutex);
              const TaggedPose& t = g_tagged[tag & 1023];
@@ -49,9 +95,21 @@ index b72c8a2..97e71da 100644
 +            // (A tag older than 250 ms is a leftover in the constants of a view that is no longer head-tracked.)
 +            if (t.tag == tag && std::chrono::steady_clock::now() - t.at < std::chrono::milliseconds(250))
                  g_screenPose = t.pose;
-             else
-                 g_posesMissing++;
-@@ -1189,6 +1207,7 @@ void SubmitTaggedPose(uint32_t tag, const HeadPose& pose, float renderFovY)
+-            else
+-                g_posesMissing++;
++        }
++        // A stereo frame without a usable tag of its own: the newest pose handed in (close, and never the flat view).
++        if (!g_screenPose.valid && g_eyesThisFrame.load(std::memory_order_relaxed))
++        {
++            std::lock_guard tl(g_taggedMutex);
++            const TaggedPose& t = g_tagged[g_newestTag.load(std::memory_order_relaxed) & 1023];
++            if (t.tag && std::chrono::steady_clock::now() - t.at < std::chrono::milliseconds(250))
++                g_screenPose = t.pose;
++            g_posesMissing++;
+         }
+         g_screenStereo = g_eyesThisFrame.exchange(false);
+         g_screenHud = g_hudThisFrame.exchange(false);
+@@ -1189,6 +1222,7 @@ void SubmitTaggedPose(uint32_t tag, const HeadPose& pose, float renderFovY)
      t.pose.valid = true;
      t.pose.pose = pose;
      t.pose.fovY = renderFovY;
@@ -59,3 +117,17 @@ index b72c8a2..97e71da 100644
  }
  }
  
+diff --git a/src/render/xr.h b/src/render/xr.h
+index 680165f..81a527e 100644
+--- a/src/render/xr.h
++++ b/src/render/xr.h
+@@ -35,6 +35,9 @@ bool MonoHudPanel();
+ // The pose tag (regpu::vr::SubmitTaggedPose) of the frame whose copy is recorded next (CaptureFrame); 0 = none. Set by
+ // the renderer right before the frame's back-buffer copy, on the thread that records it.
+ void SetCaptureTag(uint32_t tag);
++// Whether `tag` is a pose handed in during the last 250 ms (the renderer takes only those from the constants: another
++// value with the same bit pattern is not a tag).
++bool TagKnown(uint32_t tag);
+ // Headset pacing (REGPU_VR_PACE, default on in cockpit/stereo; 0 off): the frame cap the headset wants (its display
+ // rate x REGPU_VR_PACE_MULT, default 1), or 0 (no session, pacing off).
+ uint32_t PaceCap();

@@ -55,7 +55,13 @@
   ran in the last 100 ms (`src/hooks/vr_camera.cpp`), plus ReGPU patch 68 `regpu-vr-stereo-hold` (pose tags older
   than 250 ms not used; the log counts stereo/flat mixes per 600 frames). Grid at 72 fps in the car: 600 of 600 stereo
   in every window. (My test boots now set `XR_RUNTIME_JSON` to a missing file so they don't open a session on the
-  user's headset: one earlier boot did.) Log `out/logs/user-s39/fm3.headset-retest-flicker.log`. **Next: user check.**
+  user's headset: one earlier boot did.) Log `out/logs/user-s39/fm3.headset-retest-flicker.log`.
+  - **Third test: short flat moments still.** Log (`out/logs/user-s39/fm3.headset-retest2.log`): every frame was
+    stereo now (3,600 in 50 s), but ~6 frames a second carried a tag that matched no pose ("tags without a pose"
+    260), so they went to the headset without a pose and showed flat. Likely another constant with the same bit
+    pattern read as the newest tag. Fix (in patch 68): a tag counts only if that pose was handed in during the last
+    250 ms (`regpu::xr::TagKnown`), and a stereo frame without a usable tag gets the newest pose instead of the flat
+    view. Grid at 72 fps: every frame tagged, one logic step behind the newest. **Next: user check.**
 - **True triple screen** (user: "try implementing a true triple screen mode"; ReGPU patch 67 `regpu-triple-screen`,
   67 patches; RESEARCH "Single-instance triple screen" option 3): settings.ini `triple=1` (launcher Graphics
   "Triple screen" + "Triple screen: field of view" = `triple_fov`; `triple_angle`, `triple_bezel` settings.ini only;
