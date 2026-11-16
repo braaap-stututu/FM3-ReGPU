@@ -1,5 +1,5 @@
 diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
-index 0284816..8dea6a7 100644
+index 0284816..492c44c 100644
 --- a/src/gpu/renderer.cpp
 +++ b/src/gpu/renderer.cpp
 @@ -12289,7 +12289,9 @@ void ScanVrTag()
@@ -13,19 +13,29 @@ index 0284816..8dea6a7 100644
              g_frameVrTag = tag;
      }
  }
+@@ -15756,7 +15758,7 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     static AsyncEnd asyncEnds[kFrames];
+     AsyncEnd& asyncEnd = asyncEnds[g_r.frameIndex];
+     bool presenting = false;
+-    const uint32_t vrTag = g_frameVrTag;
++    const uint32_t vrTag = g_frameVrTag | regpu::xr::TakeFrameFlags(); // (the frame's own: carried to its copy)
+     g_frameVrTag = 0;
+     g_frameVrScans = 0;
+     if (asyncPresent)
 diff --git a/src/render/xr.cpp b/src/render/xr.cpp
-index b72c8a2..1c26a78 100644
+index b72c8a2..41f5dd4 100644
 --- a/src/render/xr.cpp
 +++ b/src/render/xr.cpp
-@@ -30,6 +30,7 @@ bool StereoFrame(float&, float&) { return false; }
+@@ -30,6 +30,8 @@ bool StereoFrame(float&, float&) { return false; }
  bool MonoHudPanel() { return false; }
  uint32_t PaceCap() { return 0; }
  void SetCaptureTag(uint32_t) {}
++uint32_t TakeFrameFlags() { return 0; }
 +bool TagKnown(uint32_t) { return false; }
  ID3D12Resource* StereoTarget(int, uint32_t, uint32_t) { return nullptr; }
  void StereoHudCaptured() {}
  }
-@@ -103,6 +104,7 @@ struct TaggedPose
+@@ -103,6 +105,7 @@ struct TaggedPose
  {
      uint32_t tag = 0;
      FramePose pose;
@@ -33,7 +43,7 @@ index b72c8a2..1c26a78 100644
  };
  TaggedPose g_tagged[1024];                // (g_taggedMutex) by tag & 1023
  std::mutex g_taggedMutex;
-@@ -971,7 +973,7 @@ struct Session
+@@ -971,7 +974,7 @@ struct Session
              if (std::chrono::steady_clock::now() - lastLog > std::chrono::seconds(30))
              {
                  lastLog = std::chrono::steady_clock::now();
@@ -42,7 +52,7 @@ index b72c8a2..1c26a78 100644
                      (unsigned long long)shown, (unsigned long long)g_captured.load(), (unsigned long long)g_posesMissing.load());
              }
          }
-@@ -1029,11 +1031,27 @@ bool StereoFrame(float& clipPerMetre, float& halfIpd)
+@@ -1029,11 +1032,27 @@ bool StereoFrame(float& clipPerMetre, float& halfIpd)
      // REGPU_VR_STEREO_TEST=1 (live): stereo without a headset, for screenshots (the desktop shows the eye drawn second;
      // REGPU_VR_SHOW=left (gpu.cpp) swaps the order).
      static LiveSwitch test("REGPU_VR_STEREO_TEST");
@@ -73,10 +83,11 @@ index b72c8a2..1c26a78 100644
      // P00 of a 16:9 symmetric projection with that vertical field of view (the game's main view).
      clipPerMetre = 1.0f / (tanf(fovY * 0.5f) * (16.0f / 9.0f));
      halfIpd = HalfIpd();
-@@ -1075,6 +1093,13 @@ ID3D12Resource* StereoTarget(int eye, uint32_t w, uint32_t h)
+@@ -1075,9 +1094,22 @@ ID3D12Resource* StereoTarget(int eye, uint32_t w, uint32_t h)
  
  void StereoHudCaptured() { g_hudThisFrame = true; }
  
+-void SetCaptureTag(uint32_t tag)
 +bool TagKnown(uint32_t tag)
 +{
 +    std::lock_guard lock(g_taggedMutex);
@@ -84,10 +95,27 @@ index b72c8a2..1c26a78 100644
 +    return t.tag == tag && std::chrono::steady_clock::now() - t.at < std::chrono::milliseconds(250);
 +}
 +
- void SetCaptureTag(uint32_t tag)
++uint32_t TakeFrameFlags()
  {
-     g_captureTag = tag;
-@@ -1128,10 +1153,18 @@ void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer)
+-    g_captureTag = tag;
++    return (g_eyesThisFrame.exchange(false) ? kFrameStereo : 0u) | (g_hudThisFrame.exchange(false) ? kFrameHud : 0u);
++}
++
++void SetCaptureTag(uint32_t frame)
++{
++    g_captureTag = frame;
++    const uint32_t tag = frame & 0xFFFF;
+     // Every 600th frame end: the frame's tag beside the newest one handed in (how many logic frames the drawing trails).
+     static uint32_t calls = 0;
+     if (tag && ++calls % 600 == 0)
+@@ -1124,17 +1156,27 @@ void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer)
+         // This captured frame's pose: the one its main view was drawn with, by the tag the draw thread read from it
+         // (SetCaptureTag). No tag: not head-tracked (the virtual screen).
+         g_screenPose.valid = false;
+-        if (const uint32_t tag = g_captureTag.exchange(0))
++        const uint32_t frame = g_captureTag.exchange(0);
++        const bool frameStereo = (frame & kFrameStereo) != 0, frameHud = (frame & kFrameHud) != 0;
++        if (const uint32_t tag = frame & 0xFFFF)
          {
              std::lock_guard tl(g_taggedMutex);
              const TaggedPose& t = g_tagged[tag & 1023];
@@ -97,19 +125,24 @@ index b72c8a2..1c26a78 100644
                  g_screenPose = t.pose;
 -            else
 -                g_posesMissing++;
-+        }
+         }
+-        g_screenStereo = g_eyesThisFrame.exchange(false);
+-        g_screenHud = g_hudThisFrame.exchange(false);
 +        // A stereo frame without a usable tag of its own: the newest pose handed in (close, and never the flat view).
-+        if (!g_screenPose.valid && g_eyesThisFrame.load(std::memory_order_relaxed))
++        if (!g_screenPose.valid && frameStereo)
 +        {
 +            std::lock_guard tl(g_taggedMutex);
 +            const TaggedPose& t = g_tagged[g_newestTag.load(std::memory_order_relaxed) & 1023];
 +            if (t.tag && std::chrono::steady_clock::now() - t.at < std::chrono::milliseconds(250))
 +                g_screenPose = t.pose;
 +            g_posesMissing++;
-         }
-         g_screenStereo = g_eyesThisFrame.exchange(false);
-         g_screenHud = g_hudThisFrame.exchange(false);
-@@ -1189,6 +1222,7 @@ void SubmitTaggedPose(uint32_t tag, const HeadPose& pose, float renderFovY)
++        }
++        g_screenStereo = frameStereo;
++        g_screenHud = frameHud;
+     }
+     Barrier(list, backBuffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
+     Barrier(list, screen.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST);
+@@ -1189,6 +1231,7 @@ void SubmitTaggedPose(uint32_t tag, const HeadPose& pose, float renderFovY)
      t.pose.valid = true;
      t.pose.pose = pose;
      t.pose.fovY = renderFovY;
@@ -118,13 +151,25 @@ index b72c8a2..1c26a78 100644
  }
  
 diff --git a/src/render/xr.h b/src/render/xr.h
-index 680165f..81a527e 100644
+index 680165f..9018268 100644
 --- a/src/render/xr.h
 +++ b/src/render/xr.h
-@@ -35,6 +35,9 @@ bool MonoHudPanel();
- // The pose tag (regpu::vr::SubmitTaggedPose) of the frame whose copy is recorded next (CaptureFrame); 0 = none. Set by
- // the renderer right before the frame's back-buffer copy, on the thread that records it.
- void SetCaptureTag(uint32_t tag);
+@@ -32,9 +32,18 @@ void StereoHudCaptured();
+ // Head-tracked mono frames (REGPU_VR=cockpit) take the HUD apart too (the same capture as stereo: renderer.cpp
+ // StereoHudDraw): true on a posed frame while a headset session runs (or REGPU_VR_STEREO_TEST).
+ bool MonoHudPanel();
+-// The pose tag (regpu::vr::SubmitTaggedPose) of the frame whose copy is recorded next (CaptureFrame); 0 = none. Set by
+-// the renderer right before the frame's back-buffer copy, on the thread that records it.
+-void SetCaptureTag(uint32_t tag);
++// The frame whose copy is recorded next (CaptureFrame): its pose tag (regpu::vr::SubmitTaggedPose, low 16 bits; 0 =
++// none) | kFrameStereo | kFrameHud. Set by the renderer right before the frame's back-buffer copy, on the thread that
++// records it (the asynchronous frame end's: it can run a frame behind the draw thread).
++constexpr uint32_t kFrameStereo = 1u << 16, kFrameHud = 1u << 17;
++void SetCaptureTag(uint32_t frame);
++// On the draw thread at the swap: whether this frame's eyes and HUD panel image were written (kFrameStereo, kFrameHud),
++// cleared for the next frame. (They used to be read at the copy, which a late frame end let the next frame take first:
++// session 39, the view went flat for a moment at hitches.)
++uint32_t TakeFrameFlags();
 +// Whether `tag` is a pose handed in during the last 250 ms (the renderer takes only those from the constants: another
 +// value with the same bit pattern is not a tag).
 +bool TagKnown(uint32_t tag);
