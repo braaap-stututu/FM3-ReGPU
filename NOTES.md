@@ -1,6 +1,44 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-16, session 38)
+## ▶ Current status / next step  (updated 2026-11-16, session 39)
+
+### ▶ Start here (session 40): state at the end of session 39 (2026-11-16)
+- **In short:** a long session of user requests, all committed (last commit after 9c07e64; 70 ReGPU patches):
+  TAAU research; Windows installer + Disc 1 import from the .iso; the remaining VR parts (lens crop, pacing, mono HUD
+  panel, seat keys) and three VR fixes from the user's Quest 2 tests (pose tags, stereo hold, flags with the frame);
+  unlimited head movement; true triple screen (+ physical layouts with bezel/spacing/independent angles, a setup page,
+  spanning separate monitors, the forced-aspect bug); the boot shader-compile screen (R8-style rev counter, the user's
+  picture, shipped in the installer); a Linux launcher (native, runs the game through umu/Proton/Wine) and a
+  Proton-compatible Windows launcher (browser mode); VR and Triple screens launcher tabs with their own settings and
+  Play buttons; controller navigation in the launcher; wheel split steering + calibration. Details per item in the
+  "Session 39" entry below.
+- **Where each thing stands (what the user has and hasn't confirmed):**
+  - **VR (Quest 2 over Virtual Desktop, 72 Hz, stereo):** user: head-turn stutter gone (pose tags), the stereo/flat
+    flicker much better; last fix (stereo/HUD flags travel with their frame, for hitches on lap 1) **not yet confirmed**.
+    Unlimited head movement (default) not yet tried. Logs: `out/logs/user-s39/`.
+  - **Triple screen (user's rig: 3x 2560x1440 as one AMD Eyefinity display, 7680x1440):** first test showed the picture
+    a third of the size on the centre screen: fixed (fullscreen spans the monitor row; a forced `aspect=16:9` had
+    shrunk each screen to 853x480; grid now draws 7680x1440). **Not yet confirmed by the user in a race.**
+    **Open: shimmering shadow lines** in triple mode: FM3 fits its shadows to the camera's view, which triple widens
+    (up to 166 deg) so the side screens aren't culled; texels spread ~15x and thin shadows crawl. `FM3_TRIPLE_NARROW=1`
+    (experiment) keeps the camera narrow: shadows normal but the side screens lose buildings/cars to culling. **Next:**
+    find where FM3 fits its shadow frustum to the presentation camera (after `sub_821E9B50`'s hand-off) and give it the
+    centre screen's view while culling keeps the wide one (the user asked whether to; not yet decided: offer it).
+  - **Launchers:** the user confirmed the controller navigation works (VSync reachability fixed after). The user is
+    trying the Windows installer on their Steam Deck under Proton (browser mode): **result pending**. The native Linux
+    package (`installer/build-linux.ps1`) is untested on Linux. Installer last built: 0.39.4 (it lacks the VSync
+    reachability fix and both triple-screen fixes); rebuild (`installer/build-installer.ps1`) before handing one out.
+  - **Wheels:** split steering and calibration built and unit-tested (20 cases) and clicked through with a simulated
+    wheel; never tried with a real wheel.
+  - **Boot screen:** done as the user asked (their own edited picture with the plate, `out/user/boot/`, shipped by the
+    installer; `background.txt` = `clear 655 236 1024 572`).
+- **Next, in the user's order of interest (ask):** their Steam Deck result; a triple race (and the shadow fix if they
+  want it); the VR check of the last flicker fix; then anything from the open performance leads (still as listed in
+  "Start here (session 39)" below: stale PGO profile, L35, L9, L18, L22, I5, I6, AFMF 2, Steam Deck).
+- **Test-boot rules learned this session:** set `XR_RUNTIME_JSON` to a missing file on every automated boot (one boot
+  opened a session on the user's headset while Virtual Desktop streamed); `FM3_TRIPLE=1 FM3_VR=off
+  FM3_RESOLUTION=3840x720` for triple grid tests (the user's settings.ini has `aspect=16:9` and vr settings); the
+  browser pane may be hidden or tiny: use `resize_window` and call `gpPoll()` directly for controller tests.
 
 ### Session 39 (2026-11-16)
 - **TAAU research** (RESEARCH.md "TAAU"): feasible and small (our TAA's jitter/motion/history at output size, one
