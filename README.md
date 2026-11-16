@@ -39,7 +39,7 @@ Known issues and not yet checked:
 - Small vinyl gaps at the edges of some cars (Scion, Fiat, Supra rear bumper).
 - The first seconds of a race after a shader-cache rebuild can run at 30–36 fps.
 - Other hardware than my own all AMD win11 build.
-- The launcher covers settings, profiles, the Disc 1 import from its .iso and the Disc 2 install; photos are not ported from the FM4 launcher yet. An installer for other PCs is built by `installerbuild-installer.ps1`. Current focus is visual parity with console before adding more features.
+- The launcher covers settings, profiles, the Disc 1 import from its .iso and the Disc 2 install; photos are not ported from the FM4 launcher yet. An installer for other PCs is built by `installer\build-installer.ps1`. Current focus is visual parity with console before adding more features.
 
 Each fix can be switched off for comparison; the switches and details are in [NOTES.md](NOTES.md) and
 [patches/README.md](patches/README.md).
