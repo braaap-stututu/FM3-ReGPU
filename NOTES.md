@@ -48,6 +48,14 @@
     the headset that frame with exactly that pose (`regpu::vr::SubmitTaggedPose`). Grid: every frame tagged, drawn
     3-4 logic frames behind the newest pose (log `vr: frame drawn with pose tag`). **Next: the user re-tests.**
   - The user's settings had `vr_pace=0` and `vr_camera_motion=1` (their choice or a launcher bug: ask).
+- **Second headset test (user): "stutter is gone now but it flickers between stereo and the flat tracked view".**
+  The log: ~4,220 frames drawn in 58 s, 3,600 in stereo. Cause: whether a frame is head-tracked was decided per
+  logic step ("a posed camera hand-off since the last step"), but at the 72 fps cap the logic ran 144 steps a second
+  with only ~120 hand-offs, so steps without one marked the next frame flat. Fix: head-tracked while a posed hand-off
+  ran in the last 100 ms (`src/hooks/vr_camera.cpp`), plus ReGPU patch 68 `regpu-vr-stereo-hold` (pose tags older
+  than 250 ms not used; the log counts stereo/flat mixes per 600 frames). Grid at 72 fps in the car: 600 of 600 stereo
+  in every window. (My test boots now set `XR_RUNTIME_JSON` to a missing file so they don't open a session on the
+  user's headset: one earlier boot did.) Log `out/logs/user-s39/fm3.headset-retest-flicker.log`. **Next: user check.**
 - **True triple screen** (user: "try implementing a true triple screen mode"; ReGPU patch 67 `regpu-triple-screen`,
   67 patches; RESEARCH "Single-instance triple screen" option 3): settings.ini `triple=1` (launcher Graphics
   "Triple screen" + "Triple screen: field of view" = `triple_fov`; `triple_angle`, `triple_bezel` settings.ini only;

@@ -227,6 +227,7 @@ void SeatOffset(float out[3])
 regpu::vr::HeadPose g_framePose;
 float g_frameFov = 0;
 bool g_framePosed = false;
+ULONGLONG g_lastPosedMs = 0; // when a head-tracked camera hand-off last ran
 } // namespace
 
 // Triple screen (session 39; ReGPU REGPU_TRIPLE: the main view drawn three times, turned per screen). The camera's
@@ -302,7 +303,11 @@ void VrCameraMainFrame()
 {
     if (!Enabled())
         return;
-    regpu::vr::SubmitFramePose(g_framePosed ? &g_framePose : nullptr, g_frameFov);
+    // Head-tracked while a posed hand-off ran in the last 100 ms: FM3's logic runs ~1.7 times per drawn frame and not
+    // every step hands the camera off, so "none this step" made every few frames flat (session 39: the view flickered
+    // between stereo and the flat tracked picture).
+    const bool posed = g_framePosed || GetTickCount64() - g_lastPosedMs < 100;
+    regpu::vr::SubmitFramePose(posed ? &g_framePose : nullptr, g_frameFov);
     g_framePosed = false;
 }
 
@@ -404,6 +409,7 @@ PPC_FUNC(sub_821E9B50)
     g_framePose = pose;
     g_frameFov = fov;
     g_framePosed = true;
+    g_lastPosedMs = GetTickCount64();
     regpu::vr::SubmitTaggedPose(tagCounter, pose, fov);
     static bool logged = false;
     if (!logged)
