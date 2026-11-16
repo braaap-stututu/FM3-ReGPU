@@ -94,8 +94,10 @@ const wchar_t* FontFamilyName()
     return name;
 }
 
-// A number plate (EU size, 520 x 110 mm) with `text`, drawn flat and mapped onto the parallelogram `to` (top left, top
-// right, bottom left) with the picture's shade: the plate is lit like the car's rear around it.
+// A German number plate (EU size, 520 x 110 mm) with `text`, drawn flat and mapped onto the parallelogram `to` (top
+// left, top right, bottom left), lit like the car around it. After a photo of a 2007 R8's plate (session 39): white,
+// a thin black border inset from the edge, the blue band (12 stars, "D"), narrow DIN-style letters (Bahnschrift
+// Condensed = DIN 1451, the face German plates used before FE-Schrift) pressed in, the plate lamps from above.
 void DrawPlate(Graphics& g, const PointF (&to)[3], const char* text)
 {
     constexpr int pw = 1040, ph = 220; // 2 px a millimetre
@@ -103,7 +105,7 @@ void DrawPlate(Graphics& g, const PointF (&to)[3], const char* text)
     {
         Graphics pg(&plate);
         pg.SetSmoothingMode(SmoothingModeAntiAlias);
-        pg.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
+        pg.SetTextRenderingHint(TextRenderingHintAntiAlias);
         pg.Clear(Color(0, 0, 0, 0));
         auto rounded = [](GraphicsPath& path, float x, float y, float w, float h, float rad) {
             path.AddArc(x, y, rad * 2, rad * 2, 180, 90);
@@ -112,43 +114,75 @@ void DrawPlate(Graphics& g, const PointF (&to)[3], const char* text)
             path.AddArc(x, y + h - rad * 2, rad * 2, rad * 2, 90, 90);
             path.CloseFigure();
         };
-        GraphicsPath body, inner;
-        rounded(body, 2, 2, pw - 4, ph - 4, 22);
-        rounded(inner, 12, 12, pw - 24, ph - 24, 14);
-        LinearGradientBrush white(PointF(0, 0), PointF(0, float(ph)), Color(255, 246, 246, 242), Color(255, 214, 214, 210));
+        // The plate: white aluminium, a slight curve of light from the lamps above.
+        GraphicsPath body;
+        rounded(body, 1, 1, pw - 2, ph - 2, 10);
+        LinearGradientBrush white(PointF(0, 0), PointF(0, float(ph)), Color(255, 252, 252, 250), Color(255, 226, 226, 222));
         pg.FillPath(&white, &body);
-        Pen edge(Color(255, 30, 30, 32), 8.0f);
-        pg.DrawPath(&edge, &inner);
-        // The blue band on the left (a European plate), then the text.
+        // The blue band, inside the border, its left corners rounded with it.
+        const float inset = 10, bandW = 92;
         GraphicsPath band;
-        band.AddRectangle(RectF(16, 16, 86, ph - 32));
-        SolidBrush blue(Color(255, 16, 58, 160));
+        band.AddArc(inset + 2, inset + 2, 16.0f, 16.0f, 180.0f, 90.0f);
+        band.AddLine(inset + 10, inset + 2, inset + bandW, inset + 2);
+        band.AddLine(inset + bandW, inset + 2, inset + bandW, ph - inset - 2);
+        band.AddLine(inset + bandW, ph - inset - 2, inset + 10, ph - inset - 2);
+        band.AddArc(inset + 2, float(ph) - inset - 18, 16.0f, 16.0f, 90.0f, 90.0f);
+        band.CloseFigure();
+        LinearGradientBrush blue(PointF(0, inset), PointF(0, ph - inset), Color(255, 20, 64, 168), Color(255, 10, 44, 132));
         pg.FillPath(&blue, &band);
-        SolidBrush star(Color(255, 255, 204, 0));
+        const float bcx = inset + 2 + (bandW - 2) * 0.5f, bcy = 70;
+        SolidBrush star(Color(255, 255, 206, 0));
         for (int i = 0; i < 12; i++)
         {
             const float a = i * 2 * kPi / 12;
-            pg.FillEllipse(&star, 59 + 26 * cosf(a) - 4, 72 + 26 * sinf(a) - 4, 8.0f, 8.0f);
+            const float x = bcx + 25 * cosf(a), y = bcy + 25 * sinf(a);
+            PointF pts[10];
+            for (int k = 0; k < 10; k++)
+            {
+                const float rr = k % 2 ? 2.4f : 5.6f, aa = -kPi / 2 + k * kPi / 5;
+                pts[k] = PointF(x + rr * cosf(aa), y + rr * sinf(aa));
+            }
+            pg.FillPolygon(&star, pts, 10);
         }
-        FontFamily family(FontFamilyName());
-        Font tiny(&family, 44, FontStyleBold, UnitPixel);
-        SolidBrush whiteText(Color(255, 255, 255, 255));
         StringFormat centre;
         centre.SetAlignment(StringAlignmentCenter);
         centre.SetLineAlignment(StringAlignmentCenter);
-        pg.DrawString(L"RG", -1, &tiny, PointF(59, 165), &centre, &whiteText);
+        FontFamily cond(L"Bahnschrift Condensed");
+        FontFamily& face = cond.IsAvailable() ? cond : *new FontFamily(L"Arial Narrow");
+        Font code(&face, 58, FontStyleRegular, UnitPixel);
+        SolidBrush whiteText(Color(255, 255, 255, 255));
+        pg.DrawString(L"D", -1, &code, PointF(bcx, 160), &centre, &whiteText);
+        // The border: a thin black line inset from the edge, rounded.
+        GraphicsPath border;
+        rounded(border, inset, inset, pw - inset * 2, ph - inset * 2, 8);
+        Pen edge(Color(255, 20, 20, 22), 5.0f);
+        pg.DrawPath(&edge, &border);
+        // The letters: tall and narrow, pressed into the plate (light above, shadow below).
         wchar_t wide[64] = {};
         MultiByteToWideChar(CP_UTF8, 0, text, -1, wide, 63);
-        Font big(&family, 150, FontStyleBold, UnitPixel);
-        SolidBrush black(Color(255, 22, 22, 24));
-        pg.DrawString(wide, -1, &big, PointF(102 + (pw - 102) * 0.5f, ph * 0.53f), &centre, &black);
+        Font letters(&face, 180, FontStyleRegular, UnitPixel);
+        const float tx = inset + bandW + (pw - inset * 2 - bandW) * 0.5f, ty = ph * 0.52f;
+        SolidBrush lift(Color(170, 255, 255, 255)), drop(Color(90, 0, 0, 0)), ink(Color(255, 18, 18, 20));
+        pg.DrawString(wide, -1, &letters, PointF(tx - 1.5f, ty - 2.5f), &centre, &lift);
+        pg.DrawString(wide, -1, &letters, PointF(tx + 2.0f, ty + 3.0f), &centre, &drop);
+        pg.DrawString(wide, -1, &letters, PointF(tx, ty), &centre, &ink);
+        // A faint sheen across the top half.
+        LinearGradientBrush sheen(PointF(0, 0), PointF(0, ph * 0.55f), Color(46, 255, 255, 255), Color(0, 255, 255, 255));
+        pg.FillRectangle(&sheen, RectF(0, 0, float(pw), ph * 0.55f));
+        if (&face != &cond)
+            delete &face;
     }
-    // Onto the car, then shaded as the panel around it (the rear is in soft shadow, darker at the bottom).
+    // Onto the car, then the light of the recess it sits in: the lamps above it, the shadow below.
     g.DrawImage(&plate, to, 3);
     const PointF br(to[1].X + to[2].X - to[0].X, to[1].Y + to[2].Y - to[0].Y);
     PointF quad[4] = { to[0], to[1], br, to[2] };
-    LinearGradientBrush shade(to[0], to[2], Color(95, 10, 10, 12), Color(150, 6, 6, 8));
+    LinearGradientBrush shade(to[0], to[2], Color(40, 12, 10, 8), Color(120, 6, 6, 8));
     g.FillPolygon(&shade, quad, 4);
+    // Its own shadow on the panel just below, and a thin highlight on its top edge.
+    Pen under(Color(110, 0, 0, 0), 2.0f);
+    g.DrawLine(&under, PointF(to[2].X + 1, to[2].Y + 1.5f), PointF(br.X + 1, br.Y + 1.5f));
+    Pen top(Color(90, 255, 255, 255), 1.0f);
+    g.DrawLine(&top, to[0], to[1]);
 }
 
 // The background and the dial's fixed parts (ring, face, ticks, numerals, red zone), drawn once.
