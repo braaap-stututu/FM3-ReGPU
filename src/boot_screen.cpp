@@ -5,7 +5,8 @@
 //
 // The background is loaded from <user>\boot\background.png (or .jpg) when it exists (the player's own picture, e.g. the
 // game's key art); without it the counter is drawn on black. <user>\boot\background.txt "logo x0 y0 x1 y1" moves that
-// part of the picture so it is centred over the dial.
+// part of the picture so it is centred over the dial; "clear x0 y0 x1 y1" paints a part black; "plate ..." draws a
+// number plate (DrawPlate).
 // FM3_BOOT_SCREEN_TEST=<folder>: at start, the screen at 0, 45 and 100 % written there as PNGs (to look at it without a
 // first boot).
 #include "boot_screen.h"
@@ -215,6 +216,14 @@ void BuildBase(Screen& s)
             {
                 float q[6];
                 char text[64] = {};
+                // "clear x0 y0 x1 y1" (picture pixels): that part painted black (e.g. a picture that already shows a
+                // dial where the live one goes).
+                if (sscanf_s(line, " clear %f %f %f %f", &q[0], &q[1], &q[2], &q[3]) == 4 && q[2] > q[0] && q[3] > q[1])
+                {
+                    SolidBrush black(Color(255, 0, 0, 0));
+                    g.FillRectangle(&black, RectF(ox + q[0] * k, oy + q[1] * k, (q[2] - q[0]) * k, (q[3] - q[1]) * k));
+                    continue;
+                }
                 if (sscanf_s(line, " plate %f %f %f %f %f %f %63s", &q[0], &q[1], &q[2], &q[3], &q[4], &q[5], text, unsigned(sizeof(text))) == 7)
                 {
                     const PointF to[3] = { PointF(ox + q[0] * k, oy + q[1] * k), PointF(ox + q[2] * k, oy + q[3] * k), PointF(ox + q[4] * k, oy + q[5] * k) };
