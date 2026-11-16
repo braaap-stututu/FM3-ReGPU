@@ -30,6 +30,24 @@
     rate" (`vr_pace`, on).
   - **Untested without a headset:** pacing, the crop, the HUD layer in mono, plus session 38's list (swapchain pair,
     UNORM->sRGB copies, per-eye poses). **Next: the user's headset test.**
+- **First headset test (user, Quest 2 over Virtual Desktop, 72 Hz, stereo): "works fine for the most part, but it
+  stutters when I turn my head"**, with pacing on (game held at 72 fps: confirmed in the log) and off (~215 fps).
+  Logs kept in `out/logs/user-s39/`. The headset recommends 2688x2688 per eye; each eye shows 1468x1440 of a
+  2560x1440 frame across its lens (resolution for 1:1: ~4778x2688).
+  - **Cause:** the poses were paired with presented frames by counting (one pose per logic frame, FIFO), but FM3's
+    logic runs on its main thread (t3) about **twice per drawn frame** (grid: 10,807 main frames and camera hand-offs
+    vs ~5,400 swaps in 30 s) and the render thread draws whichever logic frame is newest: each image went to the
+    headset with another moment's pose, which shows as judder exactly when the head turns. Found with thread logs
+    (camera hand-off on the main thread, VdSwap on the render thread) and `FM3_TRACE_SIGNALS=1` (new, kept:
+    `src/kernel/objects.cpp`, every 30 s the busiest event/semaphore signals by guest thread, object and caller; the
+    main thread signals nothing, t11/t12 signal once per drawn frame from `sub_821E6B70`/`sub_821E5FA8`).
+  - **Fix (ReGPU patch 66 `regpu-vr-pose-tags`, 66 patches):** each head-tracked camera hand-off gets a 16-bit tag,
+    written into the posed view matrix's unused m03 as the float bits `0x00C00000 | tag` (a denormal: nothing drawn
+    changes); FM3 uploads the raw view matrix as vertex constants (a fixed marker there was found ~60 times in the
+    command memory with `findhex`), so ReGPU's draw thread reads the newest tag of each frame's main view and hands
+    the headset that frame with exactly that pose (`regpu::vr::SubmitTaggedPose`). Grid: every frame tagged, drawn
+    3-4 logic frames behind the newest pose (log `vr: frame drawn with pose tag`). **Next: the user re-tests.**
+  - The user's settings had `vr_pace=0` and `vr_camera_motion=1` (their choice or a launcher bug: ask).
 - **Installer for another PC** (user's request): `installer/fm3.iss` + `installer/build-installer.ps1` (Inno Setup
   6.7.3, installed per user with winget) -> `out/installer/dist/FM3-ReGPU-Setup-<version>.exe` (~83 MB): fm3.exe +
   DLLs + pdb, launcher published self-contained, licences; per user in `%LOCALAPPDATA%\FM3-ReGPU`, no game files.

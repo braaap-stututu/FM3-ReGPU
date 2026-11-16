@@ -302,6 +302,17 @@ PPC_FUNC(sub_821E9B50)
     }
     const float fovSaved = LoadF(base, director + kDirectorFov);
     PoseView(viewM, drawn, posed);
+    // The frame's pose tag (session 39): FM3's logic runs on the main thread about twice per drawn frame and the render
+    // thread draws whichever is newest, so poses can't be paired with frames by counting (that showed as judder when
+    // turning the head). The tag goes into the view matrix's unused element m03 (0 in a view matrix; a denormal there
+    // changes nothing drawn), which FM3 uploads raw as vertex constants; ReGPU reads it back on the draw thread and
+    // hands the headset each frame with the pose it was drawn with (regpu::vr::SubmitTaggedPose).
+    static uint32_t tagCounter = 0;
+    tagCounter = (tagCounter % 0xFFFF) + 1;
+    {
+        const uint32_t bits = regpu::vr::kPoseTagBits | tagCounter;
+        memcpy(&posed[3], &bits, 4);
+    }
     static const float margin = [] {
         const char* m = getenv("FM3_VR_FOV_MARGIN");
         return (m && *m ? float(atof(m)) : 5.0f) * 3.14159265f / 180.0f;
@@ -321,6 +332,7 @@ PPC_FUNC(sub_821E9B50)
     g_framePose = pose;
     g_frameFov = fov;
     g_framePosed = true;
+    regpu::vr::SubmitTaggedPose(tagCounter, pose, fov);
     static bool logged = false;
     if (!logged)
     {

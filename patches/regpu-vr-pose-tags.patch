@@ -1,0 +1,239 @@
+diff --git a/include/regpu/regpu.h b/include/regpu/regpu.h
+index a1257f9..5e33710 100644
+--- a/include/regpu/regpu.h
++++ b/include/regpu/regpu.h
+@@ -223,10 +223,17 @@ struct HeadPose
+ };
+ // The head's pose predicted for the next headset frame. false: no running headset session.
+ bool GetHeadPose(HeadPose& out);
+-// Once per game frame, in frame order: the head pose the frame's 3D view was rendered with and the vertical field of
+-// view it used (radians, the whole angle), or nullptr for a frame shown on the virtual screen. Paired with the
+-// presented frames in order.
++// Once per game frame: whether the newest game frame's 3D view is head-tracked (pose or nullptr) and its vertical field
++// of view (radians, the whole angle). Decides stereo and the HUD panel; the pose a presented frame was drawn with comes
++// from SubmitTaggedPose.
+ void SubmitFramePose(const HeadPose* pose, float renderFovY);
++// Exact pairing of poses with frames (FM3 port, session 39): a title whose logic runs more often than it draws (or on
++// another thread than the one that draws) can't pair poses with frames by counting. The host puts `tag` (1-65535) into
++// a vertex shader constant of the main view as the float bits 0x00C00000 | tag (a denormal: e.g. a view matrix's
++// unused m03, which changes nothing drawn) and hands the pose here; the draw thread reads the newest tag of each frame's
++// main view and the headset gets that frame with that pose.
++constexpr uint32_t kPoseTagBits = 0x00C00000u;
++void SubmitTaggedPose(uint32_t tag, const HeadPose& pose, float renderFovY);
+ // The head's present place and heading become the origin (straight ahead, level): poses, the virtual screen and the
+ // HUD panel follow. F8 in the game window does the same.
+ void Recentre();
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index dfec55e..c483789 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -12259,8 +12259,34 @@ void StereoCaptureHud()
+     g_drawState.Invalidate();
+ }
+ 
++// VR pose tags (regpu::vr::SubmitTaggedPose, FM3 port session 39): the newest tag among the main view's vertex constants
++// this frame (float bits kPoseTagBits | tag). Constants stay in the register file across draws and frames, so a draw
++// early in the frame may still hold the last frame's tag: the newest (16-bit, wrapping) seen in the frame wins. Every
++// 32nd main-view draw is scanned (all ALU constants), from the head-tracked modes only.
++uint32_t g_frameVrTag = 0;
++uint32_t g_frameVrScans = 0;
++void ScanVrTag()
++{
++    static const bool on = [] {
++        const char* v = getenv("REGPU_VR");
++        return v && (strcmp(v, "cockpit") == 0 || strcmp(v, "stereo") == 0);
++    }();
++    if (!on || g_stereoReplay || !WidePass() || (g_frameVrScans++ & 31) != 0)
++        return;
++    for (uint32_t r = 0x4000; r < 0x4800; r++)
++    {
++        const uint32_t v = gpureg::Get(r);
++        if ((v & 0xFFFF0000u) != regpu::vr::kPoseTagBits || !(v & 0xFFFF))
++            continue;
++        const uint32_t tag = v & 0xFFFF;
++        if (!g_frameVrTag || int16_t(uint16_t(tag - g_frameVrTag)) > 0)
++            g_frameVrTag = tag;
++    }
++}
++
+ void RendererOnDraw(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+ {
++    ScanVrTag();
+     if (StereoHudDraw())
+     {
+         if (!g_stereoReplay)
+@@ -15632,15 +15658,22 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         UINT64 fence = 0;
+         ID3D12Resource* fps = nullptr;
+         GradeJob* grade = nullptr;
++        uint32_t vrTag = 0; // the frame's VR pose tag (ScanVrTag)
+     };
+     static AsyncEnd asyncEnds[kFrames];
+     AsyncEnd& asyncEnd = asyncEnds[g_r.frameIndex];
+     bool presenting = false;
++    const uint32_t vrTag = g_frameVrTag;
++    g_frameVrTag = 0;
++    g_frameVrScans = 0;
+     if (asyncPresent)
+-        asyncEnd = { fromResolve, shown, overlay, timer, 0, fps, gradeJob };
++        asyncEnd = { fromResolve, shown, overlay, timer, 0, fps, gradeJob, vrTag };
+     else
++    {
++        regpu::xr::SetCaptureTag(vrTag);
+         presenting = fromResolve && PresenterRecordCopy(C().list->Real(), shown, overlay, kOverlayW, kOverlayH, timer, kTimerW, kTimerH, fps, kFpsW, kFpsH,
+             gradeJob ? GradeIntoBackBuffer : nullptr, gradeJob);
++    }
+     {
+         const uint64_t traceFrame = TraceFrame();
+         if (traceFrame && g_r.frame + 1 == traceFrame)
+@@ -15828,6 +15861,7 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         C().list->Call(
+             [](ID3D12GraphicsCommandList* l, void* ctx) {
+                 const AsyncEnd& e = *static_cast<const AsyncEnd*>(ctx);
++                regpu::xr::SetCaptureTag(e.vrTag);
+                 const bool show = e.copy && PresenterRecordCopy(l, e.shown, e.overlay, kOverlayW, kOverlayH, e.timer, kTimerW, kTimerH, e.fps, kFpsW, kFpsH,
+                     e.grade ? GradeIntoBackBuffer : nullptr, e.grade);
+                 l->Close();
+diff --git a/src/render/xr.cpp b/src/render/xr.cpp
+index 7111b7e..b72c8a2 100644
+--- a/src/render/xr.cpp
++++ b/src/render/xr.cpp
+@@ -29,6 +29,7 @@ void CaptureFrame(ID3D12GraphicsCommandList*, ID3D12Resource*) {}
+ bool StereoFrame(float&, float&) { return false; }
+ bool MonoHudPanel() { return false; }
+ uint32_t PaceCap() { return 0; }
++void SetCaptureTag(uint32_t) {}
+ ID3D12Resource* StereoTarget(int, uint32_t, uint32_t) { return nullptr; }
+ void StereoHudCaptured() {}
+ }
+@@ -36,6 +37,7 @@ namespace regpu::vr
+ {
+ bool GetHeadPose(HeadPose&) { return false; }
+ void SubmitFramePose(const HeadPose*, float) {}
++void SubmitTaggedPose(uint32_t, const HeadPose&, float) {}
+ void Recentre() {}
+ }
+ 
+@@ -96,7 +98,16 @@ struct FramePose
+     regpu::vr::HeadPose pose;
+     float fovY = 0;
+ };
+-std::deque<FramePose> g_framePoses; // (g_screenMutex)
++// Poses by tag (SubmitTaggedPose), and the tag of the frame CaptureFrame records next (SetCaptureTag).
++struct TaggedPose
++{
++    uint32_t tag = 0;
++    FramePose pose;
++};
++TaggedPose g_tagged[1024];                // (g_taggedMutex) by tag & 1023
++std::mutex g_taggedMutex;
++std::atomic<uint32_t> g_captureTag{ 0 };
++std::atomic<uint32_t> g_newestTag{ 0 };
+ FramePose g_screenPose;             // (g_screenMutex) the captured frame's
+ // For GetHeadPose from the game's threads: the running session's spaces and the next display time.
+ std::mutex g_poseMutex;
+@@ -108,6 +119,8 @@ XrFovf g_eyeFovs[2]{}; // (g_poseMutex) both eyes' fields of view, for the lens
+ std::atomic<uint64_t> g_captured{ 0 };
+ // Headset pacing: the headset's display rate (0 without a running session), and a wake-up when a game frame is captured.
+ std::atomic<uint32_t> g_headsetHz{ 0 };
++// Frame-pose pairing check (logged with the 30 s line): frames whose tag had no pose (overwritten or never handed in).
++std::atomic<uint64_t> g_posesMissing{ 0 };
+ std::mutex g_capturedMutex;
+ std::condition_variable g_capturedCv;
+ // Stereo (REGPU_VR=stereo): the two eyes' images of the newest stereo frame (renderer.cpp RendererStereoCaptureEye
+@@ -958,8 +971,8 @@ struct Session
+             if (std::chrono::steady_clock::now() - lastLog > std::chrono::seconds(30))
+             {
+                 lastLog = std::chrono::steady_clock::now();
+-                Log("vr: %llu headset frames, %llu with the screen, %llu game frames captured", (unsigned long long)frames, (unsigned long long)shown,
+-                    (unsigned long long)g_captured.load());
++                Log("vr: %llu headset frames, %llu with the screen, %llu game frames captured, %llu tags without a pose", (unsigned long long)frames,
++                    (unsigned long long)shown, (unsigned long long)g_captured.load(), (unsigned long long)g_posesMissing.load());
+             }
+         }
+     }
+@@ -1062,6 +1075,15 @@ ID3D12Resource* StereoTarget(int eye, uint32_t w, uint32_t h)
+ 
+ void StereoHudCaptured() { g_hudThisFrame = true; }
+ 
++void SetCaptureTag(uint32_t tag)
++{
++    g_captureTag = tag;
++    // Every 600th frame end: the frame's tag beside the newest one handed in (how many logic frames the drawing trails).
++    static uint32_t calls = 0;
++    if (tag && ++calls % 600 == 0)
++        Log("vr: frame drawn with pose tag %u (newest handed in %u)", tag, g_newestTag.load(std::memory_order_relaxed));
++}
++
+ bool MonoHudPanel()
+ {
+     static LiveSwitch test("REGPU_VR_STEREO_TEST");
+@@ -1099,17 +1121,18 @@ void CaptureFrame(ID3D12GraphicsCommandList* list, ID3D12Resource* backBuffer)
+             g_screen = made;
+         }
+         screen = g_screen;
+-        // This captured frame's pose (the oldest game frame not shown yet). More than a few waiting: the two counts
+-        // went apart (a frame drawn twice or not at all); start again from the newest.
+-        while (g_framePoses.size() > 4)
+-            g_framePoses.pop_front();
+-        if (!g_framePoses.empty())
++        // This captured frame's pose: the one its main view was drawn with, by the tag the draw thread read from it
++        // (SetCaptureTag). No tag: not head-tracked (the virtual screen).
++        g_screenPose.valid = false;
++        if (const uint32_t tag = g_captureTag.exchange(0))
+         {
+-            g_screenPose = g_framePoses.front();
+-            g_framePoses.pop_front();
++            std::lock_guard tl(g_taggedMutex);
++            const TaggedPose& t = g_tagged[tag & 1023];
++            if (t.tag == tag)
++                g_screenPose = t.pose;
++            else
++                g_posesMissing++;
+         }
+-        else
+-            g_screenPose.valid = false;
+         g_screenStereo = g_eyesThisFrame.exchange(false);
+         g_screenHud = g_hudThisFrame.exchange(false);
+     }
+@@ -1155,15 +1178,17 @@ void SubmitFramePose(const HeadPose* pose, float renderFovY)
+ {
+     g_lastPosed.store(pose != nullptr, std::memory_order_relaxed);
+     g_lastFovY.store(renderFovY, std::memory_order_relaxed);
+-    if (!g_capturing.load(std::memory_order_relaxed))
+-        return;
+-    FramePose f;
+-    f.valid = pose != nullptr;
+-    if (pose)
+-        f.pose = *pose;
+-    f.fovY = renderFovY;
+-    std::lock_guard lock(g_screenMutex);
+-    g_framePoses.push_back(f);
++}
++
++void SubmitTaggedPose(uint32_t tag, const HeadPose& pose, float renderFovY)
++{
++    std::lock_guard lock(g_taggedMutex);
++    TaggedPose& t = g_tagged[tag & 1023];
++    g_newestTag.store(tag, std::memory_order_relaxed);
++    t.tag = tag;
++    t.pose.valid = true;
++    t.pose.pose = pose;
++    t.pose.fovY = renderFovY;
+ }
+ }
+ 
+diff --git a/src/render/xr.h b/src/render/xr.h
+index 54ba005..680165f 100644
+--- a/src/render/xr.h
++++ b/src/render/xr.h
+@@ -32,6 +32,9 @@ void StereoHudCaptured();
+ // Head-tracked mono frames (REGPU_VR=cockpit) take the HUD apart too (the same capture as stereo: renderer.cpp
+ // StereoHudDraw): true on a posed frame while a headset session runs (or REGPU_VR_STEREO_TEST).
+ bool MonoHudPanel();
++// The pose tag (regpu::vr::SubmitTaggedPose) of the frame whose copy is recorded next (CaptureFrame); 0 = none. Set by
++// the renderer right before the frame's back-buffer copy, on the thread that records it.
++void SetCaptureTag(uint32_t tag);
+ // Headset pacing (REGPU_VR_PACE, default on in cockpit/stereo; 0 off): the frame cap the headset wants (its display
+ // rate x REGPU_VR_PACE_MULT, default 1), or 0 (no session, pacing off).
+ uint32_t PaceCap();

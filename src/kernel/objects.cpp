@@ -1,7 +1,11 @@
 #include "kernel/objects.h"
 
 #include <algorithm>
+#include <map>
+#include <mutex>
+#include <tuple>
 #include <unordered_map>
+#include <vector>
 
 #include <windows.h>
 
@@ -416,6 +420,29 @@ void SyncGuestSignalState(KernelObject& object)
 
 void NoteSignal(KernelObject& object, const char* how, uint32_t lr)
 {
+    // FM3_TRACE_SIGNALS=1 (start): signals counted by (guest thread, object, caller), the busiest logged every 30 s
+    // (session 39: which signal hands a frame from the main thread to the render thread).
+    static const bool traceSignals = getenv("FM3_TRACE_SIGNALS") != nullptr;
+    if (traceSignals)
+    {
+        static std::mutex m;
+        static std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint64_t> counts;
+        static auto last = Clock::now();
+        std::lock_guard lock(m);
+        counts[{ CurrentGuestThreadId(), object.guestObject ? object.guestObject : object.handle, lr }]++;
+        if (Clock::now() - last > std::chrono::seconds(30))
+        {
+            last = Clock::now();
+            std::vector<std::pair<uint64_t, std::tuple<uint32_t, uint32_t, uint32_t>>> top;
+            for (auto& [k, v] : counts)
+                top.push_back({ v, k });
+            std::sort(top.rbegin(), top.rend());
+            for (size_t i = 0; i < top.size() && i < 12; i++)
+                Log("signals: %llu by t%u object %08X lr %08X", (unsigned long long)top[i].first, std::get<0>(top[i].second),
+                    std::get<1>(top[i].second), std::get<2>(top[i].second));
+            counts.clear();
+        }
+    }
     const int64_t since = object.waitSinceMs.load();
     if (!since)
         return;
