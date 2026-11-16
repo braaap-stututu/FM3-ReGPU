@@ -32,9 +32,18 @@ function gpRoot() {
   if (modals.length) return modals[modals.length - 1]
   return [...document.querySelectorAll("main.page")].find((p) => !p.hidden) || document.body
 }
+// The options to move between. A switch in a toggle row is the whole row (the switch is a small button at the row's
+// right end: as itself, up and down from the full-width options around it passed it by); A flips its switch.
 function gpCandidates() {
   const root = gpRoot()
-  return [...root.querySelectorAll("button, select, input:not([type=hidden]), textarea, .tile[tabindex], [data-gp]")].filter(gpVisible)
+  const out = []
+  for (const e of root.querySelectorAll("button, select, input:not([type=hidden]), textarea, .tile[tabindex], [data-gp]")) {
+    if (!gpVisible(e)) continue
+    const row = e.matches("button.switch") ? e.closest(".toggle-row") : null
+    const target = row && row.querySelectorAll("button.switch").length === 1 ? row : e
+    if (!out.includes(target)) out.push(target)
+  }
+  return out
 }
 function gpSetFocus(e) {
   if (gp.focus) gp.focus.classList.remove("gp-focus")
@@ -58,7 +67,9 @@ function gpMove(dx, dy) {
     if (e === gp.focus) continue
     const r = e.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2
     const along = dx ? (x - x0) * dx : (y - y0) * dy
-    const side = dx ? Math.abs(y - y0) : Math.abs(x - x0)
+    // Sideways: none for an option overlapping the focused one across the direction (the same column or row).
+    const overlap = dx ? Math.min(r.bottom, r0.bottom) - Math.max(r.top, r0.top) : Math.min(r.right, r0.right) - Math.max(r.left, r0.left)
+    const side = overlap > 0 ? 0 : (dx ? Math.abs(y - y0) : Math.abs(x - x0))
     // (In the direction, past the focused one's edge: not just beside it.)
     const past = dx ? (dx > 0 ? r.left >= r0.right - 4 : r.right <= r0.left + 4) : (dy > 0 ? r.top >= r0.bottom - 4 : r.bottom <= r0.top + 4)
     if (along <= 0 || !past) continue
@@ -72,6 +83,7 @@ function gpMove(dx, dy) {
 function gpPress() {
   const e = gp.focus
   if (!e || !gpVisible(e)) return gpFirst()
+  if (e.classList.contains("toggle-row")) { const sw = e.querySelector("button.switch"); if (sw && !sw.disabled) sw.click(); return }
   if (e.tagName === "SELECT") return gpOpenList(e)
   if (e.tagName === "INPUT" && (e.type === "range" || e.type === "number")) return gpOpenAdjust(e)
   if (e.tagName === "INPUT" && e.type === "checkbox") return e.click()
