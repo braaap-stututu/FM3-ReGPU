@@ -28,6 +28,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [TAAU (TAA upscaling)](#taau-taa-upscaling-session-39-2026-11-16) (session 39) | Feasible and small: our TAA already has jitter, motion vectors, depth, history and the mip bias; TAAU = the same resolve run at output size from a lower-res scene (one new compute pass + an `upscaler=taau` entry). Worth it mainly for weak GPUs (iGPU, Steam Deck): cheaper than FSR 3, much sharper than FSR 1/bilinear; on the 7900 XTX at 1440p no gain (draw-thread bound). Measure the motion vectors' cost on the iGPU first |
 | [A launcher without a web view, for SteamOS game mode](#a-launcher-without-a-web-view-for-steamos-game-mode-session-40-2026-11-16) (session 40) | Game mode = gamescope: one app window on screen, X11 via Xwayland, **no file-picker portal**, Steam must keep tracking the process it started. Recommended: **options and installer inside `fm3.exe`** (Dear ImGui on ReGPU's D3D12 = vkd3d-proton there; the Unleashed Recompiled pattern), the existing C# launcher kept for desktop; headless `--install-disc1/2` reused. Alternative keeping C#: **Avalonia** (X11, Skia) + SDL3 for the pad. Zero-work stopgap: Steam shortcut runs `--play`, set up in desktop mode |
 | [In-game options menu, quit tab and restart prompt](#in-game-options-menu-quit-tab-and-restart-prompt-session-40-2026-11-16) (session 40) | A **host overlay menu** (Dear ImGui on ReGPU's present, one new ReGPU host callback), not a tab in FM3's own menus (unknown UI system, fonts lack glyphs). Opened by F1 / BACK+START; while open the game gets a neutral pad (`ReadPad`) and the world is held (`FM3_FREEZE_TIME` hook). Quit = the existing `WM_CLOSE` save-and-exit. Restart prompt: every setting tagged live / restart in one shared schema; on closing the menu, restart keys that differ from the values this process **started** with list in a dialog (Restart now / Later / Undo). Restart = exit code 3 to a supervisor `fm3.exe` that relaunches (Steam keeps tracking it) |
+| [ReXenon instead of XenonRecomp](#rexenon-instead-of-xenonrecomp-session-40-2026-11-16) (session 40) | Feasible and fairly cheap: ReXenon (MIT, by ReGPU's author, built for the FM2 port) already carries 4 of our 5 XenonRecomp patches (divides, MSR[EE] hook, switch on u32, VMX128/`vcmpbfp`/`vsldoi128`); the per-image name prefix is unused in FM3. Gains: fails loudly on what it can't translate, `PPC_MFTB()` replaces `patch_mftb.py`, fixed `vpkd3d128`/`dcbz`/memset-class bugs, relaxed-atomic guest accesses (FM2: main thread -10..17% CPU on Zen 3, ~0 on an FX). Risk: days old, no human playtests yet. Try it side by side (`out/ppc-rx`), not as a swap |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -2107,3 +2108,97 @@ Sources: [Unleashed Recompiled: options menu from the title screen or pause menu
 [its config docs (menu applies changes at once; some keys only in the file)](https://mintlify.wiki/hedge-dev/UnleashedRecomp/configuration/overview),
 [video settings](https://mintlify.wiki/hedge-dev/UnleashedRecomp/configuration/video),
 [Forza forum: a restart prompt shown when not needed](https://forums.forza.net/t/graphics-settings-popup-message-about-required-restart-shows-unnecessarily-1568770/626503).
+
+## ReXenon instead of XenonRecomp (session 40, 2026-11-16)
+Cloud research, no code (read from ReXenon's README, `docs/overnight/LOG.md`, `docs/night2/LOG.md`, its commit list
+and `XenonRecomp/recompiler.cpp`; nothing built or run). User's question: swap our XenonRecomp for
+[zer0ducksgiven/ReXenon](https://github.com/zer0ducksgiven/ReXenon).
+
+**What ReXenon is:** a fork of hedge-dev's XenonRecomp (MIT) by ReGPU's author, made for the FM2 ReGPU port (PGR4 is
+its second test case). Same tools, same TOML config format (`[main]`, paths relative to the config), same output
+(`out/ppc`, `ppc_recomp.<n>.cpp`, `ppc_context.h`); all new options are off by default. Its work is very recent: the
+ReXenon commits are 14-16 Nov 2026 (the relaxed-atomics commit is from 16 Nov), on top of upstream history to Aug 2025.
+1 contributor, no forks. **Neither game has been played through on it by a person yet** (README); FM2 ran automated
+all-AI races and soak tests on three tracks without a crash or trap.
+
+**What it changes over XenonRecomp (from its docs):**
+- **Fails loudly:** an instruction it can't translate becomes `PPC_UNIMPLEMENTED`, an unresolved branch
+  `PPC_UNRESOLVED_BRANCH` (both trap by default), and the run lists them all and exits with an error unless
+  `allow_unresolved = true`. XenonRecomp leaves a comment and carries on (our `tools/fm3_check.py` greps for those).
+- **Accuracy:** runs Xenia's PowerPC tests (142,286 of 170,448 pass; the failures predate ReXenon); 47 vector
+  instructions XenonRecomp lacked; `dcbz` clears 128 bytes (not 32); `fctid`/`fctidz` saturate; `mfocrf`/`mtfsf`
+  masks; `vpkd3d128` fixed (FM2 had 8 sites packing wrong half floats because of register aliasing in
+  `vpkd3d128 v0,v0,5,2,2`); a memset losing 1-3 bytes (PGR4); conditional calls and `blrl`.
+- **Less hand setup:** skips exception data in `.pdata` itself, starts functions at stranded branch targets and code
+  addresses stored in data (`data_function_starts`), finds and checks jump tables at load (`auto_switch_tables`; the
+  switch-table file still wins), turns fall-through functions into tail calls. FM2 went from 328 analysis problems to
+  none without its hand-written function list (it still ships with the list until playtested).
+- **Port hooks as macros:** `PPC_MFTB()` (timebase), `PPC_SYNC/LWSYNC/EIEIO/ISYNC` (compiler barriers by default,
+  `hardware_fences` for real ones), `PPC_TRAP`, `PPC_UNIMPLEMENTED`, `PPC_UNRESOLVED_BRANCH`, `PPC_SWITCH_MISS`,
+  `PPC_INDIRECT_MISS`, `PPC_FUNC_TABLE_BASE`, `PPC_GUEST_LOAD/STORE`, `PPC_GUEST_VLOAD/VSTORE`.
+- **Guest memory as relaxed atomics instead of `volatile`:** clang-cl gives `volatile` MSVC semantics (every access
+  acquire/release), which stopped the compiler keeping context registers in host registers across guest accesses.
+  FM2 on a Ryzen 7 5800X: main thread 99% -> ~90% busy while fps rose (208 -> 270, 250 -> 272; "-17% CPU per frame");
+  on an FX-8350 +0.7..+2.3% (bound elsewhere). Checked by comparing the access order in the optimised IR of 50,973
+  functions (no access moved across another access, a call or a fence); vector loads/stores and `lwarx` stay
+  `volatile`. Its own caveat: the argument leans on x86's strong ordering (fine for us: Windows x64 and Proton on x64).
+  `PPC_VOLATILE_GUEST_ACCESS` restores the old accessors.
+- Opt-in speed options (`inline_register_thunks`, `elide_return_lr`, `elide_empty_functions`, `chunk_by_address`
+  for faster rebuilds, `exact_estimates`, `fused_madd`): on the FX within noise; `elide_return_lr` makes `ctx.lr` in
+  crash logs and our sampler stale. Code placement (ASLR/relinks) alone moved FM2's fps 3-10% on the FX: A/Bs need a
+  fixed base or several layouts.
+- `non_volatile_as_local` made safe (functions reading r14-r31 etc. before writing keep them in the context);
+  `non_argument_as_local` hung FM2 at boot.
+
+**Our 5 XenonRecomp patches against ReXenon** (checked in its `recompiler.cpp`):
+| Ours | In ReXenon? |
+|---|---|
+| `xenonrecomp-fm2`: divides never trap; `mtmsrd` MSR[EE] -> `PPC_MSR_CHANGED` | Yes, both (divide by zero / `INT32_MIN/-1` give 0, `divwo` sets XER; MSR mask `0x8020`, same macro name) |
+| `xenonrecomp-modules`: per-image name prefix, warning on unnamed import thunks | No; FM3 is one image (prefix unused). Lose the warning only |
+| `xenonrecomp-fm4`: XenonAnalyse jump-table back-trace through registers; XEX image size from the security info | Its own jump-table finder at load instead; our `config/fm3_switch_tables.toml` (6,818 lines, made with the back-trace) still applies and wins. XEX: ReXenon allocates the full size for basic-compressed images (16 Nov): check FM3's xex loads the same |
+| `xenonrecomp-fm4-instructions`: VMX128 / CR-bit fixes | Superset by intent (47 new vector ops, `vsldoi128`, `vpkd3d128`); any op still missing now stops the run, so we'd know |
+| `xenonrecomp-switch-u32`: `switch` on the 32-bit index; `vcmpbfp(128)` | Yes, both |
+
+**What our side has to change:**
+- `src/ppc_hooks.h` (force-included into `out/ppc`): keep `PPC_MSR_CHANGED`, `PPC_MM_STORE_U32` (same names); drop our
+  `ppc_half_to_float`/`ppc_float_to_half` if ReXenon's `ppc_context.h` now defines its own (it emits
+  `ppc_half_to_float`, `ppc_float_to_xenos_half`, `ppc_pack_clamp`); map indirect calls (`PPC_CALL_INDIRECT_FUNC`)
+  and `PPC_INDIRECT_MISS` onto our host-side table (`src/indirect.cpp`, outside the guest's 4 GB) rather than
+  ReXenon's in-guest table (`function_table_address`); define `PPC_UNIMPLEMENTED`/`PPC_UNRESOLVED_BRANCH` to log the
+  address and go to the crash handler.
+- `PPC_MFTB()` -> `GuestTimebase()`; delete `tools/patch_mftb.py` and its CMake step (FM2 did the same).
+- **ReGPU compiles against our `out/ppc/ppc_context.h`** (`REGPU_PPC_DIR` in CMakeLists.txt): relaxed accessors and any
+  context layout change reach ReGPU too. Same author and FM2 already builds ReGPU this way, so likely fine; build it.
+- `tools/setup.ps1` / `tools/hosttools`: a second submodule (`thirdparty/ReXenon`, pinned) built next to XenonRecomp;
+  ReXenon deletes `ppc_recomp.<n>.cpp` files in the output folder that it didn't write (fine for a fresh folder).
+- **Hooks keyed to function starts:** ReXenon's analysis splits off functions XenonRecomp folded into others (FM2
+  gained a second `SwitchToFiber` copy that needed its own hook). Every `sub_XXXXXXXX` we hook or call (fibers,
+  `setjmp`/`longjmp`, frame time, boot options, AI drivers, mirror/shadows/reflections, grid test, VR camera, triple
+  screen, one tile, ring wait) must still start a function and still be the only copy: compare the two function lists
+  (`emit_analysis_path` vs XenonRecomp's), and run the config's hand list (Q2/Q3 thunks, the jump-table leaves) both
+  with and without, as FM2 did.
+- The spin loops FM3 relies on (D3D ring/fence waits, our `ring_wait.cpp` hook) stay correct with relaxed atomics
+  (each load still happens); FM2's review found its four spin-wait loops only broke with plain non-volatile accesses.
+
+**What to expect for FM3:** correctness wins are certain in kind (unknown in number: the loud-failure list from the
+first run tells us). Speed depends on the guest main/render threads being a limit: at 1440p on the 7900 XTX the race
+is bound by ReGPU's draw thread (host code, untouched) and the GPU, so little; on CPU-bound setups (720p `msaa=1`, the
+iGPU, the Steam Deck's 4 Zen 2 cores) the guest threads matter more, so there it may show (FM2's +9..30% was on a
+CPU-bound Zen 3).
+
+**Suggested trial (side by side, XenonRecomp kept as the fallback):**
+1. Add ReXenon as `thirdparty/ReXenon`, build it with the host tools; `tools/recomp.ps1 -Recompiler rexenon` writes
+   `out/ppc-rx` from the same `config/fm3.toml` (+ `allow_unresolved = false`, `emit_analysis_path`); CMake
+   `-DFM3_PPC_DIR=out/ppc-rx` into `build/rx`.
+2. Read the failure list and the function-list diff; fix config/hooks; first with `PPC_VOLATILE_GUEST_ACCESS` (only the
+   translation changes), then without (the memory model on its own).
+3. Tests: boot + menus; frozen grid pixel diff against the XenonRecomp build (`pngdiff_mask.py`); livery/vinyl screens
+   (VINYLISSUES test profile: `vpkd3d128` changes can move geometry); CPU-bound grid fps at 1280x720 `msaa=1` with a
+   fixed load address; `tools/bench_matrix.ps1` races on the 7900 XTX, the iGPU and the Deck; the user drives.
+4. Only then swap the default and keep XenonRecomp's patches in the repo for one release.
+
+Sources: [ReXenon](https://github.com/zer0ducksgiven/ReXenon),
+[README](https://raw.githubusercontent.com/zer0ducksgiven/ReXenon/main/README.md),
+[overnight log](https://raw.githubusercontent.com/zer0ducksgiven/ReXenon/main/docs/overnight/LOG.md),
+[night 2 log](https://raw.githubusercontent.com/zer0ducksgiven/ReXenon/main/docs/night2/LOG.md),
+[commits](https://github.com/zer0ducksgiven/ReXenon/commits/main).

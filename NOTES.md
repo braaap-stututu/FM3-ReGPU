@@ -5,6 +5,7 @@
 ### ▶ Start here (session 40): state at the end of session 39 (2026-11-16)
 - **Session 40 (cloud, research only):** launcher without a web view for SteamOS game mode: RESEARCH.md "A launcher without a web view, for SteamOS game mode". Recommended: options + installer inside `fm3.exe` (ImGui on ReGPU, Unleashed Recompiled pattern); alternative Avalonia + SDL3; stopgap: Steam shortcut runs `--play`. User to choose.
 - **Session 40 (cloud, research only), second question:** in-game options menu + quit tab + restart prompt: RESEARCH.md "In-game options menu, quit tab and restart prompt" (host overlay with ImGui via a ReGPU present callback, `ReadPad` input capture + freeze, quit via `WM_CLOSE`, restart via a supervisor fm3.exe and exit code 3, prompt compares with the values the process started with).
+- **Session 40 (cloud, research only), third question:** ReXenon instead of XenonRecomp: RESEARCH.md "ReXenon instead of XenonRecomp" (carries 4 of our 5 patches; loud failures, `PPC_MFTB`, relaxed-atomic guest accesses; days old, no human playtests: trial side by side in `out/ppc-rx`, steps there).
 - **In short:** a long session of user requests, all committed (last commit after 9c07e64; 70 ReGPU patches):
   TAAU research; Windows installer + Disc 1 import from the .iso; the remaining VR parts (lens crop, pacing, mono HUD
   panel, seat keys) and three VR fixes from the user's Quest 2 tests (pose tags, stereo hold, flags with the frame);
