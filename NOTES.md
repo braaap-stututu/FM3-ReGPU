@@ -76,7 +76,7 @@
   light near the end, flutter on the limiter when done, idle wobble while shaders are being found. Background: the
   player's own picture from `<user>\boot\background.png` (or .jpg), never shipped or committed (the user's FM3 key
   art is in `out/user/boot/` here, gitignored); black without it. `FM3_BOOT_SCREEN_TEST=<folder>` writes the screen at
-  0/45/100 % as PNGs at start (`out/shots/boot/`). Checked on a real first boot (scratch user folder): PREPARING, then
+  0/45/100 % as PNGs at start (`out/shots/boot/`). A `background.txt` beside the picture ("logo x0 y0 x1 y1", picture pixels) moves that area so it is centred over the dial (user: the FM3 logo and text 68 px right; here `logo 622 74 881 218`). Checked on a real first boot (scratch user folder): PREPARING, then
   COMPILING SHADERS (828 in 28 s) on the new screen.
 - **VR head movement limit (user: "increase the distance I'm allowed to move my head; clipping through the car is not
   an issue"):** the eye limit round the seat is now off by default (`FM3_VR_EYE_LIMIT` unset = no limit; was 30 cm);

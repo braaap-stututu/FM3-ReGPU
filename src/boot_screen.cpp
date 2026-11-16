@@ -3,8 +3,9 @@
 // the compile's progress, climbing to the rev limiter, with the compiled-shader count inside the dial. Our own drawing
 // (GDI+, built into Windows); no maker's logo or typeface.
 //
-// The background is loaded from <user>\boot\background.png (or .jpg) when it exists; it is never shipped or committed
-// (the player's own picture, e.g. the game's key art). Without it the counter is drawn on black.
+// The background is loaded from <user>\boot\background.png (or .jpg) when it exists (the player's own picture, e.g. the
+// game's key art); without it the counter is drawn on black. <user>\boot\background.txt "logo x0 y0 x1 y1" moves that
+// part of the picture so it is centred over the dial.
 // FM3_BOOT_SCREEN_TEST=<folder>: at start, the screen at 0, 45 and 100 % written there as PNGs (to look at it without a
 // first boot).
 #include "boot_screen.h"
@@ -108,9 +109,26 @@ void BuildBase(Screen& s)
         // Cover the screen, centred.
         const float sx = float(kW) / float(bg->GetWidth()), sy = float(kH) / float(bg->GetHeight()), k = std::max(sx, sy);
         const float w = float(bg->GetWidth()) * k, h = float(bg->GetHeight()) * k;
-        g.DrawImage(bg.get(), RectF((kW - w) * 0.5f, (kH - h) * 0.5f, w, h));
+        const float ox = (kW - w) * 0.5f, oy = (kH - h) * 0.5f;
+        g.DrawImage(bg.get(), RectF(ox, oy, w, h));
         // The dial in the dark area below the title (the key art's right side).
         s.cx = 1030, s.cy = 500, s.r = 172;
+        // <user>\boot\background.txt "logo x0 y0 x1 y1" (picture pixels): that part of the picture (a title or logo)
+        // moved sideways so it is centred over the dial; its old place is filled with black.
+        if (FILE* f = _wfopen((UserDir() / "boot" / "background.txt").c_str(), L"r"))
+        {
+            float lx0, ly0, lx1, ly1;
+            if (fscanf_s(f, " logo %f %f %f %f", &lx0, &ly0, &lx1, &ly1) == 4 && lx1 > lx0 && ly1 > ly0)
+            {
+                const float sx0 = ox + lx0 * k, sy0 = oy + ly0 * k, sw = (lx1 - lx0) * k, sh = (ly1 - ly0) * k;
+                const float dx = s.cx - (sx0 + sw * 0.5f);
+                SolidBrush black(Color(255, 0, 0, 0));
+                g.FillRectangle(&black, RectF(sx0, sy0, sw, sh));
+                g.DrawImage(bg.get(), RectF(sx0 + dx, sy0, sw, sh), lx0, ly0, lx1 - lx0, ly1 - ly0, UnitPixel);
+                Log("boot screen: picture area %.0f,%.0f-%.0f,%.0f moved %.0f px to centre it over the dial", lx0, ly0, lx1, ly1, dx);
+            }
+            fclose(f);
+        }
     }
     else
         s.cx = kW * 0.5f, s.cy = kH * 0.5f, s.r = 230;
