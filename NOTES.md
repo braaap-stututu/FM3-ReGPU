@@ -74,7 +74,7 @@
   chrome ring, 0-9 x1000/min, red from 8,250, red needle; our own GDI+ drawing, Bahnschrift, no maker's logo or font)
   whose needle climbs to the limiter with the compile's progress, the compiled-shader count inside the dial, a shift
   light near the end, flutter on the limiter when done, idle wobble while shaders are being found. Background: the
-  player's own picture from `<user>ootackground.png` (or .jpg), never shipped or committed (the user's FM3 key
+  player's own picture from `<user>\boot\background.png` (or .jpg), never shipped or committed (the user's FM3 key
   art is in `out/user/boot/` here, gitignored); black without it. `FM3_BOOT_SCREEN_TEST=<folder>` writes the screen at
   0/45/100 % as PNGs at start (`out/shots/boot/`). Checked on a real first boot (scratch user folder): PREPARING, then
   COMPILING SHADERS (828 in 28 s) on the new screen.
