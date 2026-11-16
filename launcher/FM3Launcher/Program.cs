@@ -38,6 +38,29 @@ internal static class Program
                 return 1;
             }
         }
+        // --install-disc1 <Disc 1 .iso> [folder]: extracts Disc 1 into the game folder next to the launcher (or the
+        // folder given) without the window.
+        var d1 = Array.IndexOf(args, "--install-disc1");
+        if (d1 >= 0)
+        {
+            if (GetStdHandle(-11) == IntPtr.Zero) AttachConsole(-1);
+            try
+            {
+                if (d1 + 1 >= args.Length) throw new ArgumentException("Usage: FM3Launcher --install-disc1 <Disc 1 .iso> [folder]");
+                var last = -1;
+                Disc1.Install(args[d1 + 1], line =>
+                {
+                    if (line.EndsWith('%') && int.TryParse(line[..^1], out var p)) { if (p / 10 == last) return; last = p / 10; }
+                    Console.WriteLine(line);
+                }, d1 + 2 < args.Length ? args[d1 + 2] : null);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error: " + ex.Message);
+                return 1;
+            }
+        }
         // --gpus: the graphics cards the "Graphics card" choice lists (name, own memory), to the console.
         if (args.Contains("--gpus"))
         {

@@ -39,7 +39,7 @@ Known issues and not yet checked:
 - Small vinyl gaps at the edges of some cars (Scion, Fiat, Supra rear bumper).
 - The first seconds of a race after a shader-cache rebuild can run at 30–36 fps.
 - Other hardware than my own all AMD win11 build.
-- The launcher covers settings, profiles and the Disc 2 install; game import and photos are not ported from the FM4 launcher yet. Current focus is visual parity with console before adding more features.
+- The launcher covers settings, profiles, the Disc 1 import from its .iso and the Disc 2 install; photos are not ported from the FM4 launcher yet. An installer for other PCs is built by `installerbuild-installer.ps1`. Current focus is visual parity with console before adding more features.
 
 Each fix can be switched off for comparison; the switches and details are in [NOTES.md](NOTES.md) and
 [patches/README.md](patches/README.md).
@@ -82,6 +82,13 @@ force feedback, pedals, shifter, handbrake) and **Settings** (shader cache, fold
 light performance logs, and toggles: draw workers, asynchronous present, upload ring in VRAM, one guest tile,
 half-rate mirror, engine sound crossfade). It edits `settings.ini` in the user folder and starts
 `fm3.exe` from `out\run`. `FM3Launcher.exe --play` starts the game with the saved settings, without the window.
+
+**Installer (another PC):** `powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1` builds
+`out\installer\dist\FM3-ReGPU-Setup-<version>.exe` (needs Inno Setup 6: `winget install JRSoftware.InnoSetup`):
+the current `fm3.exe` with its DLLs and the self-contained launcher, per user, no admin rights, no game files. On
+the other PC: install, open the launcher, Play tab > Game > "From .iso…" with the Disc 1 image (checked, then
+extracted next to the game, ~6.8 GB; or `FM3Launcher --install-disc1 <Disc 1 .iso>`), Disc 2 as below. Saves and
+settings go to `Documents\fm3` there; uninstalling removes the extracted Disc 1 but keeps them.
 
 **Disc 2:** on the launcher's Play tab, "Disc 2 content" > "Install from .iso…" (or "From folder…" for an
 extracted disc or the package files), or run `install-disc2.cmd <Disc 2 .iso>` (without an argument it takes the

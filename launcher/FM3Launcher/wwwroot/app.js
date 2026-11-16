@@ -27,6 +27,7 @@ if (host) host.addEventListener("message", (e) => {
   const m = e.data
   if (m.event === "wheel") return typeof wheelEvent === "function" && wheelEvent(m.data) // wheel.js
   if (m.event === "disc2") return disc2Progress(m.data)
+  if (m.event === "disc1") return disc1Progress(m.data)
   if (m.event === "benchmark") return benchProgress(m.data)
   const p = pending.get(m.id)
   if (!p) return
@@ -379,6 +380,23 @@ $("gameBrowse").onclick = () => runTile(async () => {
   render()
   if (state.paths.gameDir === before) return tileReset()
   tileDone("Game folder set: default.xex matches.", true)
+})
+// Disc 1 from its image (Disc1.cs): the tile shows the extraction's progress.
+function disc1Progress(d) {
+  if (/^\d+%$/.test(d.text)) {
+    $("game-bar").style.width = d.text
+    $("tile-game").classList.remove("indet")
+    $("tile-game-status").textContent = "Extracting Disc 1… " + d.text
+  } else $("tile-game-status").textContent = d.text
+}
+$("gameIso").onclick = () => runTile(async () => {
+  $("game-bar").style.width = "0%"
+  const r = await call("game.iso")
+  $("game-bar").style.width = ""
+  if (r === null) return tileReset()
+  state = r
+  render()
+  tileDone("Disc 1 extracted: default.xex matches.", true)
 })
 // ---- Disc 2 content (Disc2.cs): installed packages, and installing them from the image or a folder
 

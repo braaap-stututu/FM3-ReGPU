@@ -74,6 +74,19 @@ public sealed class Bridge
                     }
                     return State();
                 }
+            // Disc 1 from its image (Disc1.cs): extracted into the game folder next to the launcher, which becomes the
+            // game folder; progress as "disc1" events.
+            case "game.iso":
+                {
+                    var files = await _window.ShowOpenFileAsync("Choose the Disc 1 image (Play Disc)", null, false, IsoFilter);
+                    if (files is not { Length: > 0 }) return null;
+                    await Task.Run(() => Disc1.Install(files[0], line => Post(new { @event = "disc1", data = new { text = line } })));
+                    var s = GameSettings.Load();
+                    s.GameFolder = "";
+                    s.Save();
+                    await Task.Run(() => Xex.CheckNow(Paths.GameDir));
+                    return State();
+                }
             // "Check game files": the only way the game folder's default.xex is hashed besides a pick.
             case "xex.check":
                 await Task.Run(() => Xex.CheckNow(Paths.GameDir));

@@ -2,6 +2,17 @@
 
 ## ▶ Current status / next step  (updated 2026-11-16, session 38)
 
+### Session 39 (2026-11-16)
+- **TAAU research** (RESEARCH.md "TAAU"): feasible and small (our TAA's jitter/motion/history at output size, one
+  compute pass + `upscaler=taau`); for weak GPUs; first step = the motion vectors' cost on the iGPU (FSR 1 vs FSR 3).
+- **Installer for another PC** (user's request): `installer/fm3.iss` + `installer/build-installer.ps1` (Inno Setup
+  6.7.3, installed per user with winget) -> `out/installer/dist/FM3-ReGPU-Setup-<version>.exe` (~83 MB): fm3.exe +
+  DLLs + pdb, launcher published self-contained, licences; per user in `%LOCALAPPDATA%\FM3-ReGPU`, no game files.
+  New launcher **Disc 1 import from the .iso** (`Disc1.cs`, Play tab Game "From .iso…", CLI `--install-disc1 <iso>
+  [folder]`): default.xex hashed in the image first, extracted to the install's `game\` (3,059 files, identical to
+  hl360's disc1 by list, sizes and spot `cmp`). Tested here: silent install, Disc 1 extract, boot to the menu
+  (fresh user folder), silent uninstall (removes `game\` and `out\`). The user tests it on another PC.
+
 ### ▶ Start here (session 39): state at the end of session 38 (2026-11-16)
 - **In short:** VR is built through FH1R's whole plan except headset pacing, all checked on the grid without a
   headset (64 ReGPU patches; last commits 292150a, 658ea51, 829a2fc, 4e30796, c267e0d): true stereo (`vr=stereo`,
