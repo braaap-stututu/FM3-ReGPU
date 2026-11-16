@@ -69,6 +69,17 @@
     Now the flags travel with the frame (`regpu::xr::TakeFrameFlags`, in patch 68). Not reproducible without a
     headset session. **Next: user check.** (Open: the eye images are single-buffered, so at a hitch a frame's eyes
     can be the next frame's with its own pose: small, double-buffer if it shows.)
+- **Proton-compatible launcher (user):** the Windows launcher needs WebView2, which doesn't run under Wine. Now
+  (`launcher/FM3Launcher/Shell.cs`): `IShell` between Bridge and the window; `PhotinoShell` (the window) or
+  `BrowserShell`: a small web server on raw sockets (not HttpListener: http.sys is partial in Wine) on 127.0.0.1, a
+  random port, everything under a random 32-hex token path (other pages can't reach the commands: no-token requests
+  404, checked), page messages as POST `msg`, launcher messages as server-sent `events` (host.js picks this channel
+  when there is no `window.external`), Win32 open/save/folder dialogs on STA threads (Wine draws them). Used under
+  Wine/Proton (detected by ntdll's `wine_get_version`), with `--browser`, or when the WebView2 window fails on
+  Windows. Opens the page with `winebrowser` (the Linux browser) or the shell; the URL also in `launcher-url.txt`
+  (install folder) and `%TEMP%/fm3-launcher-url.txt`; a second start reopens the page; quits 15 s after the page
+  closed. Checked on Windows with `--browser` (`FM3_LAUNCHER_NO_OPEN=1` for tests): the page loads its state, the
+  token holds, the launcher exits 12 s after the tab closed. **Not tested under Proton yet** (user).
 - **Wheel axes (user: combined axes, separate left/right steering axes, axes not centred at 0, inversion):** combined
   steering and combined pedals and every invert switch existed; added (`src/input/wheel/`): **split steering**
   (`wheel_steer_mode=split`, `wheel_axes` `steer_left`/`steer_right`, each read like a pedal, right minus left,

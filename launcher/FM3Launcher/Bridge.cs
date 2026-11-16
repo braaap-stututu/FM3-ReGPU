@@ -11,12 +11,12 @@ namespace FM3Launcher;
 public sealed class Bridge
 {
     static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    readonly PhotinoWindow _window;
+    readonly IShell _window; // the launcher's window or the browser page (Shell.cs)
 
-    public Bridge(PhotinoWindow window)
+    public Bridge(IShell shell)
     {
-        _window = window;
-        window.RegisterWebMessageReceivedHandler((_, text) => OnMessage(text));
+        _window = shell;
+        shell.OnMessage(OnMessage);
     }
 
     async void OnMessage(string text)
@@ -38,9 +38,9 @@ public sealed class Bridge
     }
 
     // Photino takes messages from any thread.
-    void Post(object o) => _window.SendWebMessage(JsonSerializer.Serialize(o, Json));
+    void Post(object o) => _window.Send(JsonSerializer.Serialize(o, Json));
     // A line of JSON from the wheel probe (Wheel.cs), passed on as it is.
-    void PushWheel(string json) => _window.SendWebMessage("{\"event\":\"wheel\",\"data\":" + json + "}");
+    void PushWheel(string json) => _window.Send("{\"event\":\"wheel\",\"data\":" + json + "}");
 
     static readonly (string, string[])[] ZipFilter = [("Profile zip", ["*.zip"])];
     static readonly (string, string[])[] IsoFilter = [("Disc image", ["*.iso"]), ("All files", ["*.*"])];
@@ -63,8 +63,7 @@ public sealed class Bridge
                 }
             case "game.browse":
                 {
-                    var picked = await _window.ShowOpenFolderAsync("Choose the game folder (the extracted Disc 1, with default.xex and Media)",
-                        Directory.Exists(Paths.GameDir) ? Paths.GameDir : null, false);
+                    var picked = await _window.PickFolder("Choose the game folder (the extracted Disc 1, with default.xex and Media)", Directory.Exists(Paths.GameDir) ? Paths.GameDir : null);
                     if (picked is { Length: > 0 })
                     {
                         await Task.Run(() => Xex.Require(picked[0]));
@@ -78,7 +77,7 @@ public sealed class Bridge
             // game folder; progress as "disc1" events.
             case "game.iso":
                 {
-                    var files = await _window.ShowOpenFileAsync("Choose the Disc 1 image (Play Disc)", null, false, IsoFilter);
+                    var files = await _window.PickFile("Choose the Disc 1 image (Play Disc)", IsoFilter);
                     if (files is not { Length: > 0 }) return null;
                     await Task.Run(() => Disc1.Install(files[0], line => Post(new { @event = "disc1", data = new { text = line } })));
                     var s = GameSettings.Load();
@@ -98,12 +97,12 @@ public sealed class Bridge
                     string? source;
                     if (cmd == "disc2.iso")
                     {
-                        var files = await _window.ShowOpenFileAsync("Choose the Disc 2 image (Content Install Disc)", null, false, IsoFilter);
+                        var files = await _window.PickFile("Choose the Disc 2 image (Content Install Disc)", IsoFilter);
                         source = files is { Length: > 0 } ? files[0] : null;
                     }
                     else
                     {
-                        var dirs = await _window.ShowOpenFolderAsync("Choose the extracted Disc 2 folder, or a folder with the content packages", null, false);
+                        var dirs = await _window.PickFolder("Choose the extracted Disc 2 folder, or a folder with the content packages", null);
                         source = dirs is { Length: > 0 } ? dirs[0] : null;
                     }
                     if (source is null) return null;
@@ -175,7 +174,7 @@ public sealed class Bridge
                 }
             case "profiles.import":
                 {
-                    var files = await _window.ShowOpenFileAsync("Import a profile", null, false, ZipFilter);
+                    var files = await _window.PickFile("Import a profile", ZipFilter);
                     if (files is not { Length: > 0 }) return null;
                     var name = Profiles.Restore(files[0], a?["asName"]?.GetValue<string>());
                     return new { name, state = ProfilesState() };
@@ -183,7 +182,7 @@ public sealed class Bridge
             case "profiles.export":
                 {
                     var name = Str(a, "name");
-                    var file = await _window.ShowSaveFileAsync("Export profile", Profiles.FolderName(name) + ".zip", ZipFilter);
+                    var file = await _window.PickSaveFile("Export profile", Profiles.FolderName(name) + ".zip", ZipFilter);
                     if (string.IsNullOrEmpty(file)) return false;
                     Profiles.Export(name, file);
                     return true;

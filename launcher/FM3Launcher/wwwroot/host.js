@@ -14,7 +14,14 @@ const host = (() => {
     return api((msg) => window.parent.postMessage({ fm2: true, frame: window.name, msg }, "*"))
   }
   const ext = window.external
-  if (!ext || typeof ext.sendMessage !== "function") return null
+  if (!ext || typeof ext.sendMessage !== "function") {
+    // In the system's browser (Shell.cs BrowserShell: Proton/Wine, --browser): the page's messages as POST msg, the
+    // launcher's as the server-sent events of events, both under the page's own (token) path.
+    if (location.protocol !== "http:" || !/^\/[0-9a-f]{32}\//.test(location.pathname)) return null
+    const es = new EventSource("events")
+    es.onmessage = (e) => { try { deliver(JSON.parse(e.data)) } catch (_) {} }
+    return api((msg) => fetch("msg", { method: "POST", body: JSON.stringify(msg), headers: { "Content-Type": "application/json" } }).catch(() => {}))
+  }
   ext.receiveMessage((text) => {
     const m = JSON.parse(text)
     if (m.frame === undefined) return deliver(m)

@@ -89,6 +89,18 @@ internal static class Program
         }
         // one window: starting the launcher again brings the open one forward
         using var single = new Mutex(true, "FM3ReGPU.Launcher", out bool first);
+        if (!first && (args.Contains("--browser") || BrowserShell.UnderWine()))
+        {
+            // The launcher already runs in a browser page (no window to bring forward): open that page again.
+            try
+            {
+                var url = File.ReadAllText(Path.Combine(Path.GetTempPath(), "fm3-launcher-url.txt")).Trim();
+                if (BrowserShell.UnderWine()) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("winebrowser.exe", url) { UseShellExecute = false });
+                else System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch { }
+            return 0;
+        }
         if (!first)
         {
             if (OperatingSystem.IsWindows())
@@ -96,19 +108,37 @@ internal static class Program
                     if (p.Id != Environment.ProcessId && p.MainWindowHandle != IntPtr.Zero) SetForegroundWindow(p.MainWindowHandle);
             return 0;
         }
+        // Under Proton or Wine there is no WebView2: the page opens in the system's browser instead, served by the launcher
+        // (Shell.cs BrowserShell); also with --browser, and where the window fails to open on Windows.
+        if (args.Contains("--browser") || BrowserShell.UnderWine())
+            return RunInBrowser(BrowserShell.UnderWine() ? "Proton/Wine" : "--browser");
         Photino.NET.PhotinoWindow window;
         if (Platform.Linux) Platform.DesktopEntry(); // (the window's app id and icon on Wayland)
         try { window = Web.Create(Title, "index.html", 1500, 900, 1000, 680); }
         catch (Exception ex)
         {
-            Platform.Error(Title, Platform.Linux
-                ? "The launcher needs WebKitGTK (libwebkit2gtk-4.1: e.g. sudo apt install libwebkit2gtk-4.1-0, sudo pacman -S webkit2gtk-4.1).\n\n" + ex.Message
-                : "The launcher needs Microsoft Edge WebView2 (part of Windows 11; a free download for Windows 10).\n\n" + ex.Message);
+            if (!Platform.Linux) return RunInBrowser("no WebView2: " + ex.Message);
+            Platform.Error(Title, "The launcher needs WebKitGTK (libwebkit2gtk-4.1: e.g. sudo apt install libwebkit2gtk-4.1-0, sudo pacman -S webkit2gtk-4.1).\n\n" + ex.Message);
             return 1;
         }
-        _ = new Bridge(window);
+        _ = new Bridge(new PhotinoShell(window));
         window.WaitForClose();
         Wheel.Stop(); // the Wheel stuff tab's live view
+        return 0;
+    }
+
+    /// <summary>The launcher's page in the system's browser until it is closed.</summary>
+    static int RunInBrowser(string why)
+    {
+        var shell = new BrowserShell();
+        _ = new Bridge(shell);
+        Console.WriteLine($"FM3 launcher ({why}): {shell.Url}");
+        try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "fm3-launcher-url.txt"), shell.Url); } catch { }
+        // Also beside the game, where it is easy to find when the browser didn't open by itself (Steam's container).
+        try { File.WriteAllText(Path.Combine(Paths.Root, "launcher-url.txt"), shell.Url + "\n"); } catch { }
+        shell.OpenBrowser();
+        shell.WaitForClose();
+        Wheel.Stop();
         return 0;
     }
 

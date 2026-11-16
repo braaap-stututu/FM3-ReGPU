@@ -83,6 +83,15 @@ light performance logs, and toggles: draw workers, asynchronous present, upload 
 half-rate mirror, engine sound crossfade). It edits `settings.ini` in the user folder and starts
 `fm3.exe` from `out\run`. `FM3Launcher.exe --play` starts the game with the saved settings, without the window.
 
+**Proton / Wine (the Windows build on Linux):** install with the Windows installer (or copy the install folder) and
+run `launcher\FM3Launcher.exe` through Proton, e.g. as a non-Steam game in Steam with Proton forced. WebView2 can't run
+under Wine, so the launcher detects it and opens its page in your Linux browser instead (served by the launcher on
+127.0.0.1 under a random token; it quits when the page has been closed for 15 s). If no browser opens (Steam's
+container), open the address in `launcher-url.txt` in the install folder. File pickers are Wine's own dialogs; the
+game starts in the same Proton prefix. `FM3Launcher.exe --browser` does the same on Windows (and a Windows without
+WebView2 falls back to it). Steam Deck Game Mode can't show the browser: set things up in Desktop Mode, then use
+`--play` as the launch option. Not tested under Proton yet.
+
 **Linux:** `powershell -ExecutionPolicy Bypass -File installer/build-linux.ps1` builds
 `out/installer/dist/FM3-ReGPU-linux-<version>.tar.gz`: the same game build plus the launcher for Linux (self-contained;
 needs WebKitGTK 4.1). The game runs through Proton or Wine: launcher Settings > Linux picks umu-launcher, Steam's
