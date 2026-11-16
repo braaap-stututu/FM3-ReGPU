@@ -267,6 +267,14 @@ public sealed class Bridge
             },
             shaders = ShaderCache.Get(),
             disc2 = Disc2.Status(),
+            linux = Platform.Linux ? new
+            {
+                runners = Runner.Choices().Select(c => new { value = c.Value, name = c.Name, available = c.Available }),
+                resolved = Runner.Resolve(settings).Way,
+                detail = Runner.Resolve(settings).Detail,
+                prefix = settings.LinuxPrefix is { Length: > 0 } pre ? pre : Runner.DefaultPrefix,
+                protons = Runner.Protons(),
+            } : null,
         };
     }
 }

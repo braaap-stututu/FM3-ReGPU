@@ -69,6 +69,17 @@
     Now the flags travel with the frame (`regpu::xr::TakeFrameFlags`, in patch 68). Not reproducible without a
     headset session. **Next: user check.** (Open: the eye images are single-buffered, so at a hitch a frame's eyes
     can be the next frame's with its own pose: small, double-buffer if it shows.)
+- **Linux launcher (user's request):** the launcher (Photino: WebKitGTK on Linux) builds for linux-x64; the game is the
+  Windows fm3.exe run through Proton or Wine (`launcher/FM3Launcher/Runner.cs`): settings.ini `linux_runner`
+  (auto | umu | proton | wine; auto = umu-run, then Steam's newest Proton with GE-Proton first, then wine),
+  `linux_proton` (a Proton folder / umu's PROTONPATH), `linux_prefix` (default `~/.local/share/fm3-regpu/prefix`);
+  launcher Settings > Linux (hidden on Windows). The game folder and FM3_USER_DIR are passed as Wine paths (Z:),
+  WINEDEBUG=-all; Proton gets STEAM_COMPAT_DATA_PATH/CLIENT_INSTALL_PATH, umu WINEPREFIX + GAMEID; resolutions from
+  xrandr; GPU list Automatic only; the launcher's Windows-only console calls guarded; the desktop entry is written.
+  Package: `installer/build-linux.ps1` -> `out/installer/dist/FM3-ReGPU-linux-<version>.tar.gz` (134 MB; written by
+  `installer/pack_linux.py` so the start script and launcher keep their exec bits; README-LINUX.txt; boot picture).
+  Built and packed here; **not run on Linux yet** (no WSL here): the user tests on their Linux machines (7900 XTX /
+  6650 XT dual-boots, Deck). Open: the Wheel tab's live view stays Windows-only; VR (OpenXR) under Proton untried.
 - **Boot shader-compile screen (user's design):** `src/boot_screen.cpp` (ReGPU `Host::bootScreen`, which the port
   never set: ReGPU showed its plain overlay): a rev counter in the style of the first-generation Audi R8's (black face,
   chrome ring, 0-9 x1000/min, red from 8,250, red needle; our own GDI+ drawing, Bahnschrift, no maker's logo or font)

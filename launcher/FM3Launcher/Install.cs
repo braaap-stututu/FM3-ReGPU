@@ -72,6 +72,10 @@ public sealed class GameSettings
     public bool VrPace { get; set; } = true;
     // vr_eye_limit: how far the head may move from the seat in VR, cm each way ("0" = no limit, the default).
     public string VrEyeLimit { get; set; } = "0";
+    // Linux only (launcher, Runner.cs): how fm3.exe runs (auto, umu, proton, wine), a Proton folder, the Wine prefix.
+    public string LinuxRunner { get; set; } = "auto";
+    public string LinuxProton { get; set; } = "";
+    public string LinuxPrefix { get; set; } = "";
     // triple: one view across three monitors (session 39; the resolution is the three together); triple_fov: each
     // screen's vertical field of view in degrees ("0" = the camera's own where three fit). triple_angle/_bezel stay
     // settings.ini-only (kept as they are).
@@ -112,7 +116,7 @@ public sealed class GameSettings
     public string GameFolder { get; set; } = "";
 
     // The racing wheel's wheel_* keys are the Wheel stuff tab's (Wheel.cs); Save keeps them like any other key it doesn't know.
-    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_camera_motion", "vr_pace", "vr_eye_limit", "triple", "triple_fov", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
+    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
 
     public static GameSettings Load()
     {
@@ -158,6 +162,9 @@ public sealed class GameSettings
                 case "one_tile": s.OneTile = v == "1"; break;
                 case "vr_camera_motion": s.VrCameraMotion = v == "1"; break;
                 case "vr_pace": s.VrPace = v != "0"; break;
+                case "linux_runner": s.LinuxRunner = v is "auto" or "umu" or "proton" or "wine" ? v : "auto"; break;
+                case "linux_proton": s.LinuxProton = v; break;
+                case "linux_prefix": s.LinuxPrefix = v; break;
                 case "vr_eye_limit": s.VrEyeLimit = Options.VrEyeLimit.Any(x => x.Value == v) ? v : "0"; break;
                 case "triple": s.Triple = v == "1"; break;
                 case "triple_fov": s.TripleFov = Options.TripleFov.Any(x => x.Value == v) ? v : "0"; break;
@@ -187,7 +194,7 @@ public sealed class GameSettings
         sb.Append($"language={Language}\n");
         sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n"); // (session 23: these three were read but never saved)
         sb.Append($"perf_preset={(PerfPresets.Contains(PerfPreset) ? PerfPreset : "off")}\n");
-        sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\nvr_camera_motion={B(VrCameraMotion)}\nvr_pace={B(VrPace)}\nvr_eye_limit={(Options.VrEyeLimit.Any(x => x.Value == VrEyeLimit) ? VrEyeLimit : "0")}\ntriple={B(Triple)}\ntriple_fov={(Options.TripleFov.Any(x => x.Value == TripleFov) ? TripleFov : "0")}\ndebug_server={B(DebugServer)}\n");
+        sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\nvr_camera_motion={B(VrCameraMotion)}\nvr_pace={B(VrPace)}\nlinux_runner={LinuxRunner}\nlinux_proton={LinuxProton}\nlinux_prefix={LinuxPrefix}\nvr_eye_limit={(Options.VrEyeLimit.Any(x => x.Value == VrEyeLimit) ? VrEyeLimit : "0")}\ntriple={B(Triple)}\ntriple_fov={(Options.TripleFov.Any(x => x.Value == TripleFov) ? TripleFov : "0")}\ndebug_server={B(DebugServer)}\n");
         sb.Append(DxcShaders ? "shader_compiler=dxc\n" : "shader_compiler=fxc\n");
         sb.Append($"game_folder={Clean(GameFolder)}\n");
         foreach (var (k, v) in keep) sb.Append($"{k}={v}\n");
@@ -284,6 +291,7 @@ public static class Options
     public static List<Gpu> Gpus()
     {
         var list = new List<Gpu>();
+        if (!OperatingSystem.IsWindows()) return list; // (Linux: Automatic; Wine names the cards its own way)
         try
         {
             var iid = typeof(IDXGIFactory1).GUID;
@@ -318,6 +326,7 @@ public static class Options
     /// <summary>The primary display's modes from 1280x720 up, smallest first.</summary>
     public static List<string> Resolutions()
     {
+        if (!OperatingSystem.IsWindows()) return Runner.Resolutions();
         var set = new HashSet<(int, int)> { (1280, 720) };
         var dm = new DEVMODE { dmSize = (short)Marshal.SizeOf<DEVMODE>() };
         for (int i = 0; EnumDisplaySettingsW(null, i, ref dm); i++)
@@ -380,7 +389,9 @@ public static class Xex
 /// <summary>Starting the game, as play.cmd does.</summary>
 public static class Game
 {
-    public static bool Running => Process.GetProcessesByName("fm3").Any(p =>
+    public static bool Running => Platform.Linux
+        ? Process.GetProcesses().Any(p => { try { return p.ProcessName is "fm3.exe" or "fm3"; } catch { return false; } })
+        : Process.GetProcessesByName("fm3").Any(p =>
     {
         try { return string.Equals(p.MainModule?.FileName, Paths.Exe, StringComparison.OrdinalIgnoreCase); }
         catch { return true; } // can't look inside: assume it is ours
@@ -395,12 +406,22 @@ public static class Game
         Directory.CreateDirectory(Paths.RunDir);
         // fm3.exe overwrites fm3.log: keep the last run's as fm3.prev.log, so two runs can be compared.
         try { if (File.Exists(Paths.Log)) File.Copy(Paths.Log, Path.ChangeExtension(Paths.Log, ".prev.log"), true); } catch (IOException) { }
-        var psi = new ProcessStartInfo(Paths.Exe) { WorkingDirectory = Paths.RunDir, UseShellExecute = false, CreateNoWindow = true };
-        psi.ArgumentList.Add(Paths.GameDir);
+        // Linux: through Wine/Proton (Runner.cs), the paths the game is given as Wine paths.
+        ProcessStartInfo psi;
+        if (Platform.Linux)
+        {
+            psi = Runner.StartInfo(Paths.Exe, [Runner.WinePath(Paths.GameDir)], Paths.RunDir);
+            psi.Environment["FM3_USER_DIR"] = Runner.WinePath(Paths.User);
+        }
+        else
+        {
+            psi = new ProcessStartInfo(Paths.Exe) { WorkingDirectory = Paths.RunDir, UseShellExecute = false, CreateNoWindow = true };
+            psi.ArgumentList.Add(Paths.GameDir);
+            psi.Environment["FM3_USER_DIR"] = Paths.User;
+        }
         var settings = GameSettings.Load();
         // The profile comes from settings.ini (the Profiles tab): an FM3_PROFILE left in the environment would win.
         psi.Environment.Remove("FM3_PROFILE");
-        psi.Environment["FM3_USER_DIR"] = Paths.User;
         if (!settings.Anisotropy) psi.Environment["REGPU_NO_ANISO"] = "1";
         if (settings.HideShaderOverlay) psi.Environment["REGPU_NO_OVERLAY"] = "1";
         if (!settings.Timer) psi.Environment["FM3_NO_TIMER"] = "1";

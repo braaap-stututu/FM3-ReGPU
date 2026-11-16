@@ -1,5 +1,4 @@
-// Windows only (DXGI, user32, WebView2).
-[assembly: System.Runtime.Versioning.SupportedOSPlatform("windows")]
+// Windows and Linux (session 39: on Linux the window is WebKitGTK and the game runs through Wine/Proton, Runner.cs).
 
 namespace FM3Launcher;
 
@@ -25,7 +24,7 @@ internal static class Program
         var at = Array.IndexOf(args, "--install-disc2");
         if (at >= 0)
         {
-            if (GetStdHandle(-11) == IntPtr.Zero) AttachConsole(-1); // (output redirected to a file: kept there)
+            if (OperatingSystem.IsWindows() && GetStdHandle(-11) == IntPtr.Zero) AttachConsole(-1); // (output redirected to a file: kept there)
             try
             {
                 if (at + 1 >= args.Length) throw new ArgumentException("Usage: FM3Launcher --install-disc2 <Disc 2 .iso, its folder, or a package file>");
@@ -43,7 +42,7 @@ internal static class Program
         var d1 = Array.IndexOf(args, "--install-disc1");
         if (d1 >= 0)
         {
-            if (GetStdHandle(-11) == IntPtr.Zero) AttachConsole(-1);
+            if (OperatingSystem.IsWindows() && GetStdHandle(-11) == IntPtr.Zero) AttachConsole(-1);
             try
             {
                 if (d1 + 1 >= args.Length) throw new ArgumentException("Usage: FM3Launcher --install-disc1 <Disc 1 .iso> [folder]");
@@ -64,7 +63,7 @@ internal static class Program
         // --gpus: the graphics cards the "Graphics card" choice lists (name, own memory), to the console.
         if (args.Contains("--gpus"))
         {
-            if (GetStdHandle(-11) == IntPtr.Zero) AttachConsole(-1);
+            if (OperatingSystem.IsWindows() && GetStdHandle(-11) == IntPtr.Zero) AttachConsole(-1);
             foreach (var g in Options.Gpus()) Console.WriteLine($"{g.Name}: {g.MemoryMb} MB");
             return 0;
         }
@@ -73,7 +72,7 @@ internal static class Program
         var bench = Array.IndexOf(args, "--benchmark");
         if (bench >= 0)
         {
-            if (GetStdHandle(-11) == IntPtr.Zero) AttachConsole(-1);
+            if (OperatingSystem.IsWindows() && GetStdHandle(-11) == IntPtr.Zero) AttachConsole(-1);
             try
             {
                 var seconds = bench + 1 < args.Length && int.TryParse(args[bench + 1], out var s) ? s : 120;
@@ -98,10 +97,13 @@ internal static class Program
             return 0;
         }
         Photino.NET.PhotinoWindow window;
+        if (Platform.Linux) Platform.DesktopEntry(); // (the window's app id and icon on Wayland)
         try { window = Web.Create(Title, "index.html", 1500, 900, 1000, 680); }
         catch (Exception ex)
         {
-            Platform.Error(Title, "The launcher needs Microsoft Edge WebView2 (part of Windows 11; a free download for Windows 10).\n\n" + ex.Message);
+            Platform.Error(Title, Platform.Linux
+                ? "The launcher needs WebKitGTK (libwebkit2gtk-4.1: e.g. sudo apt install libwebkit2gtk-4.1-0, sudo pacman -S webkit2gtk-4.1).\n\n" + ex.Message
+                : "The launcher needs Microsoft Edge WebView2 (part of Windows 11; a free download for Windows 10).\n\n" + ex.Message);
             return 1;
         }
         _ = new Bridge(window);

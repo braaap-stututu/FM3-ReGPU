@@ -206,6 +206,15 @@ function render() {
   if (o.vr) fill($("vr"), o.vr, set.vr)
   if (o.tripleFov) fill($("tripleFov"), o.tripleFov, set.tripleFov)
   if (o.vrEyeLimit) fill($("vrEyeLimit"), o.vrEyeLimit, set.vrEyeLimit)
+  // Linux (Runner.cs): how the game runs; hidden on Windows.
+  $("linux-panel").hidden = !state.linux
+  if (state.linux) {
+    fill($("linuxRunner"), state.linux.runners, set.linuxRunner)
+    if (document.activeElement !== $("linuxProton")) $("linuxProton").value = set.linuxProton || ""
+    if (document.activeElement !== $("linuxPrefix")) $("linuxPrefix").value = set.linuxPrefix || ""
+    $("linuxProtons").innerHTML = state.linux.protons.map((p) => `<option value="${p.replace(/"/g, "&quot;")}">`).join("")
+    $("linux-now").textContent = `Next start: ${state.linux.resolved} (${state.linux.detail}), prefix ${state.linux.prefix}`
+  }
   fill($("ssaa"), o.ssaa, set.ssaa)
   const noSsaa = set.upscaler !== "off"
   $("ssaa").disabled = noSsaa
@@ -367,6 +376,9 @@ $("aa").onchange = (e) => change({ aa: e.target.value })
 $("vr").onchange = (e) => change({ vr: e.target.value })
 $("tripleFov").onchange = (e) => change({ tripleFov: e.target.value })
 $("vrEyeLimit").onchange = (e) => change({ vrEyeLimit: e.target.value })
+$("linuxRunner").onchange = (e) => change({ linuxRunner: e.target.value })
+$("linuxProton").onchange = (e) => change({ linuxProton: e.target.value.trim() })
+$("linuxPrefix").onchange = (e) => change({ linuxPrefix: e.target.value.trim() })
 $("ssaa").onchange = (e) => change({ ssaa: e.target.value })
 $("gpu").onchange = (e) => change({ gpu: e.target.value })
 $("perfPreset").oninput = (e) => { const p = PRESETS[+e.target.value]; $("perfPreset-v").textContent = p.name; $("perfPreset-note").textContent = p.note }

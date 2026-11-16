@@ -83,6 +83,13 @@ light performance logs, and toggles: draw workers, asynchronous present, upload 
 half-rate mirror, engine sound crossfade). It edits `settings.ini` in the user folder and starts
 `fm3.exe` from `out\run`. `FM3Launcher.exe --play` starts the game with the saved settings, without the window.
 
+**Linux:** `powershell -ExecutionPolicy Bypass -File installer/build-linux.ps1` builds
+`out/installer/dist/FM3-ReGPU-linux-<version>.tar.gz`: the same game build plus the launcher for Linux (self-contained;
+needs WebKitGTK 4.1). The game runs through Proton or Wine: launcher Settings > Linux picks umu-launcher, Steam's
+Proton (GE-Proton first) or Wine (Automatic tries them in that order) and the prefix (default
+`~/.local/share/fm3-regpu/prefix`). Unpack, run `./fm3-launcher.sh`, then Play tab > Game > "From .iso...". For Steam
+(e.g. the Deck's Game Mode): `fm3-launcher.sh` as a non-Steam game with `--play`. Not tested on Linux yet.
+
 **Installer (another PC):** `powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1` builds
 `out\installer\dist\FM3-ReGPU-Setup-<version>.exe` (needs Inno Setup 6: `winget install JRSoftware.InnoSetup`):
 the current `fm3.exe` with its DLLs and the self-contained launcher, per user, no admin rights, no game files. On

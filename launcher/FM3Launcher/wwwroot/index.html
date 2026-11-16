@@ -382,6 +382,24 @@
 
   <main class="page grid2" id="page-settings" hidden>
     <div class="stack">
+      <section class="panel" id="linux-panel" hidden>
+        <div class="panel-head"><h2>Linux</h2></div>
+        <p class="hint">On Linux the game (a Windows program) runs through Proton or Wine. Proton is the tested way: umu-launcher runs it outside Steam; Steam's own Proton (or GE-Proton) works too. All of them keep the game's Windows side in one folder (the prefix).</p>
+        <label class="field" data-tip="Automatic uses umu-launcher if it is installed, else the newest Proton Steam has, else Wine.">
+          <span>Run the game with</span>
+          <select id="linuxRunner"></select>
+        </label>
+        <label class="field" data-tip="A Proton folder (one with a proton file inside, e.g. ~/.steam/steam/compatibilitytools.d/GE-Proton9-20). Empty: the newest one found. With umu-launcher: the Proton it uses (empty: UMU-Proton, downloaded by umu).">
+          <span>Proton folder</span>
+          <input id="linuxProton" list="linuxProtons" placeholder="(the newest found)">
+          <datalist id="linuxProtons"></datalist>
+        </label>
+        <label class="field" data-tip="Where the game's Windows side lives (made on the first start). Empty: ~/.local/share/fm3-regpu/prefix.">
+          <span>Prefix folder</span>
+          <input id="linuxPrefix" placeholder="~/.local/share/fm3-regpu/prefix">
+        </label>
+        <div class="kv" id="linux-now"></div>
+      </section>
       <section class="panel">
         <div class="panel-head"><h2>Shader cache</h2></div>
         <p class="hint">Shaders are compiled the first time they're needed and kept here, so later starts and races don't stutter.</p>
