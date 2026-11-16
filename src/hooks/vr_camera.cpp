@@ -351,11 +351,12 @@ PPC_FUNC(sub_821E9B50)
         __imp__sub_821E9B50(ctx, base);
         return;
     }
-    // The eye stays within a box round the seat (FM3_VR_EYE_LIMIT, cm each way, default 30; 0 = no limit): leaning
-    // further doesn't put the camera through the car's body. The frame keeps the limited pose (it is what was drawn).
+    // The eye may stay within a box round the seat (FM3_VR_EYE_LIMIT / settings vr_eye_limit, cm each way; 0 or unset =
+    // no limit, the default since session 39 at the user's request: the head moves freely, through the car's body if it
+    // goes that far). The frame keeps the limited pose (it is what was drawn).
     static const float limit = [] {
         const char* v = getenv("FM3_VR_EYE_LIMIT");
-        return (v && *v ? float(atof(v)) : 30.0f) * 0.01f;
+        return (v && *v ? float(atof(v)) : 0.0f) * 0.01f;
     }();
     if (limit > 0)
         for (float& c : pose.position)

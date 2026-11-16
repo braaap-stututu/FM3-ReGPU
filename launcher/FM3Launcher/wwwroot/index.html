@@ -166,6 +166,10 @@
         <div><div class="toggle-title">VR: match the headset's frame rate</div><div class="toggle-sub">Headset pacing, on by default</div></div>
         <button class="switch" id="vrPace" role="switch"></button>
       </div>
+      <label class="field" data-tip="How far your head may move from the driver's seat in VR before the view stops following. No limit: you can lean anywhere, through the car's body or out of the window if you go that far. A limit keeps the camera inside the car. Only matters with the VR headset option on. Read when the game starts.">
+        <span>VR: head movement</span>
+        <select id="vrEyeLimit"></select>
+      </label>
       <div class="toggle-row" data-tip="One view across three monitors, each showing the world from its own angle, like three windows around you (not one stretched picture). Set the resolution to the three screens together (e.g. 7680x1440 for three 2560x1440 monitors) on one wide desktop (AMD Eyefinity, NVIDIA Surround) and fullscreen. The side screens are drawn as extra passes: about 2.3x the frame time (the centre's draws three times); the HUD is on the centre screen; upscalers and edge filters are off. Not together with VR. Read when the game starts.">
         <div><div class="toggle-title">Triple screen</div><div class="toggle-sub">Three monitors, one view, experimental, off by default</div></div>
         <button class="switch" id="triple" role="switch"></button>

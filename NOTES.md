@@ -69,6 +69,10 @@
     Now the flags travel with the frame (`regpu::xr::TakeFrameFlags`, in patch 68). Not reproducible without a
     headset session. **Next: user check.** (Open: the eye images are single-buffered, so at a hitch a frame's eyes
     can be the next frame's with its own pose: small, double-buffer if it shows.)
+- **VR head movement limit (user: "increase the distance I'm allowed to move my head; clipping through the car is not
+  an issue"):** the eye limit round the seat is now off by default (`FM3_VR_EYE_LIMIT` unset = no limit; was 30 cm);
+  settings.ini `vr_eye_limit` (cm each way, 0 = none) and launcher Graphics "VR: head movement" (No limit / 30 cm /
+  60 cm / 1 m).
 - **True triple screen** (user: "try implementing a true triple screen mode"; ReGPU patch 67 `regpu-triple-screen`,
   67 patches; RESEARCH "Single-instance triple screen" option 3): settings.ini `triple=1` (launcher Graphics
   "Triple screen" + "Triple screen: field of view" = `triple_fov`; `triple_angle`, `triple_bezel` settings.ini only;

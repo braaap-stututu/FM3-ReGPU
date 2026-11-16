@@ -480,6 +480,9 @@ void GpuStart()
     // In-car camera motion (shake, G lean) is off with VR (src/kernel/imports_io.cpp); vr_camera_motion=1 keeps it.
     if (GetSettings().Extra("vr_camera_motion") == "1")
         DefaultEnv("FM3_VR_CAMERA_MOTION", "1");
+    // How far the head may move from the seat in VR (session 39): vr_eye_limit = cm each way, 0 = no limit (default).
+    if (const std::string limit = GetSettings().Extra("vr_eye_limit"); !limit.empty())
+        DefaultEnv("FM3_VR_EYE_LIMIT", limit.c_str());
     // The HUD on its own panel in the headset (stereo): FM3's last pass draws the HUD onto a cleared surface first and
     // then the tone-map composite under it by destination alpha (session 38 capture); this is that composite's pixel
     // shader, so ReGPU takes the HUD from the surface before it and draws the composite opaque.

@@ -205,6 +205,7 @@ function render() {
   fill($("aa"), o.aa, set.aa)
   if (o.vr) fill($("vr"), o.vr, set.vr)
   if (o.tripleFov) fill($("tripleFov"), o.tripleFov, set.tripleFov)
+  if (o.vrEyeLimit) fill($("vrEyeLimit"), o.vrEyeLimit, set.vrEyeLimit)
   fill($("ssaa"), o.ssaa, set.ssaa)
   const noSsaa = set.upscaler !== "off"
   $("ssaa").disabled = noSsaa
@@ -365,6 +366,7 @@ $("msaa").onchange = (e) => change({ msaa: +e.target.value })
 $("aa").onchange = (e) => change({ aa: e.target.value })
 $("vr").onchange = (e) => change({ vr: e.target.value })
 $("tripleFov").onchange = (e) => change({ tripleFov: e.target.value })
+$("vrEyeLimit").onchange = (e) => change({ vrEyeLimit: e.target.value })
 $("ssaa").onchange = (e) => change({ ssaa: e.target.value })
 $("gpu").onchange = (e) => change({ gpu: e.target.value })
 $("perfPreset").oninput = (e) => { const p = PRESETS[+e.target.value]; $("perfPreset-v").textContent = p.name; $("perfPreset-note").textContent = p.note }
