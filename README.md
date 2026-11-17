@@ -2,7 +2,8 @@
 
 Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 360, title `4D53084D`,
 `default.xex` v0.0.0.8, SHA-256 `aa15372c13bc4c899b5ef90a1cfb5634d389b0a3620cc9715f6023d61a9b8742`)
-for Windows x64, on [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) +
+for Windows x64, on [ReXenon](https://github.com/zer0ducksgiven/ReXenon) (a fork of hedge-dev's
+[XenonRecomp](https://github.com/hedge-dev/XenonRecomp), the default recompiler; XenonRecomp stays selectable) +
 [ReGPU](https://github.com/zer0ducksgiven/ReGPU) (Direct3D 12). Layout and build follow the FM2 and FM4 ReGPU ports.
 
 (i tried to make this a fork of the FM2 ReGPU project but github wouldn't let me)
@@ -55,8 +56,8 @@ Each fix can be switched off for comparison; the switches and details are in [NO
 
 ## Build
 ```powershell
-& .\tools\setup.ps1                            # submodules, XenonRecomp + ReGPU patches, build\tools\*
-& .\tools\recomp.ps1 -Xex <your default.xex>    # recompile -> out\ppc (checks in out\check.txt)
+& .\tools\setup.ps1                            # submodules, ReXenon/XenonRecomp/ReGPU patches, build\tools\*, build\tools-rexenon
+& .\tools\recomp.ps1 -Xex <your default.xex>    # recompile with ReXenon -> out\ppc-rexenon (-Recompiler xenonrecomp -> out\ppc)
 tools\vcenv.cmd cmake -S . -B build/rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_LINKER=lld-link
 tools\vcenv.cmd ninja -C build/rel fm3
 ```
@@ -129,7 +130,7 @@ W / S = throttle / brake, A / D = steer, Q / E = LB / RB, J L I K = right stick.
 |---|---|
 | `CMakeLists.txt` | The game build (needs `out/ppc`, `thirdparty/fidelityfx`, `thirdparty/ffmpeg`) |
 | `config/` | XenonRecomp config and switch tables for `default.xex` |
-| `patches/` | 5 XenonRecomp + 40 ReGPU patches, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
+| `patches/` | 1 ReXenon, 5 XenonRecomp and 75 ReGPU patches, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
 | `src/` | Runtime: kernel/XAM, loader, threads, fibers, audio, ReGPU host glue ([src/README.md](src/README.md)) |
 | `install-disc2.cmd` | Installs Disc 2's content packages from the disc image (same as the launcher's Disc 2 tile) |
 | `play.cmd` | Development launcher (debug server on, saves in `out/user`, log in `out/run`) |
@@ -141,10 +142,10 @@ W / S = throttle / brake, A / D = steer, Q / E = LB / RB, J L I K = right stick.
 | `tools/fm3ctl.ps1` | Client for ReGPU's debug server (screenshots, captures, live switches, shader edits) |
 | `tools/analysis/` | Screenshot measuring and memory-decoding scripts used for debugging |
 | `tools/fm3_route.ps1`, `tools/dumpdecode.py` | Baseline (hl360) capture route and frame-dump decoder/differ |
-| `thirdparty/XenonRecomp`, `thirdparty/ReGPU` | Submodules (pinned; see NOTES.md) |
+| `thirdparty/ReXenon`, `thirdparty/XenonRecomp`, `thirdparty/ReGPU` | Submodules (pinned; see NOTES.md). CMake `FM3_RECOMPILER` picks the recompiler's output (`rexenon` default, or `xenonrecomp`) |
 
 ## Licences
-Our code: MIT, see [LICENSE](LICENSE). XenonRecomp (MIT, hedge-dev and contributors) and ReGPU (MIT) are
-submodules. Most of `src/` and the XenonRecomp patches in `patches/` come from the MIT-licensed FM4 port
+Our code: MIT, see [LICENSE](LICENSE). ReXenon (MIT, zer0ducksgiven, a fork of XenonRecomp), XenonRecomp (MIT,
+hedge-dev and contributors) and ReGPU (MIT) are submodules. Most of `src/` and the XenonRecomp patches in `patches/` come from the MIT-licensed FM4 port
 (Aiden-Piercee, building on zer0ducksgiven's FM2 port): see [NOTICE.md](NOTICE.md). FFmpeg is linked
 dynamically and stays under its own LGPL licence.
