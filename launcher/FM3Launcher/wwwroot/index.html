@@ -8,7 +8,7 @@
 <body>
   <header class="top">
     <div class="brand" id="brand" role="button" tabindex="0" data-tip="About FM3:ReGPU">
-      <svg class="mark" viewBox="0 0 48 48" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="10" fill="none" stroke="currentColor" stroke-width="3"/><text x="24" y="32" text-anchor="middle" font-size="22" font-weight="800" fill="currentColor" font-family="Segoe UI, sans-serif">3</text></svg>
+      <img class="mark" src="icon.png" alt="" aria-hidden="true">
       <div>
         <div class="logo">FM3:<span>ReGPU</span></div>
         <div class="tag" id="version">Native PC port</div>
@@ -120,6 +120,7 @@
 
   <!-- GRAPHICS -->
   <main class="page grid3" id="page-graphics" hidden>
+    <div class="stack">
     <section class="panel">
       <div class="panel-head"><h2>Upscaler</h2></div>
       <label class="field" data-tip="Draws the 3D scene at a lower resolution and scales it up; the HUD stays full size. Faster on a weak graphics card, a little softer. FSR 1 is the simplest; FSR 3 also uses previous frames; Bilinear is the cheapest (softest), for integrated graphics. Not yet tested on FM3.">
@@ -135,6 +136,27 @@
         <select id="sharpening"></select>
       </label>
     </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Performance</h2></div>
+      <label class="field" data-tip="The limit on the frames shown. With VSync on, the display's refresh rate also limits it.">
+        <span>Max FPS</span>
+        <select id="maxFps"></select>
+      </label>
+      <label class="field" id="customFpsField" data-tip="Any cap from 30 to 360 fps." hidden>
+        <span>Custom FPS cap</span>
+        <input id="customFps" type="number" min="30" max="360" step="1">
+      </label>
+      <div class="toggle-row" data-tip="Waits for the display's refresh: no tearing, slightly more input lag.">
+        <div><div class="toggle-title">VSync</div><div class="toggle-sub">Sync frames to the display</div></div>
+        <button class="switch" id="vsync" role="switch"></button>
+      </div>
+      <label class="field" data-tip="Trades picture for speed. Turbo keeps the picture as it is. Mild, Potato, Low and Extreme lower texture filtering and (Mild, Low, Extreme) draw the 3D scene smaller. Applies at the next start.">
+        <span>Speed preset <b id="perfPreset-v"></b></span>
+        <input type="range" id="perfPreset" min="0" max="5" step="1">
+      </label>
+      <div class="hint" id="perfPreset-note"></div>
+    </section>
+    </div>
     <section class="panel">
       <div class="panel-head"><h2>Display</h2></div>
       <label class="field" data-tip="The graphics card the game renders on. Automatic is the one Windows picks (usually the main one). Pick another, e.g. a processor's built-in graphics, to test it: the picture still goes to the display it is plugged into. Applies at the next start.">
@@ -198,26 +220,6 @@
       </div>
     </section>
 
-    <section class="panel">
-      <div class="panel-head"><h2>Performance</h2></div>
-      <label class="field" data-tip="The limit on the frames shown. With VSync on, the display's refresh rate also limits it.">
-        <span>Max FPS</span>
-        <select id="maxFps"></select>
-      </label>
-      <label class="field" id="customFpsField" data-tip="Any cap from 30 to 360 fps." hidden>
-        <span>Custom FPS cap</span>
-        <input id="customFps" type="number" min="30" max="360" step="1">
-      </label>
-      <div class="toggle-row" data-tip="Waits for the display's refresh: no tearing, slightly more input lag.">
-        <div><div class="toggle-title">VSync</div><div class="toggle-sub">Sync frames to the display</div></div>
-        <button class="switch" id="vsync" role="switch"></button>
-      </div>
-      <label class="field" data-tip="Trades picture for speed. Turbo keeps the picture as it is. Mild, Potato, Low and Extreme lower texture filtering and (Mild, Low, Extreme) draw the 3D scene smaller. Applies at the next start.">
-        <span>Speed preset <b id="perfPreset-v"></b></span>
-        <input type="range" id="perfPreset" min="0" max="5" step="1">
-      </label>
-      <div class="hint" id="perfPreset-note"></div>
-    </section>
   </main>
 
   <!-- PROFILES -->
@@ -319,13 +321,15 @@
         <div class="status" id="tri-status"></div>
       </section>
     </div>
-    <section class="panel tri-result">
-      <div class="tri-figs" id="tri-figs"></div>
-      <div class="tri-sub" id="tri-sub"></div>
-    </section>
-    <section class="panel tri-vis">
-      <svg id="tri-svg" viewBox="0 0 1000 520" preserveAspectRatio="xMidYMid meet"></svg>
-    </section>
+    <div class="tri-bottom">
+      <section class="panel tri-result">
+        <div class="tri-figs" id="tri-figs"></div>
+        <div class="tri-sub" id="tri-sub"></div>
+      </section>
+      <section class="panel tri-vis">
+        <svg id="tri-svg" viewBox="0 0 1000 520" preserveAspectRatio="xMidYMid meet"></svg>
+      </section>
+    </div>
   </main>
 
   <main class="page grid2" id="page-profiles" hidden>
@@ -517,7 +521,9 @@
           <button class="ghost small" data-open="log" data-tip="fm3.log: the game's log. Send it with bug reports.">Open log folder</button>
         </div>
       </section>
+    </div>
 
+    <div class="stack">
       <section class="panel">
         <div class="panel-head"><h2>Benchmark</h2></div>
         <p class="hint">The game's own race AI drives your car through a career race (Ladera Test Track, 3 laps, 7 opponents) while the frame rate is measured, then the game closes by itself. It races on a copy of the Baseline profile, so your saves don't change. Uses the settings on these tabs. The AI drives a little differently each time: run it a few times before comparing settings.</p>
@@ -532,9 +538,8 @@
         <div class="status" id="bench-status"></div>
         <div class="bench-table-wrap"><table class="bench-table" id="bench-table"></table></div>
       </section>
-    </div>
 
-    <section class="panel">
+    <section class="panel" id="testing-panel">
       <div class="panel-head"><h2>Testing</h2></div>
       <div class="toggle-row" data-tip="The game's clock, top left, to a tenth of a second: the same clock as fm3.log, so a screenshot points into the log.">
         <div><div class="toggle-title">Test timer</div><div class="toggle-sub">Top left of the screen</div></div>
@@ -589,6 +594,7 @@
         <button class="switch" id="engineCrossfade" role="switch"></button>
       </div>
     </section>
+    </div>
   </main>
 
   <div class="modal" id="prof-modal" hidden>

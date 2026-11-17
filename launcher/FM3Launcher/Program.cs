@@ -114,7 +114,7 @@ internal static class Program
             return RunInBrowser(BrowserShell.UnderWine() ? "Proton/Wine" : "--browser");
         Photino.NET.PhotinoWindow window;
         if (Platform.Linux) Platform.DesktopEntry(); // (the window's app id and icon on Wayland)
-        try { window = Web.Create(Title, "index.html", 1500, 900, 1000, 680); }
+        try { window = Web.Create(Title, "index.html", 1600, 960, 1000, 680); }
         catch (Exception ex)
         {
             if (!Platform.Linux) return RunInBrowser("no WebView2: " + ex.Message);
