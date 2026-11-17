@@ -21,6 +21,46 @@ the poster bug), what fixed each one, what is still open, and how to test. State
 3. **Honda CRX: vinyls invisible in the paint booth** (seen once, in the build that still had the poster bug).
    Probably the poster bug (a region drawn into the wrong image); re-check with the current build first.
 
+## Why these bugs keep coming back (session 41 analysis)
+
+**The model mismatch.** On the console every copy (resolve) just writes bytes into one flat memory; a livery atlas is
+whatever the strips and region copies wrote into its address range, and a texture fetch reads that memory. ReGPU keeps
+each copy as its own GPU image in a map keyed by the copy's exact base address (`g_r.resolved`), and a fetch finds an
+image only at its exact base. Everything FM3 composes out of several copies (the atlas from 4 strips + one region per
+vinyl tab; each 4x side view from 160/192/224-row tiles) therefore depends on rules that guess which earlier image a
+copy belongs to: `ResolveIntoEnclosing` (row width equal to the pitch or the big-pass width, declared height equal to
+the rows left, base strictly lower, most recently used, row clip), `placedInImage`, height keep, the big-pass width
+(`pitch*64/65`), and since session 41 the own-base rule. Each car's editor uses its own region sizes and positions, so
+each car can hit a combination no rule covers: the Scion's 1400-wide side views (64/65), the CRX's region at the atlas
+base, the Civic's 1616/1632 tiles at bases left over from the last build. Fixing car by car is fixing the guesses.
+
+**The siblings have the same model and the same open bugs.** FM2 port: images keyed by exact address, livery support
+is pitch/scissor special cases (the 64/65 rule, 2080/1040 layout keys, tall/foreign-MSAA views), no handling of a copy
+at an x,y inside another image; still open there: report #50 "layers land in the wrong places", a moved decal
+vanishing, race livery corruption. FM4 port (vendored ReGPU): the same FM2-era livery fixes, no enclosing logic, no
+livery write-back at all; its GitHub issue #3: "decals don't apply on cars most of the time". Its
+`docs/FM4-RENDERER-PORT.md` lists "CPU readback tracking instead of size-keyed writebacks" as a plan only.
+FH1 ReImagined (ReXGlue, Xenia's model): every resolve is written into a GPU copy of guest memory and textures are
+read from memory by address range, so copies compose by themselves; its livery bugs were of another kind (below).
+
+**A second, separate cause (from FH1's notes): draws skipped while their pipeline builds.** The game builds a livery
+once per car load. ReGPU skips a blended draw (vinyl layers blend `010B010B`) whose pipeline is not built yet, and an
+opaque one once the game has settled (`SkippableDraw`); a skipped layer stays missing until the car is rebuilt. Warm
+caches hide it (0 skipped in session 41's runs); first boots and the Steam Deck can show it as random missing pieces.
+
+**What would end the guessing (proposal, not built):**
+1. *Copies by address range.* Keep resolved images with their tiled byte range (pitch rounded to 32, rows rounded to
+   32, bytes per texel). A copy is drawn into every live image of the same row width and format whose range holds the
+   copy's destination, at the x,y its tiled offset gives (inside, at the base, or a tile of it); a new image is made
+   only where none covers it (and an image a new larger copy covers is drawn into that one). This replaces the width,
+   declared-height, base, own-base and pass-width rules with one rule that is what the memory does.
+2. *Livery passes never skip draws.* Only the main 1280-wide views may skip a draw while its pipeline builds (they are
+   redrawn next frame); every off-screen pass waits.
+3. *Write-back by what the CPU reads,* not by size (the 2048/1024 livery rule): later, with read tracking on the
+   resolve destinations (FM4's plan).
+Each behind a `REGPU_*` switch, checked on the Scion, Supra, Fiat, CRX and Civic atlases read from memory
+(`dumptex.py`) plus the frozen grid.
+
 ## How FM3 builds a car's livery (what ReGPU has to get right)
 
 - The car's paint+vinyl texture is an **8888 2048×2048 atlas** (some cars may be smaller: the Fiat's sizes are not
