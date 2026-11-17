@@ -15,7 +15,7 @@ find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
 # FM3_RECOMPILER: which recompiler made the game code. xenonrecomp (hedge-dev's, with our 5 patches): out/ppc.
 # rexenon (zer0ducksgiven's fork, thirdparty/ReXenon, session 41): out/ppc-rexenon (tools/recomp.ps1 -Recompiler
 # rexenon); its timebase comes from PPC_MFTB() in src/ppc_hooks.h instead of tools/patch_mftb.py.
-set(FM3_RECOMPILER "xenonrecomp" CACHE STRING "Recompiler of the game code: xenonrecomp or rexenon")
+set(FM3_RECOMPILER "rexenon" CACHE STRING "Recompiler of the game code: rexenon (default since session 41) or xenonrecomp")
 set_property(CACHE FM3_RECOMPILER PROPERTY STRINGS xenonrecomp rexenon)
 if(FM3_RECOMPILER STREQUAL "rexenon")
     set(FM3_XENON_DIR "thirdparty/ReXenon")

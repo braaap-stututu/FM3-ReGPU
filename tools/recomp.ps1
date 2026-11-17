@@ -10,7 +10,7 @@
 # -Recompiler rexenon (session 41): ReXenon (thirdparty/ReXenon, build\tools-rexenon) -> out\ppc-rexenon from the same
 # config (config\fm3_rexenon.toml is written from config\fm3.toml with that output folder; log out\recomp-rexenon.log);
 # build it with -DFM3_RECOMPILER=rexenon (build\rexenon). ReXenon stops with an error if anything is left unresolved.
-param([string]$Xex, [switch]$Prepare, [ValidateSet('xenonrecomp', 'rexenon')][string]$Recompiler = 'xenonrecomp')
+param([string]$Xex, [switch]$Prepare, [ValidateSet('xenonrecomp', 'rexenon')][string]$Recompiler = 'rexenon')
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
