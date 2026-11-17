@@ -53,7 +53,7 @@
   opening, mean pixel difference to a 60 fps run: 240 fps with the game's step 43 / 75, fixed 4.1 / 4.8.
   Also `CUI4CarTargetCamera`'s automatic orbit (state 2 at +256: +0.1 degree per update to +112 in `sub_823138D0`, view
   built by `sub_823135F0` from `0x82313AEC`) -> 6 degrees per real second; **built, not seen running** (car select shows a
-  still picture; the garage orbit wasn't reached). `FM3_UI_CAMERA=game` = both as before. User to confirm.
+  still picture; the garage orbit wasn't reached). `FM3_UI_CAMERA=game` = both as before. **User confirmed in game: works as intended** (the fast showcase cuts had made constant white flashes).
 - **Next:** the session 40 list below. Only the band with one tile **off** is unconfirmed in game (still there on our shot).
 
 ### ▶ Start here (session 40): state at the end of session 39 (2026-11-16)
