@@ -1,5 +1,5 @@
 diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
-index 43a5d90..7e5881c 100644
+index 43a5d90..e95bdcf 100644
 --- a/src/gpu/renderer.cpp
 +++ b/src/gpu/renderer.cpp
 @@ -649,6 +649,7 @@ struct ResolvedTexture
@@ -134,7 +134,15 @@ index 43a5d90..7e5881c 100644
          // 16-bit fixed destinations (k_16, k_16_16, k_16_16_16_16: formats 24-26) hold integers: the copy converts
          // each value (after the exponent bias) to a 16-bit integer and saturates, signed or unsigned by the copy's
          // number format (RB_COPY_DEST_INFO bits 13-15: 1 snorm, 3 sint signed). Our texture keeps the value as a
-@@ -9761,9 +9808,11 @@ void Resolve()
+@@ -9757,13 +9804,19 @@ void Resolve()
+         // rounded up to whole 32-texel tiles, so a copy within 32 of it spans the whole image (a 1616-wide copy with
+         // pitch 1632 is that image's own: a tall pass's tiles, each at a base where the previous build left an image of
+         // its own, were drawn there and not into the pass's image: the vinyls kept only the first tile's rows).
++        // Narrower only, not shorter (session 41): a full-width copy with fewer rows (the first livery strip, 2048x512 at
++        // the atlas's base) has to stay the image there, as the game's copies make it, so the host's write-back
++        // rule sees it and writes the whole livery back; drawn into the atlas instead, only the vinyl regions reached
++        // memory and the CPU's compressed copy (garage, menus) mixed old strips in.
+         // REGPU_NO_RESOLVE_INTO_OWN_BASE=1: made the image there (A/B, live).
          static LiveSwitch noIntoOwnBase("REGPU_NO_RESOLVE_INTO_OWN_BASE");
          bool intoOwnBase = false;
          if (!depth && !noIntoOwnBase && !placedInImage && rect.top == 0 && rect.left == 0)
@@ -144,7 +152,7 @@ index 43a5d90..7e5881c 100644
 -                uint32_t(rect.right) + 32 <= pitch)
 +                (g_sw_REGPU_ENCLOSING_GUESS ? own->second.width == pitch && uint32_t(rect.right) + 32 <= pitch
 +                                            : ((own->second.copyPitch ? own->second.copyPitch : own->second.width) + 31) / 32 == (pitch + 31) / 32 &&
-+                                                (uint32_t(rect.right) + 32 <= own->second.width || uint32_t(rect.bottom) + 32 <= own->second.height)))
++                                                uint32_t(rect.right) + 32 <= own->second.width))
                  intoOwnBase = ResolveIntoEnclosing(base, pitch, declaredHeight, guestBpp, format, rect, std::ldexp(1.0f, bias), destRange, blitFlags, true);
          if (!intoOwnBase)
          {
