@@ -108,4 +108,4 @@ Line endings: these files must stay LF (`.gitattributes`: `*.patch -text`). The 
 
 | # | Patch | What |
 |---|---|---|
-| 1 | `rexenon-vsldoi128.patch` | From our XenonRecomp patch 4: primary opcode 4 with bit 4 set is always `vsldoi128` on Xenon, but ReXenon's disassembler matched the PPC405 multiply/MAC entries first (FM3's `8284AA90` came out as `mullhwu.`, an unimplemented trap). Applied by `tools/setup.ps1`. |
+| 1 | `rexenon-vsldoi128.patch` | From our XenonRecomp patch 4: primary opcode 4 with bit 4 set is always `vsldoi128` on Xenon, but ReXenon's disassembler matched the PPC405 multiply/MAC entries first (FM3's `8284AA90` came out as `mullhwu.`, an unimplemented trap). Applied by `tools/setup.ps1`. Sent upstream as PR zer0ducksgiven/ReXenon#1 (2026-11-17): drop this patch once it is merged. |

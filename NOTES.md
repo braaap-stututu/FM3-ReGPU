@@ -27,8 +27,9 @@
 - **Other open items from this session:** shader sharing needs the user's Cloudflare Worker + private uploads repo +
   token before `DefaultEndpoint` in `launcher/FM3Launcher/Sharing.cs` is set (`server/shaders/README.md`); before merging
   uploads into the seed, filter lines (only pipelines whose shaders are in the game files, or seen on 2+ installs); the
-  launcher's 2 MB upload cap skips old bloated manifests silently. Report ReXenon's vsldoi128 decode bug upstream (user's
-  call: public post). The next release (bump `VERSION`) will carry ReXenon and the merged launcher; v0.41.0-beta predates
+  launcher's 2 MB upload cap skips old bloated manifests silently. ReXenon's vsldoi128 decode bug: **reported as PR zer0ducksgiven/ReXenon#1**
+  (2026-11-17, branch `fix-vsldoi128-decode` on our fork braaap-stututu/ReXenon; also describes the 824B9698 jump table
+  and our benchmark numbers); once merged, bump the submodule and drop `patches/rexenon-vsldoi128.patch`. The next release (bump `VERSION`) will carry ReXenon and the merged launcher; v0.41.0-beta predates
   both. The user's save: a Civic's right-side layer was left at X 1.00 by my pad nudge (told the user).
 - **Cloud research landed on main meanwhile** ("Cloud research (2026-11-16/17)" below, RESEARCH.md): a SteamOS game-mode
   launcher plan (the user's Deck: the native Linux launcher misses a library SteamOS lacks, the Proton browser mode works),
