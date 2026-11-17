@@ -65,12 +65,19 @@ bool OneTileEnabled()
 PPC_FUNC_IMPL(__imp__sub_82798890);
 PPC_FUNC(sub_82798890)
 {
+    void FrontEndRateScenario(uint32_t index); // src/hooks/frontend_rate.cpp: menus at most 120 fps
     if (!OneTileEnabled())
-        return __imp__sub_82798890(ctx, base);
+    {
+        const uint32_t object = ctx.r3.u32;
+        __imp__sub_82798890(ctx, base);
+        FrontEndRateScenario(LoadBE32(object));
+        return;
+    }
     Restore();
     const uint32_t object = ctx.r3.u32;
     __imp__sub_82798890(ctx, base);
     const uint32_t index = LoadBE32(object);
+    FrontEndRateScenario(index);
     const uint32_t s = kScenarios + index * kScenarioBytes;
     if (index < 3 && *GuestPtr<uint8_t>(object + 90) && LoadBE32(s + 16) > 1 && LoadBE32(s + 4) == 1280 && LoadBE32(s + 8) == 720)
     {

@@ -31,6 +31,19 @@
   `one_tile` as on (`one_tile=0` / `FM3_ONE_TILE=0` = off), the launcher's default is on and reads anything but `0` as on;
   tooltip says so. Settings files the launcher already wrote with `one_tile=0` stay off (an explicit choice can't be told
   from an old default). Benchmark scripts pin `FM3_ONE_TILE` themselves.
+- **Menus too fast above 120 fps (user: "the front end is sped up by the times the cap is faster than 60", "menu speed
+  is half the cap"): fixed by presenting the front end at most 120 fps** (`src/hooks/frontend_rate.cpp`, races keep the
+  full cap). Measured on the Free Play submenu opening (consecutive debug shots, `out/shots/c120`, `b240A`, `c360`...):
+  19 frames at a 60 cap (0.32 s), ~40 frames at 120/240/360 (0.33/0.17/0.11 s): the menu animation steps per rendered
+  frame by at least ~1/120 s. Ruled out with temporary probes: the main loop's dt (frozen at 0, or x8: no change), its UI
+  update `sub_8231A838` (skipped: still animated; it posts a tick event `sub_82320AF8` -> `sub_82320AE0` -> each
+  element's slot 68), the vblank count (`FM3_VBLANK_DIVIDER=1`: no change). Presentation capped at 120 with the main
+  loop at 240: 35 frames at 120 fps = console speed. The clamp itself (render thread `sub_82210098`, its frame timer at
+  +2152, dt at +2712) wasn't found; constants 1/120 at `0x82000E68` and 0.008 at `0x82017E80` lead nowhere.
+  `regpu::SetFrameLimit` at the renderer set-up (one tile's hook `sub_82798890`): scenario 0 (front end, photo mode) =
+  min(cap, 120), scenario 1 (race) = the cap. Checked at 240: menus 120 fps, race 240, photo mode 120, back to the race
+  240. `FM3_FRONTEND_FPS` / `frontend_fps=` (0 = old behaviour). Not covered: the race's own pause/pre-race menus
+  (still cap/120 too fast above 120); not yet confirmed by the user.
 - **Next:** the session 40 list below. Only the band with one tile **off** is unconfirmed in game (still there on our shot).
 
 ### ▶ Start here (session 40): state at the end of session 39 (2026-11-16)
