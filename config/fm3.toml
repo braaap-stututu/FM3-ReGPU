@@ -70,6 +70,9 @@ functions = [
     { address = 0x82354668, size = 0x15C }, # 10 cases, ends in a tail-call bctr at 823547C0
     { address = 0x825F16B8, size = 0xAC },  # 73 cases (clrlwi 20 + cmplwi 72)
     { address = 0x829D5508, size = 0x1F8 }, # 12 cases, up to .pdata 829D5700
+    # Its jump table (at 824B97C4) also reaches code .pdata gives to 824B9938, 824B99D8 and 824B9A68: XenonRecomp
+    # recompiled it up to 824B9BC0 anyway; ReXenon ends it at 824B9938 and refuses the cases outside (session 41).
+    { address = 0x824B9698, size = 0x528 },
 
     # BEGIN fm3_fptrs.py pointer-only functions
     # END fm3_fptrs.py pointer-only functions

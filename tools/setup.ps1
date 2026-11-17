@@ -101,10 +101,11 @@ function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args f
 Invoke-Git submodule sync --recursive
 Invoke-Git submodule update --init --recursive
 # Patches and sources must be LF for `git apply`; the global core.autocrlf=true would make them CRLF.
-foreach ($sm in @('thirdparty/XenonRecomp', 'thirdparty/ReGPU')) {
+foreach ($sm in @('thirdparty/XenonRecomp', 'thirdparty/ReGPU', 'thirdparty/ReXenon')) {
     Invoke-Git -C $sm config core.autocrlf false
 }
 Invoke-Git -C thirdparty/XenonRecomp submodule foreach --quiet 'git config core.autocrlf false'
+Invoke-Git -C thirdparty/ReXenon submodule foreach --quiet 'git config core.autocrlf false'
 
 # Idempotent check of a whole stack: build the tree "pinned commit + all patches" in a scratch
 # index and compare it with the working tree (patches can overlap, so reverse-checking one at a
@@ -140,6 +141,10 @@ function Set-PatchStack([string]$name, [string[]]$stack) {
 }
 Set-PatchStack 'XenonRecomp' $patches
 Set-PatchStack 'ReGPU' $regpuPatches
+# ReXenon (session 41): the other recompiler (tools\recomp.ps1 -Recompiler rexenon), with its own small stack.
+Set-PatchStack 'ReXenon' @(
+    'rexenon-vsldoi128'              # Primary opcode 4 with bit 4 set decoded as vsldoi128, not a PPC405 MAC form (FM3's 8284AA90)
+)
 
 if ($NoBuild) { return }
 $vcenv = Join-Path $PSScriptRoot 'vcenv.cmd'
@@ -148,3 +153,8 @@ if ($LASTEXITCODE -ne 0) { throw 'configuring build\tools failed' }
 & cmd /c "`"$vcenv`" ninja -C build/tools"
 if ($LASTEXITCODE -ne 0) { throw 'building build\tools failed' }
 Write-Host 'host tools: build\tools\xenonrecomp\XenonRecomp\XenonRecomp.exe, ...\XenonAnalyse\XenonAnalyse.exe, build\tools\xexdump.exe'
+& cmd /c "`"$vcenv`" cmake -S thirdparty/ReXenon -B build/tools-rexenon -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl"
+if ($LASTEXITCODE -ne 0) { throw 'configuring build\tools-rexenon failed' }
+& cmd /c "`"$vcenv`" ninja -C build/tools-rexenon XenonRecomp XenonAnalyse"
+if ($LASTEXITCODE -ne 0) { throw 'building build\tools-rexenon failed' }
+Write-Host 'ReXenon tools: build\tools-rexenon\XenonRecomp\XenonRecomp.exe, ...\XenonAnalyse\XenonAnalyse.exe'

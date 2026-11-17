@@ -6,3 +6,7 @@
 	path = thirdparty/ReGPU
 	url = https://github.com/zer0ducksgiven/ReGPU
 	ignore = dirty
+[submodule "thirdparty/ReXenon"]
+	path = thirdparty/ReXenon
+	url = https://github.com/zer0ducksgiven/ReXenon
+	ignore = dirty

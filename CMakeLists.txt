@@ -12,33 +12,50 @@ if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
 
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/XenonRecomp/XenonUtils/ppc_context.h"
+# FM3_RECOMPILER: which recompiler made the game code. xenonrecomp (hedge-dev's, with our 5 patches): out/ppc.
+# rexenon (zer0ducksgiven's fork, thirdparty/ReXenon, session 41): out/ppc-rexenon (tools/recomp.ps1 -Recompiler
+# rexenon); its timebase comes from PPC_MFTB() in src/ppc_hooks.h instead of tools/patch_mftb.py.
+set(FM3_RECOMPILER "xenonrecomp" CACHE STRING "Recompiler of the game code: xenonrecomp or rexenon")
+set_property(CACHE FM3_RECOMPILER PROPERTY STRINGS xenonrecomp rexenon)
+if(FM3_RECOMPILER STREQUAL "rexenon")
+    set(FM3_XENON_DIR "thirdparty/ReXenon")
+    set(FM3_PPC_DEFAULT "${CMAKE_SOURCE_DIR}/out/ppc-rexenon")
+else()
+    set(FM3_XENON_DIR "thirdparty/XenonRecomp")
+    set(FM3_PPC_DEFAULT "${CMAKE_SOURCE_DIR}/out/ppc")
+endif()
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/${FM3_XENON_DIR}/XenonUtils/ppc_context.h"
    OR NOT EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/ReGPU/include/regpu/regpu.h")
     message(FATAL_ERROR "submodules missing: run tools/setup.ps1 (or git submodule update --init --recursive)")
 endif()
-add_subdirectory(thirdparty/XenonRecomp EXCLUDE_FROM_ALL)
+add_subdirectory(${FM3_XENON_DIR} EXCLUDE_FROM_ALL)
 
-# Recompiled game code: out/ppc, produced by XenonRecomp from your own default.xex
+# Recompiled game code: out/ppc (or out/ppc-rexenon), produced from your own default.xex
 # (config/fm3.toml, Phase 2). Never committed.
-set(FM3_PPC_DIR "${CMAKE_SOURCE_DIR}/out/ppc")
+set(FM3_PPC_DIR "${FM3_PPC_DEFAULT}")
 file(GLOB FM3_PPC_SOURCES CONFIGURE_DEPENDS "${FM3_PPC_DIR}/*.cpp")
 if(NOT FM3_PPC_SOURCES)
     message(FATAL_ERROR "out/ppc is empty: recompile default.xex first (README.md, Phase 2). "
                         "The host tools build on their own: tools/hosttools.")
 endif()
 add_library(fm3_ppc STATIC ${FM3_PPC_SOURCES})
-target_include_directories(fm3_ppc PUBLIC "${FM3_PPC_DIR}" thirdparty/XenonRecomp/thirdparty/simde)
+target_include_directories(fm3_ppc PUBLIC "${FM3_PPC_DIR}" ${FM3_XENON_DIR}/thirdparty/simde)
+if(FM3_RECOMPILER STREQUAL "rexenon")
+    target_compile_definitions(fm3_ppc PRIVATE FM3_REXENON=1)
+endif()
 target_compile_options(fm3_ppc PRIVATE -Wno-everything -gline-tables-only "/FI${CMAKE_SOURCE_DIR}/src/ppc_hooks.h")
 target_compile_options(fm3_ppc PUBLIC -msse4.1 -fno-strict-aliasing)
 
 # mftb reads the host's raw timestamp counter; give it the console's 49.875 MHz timebase
 # (tools/patch_mftb.py, GuestTimebase in src/kernel/runtime.cpp). Idempotent.
-execute_process(COMMAND ${Python3_EXECUTABLE} -I "${CMAKE_SOURCE_DIR}/tools/patch_mftb.py" "${FM3_PPC_DIR}"
-                OUTPUT_VARIABLE FM3_MFTB_RESULT RESULT_VARIABLE FM3_MFTB_CODE OUTPUT_STRIP_TRAILING_WHITESPACE)
-if(NOT FM3_MFTB_CODE EQUAL 0)
-    message(FATAL_ERROR "tools/patch_mftb.py failed on ${FM3_PPC_DIR}")
+if(NOT FM3_RECOMPILER STREQUAL "rexenon")
+    execute_process(COMMAND ${Python3_EXECUTABLE} -I "${CMAKE_SOURCE_DIR}/tools/patch_mftb.py" "${FM3_PPC_DIR}"
+                    OUTPUT_VARIABLE FM3_MFTB_RESULT RESULT_VARIABLE FM3_MFTB_CODE OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT FM3_MFTB_CODE EQUAL 0)
+        message(FATAL_ERROR "tools/patch_mftb.py failed on ${FM3_PPC_DIR}")
+    endif()
+    message(STATUS "mftb: ${FM3_MFTB_RESULT}")
 endif()
-message(STATUS "mftb: ${FM3_MFTB_RESULT}")
 
 # Weak import stubs (tools/genstubs.py), regenerated from out/ppc so the list always matches.
 set(FM3_GENERATED "${CMAKE_BINARY_DIR}/generated")
@@ -65,7 +82,7 @@ set(FM3_FFX "${CMAKE_SOURCE_DIR}/thirdparty/fidelityfx/Kits/FidelityFX")
 if(NOT EXISTS "${FM3_FFX}/upscalers/fsr3/include/gpu/fsr1/ffx_fsr1.h")
     message(FATAL_ERROR "thirdparty/fidelityfx is missing: put FidelityFX-SDK v2.x there (README.md)")
 endif()
-set(REGPU_XENONRECOMP "${CMAKE_SOURCE_DIR}/thirdparty/XenonRecomp")
+set(REGPU_XENONRECOMP "${CMAKE_SOURCE_DIR}/${FM3_XENON_DIR}")
 set(REGPU_PPC_DIR "${FM3_PPC_DIR}")
 set(REGPU_FFX "${FM3_FFX}")
 if(EXISTS "${FM3_FFX}/signedbin/amd_fidelityfx_upscaler_dx12.dll")
@@ -96,7 +113,7 @@ set_property(CACHE FM3_PGO PROPERTY STRINGS off gen use)
 set(FM3_PGO_PROFILE "${CMAKE_SOURCE_DIR}/pgo/regpu.profdata" CACHE FILEPATH "ReGPU PGO profile (llvm-profdata merge output)")
 
 add_executable(fm3 ${FM3_SOURCES} "${CMAKE_SOURCE_DIR}/src/fm3.rc")
-target_include_directories(fm3 PRIVATE src "${FM3_PPC_DIR}" thirdparty/XenonRecomp/thirdparty/simde)
+target_include_directories(fm3 PRIVATE src "${FM3_PPC_DIR}" ${FM3_XENON_DIR}/thirdparty/simde)
 target_link_libraries(fm3 PRIVATE regpu fm3_ppc XenonUtils synchronization winmm onecore dbghelp xaudio2 bcrypt)
 # Racing wheels, pedals, shifters and handbrakes (src/input/wheel, DirectInput).
 target_link_libraries(fm3 PRIVATE dinput8 dxguid)

@@ -7,7 +7,10 @@
 # 4. XenonRecomp config\fm3.toml -> out\ppc (log: out\recomp.log);
 # 5. fm3_check.py -> out\check.txt (errors, traps, run-offs, pointer-only targets).
 # Needs the host tools (tools\setup.ps1).
-param([string]$Xex, [switch]$Prepare)
+# -Recompiler rexenon (session 41): ReXenon (thirdparty/ReXenon, build\tools-rexenon) -> out\ppc-rexenon from the same
+# config (config\fm3_rexenon.toml is written from config\fm3.toml with that output folder; log out\recomp-rexenon.log);
+# build it with -DFM3_RECOMPILER=rexenon (build\rexenon). ReXenon stops with an error if anything is left unresolved.
+param([string]$Xex, [switch]$Prepare, [ValidateSet('xenonrecomp', 'rexenon')][string]$Recompiler = 'xenonrecomp')
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -35,6 +38,18 @@ if ($Prepare) {
     Get-Content out\analyse.log | Select-Object -Last 5
 }
 
+if ($Recompiler -eq 'rexenon') {
+    $rx = Join-Path $root 'build\tools-rexenon\XenonRecomp\XenonRecomp.exe'
+    if (-not (Test-Path $rx)) { throw 'build\tools-rexenon is missing: run tools\setup.ps1' }
+    (Get-Content config\fm3.toml) -replace '^out_directory_path = "../out/ppc"$', 'out_directory_path = "../out/ppc-rexenon"' |
+        Set-Content -Encoding ascii config\fm3_rexenon.toml
+    if (Test-Path out\ppc-rexenon) { Remove-Item -Recurse -Force out\ppc-rexenon }
+    if ((Invoke-To out\recomp-rexenon.log "`"$rx`" config\fm3_rexenon.toml thirdparty\ReXenon\XenonUtils\ppc_context.h") -ne 0) {
+        Get-Content out\recomp-rexenon.log -Tail 30; throw 'ReXenon failed (out\recomp-rexenon.log)'
+    }
+    Get-Content out\recomp-rexenon.log | Where-Object { $_ -notmatch '^Recompiling' }
+    return
+}
 if (Test-Path out\ppc) { Remove-Item -Recurse -Force out\ppc }
 New-Item -ItemType Directory out\ppc | Out-Null
 if ((Invoke-To out\recomp.log "`"$tools\xenonrecomp\XenonRecomp\XenonRecomp.exe`" config\fm3.toml thirdparty\XenonRecomp\XenonUtils\ppc_context.h") -ne 0) { Get-Content out\recomp.log -Tail 20; throw 'XenonRecomp failed (out\recomp.log)' }

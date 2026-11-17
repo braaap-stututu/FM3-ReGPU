@@ -6,6 +6,11 @@
 
 struct PPCContext;
 
+// mftb: the console's 49.875 MHz timebase (GuestTimebase, src/kernel/runtime.cpp). ReXenon's output calls PPC_MFTB();
+// XenonRecomp's reads __rdtsc(), which tools/patch_mftb.py rewrites to GuestTimebase() instead.
+uint64_t GuestTimebase();
+#define PPC_MFTB() GuestTimebase()
+
 // mtmsrd toggling MSR[EE]: clearing it masks interrupts on the console; the runtime turns it
 // into the global interrupt lock (kernel, Phase 3).
 void PPCMsrChanged(PPCContext& ctx, uint64_t oldMsr);

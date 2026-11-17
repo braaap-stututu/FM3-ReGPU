@@ -12,11 +12,13 @@ rem session 11; the old "Player" profile has a damaged save (issue H). Set FM3_P
 if not defined FM3_PROFILE set "FM3_PROFILE=Baseline"
 rem Test runs skip the intro movie (session 18). Set FM3_SKIP_INTRO=0 before running to see it.
 if not defined FM3_SKIP_INTRO set "FM3_SKIP_INTRO=1"
-if not exist "%ROOT%build\rel\fm3.exe" (
-    echo build\rel\fm3.exe is missing: build it first ^(README.md^).
+rem Which build: build\rel (XenonRecomp's code) by default; set FM3_BUILD=rexenon for build\rexenon (ReXenon's, session 41).
+if not defined FM3_BUILD set "FM3_BUILD=rel"
+if not exist "%ROOT%build\%FM3_BUILD%\fm3.exe" (
+    echo build\%FM3_BUILD%\fm3.exe is missing: build it first ^(README.md^).
     pause
     exit /b 1
 )
 if not exist "%ROOT%out\run" mkdir "%ROOT%out\run"
 cd /d "%ROOT%out\run"
-start "" "%ROOT%build\rel\fm3.exe" "%FM3_GAME_DIR%"
+start "" "%ROOT%build\%FM3_BUILD%\fm3.exe" "%FM3_GAME_DIR%"

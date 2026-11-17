@@ -86,6 +86,7 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 | `thirdparty/aa` | Session 36: the original FXAA 3.11, SMAA and CMAA 2 shaders (licences inside, `SOURCES.txt` = pinned commits; NOTICE.md), compiled into ReGPU via `REGPU_AA_DIR` (CMakeLists.txt) |
 | `thirdparty/{fidelityfx,ffmpeg}` | Local deps (gitignored): FidelityFX 2.1.0 junction; FFmpeg 8.1 LGPL shared (BtbN) |
 | `thirdparty/{XenonRecomp,ReGPU}` | Our submodules, pinned (commits in NOTES.md) |
+| `thirdparty/ReXenon`, `build/tools-rexenon`, `build/rexenon`, `out/ppc-rexenon` | Session 41: ReXenon (XenonRecomp fork from the FM2 port), the second recompiler beside XenonRecomp (default stays XenonRecomp): `tools/recomp.ps1 -Recompiler rexenon`, CMake `-DFM3_RECOMPILER=rexenon`, `play.cmd` with `FM3_BUILD=rexenon`; patch `patches/rexenon-vsldoi128.patch` |
 | `FM3-QUIRKS.md` | 26 FM3 quirks: address, symptom, hl360 fix, forza3-recomp fix, XR+ReGPU equivalent |
 | `VINYLISSUES.md` | Vinyls/liveries: the livery pipeline, issues B/B2/H + fixes and switches, test profile and save backups, tools, open leads |
 | `out/profile-backups/` | Save backups from session 11 (gitignored): `rewardcar` (clean H restart point), `multicar`, A/B runs, hl360's original Baseline save |
