@@ -344,7 +344,8 @@ input[type=range] { padding: 0; accent-color: var(--accent); background: transpa
 #wh-game .wh-axis { margin-bottom: 6px; }
 
 .tile-path { width: 100%; min-width: 0; text-overflow: ellipsis; font-size: 12px; padding: 5px 8px; }
-#page-play { grid-template-rows: auto 1fr; }
+/* max-content: the Game files row never shrinks under its tiles (it did at 125% display scaling) */
+#page-play { grid-template-rows: max-content 1fr; }
 .tiles-panel { min-height: min-content; }
 
 /* Triple screens page (triple.js, session 39) */

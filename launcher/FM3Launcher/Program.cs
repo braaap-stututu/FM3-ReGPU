@@ -114,7 +114,8 @@ internal static class Program
             return RunInBrowser(BrowserShell.UnderWine() ? "Proton/Wine" : "--browser");
         Photino.NET.PhotinoWindow window;
         if (Platform.Linux) Platform.DesktopEntry(); // (the window's app id and icon on Wayland)
-        try { window = Web.Create(Title, "index.html", 1600, 960, 1000, 680); }
+        var (w, h) = DefaultSize(1600, 960);
+        try { window = Web.Create(Title, "index.html", w, h, 1000, 680); }
         catch (Exception ex)
         {
             if (!Platform.Linux) return RunInBrowser("no WebView2: " + ex.Message);
@@ -141,6 +142,26 @@ internal static class Program
         Wheel.Stop();
         return 0;
     }
+
+    /// <summary>The window's first size: width x height at 100% display scaling, scaled up with Windows' scaling (window
+    /// sizes are in pixels, app.manifest), so the page gets the same room at 125% or 150%. Never more than 92% of the
+    /// screen's work area.</summary>
+    static (int, int) DefaultSize(int width, int height)
+    {
+        if (!OperatingSystem.IsWindows()) return (width, height);
+        try
+        {
+            var scale = Math.Max(1.0, GetDpiForSystem() / 96.0);
+            int maxW = (int)(GetSystemMetrics(16) * 0.92), maxH = (int)(GetSystemMetrics(17) * 0.92); // SM_CX/CYFULLSCREEN            return (Math.Min((int)(width * scale), maxW), Math.Min((int)(height * scale), maxH));
+        }
+        catch { return (width, height); }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern uint GetDpiForSystem();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern int GetSystemMetrics(int index);
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern bool SetForegroundWindow(IntPtr hWnd);
