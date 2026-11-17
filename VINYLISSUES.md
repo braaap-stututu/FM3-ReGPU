@@ -5,6 +5,8 @@ the poster bug), what fixed each one, what is still open, and how to test. State
 (2026-11-08)**. The chronology is in NOTES.md's session logs (sessions 9–11); this file is the reference.
 
 ## ▶ Where to continue
+**Session 41: the edge gaps (2 below) traced and fixed.** ReGPU sized every big pass `pitch * 64 / 65` (right only for the 2080-pitch strips): the 1400-wide 4x side views became 1378-wide images that the region composes sampled stretched by 22 columns, and the 1416-wide regions 1329-wide images. ReGPU patch `regpu-big-pass-width` (surface's own width, max 2048; `REGPU_BIG_PASS_6465=1` = old). Scion atlas read from memory (`tools/analysis/dumptex.py AB508000 2048 2048 out.png`: physical mirror address): right side +8,000 texels at the rear end, nothing else changed. **Still to look at in game:** the Fiat's rear wing and the Supra's rear bumper (same cause expected), the CRX, and item 1.
+
 **Session 16: livery broken on some race loads — fixed.** Each load builds the livery in a new image a few KB above the previous load's; ReGPU's enclosing search took the lowest matching base (the old image), and the write-back safety check then dropped those pieces. ReGPU patch `regpu-livery-enclosing-recent`: only images used in the last 120 frames match (`REGPU_ENCLOSING_LOWEST=1` = old); the safety check now compares per texel inside its own rectangle and logs where memory changed (`REGPU_WRITEBACK_REUSE_SPAN=1` = old). Several reloads clean (you). If a livery piece goes missing again: grep `memory changed since the resolve` and `fits N images` in the log.
 
 1. **Confirm the final build in normal play** (not yet done): the last part of the H fix (written-back mark reset)
@@ -87,6 +89,7 @@ the reuse check never fired. **Not proven step by step** (the old poster behavio
   `Headers/00000001/<container>.header` files (328 bytes: two dwords, then the display name UTF-16BE).
 - **Save I/O trace:** `FM3_TRACE_WRITES=ForzaProfile` logs every write to the profile files with the writer's stack;
   the `PlayerDatabase` write sizes show a lost car (data shrinks by ~192 bytes).
+- **Reading the livery atlas itself (session 41):** `python -I tools/analysis/dumptex.py A<address> 2048 2048 out.png [--raw f.bin]` (address from the log's `livery writeback:` line, plus `A0000000`): the CPU-side 8888 atlas, untiled; diff two runs' PNGs per colour (session 41's scripts in `out/vinyl/`).
 - **Measuring vinyl coverage:** `python -I tools/analysis/greentop.py <shot>` (editor side view of the right side,
   1280×720 shot: median top row of the green over x 450–750, green pixel count). Scion values: 262 cut, 215 after
   the first B fix, 124 with both (green px 38,655 → 80,235).

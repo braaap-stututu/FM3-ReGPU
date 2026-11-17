@@ -1,0 +1,19 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index c7ab4b9..c989174 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -288,7 +288,13 @@ uint32_t BigPassSizeUncached()
+     if (const int native = ForeignNativeMsaa(); native >= 0)
+         pitch = pitch * MsaaAcross((gpureg::Get(0x2000) >> 16) & 3) / MsaaAcross(uint32_t(native));
+     static LiveSwitch off("REGPU_NO_BIG_PASS");
+-    return !off && pitch > kWidth ? std::min<uint32_t>(2048, pitch * 64 / 65) : 0;
++    // The pass is the surface's own width, at most 2048. (pitch * 64 / 65 fitted the 2080-pitch 2048-wide strips the
++    // FM2 port met first, but cut every narrower big pass short: FM3's 1400-wide 4x vinyl side views became 1378-wide
++    // images, so the vinyl regions sampled them stretched by 22 columns, and the 1440-pitch 1416-wide regions became
++    // 1329 wide: small uncovered spots at the edges of the car's vinyls.) 2080 still gives 2048.
++    // REGPU_BIG_PASS_6465=1: pitch * 64 / 65 as before (A/B, from the next pass).
++    static LiveSwitch padded("REGPU_BIG_PASS_6465");
++    return !off && pitch > kWidth ? std::min<uint32_t>(2048, padded ? pitch * 64 / 65 : pitch) : 0;
+ }
+ // The pass sizes and scales (BigPassSize ... ScaleX) are asked ~25 times a draw, nested: each answer depends only on
+ // the surface registers, the layout table, the tall pass, the output size and the scene scale, so all of them are

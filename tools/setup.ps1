@@ -90,7 +90,8 @@ $regpuPatches = @(
     'regpu-triple-geometry'          # Triple screen: each screen's own projection (turn + off-axis: regpu::triple::View a b c d e) from the host's screen layout; bezel/gap/independent angles in the port
     'regpu-triple-span'              # Triple screen: fullscreen over the row of monitors beside the primary one (separate monitors, not only an Eyefinity/Surround desktop)
     'regpu-msaa-scale-64'            # A clear through a 4x view of a 64-bit colour target scaled to the layout its textured draws use (FM3 photo mode yellow with one guest tile)
-    'regpu-compile-overlay-manifest' # Shader cache loads no longer show the compile overlay; specialised pipelines written to the manifest once; seed coverage by base
+    'regpu-compile-overlay-manifest'  # Shader cache loads no longer show the compile overlay; specialised pipelines written to the manifest once; seed coverage by base
+    'regpu-big-pass-width'           # Big passes (surfaces wider than 1280) keep their own width, not pitch*64/65: vinyl edge gaps
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

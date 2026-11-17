@@ -1,6 +1,14 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-17, session 40)
+## ▶ Current status / next step  (updated 2026-11-17, session 41)
+
+### Session 41 (2026-11-17): vinyl edge gaps (VINYLISSUES B leftovers)
+- **User asked:** "can you try to fix the vinyl issues by yourself?" (VINYLISSUES "Where to continue": small uncovered spots at the edges of the big vinyl regions on the Scion, Fiat incl. rear wing, Supra rear bumper; CRX re-check; My Cars check).
+- **Cause found (the old lead "edge columns"):** ReGPU took a big pass (surface pitch > 1280) as `pitch * 64 / 65` wide, inherited from the FM2 port, where it fitted the 2080-pitch 2048-wide livery strips. FM3's 1400-wide 4x vinyl side views became 1378-wide images (the region composes fetch them as 1400 wide, so they read them stretched by 22 columns: the vinyl slid off the panel towards its far end), and the 1440-pitch 1416-wide regions became 1329-wide images.
+- **Fix:** ReGPU patch 73 `regpu-big-pass-width`: a big pass is the surface's own width, at most 2048 (2080 still gives 2048). `REGPU_BIG_PASS_6465=1` = old (from the next pass; the side views run at car load, so A/B across boots).
+- **Measured without driving:** new tool `tools/analysis/dumptex.py` reads a tiled 32-bit texture out of game memory through the debug server's `peek` (use the physical mirror, `A0000000` + address: the livery atlas `0B508000` reads as zeros through the guest address) and untiles it to a PNG. Scion (the Baseline profile's current car, built at profile load, log `livery writeback: 0B508000 2048x2048`), old vs new atlas: the right-side vinyl (green) gains ~8,000 texels at its rear end (the black notch by the rear wheel arch filled), loses ~400; every other colour changes only by one-texel edge shades. Frozen race grid: 0.23% of pixels differ across the two boots (crowd), so races are untouched. Crops in `out/vinyl/` (not committed).
+- **Not checked yet (user):** the Fiat (rear wing) and Supra (rear bumper) spots, the CRX, and My Cars keeping every car after painting/buying (VINYLISSUES "Where to continue" 1). Save backup before this session's boots: `out/profile-backups/s41-before-vinyl`.
+- Input recording for the user's example drive already exists: `FM3_RECORD_INPUT=<file>` / `FM3_REPLAY_INPUT=<file>` (`src/kernel/imports_xam.cpp`; player 1 pad + keyboard, time since boot; no wheel).
 
 ### Session 40 (2026-11-17): photo mode with one guest tile fixed
 - **User asked:** fix the photo-mode issue from earlier (session 28, OPEN-ISSUES D: photo mode washed yellow with
