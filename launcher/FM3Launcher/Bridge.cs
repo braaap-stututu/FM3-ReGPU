@@ -236,7 +236,9 @@ public sealed class Bridge
         return new
         {
             settings,
-            version = typeof(Bridge).Assembly.GetName().Version?.ToString(3) ?? "0.1.0",
+            // The release name from VERSION (e.g. 0.41.0-beta); AssemblyVersion drops the -beta part.
+            version = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(Bridge).Assembly)?.InformationalVersion.Split('+')[0]
+                ?? typeof(Bridge).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
             paths = new { root = Paths.Root, user = Paths.User, exe = Paths.Exe, gameDefault = Paths.GameDirDefault, gameDir = Paths.GameDir, gameFromEnv = Paths.GameDirFromEnv, log = Paths.Log },
             checks = new
             {

@@ -9,9 +9,11 @@ $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
 if (-not $Version) {
-    $hash = (git rev-parse --short HEAD).Trim()
+    # The release in VERSION (also what the launcher shows); a build that isn't the tagged release adds the commit.
+    $Version = (Get-Content (Join-Path $root "VERSION") -TotalCount 1).Trim()
     $dirty = if (git status --porcelain --untracked-files=no) { "-dirty" } else { "" }
-    $Version = "0.39.0-$hash$dirty"
+    $tagged = git tag --points-at HEAD | Where-Object { $_ -eq "v$Version" }
+    if (-not $tagged -or $dirty) { $Version += "-" + (git rev-parse --short HEAD).Trim() + $dirty }
 }
 $dotnet = if (Get-Command dotnet -ErrorAction SilentlyContinue) { "dotnet" } else { "C:\Program Files\dotnet\dotnet.exe" }
 
@@ -37,7 +39,7 @@ if (Test-Path "$bootSrc\background.png") {
 }
 
 # The launcher for Linux: self-contained, invariant globalization (no libicu needed).
-& $dotnet publish "launcher\FM3Launcher" -c Release -r linux-x64 --self-contained true -o "$stage\launcher" --nologo -p:DebugType=none -p:InvariantGlobalization=true
+& $dotnet publish "launcher\FM3Launcher" -c Release -r linux-x64 --self-contained true -o "$stage\launcher" --nologo -p:DebugType=none -p:InvariantGlobalization=true "-p:Version=$Version"
 if ($LASTEXITCODE) { throw "Launcher publish failed." }
 
 Copy-Item LICENSE, NOTICE.md, NOTICE-wheel.md "$stage\licenses"
