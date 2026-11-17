@@ -23,6 +23,34 @@ the poster bug), what fixed each one, what is still open, and how to test. State
 3. **Honda CRX: vinyls invisible in the paint booth** (seen once, in the build that still had the poster bug).
    Probably the poster bug (a region drawn into the wrong image); re-check with the current build first.
 
+## Fiat wing trace (session 42, not fixed yet)
+
+Symptom: the wing's left half takes the vinyl, the right half stays bare paint (white on the test car).
+
+- **Where it is lost:** the wing is its own 176x440 region (copied to the atlas at texel 1792,1024). In the final atlas its
+  first 272 rows are bare paint `204,204,204` (0.8 x white) and rows 272-439 have the vinyl `204,186,81`; the boundary is
+  exact (atlas row 1296). Read with `FM3_WRITEBACK=2048x512` live (strips written back) + `dumptex.py AC569000 2048 2048`.
+- **How the region is built** (frame captures while the user moved the layer; the editor rebuilds only on edits):
+  1. a vinyl image: clear, a stencil from the panel mask (k_8 1024x1024 linear texture at `1362C000`, draw `5d606c../cb430d..`),
+     the layer quads (`7061152f..`, colour in pc0, 32x32 shape texture `10F86000`); copied as 73x212 (1x, pitch 80) or, in
+     other rebuilds, a **high-detail 146x424 4x MSAA pass** (pitch 160, depth at EDRAM tile 212);
+  2. an 8-bit coverage image of the same size (`04C3xxxx`);
+  3. the region draw (`1040b9c5../a9a8e665..`): out = lerp(atlas at the region, vinyl image, panel mask `.w`) (t3 coverage only
+     when pc0.x > 0); 4. the strip pass (`0bafd65c..`): final = 0.8 x atlas + base DXT5 `141A4000` x its alpha x (1 - atlas alpha).
+- **Ruled out:** the user's layer coverage (vs edit `opos.xy = r2.xy * 8 * opos.w` covered everything: no change); the stencil
+  mask draw (ps forced to pass: no change); the panel mask texture (memory has the whole wing shape; `REGPU_FULL_CONTENT_HASH 1`
+  re-decoded it: no change; showing `t2.w` as colour gave 1 on every panel); the low-detail vinyl image (capture image
+  `04F77000_192x424` is yellow over the whole wing shape).
+- **Suspect:** the high-detail 4x vinyl image (capture `059DE000_320x848_v0`: white rows 0-255, yellow 256-319, black below:
+  row 256 of it = region row 272) and its texture-less clears through the 4x view (pitch 160, which shares its host surface
+  with the roof region's 1x pitch-320 pass). `REGPU_NO_MSAA_COLOR_SCALE 1` changed the white area's shape (not fixed). But a
+  later rebuild without any 152x424 copy was still half white, so it may not be the whole story.
+- **Next:** add a debug-server command that dumps a resolved image by address (they persist between rebuilds), so each
+  input of the region draw can be read at idle without the user editing; then A/B `REGPU_NO_MSAA_COLOR_SCALE`,
+  `REGPU_NO_MSAA_SCALE`, `REGPU_NO_DEPTH_VIEW_SCALE` on the high-detail pass. Method notes: `FM3_WRITEBACK` doesn't reach
+  copies drawn into their own base image (patch 74 path); a captured rebuild needs the capture loop while the user moves
+  the layer; `REGPU_DUMP_TEXTURES` during captures decodes 8888 textures without their swizzle (wrong colours until restart).
+
 ## Why these bugs keep coming back (session 41 analysis)
 
 **The model mismatch.** On the console every copy (resolve) just writes bytes into one flat memory; a livery atlas is

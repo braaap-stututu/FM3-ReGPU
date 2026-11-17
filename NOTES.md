@@ -15,8 +15,10 @@
   whose memory holds them, `regpu-copies-by-range`) fixed a Civic's roof/side with no car-specific change; the garage /
   menu livery (the CPU's compressed copy) no longer breaks after editing (user: "it doesn't break anymore"). The user said
   vinyls "still need some fixing up" and parked that for later.
-- **Vinyls, open:** (1) the Fiat 500's wing (not traced yet: open the Fiat's vinyl editor WING tab, trace one edit with
-  `REGPU_TRACE_RESOLVES 1` live (the `enclosing:` lines), read the atlas from a menu with `tools/analysis/dumptex.py`);
+- **Vinyls, open:** (1) the Fiat 500's wing (session 42, traced, not fixed: see "Fiat wing trace (session 42)" in
+  VINYLISSUES.md: the first 272 rows of its 176x440 region lack the vinyl; the region draw's vinyl input is fine at low
+  detail; suspects: the 4x high-detail vinyl pass (146x424) and its clears (`REGPU_NO_MSAA_COLOR_SCALE` changes the cut);
+  next: a debug-server command that dumps any resolved image by address, then compare inputs at idle);
   (2) olive rear bumpers on some Asian Car Pack cars (1994 Civic VTi): the final atlas is 0.8 x vinyl + 0.2 x pure green
   under the bumper; the region compose is right, so the mix comes from the later strip pass with the car's base texture:
   compare with hl360 first (is it console behaviour?); (3) proposal step 3 not built: write-back by what the CPU reads
