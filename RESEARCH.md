@@ -29,6 +29,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [A launcher without a web view, for SteamOS game mode](#a-launcher-without-a-web-view-for-steamos-game-mode-session-40-2026-11-16) (session 40) | Game mode = gamescope: one app window on screen, X11 via Xwayland, **no file-picker portal**, Steam must keep tracking the process it started. Recommended: **options and installer inside `fm3.exe`** (Dear ImGui on ReGPU's D3D12 = vkd3d-proton there; the Unleashed Recompiled pattern), the existing C# launcher kept for desktop; headless `--install-disc1/2` reused. Alternative keeping C#: **Avalonia** (X11, Skia) + SDL3 for the pad. Zero-work stopgap: Steam shortcut runs `--play`, set up in desktop mode |
 | [In-game options menu, quit tab and restart prompt](#in-game-options-menu-quit-tab-and-restart-prompt-session-40-2026-11-16) (session 40) | A **host overlay menu** (Dear ImGui on ReGPU's present, one new ReGPU host callback), not a tab in FM3's own menus (unknown UI system, fonts lack glyphs). Opened by F1 / BACK+START; while open the game gets a neutral pad (`ReadPad`) and the world is held (`FM3_FREEZE_TIME` hook). Quit = the existing `WM_CLOSE` save-and-exit. Restart prompt: every setting tagged live / restart in one shared schema; on closing the menu, restart keys that differ from the values this process **started** with list in a dialog (Restart now / Later / Undo). Restart = exit code 3 to a supervisor `fm3.exe` that relaunches (Steam keeps tracking it) |
 | [ReXenon instead of XenonRecomp](#rexenon-instead-of-xenonrecomp-session-40-2026-11-16) (session 40) | Feasible and fairly cheap: ReXenon (MIT, by ReGPU's author, built for the FM2 port) already carries 4 of our 5 XenonRecomp patches (divides, MSR[EE] hook, switch on u32, VMX128/`vcmpbfp`/`vsldoi128`); the per-image name prefix is unused in FM3. Gains: fails loudly on what it can't translate, `PPC_MFTB()` replaces `patch_mftb.py`, fixed `vpkd3d128`/`dcbz`/memset-class bugs, relaxed-atomic guest accesses (FM2: main thread -10..17% CPU on Zen 3, ~0 on an FX). Risk: days old, no human playtests yet. Try it side by side (`out/ppc-rx`), not as a swap |
+| [Intel iGPUs (Iris Xe, UHD): causes and fixes](#intel-igpus-iris-xe-uhd-causes-and-fixes-session-40-2026-11-17) (session 40) | A tester's i5-1135G7 (Iris Xe, 32 GB DDR4) ran far below the user's Steam Deck. On paper the GPUs are equal (~1.6 TFLOPS); the Deck has ~1.7x the memory bandwidth, RADV/ACO under Proton and a GPU we tuned for. Check first: settings, single-channel RAM (Iris Xe then runs as "UHD Graphics"), power mode, driver. Code leads (none tested on Intel): constants-driven branches specialised away (Intel's own top rule), root-signature hints, UMA paths (no vertex-arena copy, textures written in place), MSAA off + post AA, resolve shader trick, XeSS, DXC/FP16 |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -2202,3 +2203,57 @@ Sources: [ReXenon](https://github.com/zer0ducksgiven/ReXenon),
 [overnight log](https://raw.githubusercontent.com/zer0ducksgiven/ReXenon/main/docs/overnight/LOG.md),
 [night 2 log](https://raw.githubusercontent.com/zer0ducksgiven/ReXenon/main/docs/night2/LOG.md),
 [commits](https://github.com/zer0ducksgiven/ReXenon/commits/main).
+
+## Intel iGPUs (Iris Xe, UHD): causes and fixes (session 40, 2026-11-17)
+Cloud research, no code, **no Intel GPU here: nothing below is measured on Intel.** Trigger: a tester's laptop
+(i5-1135G7, Iris Xe G7 80 EU, 32 GB DDR4) ran "way worse" than the user's Steam Deck OLED (1280x800, MSAA 2x,
+anisotropy as the game asks, DXC, one tile: 70-90 fps on a full grid). The tester's settings and log are not known yet.
+Sources: Intel's Xe-LP API developer and optimization guide (via search excerpts; intel.com itself is outside this
+session's network), Intel/vendor support pages, Microsoft's D3D12 UMA docs, Mesa's Intel docs, Xenia reports, and our
+own sections above (16-bit shaders, Vendor-specific speed-ups, the sibling-port findings).
+
+### Why the laptop can lose to the Deck
+| | i5-1135G7 / Iris Xe G7 | Steam Deck OLED |
+|---|---|---|
+| GPU FP32 | 80 EU x 16 flops x 1.3 GHz ≈ 1.66 TFLOPS (FP16 2x) | 8 CU x 128 x 1.6 GHz ≈ 1.64 TFLOPS |
+| Memory | DDR4-3200 dual channel ≈ 51 GB/s (**single channel ≈ 25.6 GB/s**) | LPDDR5-6400 quad 32-bit ≈ 102 GB/s (OLED; LCD 88) |
+| Power | 12-28 W for CPU + GPU (OEM setting; often 15 W) | 15 W APU |
+| D3D12 path | Intel's Windows driver compiles our DXBC/DXIL | vkd3d-proton -> Mesa RADV, ACO compiler |
+| Our tuning | never tested | the iGPU work of sessions 33-35 was on RDNA2, the same family |
+The GPUs are equal on paper; everything else favours the Deck. Our renderer is bandwidth-heavy (RGBA16F + D32S8
+EDRAM surfaces, MSAA, resolves, uploads) and per-draw heavy (~2,700 draws), the two places a 2020 Intel iGPU is weakest.
+
+### Check first (no code; ask the tester)
+1. **The same settings as the Deck** (1280x800 or 720p, MSAA 2x or off, anisotropy as the game asks, one tile), then
+   the launcher's benchmark. A 1080p window at 4x MSAA is ~2x the pixels at twice the samples.
+2. **Dual-channel memory.** Intel: Iris Xe needs dual channel; with one stick (common for 32 GB: 1x32) or a mismatched
+   pair it **runs as "Intel UHD Graphics"** with half the bandwidth. Our log's `presenter: rendering on ...` line names
+   it; Task Manager > Memory shows "Slots used".
+3. **Power:** plugged in, Windows power mode "Best performance", the OEM's performance profile. The CPU threads (game,
+   command processor, draw thread) take the shared budget from the GPU: a frame cap (60/45) keeps power for the GPU
+   (our CP idle sleep and ring-wait sleep are on under caps <= 144).
+4. **Driver:** Intel's current generic graphics driver, not the laptop maker's old one (D3D12 fixes and shader-compiler
+   changes land there).
+5. **First boot:** the first minutes after the shader compile run slowly while pipelines finish; judge a second run.
+6. **What limits it:** launcher "Light performance log" on: `perf lite:` lines give GPU ms per frame against frame time
+   (GPU-bound or CPU-bound); send `out\run\fm3.log`.
+
+### Code leads (Intel-specific or Intel-heavier), cheapest first
+| # | Lead | Why on Intel | Work |
+|---|---|---|---|
+| N1 | **Test the existing switches on the tester's machine:** DXC on/off (`shader_compiler`), `REGPU_NO_VERTEX_ARENA=1`, upload ring in VRAM off, MSAA off + FXAA/CMAA 2, upscaler bilinear/FSR 1 at 67-50%, `REGPU_OPTIMIZE_SHADERS=1` | Intel's driver compiles DXBC and DXIL differently from AMD's; L3 (FXC level 1) was -6% on AMD but untested where the driver compiler is weaker. A `.cmd` with env vars + the launcher benchmark per variant | none (a tester script) |
+| N2 | **UMA paths:** on `D3D12_FEATURE_DATA_ARCHITECTURE.UMA`/`CacheCoherentUMA` (all Intel/AMD iGPUs): vertex arena off (its "VRAM" copy is the same RAM: a pure extra copy), the VRAM-ring toggle meaningless (same memory), and **textures written in place** (L21: CPU-accessible `UNKNOWN`/standard-swizzle textures or a custom write-back heap instead of ring -> copy: two of the four memory passes per upload saved). On cache-coherent UMA, upload heaps are write-back, not write-combined (Microsoft), so reads of them are not slow there | Bandwidth is the iGPU's scarcest resource; every copy competes with rendering. Also helps AMD iGPUs and the Deck | small (arena/ring gating) to medium (in-place textures) |
+| N3 | **Specialise constant-driven branches** (bool and loop constants, predicates, `pinfo` paths) per draw, as fetch specialisation does for fetch constants | **Intel's guide: control flow that depends on constant-buffer data makes the compiler generate sub-optimal code; use specialised permutations.** Translated Xenos shaders branch on `vb`/`pb` bools and loop counts; `readsBools`/`readsLoops` (patch `unread-block-parts`) already tell which shaders read them | medium (the fetch-specialisation machinery: variant key = the bools/loop words read) |
+| N4 | **Root-signature hints and binding:** Intel ranks root constants > root descriptors > descriptor tables for frequently changing constants, asks for `DATA_STATIC`(-while-set-at-execute) range flags so the driver can fold constants, and says **descriptor-heap changes stall the pipeline badly**. Dump ours (`REGPU_DUMP_ROOTSIG`), check the range flags, and count `SetDescriptorHeaps` per frame | Cheap driver-side wins on Intel; harmless elsewhere | small |
+| N5 | **Register pressure / SIMD width:** Xe-LP has 128 registers of 32 bytes per hardware thread; big shaders compile at SIMD8 (half the throughput) or spill. The corner-array fix (patch `vs-corners`) and fetch specialisation already cut code size; measure on Intel with **Intel GPA's Graphics Frame Analyzer** (per-draw GPU time, shader SIMD width, spills: RGA can't target Intel) on the car paint and road shaders | Where Intel loses most to AMD on emulator ubershader-like code | tester capture first |
+| N6 | **Resolve shader: all sample loads first, skip the second sample's conversion when its raw bits equal the first's** (a sibling port's result, see above: 2-CU Radeon iGPU resolves 8.4 -> 5.7 ms, exact) | Resolves are bandwidth + ALU on 8-byte samples; iGPUs feel it most | small, exact |
+| N7 | **MSAA defaults for iGPUs:** 1x + a post AA (FXAA +0.05 ms / CMAA 2 +0.17 ms on the 7900 XTX) in the iGPU preset; V4 first-run iGPU defaults (scale, cap 60) | 4x samples of 8-byte RGBA16F on ~51 GB/s shared memory; Intel's MSAA compression on Gen12 is weaker than its single-sample compression | small (launcher/preset) |
+| N8 | **XeSS** (RESEARCH "Upscalers": one new file, DP4a path on Iris Xe) | Better than FSR 1/bilinear at 50-67% scale on Intel; FSR 3 is heavy for an iGPU | medium |
+| N9 | **16-bit math done carefully** (I7: DXC SM 6.2 native 16-bit, a dataflow pass keeping coordinates/depth/predicates 32-bit) | Xe-LP runs FP16 at 2x; our blanket min16 probe was slower on RDNA2 (conversions) and broke UVs, so only a careful version, measured on Intel | large |
+| N10 | **Slow-GPU safety:** with seconds-long frames (cold caches on a weak iGPU) FH1R's main loop free-ran and wrapped a command ring (crash). Check FM3 with a deliberately slow first boot | Correctness on the weakest machines | small check |
+Also seen in Xenia reports: Intel's D3D12 driver has had render-target/depth correctness bugs on Iris Xe (black
+artifacts); if the tester sees corruption, note the driver version.
+
+**Order:** the tester's log and benchmark with the Deck's settings (and the memory-channel check) first; then N1 as a
+variant script; then N2/N4/N6/N7 (small, help every iGPU); N3 and N5 with an Intel capture; N8/N9 last.
+
