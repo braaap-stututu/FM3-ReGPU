@@ -1,0 +1,128 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index c989174..43a5d90 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -7683,8 +7683,8 @@ void QueueDeferredWriteback(uint32_t base, uint32_t width, uint32_t height, uint
+ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXGI_FORMAT format, const D3D12_RECT& rect, float scale, bool swapRB = false,
+     const float* destRange = nullptr, uint32_t toGamma = 0);
+ 
+-void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight, uint32_t guestBpp, DXGI_FORMAT format, const D3D12_RECT& rect, float scale,
+-    const float* destRange, uint32_t toGamma);
++bool ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight, uint32_t guestBpp, DXGI_FORMAT format, const D3D12_RECT& rect, float scale,
++    const float* destRange, uint32_t toGamma, bool atBase = false);
+ 
+ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXGI_FORMAT format, const D3D12_RECT& rect, float scale, bool swapRB,
+     const float* destRange, uint32_t toGamma)
+@@ -7914,12 +7914,14 @@ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXG
+ // format and bytes per pixel, the rectangle inside the image, and the declared height exactly the rows left.
+ // The pass's scale and the image's may differ (a vinyl region is drawn at 1x, the composite at the big pass's):
+ // the source is read scaled. REGPU_NO_RESOLVE_INTO_ENCLOSING=1 (live): not drawn (A/B).
+-void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight, uint32_t guestBpp, DXGI_FORMAT format, const D3D12_RECT& rect, float scale,
+-    const float* destRange, uint32_t toGamma)
++// atBase: the rectangle's destination is an image's own base (its texel 0, 0), and the copy is smaller than that image
++// (see the resolve's "into its own image" case): only the image at the base matches, at 0, 0.
++bool ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight, uint32_t guestBpp, DXGI_FORMAT format, const D3D12_RECT& rect, float scale,
++    const float* destRange, uint32_t toGamma, bool atBase)
+ {
+     static LiveSwitch off("REGPU_NO_RESOLVE_INTO_ENCLOSING");
+     if (off || rect.right <= rect.left || rect.bottom <= rect.top)
+-        return;
++        return false;
+     const uint32_t tileBytes = 32 * 32 * guestBpp, tilesAcross = (pitch + 31) / 32;
+     // The outermost match: the strips' own images match too (each declares the rows left to the end), and the
+     // texture the title fetches is the one at the lowest base.
+@@ -7952,7 +7954,7 @@ void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+     uint32_t matchCount = 0;
+     for (auto& [candidateBase, candidate] : g_r.resolved)
+     {
+-        if (candidateBase >= base || !candidate.resource ||
++        if ((atBase ? candidateBase != base : candidateBase >= base) || !candidate.resource ||
+             (candidate.width != pitch && candidate.width != passWidth) || candidate.format != format ||
+             candidate.guestBpp != guestBpp || !candidate.height || !candidate.hostHeight)
+             continue;
+@@ -7970,6 +7972,22 @@ void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+         if (matchCount < std::size(matches))
+             matches[matchCount++] = { candidateBase, cx, cy, &candidate };
+     }
++    // REGPU_TRACE_RESOLVES=1 (live): every copy's outcome here (the candidates and the image it went into).
++    static LiveSwitch traceEnclosing("REGPU_TRACE_RESOLVES");
++    if (traceEnclosing)
++    {
++        std::string list;
++        for (uint32_t i = 0; i < matchCount; i++)
++        {
++            char one[48];
++            snprintf(one, sizeof(one), " %08X@%u,%u", matches[i].base, matches[i].x, matches[i].y);
++            list += one;
++        }
++        const auto own = g_r.resolved.find(base);
++        Log("enclosing: %08X (%ldx%ld pitch %u decl %u)%s: %u matches%s; image here %ux%u", base, rect.right - rect.left, rect.bottom - rect.top, pitch,
++            declaredHeight, atBase ? " at base" : "", matchCount, list.c_str(), own != g_r.resolved.end() ? own->second.width : 0,
++            own != g_r.resolved.end() ? own->second.height : 0);
++    }
+     uint64_t newest = 0;
+     for (uint32_t i = 0; i < matchCount; i++)
+         if (matches[i].r->frame != ~0ull)
+@@ -8009,7 +8027,7 @@ void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+         ResolvedTexture& enc = *found;
+         FrameResources& f = Frame();
+         if (f.descriptorsUsed >= kDescriptorsPerFrame)
+-            return;
++            return false;
+         // Host scales: the image's own, and the pass's (where the EDRAM rectangle is).
+         const float encSx = float(enc.hostWidth) / float(enc.width), encSy = float(enc.hostHeight) / float(enc.height);
+         const float srcSx = float(ScaleX()), srcSy = float(ScaleY());
+@@ -8073,8 +8091,18 @@ void ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+             part.y0 = y + uint32_t(rect.top), part.y1 = y + uint32_t(rect.bottom);
+             QueueDeferredWriteback(encBase, enc.width, enc.height, enc.writebackInfo, false, D3D12_RECT{ 0, 0, LONG(enc.width), LONG(enc.height) }, part);
+         }
+-        return;
++        return true;
+     }
++    // A copy that looks like a part of a bigger image (narrower than its row width, declaring more rows than it copies)
++    // but found none: logged (the first 100), so a piece that lands nowhere shows in the log.
++    if (!atBase && uint32_t(rect.right) < pitch && declaredHeight > uint32_t(rect.bottom) + 8)
++    {
++        static std::atomic<int> unmatched{ 0 };
++        if (unmatched.fetch_add(1) < 100)
++            Log("resolve: %08X (%ldx%ld, pitch %u, %u rows declared) fits no image", base, rect.right - rect.left, rect.bottom - rect.top, pitch,
++                declaredHeight);
++    }
++    return false;
+ }
+ 
+ // EDRAM resolve: copy a rectangle of the render target to the destination
+@@ -9720,6 +9748,25 @@ void Resolve()
+         // centre's), so the copy rounds it as the hardware's does. REGPU_NO_RESOLVE_ALPHA2=1: as before.
+         static LiveSwitch noAlpha2("REGPU_NO_RESOLVE_ALPHA2");
+         const uint32_t blitFlags = (toGamma ? 1u : 0u) | (!depth && destFormat == 7 && !noAlpha2 ? 2u : 0u);
++        // A copy much narrower than the image already at its destination, with that image's row width (pitch) and declaring
++        // its height, writes the image's top-left corner in memory, as any copy into a tile of it does: it is drawn into
++        // that image, not made the image there (which replaced the image by a copy-sized one). FM3 composes a vinyl
++        // region at the livery atlas's texel 0, 0 on some cars (the CRX's 784x408 region): the 2048x2048 atlas was
++        // replaced by a 1280-wide image of that region, every later region missed it, and the car showed only that
++        // region's vinyl, in the wrong places. Only a copy at least 32 texels narrower: the row width is the image's
++        // rounded up to whole 32-texel tiles, so a copy within 32 of it spans the whole image (a 1616-wide copy with
++        // pitch 1632 is that image's own: a tall pass's tiles, each at a base where the previous build left an image of
++        // its own, were drawn there and not into the pass's image: the vinyls kept only the first tile's rows).
++        // REGPU_NO_RESOLVE_INTO_OWN_BASE=1: made the image there (A/B, live).
++        static LiveSwitch noIntoOwnBase("REGPU_NO_RESOLVE_INTO_OWN_BASE");
++        bool intoOwnBase = false;
++        if (!depth && !noIntoOwnBase && !placedInImage && rect.top == 0 && rect.left == 0)
++            if (const auto own = g_r.resolved.find(base); own != g_r.resolved.end() && own->second.resource && own->second.width == pitch &&
++                own->second.height == declaredHeight && own->second.format == format && own->second.guestBpp == guestBpp &&
++                uint32_t(rect.right) + 32 <= pitch)
++                intoOwnBase = ResolveIntoEnclosing(base, pitch, declaredHeight, guestBpp, format, rect, std::ldexp(1.0f, bias), destRange, blitFlags, true);
++        if (!intoOwnBase)
++        {
+         BlitResolve(depth, base, width, height, format, rect, depth ? 1.0f : std::ldexp(1.0f, bias), false, destRange, blitFlags);
+         if (!depth && !placedInImage && rect.top == 0 && rect.left == 0)
+             ResolveIntoEnclosing(base, pitch, declaredHeight, guestBpp, format, rect, std::ldexp(1.0f, bias), destRange, blitFlags);
+@@ -9780,6 +9827,7 @@ void Resolve()
+             WriteResolveToGuest(base, width, height, info);
+         else if (request.mode == regpu::Writeback::Mode::Deferred && (depth || anyFormat))
+             QueueDeferredWriteback(base, width, height, info, depth, rect, request);
++        } // !intoOwnBase
+     }
+     // Clears after a tile's resolve prepare the EDRAM for the next tile, which
+     // we draw lower on the same host surface: a full-width clear covers every
