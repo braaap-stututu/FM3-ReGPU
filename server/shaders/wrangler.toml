@@ -1,0 +1,13 @@
+name = "fm3-shaders"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+
+[vars]
+# The private repo players' manifests are kept in ("owner/name"): set to yours before deploying.
+SHADERS_REPO = "OWNER/fm3-shaders"
+
+# 6 uploads a minute per address (the launcher sends at most one every few minutes).
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "1003"
+simple = { limit = 6, period = 60 }

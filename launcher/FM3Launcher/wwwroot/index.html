@@ -497,6 +497,10 @@
         <div class="panel-head"><h2>Shader cache</h2></div>
         <p class="hint">Shaders are compiled the first time they're needed and kept here, so later starts and races don't stutter.</p>
         <div class="stats" id="shader-stats"></div>
+        <div class="toggle-row" id="share-row" hidden data-tip="After you play, the list of shader and render-state combinations the game built (hashes only: no game files, nothing about you or your PC) is sent to the FM3 ReGPU developers. The next release builds them all on the first start, so nobody stutters on them in a race.">
+          <div><div class="toggle-title">Share shader list</div><div class="toggle-sub">Helps the next release stutter less. Hashes only</div></div>
+          <button class="switch" id="shareShaders" role="switch"></button>
+        </div>
         <div class="buttons-row">
           <button class="ghost small" id="shaders-rebuild" data-tip="Deletes the cache and starts the game, which compiles shaders again. Use it if graphics look broken after an update.">Rebuild now</button>
           <button class="ghost small danger" id="shaders-delete" data-tip="Deletes the compiled shaders and pipelines. The next start rebuilds them. Saves and settings stay.">Delete cache</button>

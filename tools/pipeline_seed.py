@@ -7,7 +7,8 @@ The existing header's lines are kept (merged in) unless --fresh: a manifest may 
 older seed had (session 28: this PC's manifest had no "V" vertex-variant lines left).
 
 A manifest holds hashes and render state only ("P vs ps blend depth stencilMaskMode flags [bias...]",
-"V ..." vertex-shader variants), no game data. Folders are searched for files named pipelines.manifest.
+"V ..." vertex-shader variants), no game data. Folders are searched for *.manifest files: pipelines.manifest,
+and the players' uploads the shaders server keeps as manifests/<installId>.manifest (server/shaders/README.md).
 Lines are de-duplicated and sorted so the header only changes when the set does.
 """
 import os
@@ -19,7 +20,7 @@ def manifests(paths):
         if os.path.isdir(p):
             for d, _, fs in os.walk(p):
                 for f in fs:
-                    if f == "pipelines.manifest":
+                    if f.endswith(".manifest"):
                         yield os.path.join(d, f)
         else:
             yield p

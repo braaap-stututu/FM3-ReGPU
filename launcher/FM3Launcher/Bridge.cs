@@ -17,6 +17,7 @@ public sealed class Bridge
     {
         _window = shell;
         shell.OnMessage(OnMessage);
+        ShaderShare.Start();
     }
 
     async void OnMessage(string text)
@@ -50,6 +51,10 @@ public sealed class Bridge
         switch (cmd)
         {
             case "state": return State();
+            // Shader sharing (Sharing.cs): the first-start notice's answer and the Settings switch.
+            case "share.set":
+                ShaderShare.Set(a?["on"]?.GetValue<bool>() == true);
+                return State();
             case "save":
                 SaveFromPage(a.Deserialize<GameSettings>(Json)!);
                 return State();
@@ -236,6 +241,7 @@ public sealed class Bridge
         return new
         {
             settings,
+            share = ShaderShare.State(),
             // The release name from VERSION (e.g. 0.41.0-beta); AssemblyVersion drops the -beta part.
             version = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(Bridge).Assembly)?.InformationalVersion.Split('+')[0]
                 ?? typeof(Bridge).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",

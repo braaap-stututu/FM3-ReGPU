@@ -95,7 +95,7 @@ set(FM3_PGO "off" CACHE STRING "ReGPU profile-guided optimisation: off, gen or u
 set_property(CACHE FM3_PGO PROPERTY STRINGS off gen use)
 set(FM3_PGO_PROFILE "${CMAKE_SOURCE_DIR}/pgo/regpu.profdata" CACHE FILEPATH "ReGPU PGO profile (llvm-profdata merge output)")
 
-add_executable(fm3 ${FM3_SOURCES})
+add_executable(fm3 ${FM3_SOURCES} "${CMAKE_SOURCE_DIR}/src/fm3.rc")
 target_include_directories(fm3 PRIVATE src "${FM3_PPC_DIR}" thirdparty/XenonRecomp/thirdparty/simde)
 target_link_libraries(fm3 PRIVATE regpu fm3_ppc XenonUtils synchronization winmm onecore dbghelp xaudio2 bcrypt)
 # Racing wheels, pedals, shifters and handbrakes (src/input/wheel, DirectInput).
