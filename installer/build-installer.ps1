@@ -1,7 +1,7 @@
 # Builds the installer for the current build: out\installer\dist\FM3-ReGPU-Setup-<version>.exe.
 #   powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 [-Version x.y.z] [-NoGameBuild]
 # Needs: build\rel\fm3.exe built (the game is rebuilt first unless -NoGameBuild; close it), the .NET 9 SDK,
-# Inno Setup 6 (winget install JRSoftware.InnoSetup). No game files are packed: see installer\fm3.iss.
+# Inno Setup 6.3 or newer (winget install JRSoftware.InnoSetup). No game files are packed: see installer\fm3.iss.
 param([string]$Version = "", [switch]$NoGameBuild)
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
@@ -58,13 +58,13 @@ Get-ChildItem thirdparty\aa -Recurse -Include LICENSE*, COPYING* | ForEach-Objec
 @"
 Forza Motorsport 3 ReGPU $Version
 
-This installs the PC build and its launcher. It contains no game files.
+This installs the PC build and its launcher. It contains no game files: on the "Game discs" page, choose your own
+Forza Motorsport 3 Ultimate Collection (USA) disc images and the installer extracts them for you:
+  - Disc 1 (Play Disc): needed to play. It is checked, then extracted next to the game (about 6.8 GB).
+  - Disc 2 (Content Install Disc): optional extra cars and tracks (about 3.4 GB).
+Leave a box empty to do it later in the launcher (Play tab: Game "From .iso...", Disc 2 content "Install from .iso...").
 
-After installing, open the launcher:
-  1. Play tab, Game tile: "From .iso..." and choose your Forza Motorsport 3 Ultimate Collection (USA) Disc 1 image
-     (Play Disc). It is checked, then extracted next to the game (about 6.8 GB).
-  2. Optional: Disc 2 content tile, "Install from .iso..." with the Content Install Disc image (about 3.4 GB).
-  3. Graphics tab: resolution, frame cap, graphics card. Then Play.
+After installing, open the launcher: Graphics tab (resolution, frame cap, graphics card), then Play.
 
 The first start compiles shaders for the graphics card, which takes a while.
 Saves and settings go to Documents\fm3. The game's log is out\run\fm3.log in the install folder.

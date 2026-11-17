@@ -46,10 +46,12 @@ internal static class Program
             try
             {
                 if (d1 + 1 >= args.Length) throw new ArgumentException("Usage: FM3Launcher --install-disc1 <Disc 1 .iso> [folder]");
+                // Every 10% on a console; every 1% when read by a program (the installer's progress bar, installer\fm3.iss).
                 var last = -1;
+                var step = Console.IsOutputRedirected ? 1 : 10;
                 Disc1.Install(args[d1 + 1], line =>
                 {
-                    if (line.EndsWith('%') && int.TryParse(line[..^1], out var p)) { if (p / 10 == last) return; last = p / 10; }
+                    if (line.EndsWith('%') && int.TryParse(line[..^1], out var p)) { if (p / step == last) return; last = p / step; }
                     Console.WriteLine(line);
                 }, d1 + 2 < args.Length ? args[d1 + 2] : null);
                 return 0;
