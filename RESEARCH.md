@@ -26,6 +26,10 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [Vendor-specific speed-ups](#vendor-specific-speed-ups-amd-nvidia-intel-session-29-2026-11-12) (session 29) | AMD first (testable here): an RGP capture of the frozen grid for **decompress barriers** (RDNA colour/depth compression lost to copies, barriers or UAV flags), then GPU upload heaps (ReBAR), compute wave size (needs DXC), async compute, AFMF 2. NVIDIA/Intel: mostly features (DLSS/Reflex/Smooth Motion, XeSS); Arc needs ReBAR. As far as we know untried in any 360 recomp: write results up for the sibling ports. PERF-PLAN L45-L50 |
 | [Linux, Proton and the Steam Deck](#linux-proton-and-the-steam-deck-session-29-2026-11-12) (session 29) | Run through Proton (vkd3d-proton on RADV), no native port. Launcher (WebView2) likely broken under Wine: run `fm3.exe` with `settings.ini` or port the launcher natively. Per-platform defaults under Wine (vertex arena write watch, sleeps, workers), Deck preset, gamescope for caps/FSR. **User has 3 dual-boot machines** (7900 XTX, 6650 XT, Deck OLED + Win11 SD): same-hardware Windows vs Proton A/Bs. PERF-PLAN L51-L53 |
 | [TAAU (TAA upscaling)](#taau-taa-upscaling-session-39-2026-11-16) (session 39) | Feasible and small: our TAA already has jitter, motion vectors, depth, history and the mip bias; TAAU = the same resolve run at output size from a lower-res scene (one new compute pass + an `upscaler=taau` entry). Worth it mainly for weak GPUs (iGPU, Steam Deck): cheaper than FSR 3, much sharper than FSR 1/bilinear; on the 7900 XTX at 1440p no gain (draw-thread bound). Measure the motion vectors' cost on the iGPU first |
+| [A launcher without a web view, for SteamOS game mode](#a-launcher-without-a-web-view-for-steamos-game-mode-cloud-2026-11-16) (cloud, 2026-11-16/17) | Game mode = gamescope: one app window on screen, X11 via Xwayland, **no file-picker portal**, Steam must keep tracking the process it started. Recommended: **options and installer inside `fm3.exe`** (Dear ImGui on ReGPU's D3D12 = vkd3d-proton there; the Unleashed Recompiled pattern), the existing C# launcher kept for desktop; headless `--install-disc1/2` reused. Alternative keeping C#: **Avalonia** (X11, Skia) + SDL3 for the pad. Zero-work stopgap: Steam shortcut runs `--play`, set up in desktop mode |
+| [In-game options menu, quit tab and restart prompt](#in-game-options-menu-quit-tab-and-restart-prompt-cloud-2026-11-16) (cloud, 2026-11-16/17) | A **host overlay menu** (Dear ImGui on ReGPU's present, one new ReGPU host callback), not a tab in FM3's own menus (unknown UI system, fonts lack glyphs). Opened by F1 / BACK+START; while open the game gets a neutral pad (`ReadPad`) and the world is held (`FM3_FREEZE_TIME` hook). Quit = the existing `WM_CLOSE` save-and-exit. Restart prompt: every setting tagged live / restart in one shared schema; on closing the menu, restart keys that differ from the values this process **started** with list in a dialog (Restart now / Later / Undo). Restart = exit code 3 to a supervisor `fm3.exe` that relaunches (Steam keeps tracking it) |
+| [ReXenon instead of XenonRecomp](#rexenon-instead-of-xenonrecomp-cloud-2026-11-16) (cloud, 2026-11-16/17) | Feasible and fairly cheap: ReXenon (MIT, by ReGPU's author, built for the FM2 port) already carries 4 of our 5 XenonRecomp patches (divides, MSR[EE] hook, switch on u32, VMX128/`vcmpbfp`/`vsldoi128`); the per-image name prefix is unused in FM3. Gains: fails loudly on what it can't translate, `PPC_MFTB()` replaces `patch_mftb.py`, fixed `vpkd3d128`/`dcbz`/memset-class bugs, relaxed-atomic guest accesses (FM2: main thread -10..17% CPU on Zen 3, ~0 on an FX). Risk: days old, no human playtests yet. Try it side by side (`out/ppc-rx`), not as a swap. **Done in session 41:** added beside XenonRecomp, then made the default (NOTES session 41) |
+| [Intel iGPUs (Iris Xe, UHD): causes and fixes](#intel-igpus-iris-xe-uhd-causes-and-fixes-cloud-2026-11-17) (cloud, 2026-11-16/17) | A tester's i5-1135G7 (Iris Xe, 32 GB DDR4) ran far below the user's Steam Deck. On paper the GPUs are equal (~1.6 TFLOPS); the Deck has ~1.7x the memory bandwidth, RADV/ACO under Proton and a GPU we tuned for. Check first: settings, single-channel RAM (Iris Xe then runs as "UHD Graphics"), power mode, driver. Code leads (none tested on Intel): constants-driven branches specialised away (Intel's own top rule), root-signature hints, UMA paths (no vertex-arena copy, textures written in place), MSAA off + post AA, resolve shader trick, XeSS, DXC/FP16 |
 
 ## Installer for a public release: how the sibling ports do it (session 21, 2026-11-10)
 Read from the public repos (`zer0ducksgiven/Forza-Motorsport-2-ReGPU`, `Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`, the
@@ -1942,3 +1946,339 @@ Antialiasing Techniques" (Yang, Liu, Salvi 2020), Karis "High Quality Temporal S
 **Suggested order if the user wants it:** (1) the iGPU measurement above; (2) build `upscaler=taau` behind the launcher
 entry, off by default (picture trade: opt-in); (3) grid crops vs FSR 1 / bilinear / FSR 3 at the same scale + the
 user's drive for ghosting; (4) tooltip "for weak GPUs; FSR 3 looks better where it runs fast enough".
+
+## A launcher without a web view, for SteamOS game mode (cloud, 2026-11-16)
+Cloud research, no code. Question (user): a launcher that doesn't use a web view and works in SteamOS game mode.
+
+**Today:** `launcher/FM3Launcher` is Photino (WebView2 on Windows, WebKitGTK on Linux) with the UI in `wwwroot`
+(~50 options, VR/Triple/Wheel/Profiles/Benchmark tabs, controller navigation in `gamepad.js`) and the logic in C#
+(`Bridge.cs` commands, `Install.cs` settings.ini, `Disc1/Disc2/XIso/Stfs` installers, `Runner.cs` umu/Proton/Wine).
+Under Proton it falls back to browser mode (a local web server + the Linux browser), which needs a second app window.
+
+**What game mode imposes (gamescope session):**
+- One app shown at a time, fullscreen; apps reach it through Xwayland (X11). A toolkit that opens popups/dialogs as
+  separate windows (dropdowns, GTK menus, file dialogs) may show them wrong or not at all.
+- **No xdg-desktop-portal in game mode:** portal file pickers don't open. Unleashed Recompiled documents exactly this
+  for its installer (workaround: use desktop mode once); its native-dialog change didn't help in game mode either.
+  So picking the Disc 1/2 `.iso` needs our own controller-driven file browser (list `~`, `/run/media/*` for SD cards).
+- Steam tracks the process it launched: a launcher that hands off to a child and exits loses the game (spinner,
+  no focus). umu-launcher's FAQ: in Steam mode it relies on Proton's `waitforexitandrun` + the shortcut's app id.
+  Our launcher must stay alive until `fm3.exe` exits (or exec into it).
+- Input: Steam Input presents the Deck's controls as an Xbox-style pad to the app (SDL/XInput see a normal pad);
+  text entry via the Steam keyboard (STEAM+X), so avoid text fields where possible (profile names are the only one).
+- Read-only root: no packages; everything ships self-contained in the install folder.
+
+**Options, best first:**
+1. **Options and installer inside `fm3.exe` (recommended for game mode).** Dear ImGui drawn by ReGPU on its D3D12
+   device (vkd3d-proton under Proton), input from the XInput path we already have. This is how Unleashed Recompiled
+   does it (installer, options and achievements menus in ImGui, full controller navigation, from the title screen or
+   pause menu). Pros: the one process Steam starts is the whole thing (no hand-off, no second window, no focus
+   problem), identical on Windows, Proton and the Deck, no new runtime (no .NET or GTK on Linux), and the boot screen
+   (`src/boot_screen.cpp`, ReGPU `Host::bootScreen`) already draws a host UI before the game runs. Settings that need a
+   restart (resolution, MSAA, VR/triple, upscaler) write `settings.ini` and restart the game process in place
+   (Windows `CreateProcess` + exit is a hand-off: rather re-run the boot inside the same process or have a tiny
+   `fm3.exe` stub that loops while the game asks for a restart, so Steam's tracked process never exits).
+   Disc installs: run the existing headless `FM3Launcher.exe --install-disc1/--install-disc2` (needs a self-contained
+   win-x64 publish to run under Proton), or port the ISO/STFS readers to C++ (~1.5k lines of C#). Cost: the UI
+   rewritten in ImGui (gamepad nav via `ImGuiConfigFlags_NavEnableGamepad`, fed from XInput ourselves: other recomps
+   note the SDL backend's pad path isn't always there), plus our own file browser. The C# launcher stays for desktop.
+2. **Avalonia (keep all the C#).** Native Skia rendering, no web view; X11 backend by default (works under gamescope's
+   Xwayland), native Wayland only from 12.1; self-contained linux-x64 publish. `Bridge.cs` logic, installers, profiles
+   and `Runner.cs` carry over; only `wwwroot` is redone in XAML. No built-in gamepad support: read the pad with SDL3
+   (C# bindings) and map it to focus moves; set popups to draw inside the main window (Avalonia's overlay-popups
+   option; to verify on X11) so dropdowns don't become extra windows; own file browser still needed (portals). Two
+   processes (launcher + Proton game): keep the launcher alive until the game exits. Windows can use the same build.
+3. **Native SDL3 + Dear ImGui launcher (C++, linux-x64 + win-x64).** Small, no runtime, good pad support, but every
+   piece of C# logic rewritten; same two-process caveat as 2. Only worth it over 1 if the UI must exist outside the game.
+4. **Keep the HTML UI with a bundled browser engine** (Electron, or CEF via CefGlue): no system web view, reuses
+   `wwwroot` and `gamepad.js` nearly unchanged; launchers like Heroic run in game mode this way. Cost: ~150-200 MB
+   and a Chromium to keep updated; file picker and hand-off issues as above.
+5. **Stopgap, no code:** the Steam shortcut runs `fm3-launcher.sh --play` (the launcher's existing windowless mode) or
+   `fm3.exe` through Proton directly; settings chosen in desktop mode. Works today, no in-game-mode settings.
+
+**Suggested path:** 5 now for the user's Deck; then 1 (an in-game "ReGPU options" page reachable from the boot screen
+and the pause menu, ini-backed, restart in place), keeping the desktop launcher as is. First step: an ImGui overlay
+on ReGPU's presenter with one page (resolution, MSAA, fps cap, preset) driven by the pad, tried in a Deck game-mode
+session. Unknowns to check on the Deck: Win32 dialogs from Proton in game mode, overlay-popups in Avalonia/X11.
+
+Sources: [Unleashed Recompiled Steam Deck notes](https://mintlify.wiki/hedge-dev/UnleashedRecomp/installation/steam-deck),
+[its architecture (ImGui menus)](https://mintlify.wiki/hedge-dev/UnleashedRecomp/building/architecture),
+[UnleashedRecomp PR 1437 (file dialog in game mode)](https://github.com/hedge-dev/UnleashedRecomp/pull/1437),
+[no portal in game mode (Steam forum)](https://steamcommunity.com/app/1675200/discussions/2/3267932441830585132),
+[umu-launcher FAQ (Steam mode)](https://github.com/Open-Wine-Components/umu-launcher/wiki/Frequently-asked-questions-(FAQ)),
+[non-Steam focus in gamescope (steam-for-linux 8513)](https://github.com/ValveSoftware/steam-for-linux/issues/8513),
+[Avalonia on Linux](https://docs.avaloniaui.net/docs/platform-specific-guides/linux),
+[Avalonia Wayland (12.1)](https://avaloniaui.net/blog/bringing-wayland-support-to-avalonia),
+[Trouble Makers recomp: ImGui pad bridge](https://newreleases.io/project/github/ThiagoLira/trouble-makers-pc-recomp/release/v0.7.0),
+[Electron apps on the Deck](https://brainhub.eu/library/making-electron-apps-steam-deck-compatible).
+
+## In-game options menu, quit tab and restart prompt (cloud, 2026-11-16)
+Cloud research, no code (the ReGPU submodule and `out/ppc` aren't in the cloud checkout: the ReGPU hook point below
+is from our patches and must be confirmed in `src/render/presenter.cpp` locally). User's question: an in-game options
+menu (or menu tab), a quit tab, and a prompt to restart when a changed setting needs it. Follows "A launcher without a
+web view" above (option 1 there).
+
+### Where the menu lives
+1. **A tab in FM3's own pause/options menu: not recommended.** Nothing is known about FM3's UI system (no Scaleform or
+   XUI evidence found; its screens are data-driven from the disc files). Adding a tab means reversing the screen
+   format and the action handlers, the game's fonts lack glyphs (OPEN-ISSUES: `.`, `'`, `-` show as boxes), and each
+   option still has to reach our host code. Weeks of reversing for a look the overlay can imitate.
+2. **A host overlay menu (recommended).** Drawn by us over the finished frame, like the timer and the fps panel
+   already are (`regpu-timer-overlay`, `regpu-fps-panel`: GDI bitmaps uploaded and composited in
+   `PresenterRecordCopy` at present, also under Wine). Two ways to draw it:
+   - **Dear ImGui (recommended):** MIT, D3D12 backend, layout, scrolling, tabs, modal popups and gamepad/keyboard
+     navigation built in (`ImGuiConfigFlags_NavEnableGamepad`); styled to look like a game menu (Unleashed Recompiled
+     does its options and installer menus this way). Needs one small ReGPU patch: a host callback
+     `Host::drawUi(list, rtv, w, h)` recorded into the presenter's command list after the overlays and before
+     Present (with async present on, on the presenter's list, not the draw thread's), plus the device and queue for
+     ImGui's font texture. Ship a free font (OFL, e.g. Noto Sans) next to the exe.
+   - **GDI bitmap, no new library:** the whole menu painted with GDI+ (as `src/boot_screen.cpp`) into a 1280x720
+     BGRA image only when it changes, composited as one more overlay. Smallest ReGPU change (another overlay slot),
+     but widgets, focus and scrolling are ours to write (the launcher's `gamepad.js` rules can be ported).
+   - VR: draw it on the HUD panel (`regpu-vr-hud`); triple screen: the centre screen only.
+
+### Opening it, and keeping the game out of the way
+- **Open/close:** keyboard F1 (Esc is the game's START); pad: hold BACK+START ~0.5 s (a chord no menu uses; LS+RS is
+  already VR recentre). On the Steam Deck a back paddle can be bound to F1 in Steam Input. Optional hint "F1 / BACK+START:
+  ReGPU options" while the game's own pause menu is up (needs the pause state found; skip at first).
+- **Input:** every pad, wheel and keyboard read goes through `ReadPad` (`src/kernel/imports_xam.cpp`). While the menu is
+  open: read user 0's state there for the menu (pad + wheel buttons + keyboard, so a wheel's D-pad works too) and hand
+  the game a neutral `PadState` (no buttons, sticks centred) until every button is released after closing, so the A
+  that closed the menu doesn't also press something in the game. Mouse: ImGui's Win32 handlers on ReGPU's window.
+- **Pausing:** in a race the world should stop. Use the existing freeze hook (`FM3_FREEZE_TIME`, grid_test.cpp:
+  stops race time anywhere, the game keeps drawing). To check: engine sound while frozen (may need a mute), and that
+  unfreezing mid-race is clean (the tests so far unfroze on the grid). Alternative: inject one START to open the game's
+  own pause menu, but that needs to know whether the game is in a race and already paused.
+
+### Settings: one schema for the launcher and the menu
+- Today the option lists live in the launcher (`Install.cs` `Options`, `wwwroot`), and the game reads `settings.ini`
+  (`src/settings.cpp`, plus `extra` keys read in `gpu_host.cpp` and the hooks). Two copies would drift: generate both
+  from one `settings-schema.json` (key, label, help text, type, values, section, **apply = live | restart**), embedded
+  in fm3.exe and read by the launcher.
+- `SaveSettings()` already writes the whole file and keeps unknown keys (`extra`). New rule: the game now writes
+  `settings.ini` (until now only the launcher did); the launcher must reload it when it regains focus, or it will save
+  stale values over the menu's.
+- Environment overrides (`FM3_RESOLUTION`, `FM3_VR`, `FM3_TRIPLE` from the VR/Triple Play buttons, `play.cmd`'s
+  `FM3_PROFILE`) win over the file: the menu should show such a setting as "set by the launcher for this run" and the
+  restart should drop that one variable.
+- **Apply classes (first pass, to verify per key):**
+  - *Live now* (LiveSwitches or present-time state): fps panel, timer, half-rate mirror/shadows/reflections
+    (`FM3_MIRROR_RATE`, `FM3_SHADOW_RATE`, `FM3_REFLECT_RATE`), far-car detail (`FM3_CAR_LOD_FAR`), sharpness, VR camera
+    motion; likely vsync and the fps cap (present interval, frame limiter: `frame_time.cpp` reads the cap at start:
+    make it live), fullscreen (window style; check with triple's monitor span).
+  - *Restart:* resolution, aspect, MSAA, EQAA, AA filter and SSAA (surface sizes), upscaler + quality, graphics card,
+    shader compiler, VR mode / triple layout, one tile, vertex arena, upload ring, async present, perf preset, language,
+    profile, skip intro. (Making resolution/MSAA live means ReGPU recreating every EDRAM-backed surface: later, if ever.)
+
+### The restart prompt
+- At boot keep a copy of the values the process **started with** (after env overrides). When the menu closes (or on
+  "Apply"), compare the restart-class keys with that copy, not with the last save: changing MSAA 4x to 2x and back
+  gives no prompt.
+- If any differ: a modal listing them ("MSAA 4x -> 2x, Resolution 2560x1440 -> 1920x1080. These take effect after a
+  restart. Progress in the current race is lost.") with **Restart now / Later / Undo these**. "Later" keeps them saved
+  for the next start and shows a small "restart pending" note on the menu.
+- Mark restart-class rows in the menu itself (an icon and "needs restart" in the help line), as many PC games do, so
+  the prompt is never a surprise.
+
+### Quit and restart
+- **Quit tab:** "Quit to desktop" with a confirm ("Unsaved progress in this race is lost"). Use the same path as the
+  window's close button: `PostMessage(hwnd, WM_CLOSE)` (grid_test.cpp does this; the game saves its profile on that exit
+  as normal), with `regpu::SaveCaches()` as the replay/tour exits do. Not `XamLoaderTerminateTitle`/`_Exit` (no saves).
+  Also "Restart game" here (same as the prompt's Restart now).
+- **Restarting without losing Steam:** fm3.exe spawning a new fm3.exe and exiting is a hand-off, which in game mode can
+  lose the game (previous section). Instead make fm3.exe its own supervisor: `main()` first checks for `--child`; without
+  it, before any guest memory or D3D set-up, it starts `fm3.exe --child <args>` with the same environment, waits, and if
+  the child exits with code **3** ("restart requested") starts it again (minus the dropped overrides, plus
+  `FM3_SKIP_INTRO=1` so a restart is quick); any other code ends the supervisor with it. The process Steam/the launcher
+  started lives for the whole session, so play.cmd, the launcher, shortcuts and Proton all get restarts for free. The
+  child's exit code 3 is set by the restart path after the normal save-and-close. Cost: one idle process (a few MB);
+  the debug server, crash handler and logs belong to the child (log rotation: keep `fm3.prev.log` per restart).
+- Simpler alternative if the supervisor is unwanted: the launcher (and `fm3-launcher.sh`) relaunch on exit code 3;
+  restarts then don't work from `play.cmd` or a bare `fm3.exe` shortcut.
+
+### Suggested build order
+1. ReGPU host UI callback + ImGui with one page (fps cap, vsync, fps panel, timer) and the input capture/freeze. Check
+   on Windows, then under Proton on the Deck in game mode.
+2. Quit tab (close-button path). 3. Supervisor + exit code 3 + the restart prompt with the started-with copy.
+4. The settings schema shared with the launcher, then the remaining pages (graphics, performance, VR, triple, wheel).
+Open questions for the user: the open chord, whether the menu should also be reachable from the title screen
+(automatically, via a hint), and the look (game-like vs plain).
+
+Sources: [Unleashed Recompiled: options menu from the title screen or pause menu](https://cdn.jsdelivr.net/gh/hedge-dev/unleashedrecomp@main/README.md),
+[its architecture (ImGui menus)](https://mintlify.wiki/hedge-dev/UnleashedRecomp/building/architecture),
+[its config docs (menu applies changes at once; some keys only in the file)](https://mintlify.wiki/hedge-dev/UnleashedRecomp/configuration/overview),
+[video settings](https://mintlify.wiki/hedge-dev/UnleashedRecomp/configuration/video),
+[Forza forum: a restart prompt shown when not needed](https://forums.forza.net/t/graphics-settings-popup-message-about-required-restart-shows-unnecessarily-1568770/626503).
+
+## ReXenon instead of XenonRecomp (cloud, 2026-11-16)
+**Status: done in session 41** (commits `59232ce`, `8da9140`, `838af42`): ReXenon added as a second recompiler
+(`thirdparty/ReXenon`, `out/ppc-rexenon`, CMake `FM3_RECOMPILER`), benchmarked (on 2 cores +4.8% fps, p99 5.23 -> 4.74
+ms) and made the default; XenonRecomp stays selectable. The study below is kept for its reasoning.
+Cloud research, no code (read from ReXenon's README, `docs/overnight/LOG.md`, `docs/night2/LOG.md`, its commit list
+and `XenonRecomp/recompiler.cpp`; nothing built or run). User's question: swap our XenonRecomp for
+[zer0ducksgiven/ReXenon](https://github.com/zer0ducksgiven/ReXenon).
+
+**What ReXenon is:** a fork of hedge-dev's XenonRecomp (MIT) by ReGPU's author, made for the FM2 ReGPU port (PGR4 is
+its second test case). Same tools, same TOML config format (`[main]`, paths relative to the config), same output
+(`out/ppc`, `ppc_recomp.<n>.cpp`, `ppc_context.h`); all new options are off by default. Its work is very recent: the
+ReXenon commits are 14-16 Nov 2026 (the relaxed-atomics commit is from 16 Nov), on top of upstream history to Aug 2025.
+1 contributor, no forks. **Neither game has been played through on it by a person yet** (README); FM2 ran automated
+all-AI races and soak tests on three tracks without a crash or trap.
+
+**What it changes over XenonRecomp (from its docs):**
+- **Fails loudly:** an instruction it can't translate becomes `PPC_UNIMPLEMENTED`, an unresolved branch
+  `PPC_UNRESOLVED_BRANCH` (both trap by default), and the run lists them all and exits with an error unless
+  `allow_unresolved = true`. XenonRecomp leaves a comment and carries on (our `tools/fm3_check.py` greps for those).
+- **Accuracy:** runs Xenia's PowerPC tests (142,286 of 170,448 pass; the failures predate ReXenon); 47 vector
+  instructions XenonRecomp lacked; `dcbz` clears 128 bytes (not 32); `fctid`/`fctidz` saturate; `mfocrf`/`mtfsf`
+  masks; `vpkd3d128` fixed (FM2 had 8 sites packing wrong half floats because of register aliasing in
+  `vpkd3d128 v0,v0,5,2,2`); a memset losing 1-3 bytes (PGR4); conditional calls and `blrl`.
+- **Less hand setup:** skips exception data in `.pdata` itself, starts functions at stranded branch targets and code
+  addresses stored in data (`data_function_starts`), finds and checks jump tables at load (`auto_switch_tables`; the
+  switch-table file still wins), turns fall-through functions into tail calls. FM2 went from 328 analysis problems to
+  none without its hand-written function list (it still ships with the list until playtested).
+- **Port hooks as macros:** `PPC_MFTB()` (timebase), `PPC_SYNC/LWSYNC/EIEIO/ISYNC` (compiler barriers by default,
+  `hardware_fences` for real ones), `PPC_TRAP`, `PPC_UNIMPLEMENTED`, `PPC_UNRESOLVED_BRANCH`, `PPC_SWITCH_MISS`,
+  `PPC_INDIRECT_MISS`, `PPC_FUNC_TABLE_BASE`, `PPC_GUEST_LOAD/STORE`, `PPC_GUEST_VLOAD/VSTORE`.
+- **Guest memory as relaxed atomics instead of `volatile`:** clang-cl gives `volatile` MSVC semantics (every access
+  acquire/release), which stopped the compiler keeping context registers in host registers across guest accesses.
+  FM2 on a Ryzen 7 5800X: main thread 99% -> ~90% busy while fps rose (208 -> 270, 250 -> 272; "-17% CPU per frame");
+  on an FX-8350 +0.7..+2.3% (bound elsewhere). Checked by comparing the access order in the optimised IR of 50,973
+  functions (no access moved across another access, a call or a fence); vector loads/stores and `lwarx` stay
+  `volatile`. Its own caveat: the argument leans on x86's strong ordering (fine for us: Windows x64 and Proton on x64).
+  `PPC_VOLATILE_GUEST_ACCESS` restores the old accessors.
+- Opt-in speed options (`inline_register_thunks`, `elide_return_lr`, `elide_empty_functions`, `chunk_by_address`
+  for faster rebuilds, `exact_estimates`, `fused_madd`): on the FX within noise; `elide_return_lr` makes `ctx.lr` in
+  crash logs and our sampler stale. Code placement (ASLR/relinks) alone moved FM2's fps 3-10% on the FX: A/Bs need a
+  fixed base or several layouts.
+- `non_volatile_as_local` made safe (functions reading r14-r31 etc. before writing keep them in the context);
+  `non_argument_as_local` hung FM2 at boot.
+
+**Our 5 XenonRecomp patches against ReXenon** (checked in its `recompiler.cpp`):
+| Ours | In ReXenon? |
+|---|---|
+| `xenonrecomp-fm2`: divides never trap; `mtmsrd` MSR[EE] -> `PPC_MSR_CHANGED` | Yes, both (divide by zero / `INT32_MIN/-1` give 0, `divwo` sets XER; MSR mask `0x8020`, same macro name) |
+| `xenonrecomp-modules`: per-image name prefix, warning on unnamed import thunks | No; FM3 is one image (prefix unused). Lose the warning only |
+| `xenonrecomp-fm4`: XenonAnalyse jump-table back-trace through registers; XEX image size from the security info | Its own jump-table finder at load instead; our `config/fm3_switch_tables.toml` (6,818 lines, made with the back-trace) still applies and wins. XEX: ReXenon allocates the full size for basic-compressed images (16 Nov): check FM3's xex loads the same |
+| `xenonrecomp-fm4-instructions`: VMX128 / CR-bit fixes | Superset by intent (47 new vector ops, `vsldoi128`, `vpkd3d128`); any op still missing now stops the run, so we'd know |
+| `xenonrecomp-switch-u32`: `switch` on the 32-bit index; `vcmpbfp(128)` | Yes, both |
+
+**What our side has to change:**
+- `src/ppc_hooks.h` (force-included into `out/ppc`): keep `PPC_MSR_CHANGED`, `PPC_MM_STORE_U32` (same names); drop our
+  `ppc_half_to_float`/`ppc_float_to_half` if ReXenon's `ppc_context.h` now defines its own (it emits
+  `ppc_half_to_float`, `ppc_float_to_xenos_half`, `ppc_pack_clamp`); map indirect calls (`PPC_CALL_INDIRECT_FUNC`)
+  and `PPC_INDIRECT_MISS` onto our host-side table (`src/indirect.cpp`, outside the guest's 4 GB) rather than
+  ReXenon's in-guest table (`function_table_address`); define `PPC_UNIMPLEMENTED`/`PPC_UNRESOLVED_BRANCH` to log the
+  address and go to the crash handler.
+- `PPC_MFTB()` -> `GuestTimebase()`; delete `tools/patch_mftb.py` and its CMake step (FM2 did the same).
+- **ReGPU compiles against our `out/ppc/ppc_context.h`** (`REGPU_PPC_DIR` in CMakeLists.txt): relaxed accessors and any
+  context layout change reach ReGPU too. Same author and FM2 already builds ReGPU this way, so likely fine; build it.
+- `tools/setup.ps1` / `tools/hosttools`: a second submodule (`thirdparty/ReXenon`, pinned) built next to XenonRecomp;
+  ReXenon deletes `ppc_recomp.<n>.cpp` files in the output folder that it didn't write (fine for a fresh folder).
+- **Hooks keyed to function starts:** ReXenon's analysis splits off functions XenonRecomp folded into others (FM2
+  gained a second `SwitchToFiber` copy that needed its own hook). Every `sub_XXXXXXXX` we hook or call (fibers,
+  `setjmp`/`longjmp`, frame time, boot options, AI drivers, mirror/shadows/reflections, grid test, VR camera, triple
+  screen, one tile, ring wait) must still start a function and still be the only copy: compare the two function lists
+  (`emit_analysis_path` vs XenonRecomp's), and run the config's hand list (Q2/Q3 thunks, the jump-table leaves) both
+  with and without, as FM2 did.
+- The spin loops FM3 relies on (D3D ring/fence waits, our `ring_wait.cpp` hook) stay correct with relaxed atomics
+  (each load still happens); FM2's review found its four spin-wait loops only broke with plain non-volatile accesses.
+
+**What to expect for FM3:** correctness wins are certain in kind (unknown in number: the loud-failure list from the
+first run tells us). Speed depends on the guest main/render threads being a limit: at 1440p on the 7900 XTX the race
+is bound by ReGPU's draw thread (host code, untouched) and the GPU, so little; on CPU-bound setups (720p `msaa=1`, the
+iGPU, the Steam Deck's 4 Zen 2 cores) the guest threads matter more, so there it may show (FM2's +9..30% was on a
+CPU-bound Zen 3).
+
+**Suggested trial (side by side, XenonRecomp kept as the fallback):**
+1. Add ReXenon as `thirdparty/ReXenon`, build it with the host tools; `tools/recomp.ps1 -Recompiler rexenon` writes
+   `out/ppc-rx` from the same `config/fm3.toml` (+ `allow_unresolved = false`, `emit_analysis_path`); CMake
+   `-DFM3_PPC_DIR=out/ppc-rx` into `build/rx`.
+2. Read the failure list and the function-list diff; fix config/hooks; first with `PPC_VOLATILE_GUEST_ACCESS` (only the
+   translation changes), then without (the memory model on its own).
+3. Tests: boot + menus; frozen grid pixel diff against the XenonRecomp build (`pngdiff_mask.py`); livery/vinyl screens
+   (VINYLISSUES test profile: `vpkd3d128` changes can move geometry); CPU-bound grid fps at 1280x720 `msaa=1` with a
+   fixed load address; `tools/bench_matrix.ps1` races on the 7900 XTX, the iGPU and the Deck; the user drives.
+4. Only then swap the default and keep XenonRecomp's patches in the repo for one release.
+
+Sources: [ReXenon](https://github.com/zer0ducksgiven/ReXenon),
+[README](https://raw.githubusercontent.com/zer0ducksgiven/ReXenon/main/README.md),
+[overnight log](https://raw.githubusercontent.com/zer0ducksgiven/ReXenon/main/docs/overnight/LOG.md),
+[night 2 log](https://raw.githubusercontent.com/zer0ducksgiven/ReXenon/main/docs/night2/LOG.md),
+[commits](https://github.com/zer0ducksgiven/ReXenon/commits/main).
+
+## Intel iGPUs (Iris Xe, UHD): causes and fixes (cloud, 2026-11-17)
+Cloud research, no code, **no Intel GPU here: nothing below is measured on Intel.** Trigger: a tester's laptop
+(i5-1135G7, Iris Xe G7 80 EU, 32 GB DDR4) ran "way worse" than the user's Steam Deck OLED (1280x800, MSAA 2x,
+anisotropy as the game asks, DXC, one tile: 70-90 fps on a full grid). The tester's settings and log are not known yet.
+Sources: Intel's Xe-LP API developer and optimization guide (via search excerpts; intel.com itself is outside this
+session's network), Intel/vendor support pages, Microsoft's D3D12 UMA docs, Mesa's Intel docs, Xenia reports, and our
+own sections above (16-bit shaders, Vendor-specific speed-ups, the sibling-port findings).
+
+### Why the laptop can lose to the Deck
+| | i5-1135G7 / Iris Xe G7 | Steam Deck OLED |
+|---|---|---|
+| GPU FP32 | 80 EU x 16 flops x 1.3 GHz ≈ 1.66 TFLOPS (FP16 2x) | 8 CU x 128 x 1.6 GHz ≈ 1.64 TFLOPS |
+| Memory | DDR4-3200 dual channel ≈ 51 GB/s (**single channel ≈ 25.6 GB/s**) | LPDDR5-6400 quad 32-bit ≈ 102 GB/s (OLED; LCD 88) |
+| Power | 12-28 W for CPU + GPU (OEM setting; often 15 W) | 15 W APU |
+| D3D12 path | Intel's Windows driver compiles our DXBC/DXIL | vkd3d-proton -> Mesa RADV, ACO compiler |
+| Our tuning | never tested | the iGPU work of sessions 33-35 was on RDNA2, the same family |
+The GPUs are equal on paper; everything else favours the Deck. Our renderer is bandwidth-heavy (RGBA16F + D32S8
+EDRAM surfaces, MSAA, resolves, uploads) and per-draw heavy (~2,700 draws), the two places a 2020 Intel iGPU is weakest.
+
+### Check first (no code; ask the tester)
+1. **The same settings as the Deck** (1280x800 or 720p, MSAA 2x or off, anisotropy as the game asks, one tile), then
+   the launcher's benchmark. A 1080p window at 4x MSAA is ~2x the pixels at twice the samples.
+2. **Dual-channel memory.** Intel: Iris Xe needs dual channel; with one stick (common for 32 GB: 1x32) or a mismatched
+   pair it **runs as "Intel UHD Graphics"** with half the bandwidth. Our log's `presenter: rendering on ...` line names
+   it; Task Manager > Memory shows "Slots used".
+3. **Power:** plugged in, Windows power mode "Best performance", the OEM's performance profile. The CPU threads (game,
+   command processor, draw thread) take the shared budget from the GPU: a frame cap (60/45) keeps power for the GPU
+   (our CP idle sleep and ring-wait sleep are on under caps <= 144).
+4. **Driver:** Intel's current generic graphics driver, not the laptop maker's old one (D3D12 fixes and shader-compiler
+   changes land there).
+5. **First boot:** the first minutes after the shader compile run slowly while pipelines finish; judge a second run.
+6. **What limits it:** launcher "Light performance log" on: `perf lite:` lines give GPU ms per frame against frame time
+   (GPU-bound or CPU-bound); send `out\run\fm3.log`.
+
+### Code leads (Intel-specific or Intel-heavier), cheapest first
+| # | Lead | Why on Intel | Work |
+|---|---|---|---|
+| N1 | **Test the existing switches on the tester's machine:** DXC on/off (`shader_compiler`), `REGPU_NO_VERTEX_ARENA=1`, upload ring in VRAM off, MSAA off + FXAA/CMAA 2, upscaler bilinear/FSR 1 at 67-50%, `REGPU_OPTIMIZE_SHADERS=1` | Intel's driver compiles DXBC and DXIL differently from AMD's; L3 (FXC level 1) was -6% on AMD but untested where the driver compiler is weaker. A `.cmd` with env vars + the launcher benchmark per variant | none (a tester script) |
+| N2 | **UMA paths:** on `D3D12_FEATURE_DATA_ARCHITECTURE.UMA`/`CacheCoherentUMA` (all Intel/AMD iGPUs): vertex arena off (its "VRAM" copy is the same RAM: a pure extra copy), the VRAM-ring toggle meaningless (same memory), and **textures written in place** (L21: CPU-accessible `UNKNOWN`/standard-swizzle textures or a custom write-back heap instead of ring -> copy: two of the four memory passes per upload saved). On cache-coherent UMA, upload heaps are write-back, not write-combined (Microsoft), so reads of them are not slow there | Bandwidth is the iGPU's scarcest resource; every copy competes with rendering. Also helps AMD iGPUs and the Deck | small (arena/ring gating) to medium (in-place textures) |
+| N3 | **Specialise constant-driven branches** (bool and loop constants, predicates, `pinfo` paths) per draw, as fetch specialisation does for fetch constants | **Intel's guide: control flow that depends on constant-buffer data makes the compiler generate sub-optimal code; use specialised permutations.** Translated Xenos shaders branch on `vb`/`pb` bools and loop counts; `readsBools`/`readsLoops` (patch `unread-block-parts`) already tell which shaders read them | medium (the fetch-specialisation machinery: variant key = the bools/loop words read) |
+| N4 | **Root-signature hints and binding:** Intel ranks root constants > root descriptors > descriptor tables for frequently changing constants, asks for `DATA_STATIC`(-while-set-at-execute) range flags so the driver can fold constants, and says **descriptor-heap changes stall the pipeline badly**. Dump ours (`REGPU_DUMP_ROOTSIG`), check the range flags, and count `SetDescriptorHeaps` per frame | Cheap driver-side wins on Intel; harmless elsewhere | small |
+| N5 | **Register pressure / SIMD width:** Xe-LP has 128 registers of 32 bytes per hardware thread; big shaders compile at SIMD8 (half the throughput) or spill. The corner-array fix (patch `vs-corners`) and fetch specialisation already cut code size; measure on Intel with **Intel GPA's Graphics Frame Analyzer** (per-draw GPU time, shader SIMD width, spills: RGA can't target Intel) on the car paint and road shaders | Where Intel loses most to AMD on emulator ubershader-like code | tester capture first |
+| N6 | **Resolve shader: all sample loads first, skip the second sample's conversion when its raw bits equal the first's** (a sibling port's result, see above: 2-CU Radeon iGPU resolves 8.4 -> 5.7 ms, exact) | Resolves are bandwidth + ALU on 8-byte samples; iGPUs feel it most | small, exact |
+| N7 | **MSAA defaults for iGPUs:** 1x + a post AA (FXAA +0.05 ms / CMAA 2 +0.17 ms on the 7900 XTX) in the iGPU preset; V4 first-run iGPU defaults (scale, cap 60) | 4x samples of 8-byte RGBA16F on ~51 GB/s shared memory; Intel's MSAA compression on Gen12 is weaker than its single-sample compression | small (launcher/preset) |
+| N8 | **XeSS** (RESEARCH "Upscalers": one new file, DP4a path on Iris Xe) | Better than FSR 1/bilinear at 50-67% scale on Intel; FSR 3 is heavy for an iGPU | medium |
+| N9 | **16-bit math done carefully** (I7: DXC SM 6.2 native 16-bit, a dataflow pass keeping coordinates/depth/predicates 32-bit) | Xe-LP runs FP16 at 2x; our blanket min16 probe was slower on RDNA2 (conversions) and broke UVs, so only a careful version, measured on Intel | large |
+| N10 | **Slow-GPU safety:** with seconds-long frames (cold caches on a weak iGPU) FH1R's main loop free-ran and wrapped a command ring (crash). Check FM3 with a deliberately slow first boot | Correctness on the weakest machines | small check |
+Also seen in Xenia reports: Intel's D3D12 driver has had render-target/depth correctness bugs on Iris Xe (black
+artifacts); if the tester sees corruption, note the driver version.
+
+**User's follow-up: the tester's CPU showed 100%.** Our steady state can't fill 8 threads: at 2c/4t the whole game used
+3.25 hardware threads, and on our GPU-bound AMD iGPU ~1.2 cores (session 37). So a full 4C/8T CPU most likely means
+(a) the **first-boot shader compile** (static scan + pipeline seed compile on every core; it also runs on in the
+background after the boot screen while the first race plays), (b) something else at the same time (antivirus scanning
+the 6.8 GB just extracted, Windows Update, indexing), or (c) Task Manager's "utility" figure, which on Windows 11 counts
+clocks above base frequency and reaches 100% before every core is busy. Spin-waiting adds a little when uncapped (the
+command processor spins on one thread unless the cap is <= 144 or vsync is on). On a 15-28 W chip any of these takes
+power from the GPU. Ask: when (boot screen / first race / later), fm3.exe's share in Task Manager's Details tab, and the
+log (it shows compile progress and fps). Leads: compile threads at lower priority and fewer of them once the game is
+playing; on iGPU/UMA or <= 4 physical cores, CP idle sleep regardless of the cap.
+
+**The tester's screenshot (2026-11-17):** 1920x1080, race grid with the game's pause menu open (8 cars). Our fps panel:
+33 fps, 29.9 ms average, **p99 127.6 ms** with tall spikes at the start of its 400-frame graph; the tester's overlay
+(RTSS/Afterburner): 43 fps, 18.4 ms frame time, **GPU 96%**, **every listed CPU thread 100%**, 18.5 GB system RAM in
+use, ~3.9 GB graphics memory. Reading: GPU-bound at 1080p (~2x the Deck's pixels), and **a fully busy CPU while the
+game is paused**, when the game itself does least: almost certainly ReGPU's background shader/pipeline compiles of a
+first run (seed pipelines after the boot screen, plus fetch-specialisation and alpha-test variants compiled on first
+sight of each draw; cached afterwards), with the compile spikes in the graph. On a 15-28 W chip those compiles take
+power from the GPU too. Next: the same spot after a few minutes or on a second start, at the Deck's settings (1280x800
+or 720p, MSAA 2x, one tile, anisotropy as the game asks, cap 60), with the log. Code lead: on <= 4 physical cores or an
+iGPU, run background compiles on fewer threads at below-normal priority once the game is playing (the worker count is
+in ReGPU's compile code: check it locally), and say in the fps panel/boot screen that shaders are still being prepared.
+
+**Order:** the tester's log and benchmark with the Deck's settings (and the memory-channel check) first; then N1 as a
+variant script; then N2/N4/N6/N7 (small, help every iGPU); N3 and N5 with an Intel capture; N8/N9 last.

@@ -2,6 +2,27 @@
 
 ## ▶ Current status / next step  (updated 2026-11-17, session 41)
 
+### Cloud research (2026-11-16/17, a parallel cloud session; research only, nothing built or run)
+Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52b, L64) and a new doc:
+- **A launcher without a web view, for SteamOS game mode:** game mode = one app window, no file-picker portal, Steam must
+  keep tracking the process. Recommended: options and installer inside `fm3.exe` (ImGui on ReGPU); alternative Avalonia +
+  SDL3; stopgap: the Steam shortcut runs `--play`. The user's Deck test since: the native Linux launcher lacks a library
+  SteamOS doesn't ship (likely WebKitGTK); the Proton browser-mode launcher works.
+- **In-game options menu, quit tab, restart prompt:** host overlay (ImGui via a ReGPU present callback), input captured
+  in `ReadPad` + the world frozen, quit through `WM_CLOSE`, restart through a supervisor `fm3.exe` and exit code 3, the
+  prompt compares restart-class settings with the values the process started with.
+- **ReXenon instead of XenonRecomp:** done in session 41 (the study's side-by-side plan is how it was added).
+- **`docs/FH1R-REGPU-PERF-PLAN.md`:** our ReGPU performance work as an ordered plan for FH1R's ReGPU branch (method,
+  frame anatomy, phases A-I with how/nuances/results, the dropped list, order by machine).
+- **Steam Deck numbers (user, PERF-PLAN L52b):** 1280x800, MSAA 2x, anisotropy as the game asks, DXC, one tile: 70-90 fps
+  on a full grid, the 120 cap without AI cars. A real wheel worked for what the user tried.
+- **Intel iGPUs (Iris Xe, UHD):** a tester's i5-1135G7 laptop ran far below the Deck; their screenshot (1080p, paused grid,
+  GPU 96%, every CPU thread 100%, p99 128 ms) reads as GPU-bound at ~2x the Deck's pixels plus first-run background
+  compiles. Check first: Deck settings, dual-channel RAM (single channel = "UHD Graphics"), power mode, driver, a second
+  run; code leads N1-N10 (PERF-PLAN L64; none measured: no Intel GPU here).
+- Not merged here: the installer change that extracts the discs during setup (branch `ccr-7db29b06-ibrja2`, commit
+  `aeeec4c`, untested; main's installer has changed since).
+
 ### Session 41 (2026-11-17): vinyl edge gaps and the CRX fixed (ReGPU 73, 74)
 - **User asked:** "can you try to fix the vinyl issues by yourself?" (VINYLISSUES "Where to continue": small uncovered spots at the edges of the big vinyl regions on the Scion, Fiat incl. rear wing, Supra rear bumper; CRX re-check; My Cars check).
 - **Cause found (the old lead "edge columns"):** ReGPU took a big pass (surface pitch > 1280) as `pitch * 64 / 65` wide, inherited from the FM2 port, where it fitted the 2080-pitch 2048-wide livery strips. FM3's 1400-wide 4x vinyl side views became 1378-wide images (the region composes fetch them as 1400 wide, so they read them stretched by 22 columns: the vinyl slid off the panel towards its far end), and the 1440-pitch 1416-wide regions became 1329-wide images.
