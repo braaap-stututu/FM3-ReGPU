@@ -48,7 +48,7 @@ once per car load. ReGPU skips a blended draw (vinyl layers blend `010B010B`) wh
 opaque one once the game has settled (`SkippableDraw`); a skipped layer stays missing until the car is rebuilt. Warm
 caches hide it (0 skipped in session 41's runs); first boots and the Steam Deck can show it as random missing pieces.
 
-**What would end the guessing (proposal, not built):**
+**What would end the guessing** (1 and 2 built in session 41 as ReGPU patch `regpu-copies-by-range`: `REGPU_ENCLOSING_GUESS=1` and `REGPU_SKIP_OFFSCREEN=1` give the old behaviour; 3 not built):
 1. *Copies by address range.* Keep resolved images with their tiled byte range (pitch rounded to 32, rows rounded to
    32, bytes per texel). A copy is drawn into every live image of the same row width and format whose range holds the
    copy's destination, at the x,y its tiled offset gives (inside, at the base, or a tile of it); a new image is made

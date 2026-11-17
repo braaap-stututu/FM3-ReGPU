@@ -1,0 +1,150 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 43a5d90..7e5881c 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -649,6 +649,7 @@ struct ResolvedTexture
+     uint64_t memHash = 0, memChecked = 0;
+     bool stale = false;
+     uint32_t guestBpp = 4; // bytes per pixel of the guest image: the hash covers only its memory
++    uint32_t copyPitch = 0; // the copy's row width (RB_COPY_DEST_PITCH): its memory is tiled across this, rounded to 32
+     uint32_t guestFormat = 0; // the copy's destination format (RB_COPY_DEST_INFO bits 7-12)
+     uint32_t guestNumber = 0; // the copy's destination number format (bits 13-15: 0 unsigned fraction, 1 signed, 2 uint, 3 sint)
+     // Written back to memory (WriteResolveToGuest, QueueDeferredWriteback), with this RB_COPY_DEST_INFO: resolves later drawn
+@@ -2771,6 +2772,7 @@ UINT BindlessIndexLocked(ID3D12Resource* resource, DXGI_FORMAT format, uint32_t
+ // its initialisation guard on every draw (dozens a draw).
+ LiveSwitch g_sw_REGPU_ALL_CONSTANTS("REGPU_ALL_CONSTANTS");
+ LiveSwitch g_sw_REGPU_ASYNC_SHADERS("REGPU_ASYNC_SHADERS");
++LiveSwitch g_sw_REGPU_ENCLOSING_GUESS("REGPU_ENCLOSING_GUESS"); // ResolveIntoEnclosing: the old matching rules (live)
+ LiveSwitch g_sw_REGPU_CONSTANTS_BY_COUNT("REGPU_CONSTANTS_BY_COUNT");
+ LiveSwitch g_sw_REGPU_CONSTANTS_IN_RING("REGPU_CONSTANTS_IN_RING");
+ LiveSwitch g_sw_REGPU_DEPTH_ALPHATEST_ALL("REGPU_DEPTH_ALPHATEST_ALL");
+@@ -6085,6 +6087,14 @@ bool SkippableDraw(bool depthOnly, uint32_t blend)
+     // REGPU_SKIP_PLAIN_RECTS=1: skippable like the rest, as before.
+     if (PlainRectMustDraw() || ScreenPassMustDraw())
+         return false;
++    // Only a draw into a screen-wide pass (pitch 1280: the main view, redrawn next frame) may be skipped. An
++    // off-screen pass may be drawn once and kept: FM3 builds a car's livery (vinyl layers, blended) once per car
++    // load, and a layer skipped there stayed missing until the car was rebuilt (first boots, a cold cache; FH1's
++    // port found the same). Off-screen passes wait for their pipeline: a one-off hitch on first use.
++    // REGPU_SKIP_OFFSCREEN=1: skippable like the rest, as before (live).
++    static LiveSwitch skipOffscreen("REGPU_SKIP_OFFSCREEN");
++    if (!skipOffscreen && !WidePass())
++        return false;
+     const bool opaque = (blend & 0xFF1F1F1F) == 0x00010001 || (blend & 0x1F) == 1 && ((blend >> 8) & 0x1F) == 0;
+     return !opaque || GameSettled();
+ }
+@@ -7950,10 +7960,35 @@ bool ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+         uint32_t base, x, y;
+         ResolvedTexture* r;
+     };
+-    Match matches[8];
++    Match matches[16];
+     uint32_t matchCount = 0;
++    // By address range (default): the console's copy writes memory; every image whose memory holds the destination is
++    // drawn into, at the texel the destination's offset names. An image's memory is its rows (rounded up to whole
++    // 32-row tiles) of 32x32-texel tiles across its copy pitch; a copy shares it only with images of the same tiled
++    // row width, format and texel size. No guess about which image is "the" one: each gets what its memory gets (the
++    // atlas, a strip's own image inside it, a tall pass's image under its tiles). This replaces matching by the
++    // declared height, the big-pass width, the base order and recency (FM3 session 41: each car's vinyl regions hit a
++    // case one of those rules missed: a region at the atlas's base, tiles a few texels short of their pitch).
++    // REGPU_ENCLOSING_GUESS=1 (live): those rules, as before.
++    const bool byRange = !g_sw_REGPU_ENCLOSING_GUESS;
+     for (auto& [candidateBase, candidate] : g_r.resolved)
+     {
++        if (byRange)
++        {
++            const uint32_t candidatePitch = candidate.copyPitch ? candidate.copyPitch : candidate.width;
++            if ((atBase ? candidateBase > base : candidateBase >= base) || !candidate.resource || (candidatePitch + 31) / 32 != tilesAcross ||
++                candidate.format != format || candidate.guestBpp != guestBpp || !candidate.height || !candidate.hostHeight)
++                continue;
++            const uint32_t offset = base - candidateBase;
++            if (offset % tileBytes)
++                continue;
++            const uint32_t tile = offset / tileBytes, cx = tile % tilesAcross * 32, cy = tile / tilesAcross * 32;
++            if (cy >= candidate.height || cx >= candidate.width)
++                continue;
++            if (matchCount < std::size(matches))
++                matches[matchCount++] = { candidateBase, cx, cy, &candidate };
++            continue;
++        }
+         if ((atBase ? candidateBase != base : candidateBase >= base) || !candidate.resource ||
+             (candidate.width != pitch && candidate.width != passWidth) || candidate.format != format ||
+             candidate.guestBpp != guestBpp || !candidate.height || !candidate.hostHeight)
+@@ -7993,7 +8028,7 @@ bool ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+         if (matches[i].r->frame != ~0ull)
+             newest = std::max(newest, matches[i].r->frame);
+     uint32_t skippedOld = 0;
+-    for (uint32_t i = 0; i < matchCount; i++)
++    for (uint32_t i = 0; i < matchCount && !byRange; i++)
+     {
+         const Match& m = matches[i];
+         const uint64_t used = m.r->frame == ~0ull ? 0 : m.r->frame;
+@@ -8005,7 +8040,7 @@ bool ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+         if (!found || m.base < encBase)
+             encBase = m.base, x = m.x, y = m.y, found = m.r;
+     }
+-    if (matchCount > 1)
++    if (matchCount > 1 && !byRange)
+     {
+         static std::atomic<int> logged{ 0 };
+         if (logged.fetch_add(1) < 200)
+@@ -8022,12 +8057,21 @@ bool ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+                 rect.bottom - rect.top, matchCount, list.c_str(), (unsigned long long)g_r.frame, skippedOld, found ? encBase : 0);
+         }
+     }
+-    if (found)
+-    {
+-        ResolvedTexture& enc = *found;
++    Match targets[std::size(matches)];
++    uint32_t targetCount = 0;
++    if (byRange)
++        for (uint32_t i = 0; i < matchCount; i++)
++            targets[targetCount++] = matches[i];
++    else if (found)
++        targets[targetCount++] = { encBase, x, y, found };
++    bool drew = false;
++    for (uint32_t t = 0; t < targetCount; t++)
++    {
++        ResolvedTexture& enc = *targets[t].r;
++        encBase = targets[t].base, x = targets[t].x, y = targets[t].y;
+         FrameResources& f = Frame();
+         if (f.descriptorsUsed >= kDescriptorsPerFrame)
+-            return false;
++            break;
+         // Host scales: the image's own, and the pass's (where the EDRAM rectangle is).
+         const float encSx = float(enc.hostWidth) / float(enc.width), encSy = float(enc.hostHeight) / float(enc.height);
+         const float srcSx = float(ScaleX()), srcSy = float(ScaleY());
+@@ -8091,8 +8135,10 @@ bool ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight
+             part.y0 = y + uint32_t(rect.top), part.y1 = y + uint32_t(rect.bottom);
+             QueueDeferredWriteback(encBase, enc.width, enc.height, enc.writebackInfo, false, D3D12_RECT{ 0, 0, LONG(enc.width), LONG(enc.height) }, part);
+         }
+-        return true;
++        drew = true;
+     }
++    if (drew)
++        return true;
+     // A copy that looks like a part of a bigger image (narrower than its row width, declaring more rows than it copies)
+     // but found none: logged (the first 100), so a piece that lands nowhere shows in the log.
+     if (!atBase && uint32_t(rect.right) < pitch && declaredHeight > uint32_t(rect.bottom) + 8)
+@@ -9712,6 +9758,7 @@ void Resolve()
+         // fetch swizzle swaps them back when the title samples it.
+         const bool swapRB = !depth && ((info >> 24) & 1);
+         g_r.resolved[base].guestBpp = guestBpp;
++        g_r.resolved[base].copyPitch = pitch;
+         // 16-bit fixed destinations (k_16, k_16_16, k_16_16_16_16: formats 24-26) hold integers: the copy converts
+         // each value (after the exponent bias) to a 16-bit integer and saturates, signed or unsigned by the copy's
+         // number format (RB_COPY_DEST_INFO bits 13-15: 1 snorm, 3 sint signed). Our texture keeps the value as a
+@@ -9761,9 +9808,11 @@ void Resolve()
+         static LiveSwitch noIntoOwnBase("REGPU_NO_RESOLVE_INTO_OWN_BASE");
+         bool intoOwnBase = false;
+         if (!depth && !noIntoOwnBase && !placedInImage && rect.top == 0 && rect.left == 0)
+-            if (const auto own = g_r.resolved.find(base); own != g_r.resolved.end() && own->second.resource && own->second.width == pitch &&
++            if (const auto own = g_r.resolved.find(base); own != g_r.resolved.end() && own->second.resource &&
+                 own->second.height == declaredHeight && own->second.format == format && own->second.guestBpp == guestBpp &&
+-                uint32_t(rect.right) + 32 <= pitch)
++                (g_sw_REGPU_ENCLOSING_GUESS ? own->second.width == pitch && uint32_t(rect.right) + 32 <= pitch
++                                            : ((own->second.copyPitch ? own->second.copyPitch : own->second.width) + 31) / 32 == (pitch + 31) / 32 &&
++                                                (uint32_t(rect.right) + 32 <= own->second.width || uint32_t(rect.bottom) + 32 <= own->second.height)))
+                 intoOwnBase = ResolveIntoEnclosing(base, pitch, declaredHeight, guestBpp, format, rect, std::ldexp(1.0f, bias), destRange, blitFlags, true);
+         if (!intoOwnBase)
+         {
