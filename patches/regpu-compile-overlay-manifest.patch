@@ -1,0 +1,102 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index c35a30d..c7ab4b9 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -4301,8 +4301,14 @@ struct Manifest
+         g_stats.warmTotal = uint32_t(pending.size());
+         Log("renderer: manifest lists %zu pipelines to rebuild", pending.size());
+     }
+-    void RecordPipeline(const PipelineKey& k)
+-    {
++    void RecordPipeline(const PipelineKey& key)
++    {
++        // A fetch specialisation (mask with bit 31) is written as its base pipeline (no mask: the specialisation can't be
++        // made again from the manifest). Known as written, so it is written once, not again every run (FM3 port, session
++        // 40: one such line 769 times, an 11 MB manifest).
++        PipelineKey k = key;
++        if (k.fetchMask >> 31)
++            k.fetchMask = 0;
+         std::lock_guard lock(mutex);
+         if (!known.insert(k).second)
+             return;
+@@ -4310,7 +4316,7 @@ struct Manifest
+             std::ofstream out(Path(), std::ios::app);
+             out << "P " << std::hex << k.vs << ' ' << k.ps << ' ' << k.blend << ' ' << k.depth << ' ' << k.stencilMaskMode << ' ' << k.flags << ' '
+                 << k.biasScale << ' ' << k.biasOffset;
+-            if (k.fetchMask && !(k.fetchMask >> 31)) // (a 9th field only when set: older readers stop at the 8th; specialisations not kept)
++            if (k.fetchMask) // (a 9th field only when set: older readers stop at the 8th)
+                 out << ' ' << k.fetchMask;
+             out << '\n';
+         });
+@@ -4546,8 +4552,7 @@ struct ShaderCompiler
+                 char label[64];
+                 snprintf(label, sizeof(label), "%s %08llx", cs->pixel ? "pixel shader" : "vertex shader", (unsigned long long)(cs->hash >> 32));
+                 g_stats.Begin(label);
+-                Compile(*cs);
+-                g_stats.End(true);
++                g_stats.End(Compile(*cs));
+                 jobs--;
+             }
+             else
+@@ -4555,12 +4560,15 @@ struct ShaderCompiler
+         }
+     }
+ 
+-    static void Compile(CompiledShader& cs)
++    // Returns whether it really compiled (false: loaded from the disk cache, or failed). FM3 port, session 40: the
++    // overlay counted every urgent job as a compile, so a shader read from the cache showed "Shader compiler" for 4 s
++    // whenever a menu screen first used it in a session.
++    static bool Compile(CompiledShader& cs)
+     {
+         if (cs.loadFirst && LoadCachedBytecode(cs))
+         {
+             cs.state.store(CompiledShader::Ready, std::memory_order_release);
+-            return;
++            return false;
+         }
+         ComPtr<ID3DBlob> errors;
+         // Runtime compiles skip optimisation: fxc can take minutes on the
+@@ -4579,7 +4587,7 @@ struct ShaderCompiler
+             Log("renderer: %s %016llx failed to compile:\n%s", cs.pixel ? "ps" : "vs", (unsigned long long)cs.hash,
+                 !dxcErrors.empty() ? dxcErrors.c_str() : errors ? static_cast<const char*>(errors->GetBufferPointer()) : "?");
+             cs.state.store(CompiledShader::Failed, std::memory_order_release);
+-            return;
++            return false;
+         }
+         g_stats.shadersBuilt++;
+         if (ms > 200)
+@@ -4589,6 +4597,7 @@ struct ShaderCompiler
+         if (g_optimizeShaders && !DxcFor(cs.pixel))
+             g_optimizer.Push(cs.cacheKey, cs.pixel, cs.info.hlsl);
+         cs.state.store(CompiledShader::Ready, std::memory_order_release);
++        return true;
+     }
+ } g_compiler;
+ 
+@@ -6116,7 +6125,12 @@ ID3D12PipelineState* GetPipeline(const CompiledShader& vs, const CompiledShader&
+         if (!motion && !g_seedKeys.empty() && !IsPsEditAlias(key.ps) && !IsPsEditAlias(key.vs) && g_drawnKeys.insert(key).second)
+         {
+             g_drawnPipelines++;
+-            if (!g_seedKeys.count(key) && g_drawnUnseeded++ < 64) // (manifest format, for the seed)
++            // A fetch specialisation (mask bit 31) counts as seeded when its base is: it is made from the base at run
++            // time, never listed (FM3 port, session 40: every one was reported missing, which hid unseeded bases).
++            PipelineKey listed = key;
++            if (listed.fetchMask >> 31)
++                listed.fetchMask = 0;
++            if (!g_seedKeys.count(listed) && g_drawnUnseeded++ < 64) // (manifest format, for the seed)
+                 Log("seed coverage: not in the seed: P %llx %llx %x %x %x %x %x %x %x", (unsigned long long)key.vs, (unsigned long long)key.ps, key.blend,
+                     key.depth, key.stencilMaskMode, key.flags, key.biasScale, key.biasOffset, key.fetchMask);
+             g_drawnUnprepared += it == g_r.pipelines.end();
+@@ -10302,6 +10316,12 @@ ID3D12Resource* PrepareOverlayOn(List* list, const std::function<OverlayUpload(U
+ {
+     std::vector<std::string> lines;
+     g_overlay.visible = OverlayWanted(lines);
++    // Logged when it appears and goes (FM3 port, session 40: why players saw it in the menus).
++    if (static bool was = false; g_overlay.visible != was)
++    {
++        was = g_overlay.visible;
++        Log("overlay: %s%s%s", was ? "shown: " : "hidden", was && lines.size() > 1 ? lines[1].c_str() : "", "");
++    }
+     if (!g_overlay.visible)
+         return nullptr;
+     std::string text;

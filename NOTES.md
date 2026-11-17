@@ -54,6 +54,18 @@
   Also `CUI4CarTargetCamera`'s automatic orbit (state 2 at +256: +0.1 degree per update to +112 in `sub_823138D0`, view
   built by `sub_823135F0` from `0x82313AEC`) -> 6 degrees per real second; **built, not seen running** (car select shows a
   still picture; the garage orbit wasn't reached). `FM3_UI_CAMERA=game` = both as before. **User confirmed in game: works as intended** (the fast showcase cuts had made constant white flashes).
+- **"Why are shaders still compiling in game after I'm in the menus?" + the user's Steam Deck: the 3D car in the menus
+  with parts missing while still building.** Three causes (ReGPU patch 72 `regpu-compile-overlay-manifest` + seed):
+  (1) the overlay counted shader-cache loads as compiles (4 s of "Shader compiler" whenever a screen first used a shader);
+  (2) **the pipeline seed had no front-end car pipelines** (made in session 28 from the race tour): a first boot built them
+  while the menus showed, skipping those draws = missing car parts; `src/pipeline_seed.h` regenerated from this PC's
+  manifest (3,274 -> 3,443); (3) fetch specialisations (session 33) were written to the manifest as their base every run
+  (11 MB, one line 769 times; this PC's manifest compacted to 3,448 lines, backup `out/user/pipelines.manifest.bak-s40`)
+  and reported as "not in the seed" (hid (2)). **True first boot** (scratch user folder, 1440p 4x, DXC): boot screen 829
+  shaders + 2,362 pipelines in ~27 s, then 0 unseeded pipelines in the main and career menus, 0 skipped draws, showcase
+  car complete 3 s after opening the career menu (`out/shots/fb-career-3s.png`). Still built at run time (by design): the
+  specialisations (the base draws meanwhile) and pipelines of ~103 shaders the game makes at run time. The Deck ran
+  installer 0.39.4 (old seed): **rebuild the installer** before the user tries again. Not confirmed by the user yet.
 - **Next:** the session 40 list below. Only the band with one tile **off** is unconfirmed in game (still there on our shot).
 
 ### ▶ Start here (session 40): state at the end of session 39 (2026-11-16)
