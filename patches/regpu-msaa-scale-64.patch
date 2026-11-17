@@ -1,0 +1,54 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index cbec8d7..c35a30d 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -242,6 +242,16 @@ void SetNativeMsaa(uint32_t key, uint32_t msaa)
+         BumpPassEpoch();
+     }
+ }
++// The same for the textured draws into 64-bit colour formats only (RB_COLOR_INFO format 5 16_16_16_16, 7 16_16_16_16
++// FLOAT, 12 2_10_10_10_FLOAT_AS_16_16_16_16, 15 32_32_FLOAT): a 64-bit target and a 32-bit pass can share a base and row
++// width (FM3 port, session 40).
++std::atomic<uint32_t> g_nativeMsaa64[0x1000]; // key << 2 | MSAA mode
++std::atomic<uint32_t>& NativeSlot64(uint32_t key) { return g_nativeMsaa64[(key ^ key >> 12) & 0xFFF]; }
++bool Color64Bpp()
++{
++    const uint32_t f = (gpureg::Get(0x2001 /* RB_COLOR_INFO */) >> 16) & 0xF;
++    return f == 5 || f == 7 || f == 12 || f == 15;
++}
+ // The same, for depth surfaces: the MSAA layout each depth EDRAM base and row width (in samples)
+ // is drawn in. A title can reset a 1x pass's stencil through a 4x view that only shares the depth
+ // base (FH1's sun-shadow mask: a 640x360 4x rectangle over the 1280x720 mask pass, colour base
+@@ -13401,6 +13411,8 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         if ((initiator & 0x3F) != 8 || ps.info.usedTextureSlots || vs.info.usedTextureSlots)
+         {
+             SetNativeMsaa(LayoutKey(surface), msaa);
++            if (Color64Bpp() && (gpureg::Get(RB_COLOR_MASK) & 0xF))
++                NativeSlot64(LayoutKey(surface)).store(LayoutKey(surface) << 2 | msaa, std::memory_order_relaxed);
+             if (gpureg::Get(0x2200 /* RB_DEPTHCONTROL */) & 7) // the draw uses the depth surface
+             {
+                 const uint32_t key = DepthLayoutKey(surface);
+@@ -13426,6 +13438,23 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         // one AI car a frame). Small surfaces only, by the width the view covers at 1x: FM3 also clears its 1280-wide
+         // 2x scene through a 4x view (pitch 640), whose layout key a 1x 1280-wide pass shares; scaled, those clears
+         // whitened a quarter of the screen. REGPU_NO_MSAA_COLOR_SCALE=1: not scaled (A/B).
++        // A texture-less rectangle through an MSAA view of a 64-bit colour surface whose textured draws use another
++        // MSAA mode: scaled from the view's layout to theirs, at any width. A 640x360 4x view is the same EDRAM as a
++        // 1280x720 1x surface; titles clear a full-screen 64-bit target that way (FM3 port, session 40: photo mode's
++        // 16_16_16_16 picture, cleared through a 4x view before it is built up; unscaled, a quarter was cleared and the
++        // rest kept what the 32-bit pass at the same base left, yellow with one guest tile). Its own table
++        // (g_nativeMsaa64), as a 32-bit 1x pass at the same base and width (the composite) is no guide to it.
++        // REGPU_NO_MSAA_SCALE_64=1: not scaled (A/B).
++        else if (static LiveSwitch noScale64("REGPU_NO_MSAA_SCALE_64"); !noScale64 && Color64Bpp() && (gpureg::Get(RB_COLOR_MASK) & 0xF) &&
++                 [&] {
++                     const uint32_t key = LayoutKey(surface), entry = NativeSlot64(key).load(std::memory_order_relaxed);
++                     return entry >> 2 == key && (entry & 3) != msaa;
++                 }())
++        {
++            const uint32_t native = NativeSlot64(LayoutKey(surface)).load(std::memory_order_relaxed) & 3;
++            vc->vscale[3] = float(MsaaAcross(msaa)) / float(MsaaAcross(native));
++            vc->voffset[3] = float(MsaaDown(msaa)) / float(MsaaDown(native));
++        }
+         else if (static LiveSwitch noColorScale("REGPU_NO_MSAA_COLOR_SCALE");
+                  !noColorScale && msaa && (surface & 0x3FFF) * MsaaAcross(msaa) < 1000)
+         {

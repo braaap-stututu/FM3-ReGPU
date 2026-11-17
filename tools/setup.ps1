@@ -89,6 +89,7 @@ $regpuPatches = @(
     'regpu-vr-stereo-hold'           # VR: a pose tag older than 250 ms is not used (leftover constants), stereo/flat mixes counted in the log
     'regpu-triple-geometry'          # Triple screen: each screen's own projection (turn + off-axis: regpu::triple::View a b c d e) from the host's screen layout; bezel/gap/independent angles in the port
     'regpu-triple-span'              # Triple screen: fullscreen over the row of monitors beside the primary one (separate monitors, not only an Eyefinity/Surround desktop)
+    'regpu-msaa-scale-64'            # A clear through a 4x view of a 64-bit colour target scaled to the layout its textured draws use (FM3 photo mode yellow with one guest tile)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

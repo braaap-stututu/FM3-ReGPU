@@ -1,6 +1,33 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-16, session 39)
+## ▶ Current status / next step  (updated 2026-11-17, session 40)
+
+### Session 40 (2026-11-17): photo mode with one guest tile fixed
+- **User asked:** fix the photo-mode issue from earlier (session 28, OPEN-ISSUES D: photo mode washed yellow with
+  `one_tile=1`, which the user has on). **Fixed** (ReGPU patch 71 `regpu-msaa-scale-64`); not yet confirmed by the user in game.
+- **Cause (found by captures, `out/perf/tour/photo/`):** photo mode builds its picture in a 64-bit `16_16_16_16` target at
+  EDRAM base 0 (resolved to guest `03005000`, 1280x720), on the frames after it opens: a texture-less clear rectangle
+  through a **640x360 4x view** (pitch 640, surface `0A020280`, colour format 5) = the same EDRAM as 1280x720 1x, a
+  resolve, then a full-screen draw mixing the previous picture with the scene (`ps afe3adc445147144`, t0 `03005000`, t1
+  the scene `17F96000`), resolve again. ReGPU scaled that clear only for narrow surfaces (the < 1000 samples rule of
+  `REGPU_NO_MSAA_COLOR_SCALE`, there because the race's 1x composite at base 0 / width 1280 shares the layout key with
+  FM3's 2x scene), so only a quarter of the target was cleared; the rest kept the 32-bit pass's leftover: the scene
+  resolve's clear colour, `00085A16` with one tile = 7e3 (2.34, 2.34, 0) = **yellow**; with three tiles it is
+  `08922489` = grey 0.27 and went unnoticed. The bloom/exposure chain then saturated (32x32 luminance 255 vs 46).
+  Found with `REGPU_CAPTURE_ON_RESOLVE=03005000` (traces the frame that builds the picture; a plain `capture` misses it).
+- **Fix (ReGPU, game-neutral in Xenos terms):** textured draws into 64-bit colour formats (5, 7, 12, 15) record their
+  MSAA mode in their own table (`g_nativeMsaa64`); a colour-writing texture-less rectangle through another MSAA view of
+  a 64-bit target is scaled to that layout at any width. `REGPU_NO_MSAA_SCALE_64=1` (live) = old behaviour.
+- **Checked (Catalunya, `Start-TourPhoto 3`, minimized, off the headset):** one tile on: photo mode correct on the first
+  entry after boot (`out/shots/photo40-fix-tile1.png`), no road markings over the car; live A/B on re-entry: switch on
+  = yellow again with the same pixel means as the bug (211, 212, 52), off = correct (52, 55, 52); leaving photo mode,
+  the race resumes normally (`photo40-after.png`); one tile off: unchanged with and without the switch. Session 28's
+  other symptom (grid markings over the car) came from its experimental variants, not the committed hook.
+- **Still open (issue D proper):** with one tile **off** photo mode keeps its lighter band above row 256 of 720 (the 4x
+  scenario's first tile edge; `photo40-fix-tile0.png`); with one tile on it is gone.
+- Also: `Start-TourPhoto <env> @{ENV=..}` from session 28's wip diff added to `tools/tour.ps1`; the launcher's one-tile
+  tooltip no longer says photo mode breaks.
+- **Next:** ask the user to try photo mode with one tile on (take a photo too: not tested), then the session 40 list below.
 
 ### ▶ Start here (session 40): state at the end of session 39 (2026-11-16)
 - **In short:** a long session of user requests, all committed (last commit after 9c07e64; 70 ReGPU patches):

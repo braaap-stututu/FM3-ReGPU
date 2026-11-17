@@ -76,11 +76,13 @@ function Tour-Coverage {
 }
 
 # Boot (minimized, Baseline profile via play.cmd) and drive to Environment select with the Acura RSX.
-function Start-TourBoot {
+function Start-TourBoot([hashtable]$Env = @{}) {
     if (Get-Process fm3 -ErrorAction SilentlyContinue) { throw 'fm3 is running: close it first' }
     $env:FM3_MINIMIZED = '1'
+    foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }   # start-time switches, e.g. @{FM3_ONE_TILE='0'}
     Start-Process cmd.exe "/c `"$TourRoot\play.cmd`"" -WindowStyle Hidden
     Remove-Item env:FM3_MINIMIZED
+    foreach ($k in $Env.Keys) { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
     Start-Sleep 20
     Tour-Conn
     # Title screen / attract video: the pad is unreliable there (CLAUDE.md); A held until the main menu shows.
@@ -134,4 +136,19 @@ function Start-Tour([int]$From = 0, [int]$To = 24, [switch]$NoBoot) {
         if (-not (Invoke-TourStop $k)) { Tour-Note "tour stopped at $k"; return }
     }
     Tour-Note "tour finished ($From..$To). Coverage: $(Tour-Coverage)"
+}
+
+# Boot (with start-time $Env) and stop in photo mode on environment $Index's grid: for photo-mode A/B tests.
+function Start-TourPhoto([int]$Index = 3, [hashtable]$Env = @{}) {
+    if (-not (Start-TourBoot $Env)) { Tour-Note 'boot route failed' | Out-Host; return $false }
+    for ($i = 0; $i -lt $Index; $i++) { Tour-Press RIGHT 0.9 }
+    if (-not (Tour-Expect trackselect { Tour-Press A 4 } 2 "$Index-trackselect")) { return $false }
+    Tour-Press A 2
+    Start-Sleep 50
+    if (-not (Tour-Expect menu { Tour-Press LB 1 } 3 "$Index-prerace")) { return $false }
+    Tour-Press A 16
+    if (-not (Tour-Expect menu { Tour-Press START 2 } 3 "$Index-pause")) { return $false }
+    Tour-Press DOWN 0.6; Tour-Press DOWN 0.6; Tour-Press A 5
+    Tour-Note "photo mode on $($TourEnvs[$Index]) ($(($Env.Keys | % { "$_=$($Env[$_])" }) -join ' '))" | Out-Host
+    $true
 }

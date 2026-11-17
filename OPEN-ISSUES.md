@@ -22,7 +22,7 @@ race-load crash. See NOTES.md for those.
 - **Sibling ports:** FM4 had photo mode's 64-bit picture accumulation sharing EDRAM with the 32-bit scene, which bled
   into the photo. It fixed this with `REGPU_COLOR_SURFACE_PER_BPP`, which exists only in FM4's own ReGPU and would
   need porting. FM2 fixed several photo-mode tile problems.
-- **Session 28: photo mode broken with one guest tile (`one_tile=1`, the user's opt-in), investigation paused by the
+- **Session 28 (fixed in session 40, below): photo mode broken with one guest tile (`one_tile=1`, the user's opt-in), investigation paused by the
   user; code reverted, work saved locally in `out/wip/photo-mode-session28.diff` (gitignored).**
   - **Symptom:** with `one_tile=1` photo mode is washed bright yellow over the whole 3D view (HUD fine), except a dark
     rectangle at the car's front right; on every track of the tour (`out/perf/s28tour/ph1.png`, Motegi;
@@ -48,6 +48,11 @@ race-load crash. See NOTES.md for those.
     need the race renderer set up again). Until fixed: `one_tile=0` if photo mode matters.
   - **Tool:** the diff adds `Start-TourPhoto <env index> @{ENV=..}` to `tools/tour.ps1` (boot with start-time
     switches, stop in photo mode on that track's grid, ~2.5 min); re-apply it to repeat the A/B.
+- **Session 40: the one-tile yellow is fixed** (ReGPU patch 71 `regpu-msaa-scale-64`, `REGPU_NO_MSAA_SCALE_64=1` = old):
+  photo mode's 64-bit picture target (base 0) is cleared through a 640x360 4x view that ReGPU didn't scale, so three
+  quarters kept the leftover clear colour (yellow with one tile, grey 0.27 with three). Details in NOTES session 40.
+  With one tile on the band below is gone too; with one tile off it remains (edge at row 256 = the 4x scenario's first
+  tile edge, a lead for the band itself).
 - **First step:** in the pre-race menu (easier to reach than photo mode), pause, then `Fm3 "capture"`. Find the
   pass that writes rows 0 to about 262 (FM3's scene tiles are rows 0–511 and 512–719, so 262 is not a tile edge;
   check for a 64-bit surface sharing an EDRAM base). Live A/B: `switch REGPU_NO_TILE_MERGE 1`,
