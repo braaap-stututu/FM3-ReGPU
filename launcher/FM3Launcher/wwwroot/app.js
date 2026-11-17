@@ -584,6 +584,7 @@ $("bench-run").onclick = () => guarded(async () => {
 })
 loadBench()
 
+$("discord").onclick = () => guarded(() => call("discord"))
 for (const b of document.querySelectorAll("[data-open]")) b.onclick = () => guarded(() => call("open", b.dataset.open))
 // Settings changed elsewhere (an edited settings.ini): picked up when coming back here. Not while a dropdown is open
 // or a change is still being saved.

@@ -210,6 +210,10 @@ public sealed class Bridge
                 if (Game.Running) throw new InvalidOperationException("Close the game first: it holds the wheel's force feedback while it runs.");
                 Wheel.TestForceFeedback();
                 return null;
+            // The ReGPU Discord server: the same invite as FM2:ReGPU's launcher.
+            case "discord":
+                Platform.OpenUrl("https://discord.gg/pVEpmSk2G3");
+                return null;
             case "url":
                 {
                     var url = a?.GetValue<string>() ?? "";

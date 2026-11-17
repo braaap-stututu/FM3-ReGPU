@@ -152,7 +152,8 @@ internal static class Program
         try
         {
             var scale = Math.Max(1.0, GetDpiForSystem() / 96.0);
-            int maxW = (int)(GetSystemMetrics(16) * 0.92), maxH = (int)(GetSystemMetrics(17) * 0.92); // SM_CX/CYFULLSCREEN            return (Math.Min((int)(width * scale), maxW), Math.Min((int)(height * scale), maxH));
+            int maxW = (int)(GetSystemMetrics(16) * 0.92), maxH = (int)(GetSystemMetrics(17) * 0.92); // SM_CX/CYFULLSCREEN
+            return (Math.Min((int)(width * scale), maxW), Math.Min((int)(height * scale), maxH));
         }
         catch { return (width, height); }
     }
