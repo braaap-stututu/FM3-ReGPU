@@ -4,7 +4,7 @@
 
 ### Session 40 (2026-11-17): photo mode with one guest tile fixed
 - **User asked:** fix the photo-mode issue from earlier (session 28, OPEN-ISSUES D: photo mode washed yellow with
-  `one_tile=1`, which the user has on). **Fixed** (ReGPU patch 71 `regpu-msaa-scale-64`); not yet confirmed by the user in game.
+  `one_tile=1`, which the user has on). **Fixed** (ReGPU patch 71 `regpu-msaa-scale-64`); **the user confirmed in game: photo mode right, and the lighter band (issue D) gone too** (their setting: one tile on).
 - **Cause (found by captures, `out/perf/tour/photo/`):** photo mode builds its picture in a 64-bit `16_16_16_16` target at
   EDRAM base 0 (resolved to guest `03005000`, 1280x720), on the frames after it opens: a texture-less clear rectangle
   through a **640x360 4x view** (pitch 640, surface `0A020280`, colour format 5) = the same EDRAM as 1280x720 1x, a
@@ -27,7 +27,7 @@
   scenario's first tile edge; `photo40-fix-tile0.png`); with one tile on it is gone.
 - Also: `Start-TourPhoto <env> @{ENV=..}` from session 28's wip diff added to `tools/tour.ps1`; the launcher's one-tile
   tooltip no longer says photo mode breaks.
-- **Next:** ask the user to try photo mode with one tile on (take a photo too: not tested), then the session 40 list below.
+- **Next:** the session 40 list below. Only the band with one tile **off** is unconfirmed in game (still there on our shot).
 
 ### ▶ Start here (session 40): state at the end of session 39 (2026-11-16)
 - **In short:** a long session of user requests, all committed (last commit after 9c07e64; 70 ReGPU patches):

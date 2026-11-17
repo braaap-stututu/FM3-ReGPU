@@ -51,7 +51,7 @@ race-load crash. See NOTES.md for those.
 - **Session 40: the one-tile yellow is fixed** (ReGPU patch 71 `regpu-msaa-scale-64`, `REGPU_NO_MSAA_SCALE_64=1` = old):
   photo mode's 64-bit picture target (base 0) is cleared through a 640x360 4x view that ReGPU didn't scale, so three
   quarters kept the leftover clear colour (yellow with one tile, grey 0.27 with three). Details in NOTES session 40.
-  With one tile on the band below is gone too; with one tile off it remains (edge at row 256 = the 4x scenario's first
+  With one tile on the band below is gone too (user confirmed in game, session 40); with one tile off it remains (edge at row 256 = the 4x scenario's first
   tile edge, a lead for the band itself).
 - **First step:** in the pre-race menu (easier to reach than photo mode), pause, then `Fm3 "capture"`. Find the
   pass that writes rows 0 to about 262 (FM3's scene tiles are rows 0–511 and 512–719, so 262 is not a tile edge;
