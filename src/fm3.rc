@@ -1,0 +1,4 @@
+// The application icon (assets/fm3.ico, built by tools/makeico.py from assets/icon.png, FM3's title image from
+// default.xex's XDBF resource): fm3.exe's icon in Explorer and the game window's class icon (ReGPU's presenter
+// loads icon id 1 from the exe).
+1 ICON "../assets/fm3.ico"

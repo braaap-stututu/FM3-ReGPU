@@ -34,6 +34,7 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\launcher\FM3Launcher.exe
+SetupIconFile=..\assets\fm3.ico
 LicenseFile={#StageDir}\licenses\LICENSE
 InfoBeforeFile={#StageDir}\before-install.txt
 

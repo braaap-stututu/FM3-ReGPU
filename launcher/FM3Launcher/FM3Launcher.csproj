@@ -12,9 +12,14 @@
     <RootNamespace>FM3Launcher</RootNamespace>
     <Product>Forza Motorsport 3 ReGPU</Product>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\assets\fm3.ico</ApplicationIcon>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- The release version, from the repo's VERSION file unless the build passes -p:Version (installer\build-*.ps1).
+         Shown in the launcher's header. -->
+    <Version Condition="'$(Version)' == ''">$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\VERSION').Trim())</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,6 +28,9 @@
 
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The window icon (Window.cs): fm3.ico on Windows, icon.png on Linux (also the desktop entry's). -->
+    <Content Include="..\..\assets\fm3.ico" Link="fm3.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\assets\icon.png" Link="wwwroot\icon.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

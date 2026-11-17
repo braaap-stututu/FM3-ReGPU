@@ -181,6 +181,7 @@ function fill(select, items, value) {
 function render() {
   const s = state, set = s.settings, o = s.options
   $("version").textContent = "Version " + s.version + " · native PC port"
+  renderShare()
 
   const chips = $("chips")
   chips.replaceChildren()
@@ -505,6 +506,28 @@ $("launch").onclick = launchFrom("launch", "status", "normal")
 $("vr-launch").onclick = launchFrom("vr-launch", "vr-status", "vr")
 $("tri-launch").onclick = launchFrom("tri-launch", "tri-status", "triple")
 
+// ---- shader sharing (Sharing.cs): only once the shaders server is set up; asked once, then the Settings switch
+function renderShare() {
+  const s = state && state.share
+  $("share-row").hidden = !(s && s.configured)
+  if (s) $("shareShaders").classList.toggle("on", !!s.on)
+}
+$("shareShaders").onclick = () => guarded(async () => {
+  state = await call("share.set", { on: !state.share.on })
+  render()
+})
+let shareAsked = false
+async function askShare() {
+  const s = state && state.share
+  if (shareAsked || !s || !s.configured || s.asked) return
+  shareAsked = true
+  const yes = await confirmBox("Share your shader list?",
+    "After you play, the launcher can send the list of shader and render-state combinations the game built: hashes only, no game files, nothing about you or your PC. " +
+    "The next release builds them all on the first start, so races don't stutter on them. You can change this on the Settings tab.", "Share")
+  state = await call("share.set", { on: yes })
+  render()
+}
+
 $("shaders-delete").onclick = () => guarded(async () => {
   if (!await confirmBox("Delete the shader cache?", "The next start compiles every shader again. Saves and settings are kept.", "Delete")) return
   state = await call("shaders.delete")
@@ -561,6 +584,7 @@ $("bench-run").onclick = () => guarded(async () => {
 })
 loadBench()
 
+$("discord").onclick = () => guarded(() => call("discord"))
 for (const b of document.querySelectorAll("[data-open]")) b.onclick = () => guarded(() => call("open", b.dataset.open))
 // Settings changed elsewhere (an edited settings.ini): picked up when coming back here. Not while a dropdown is open
 // or a change is still being saved.
@@ -672,5 +696,5 @@ async function refresh() {
   await guarded(async () => { state = await call("state"); render() })
 }
 
-refresh()
+refresh().then(() => guarded(askShare))
 setInterval(() => { if (!document.hidden && $("confirm").hidden && !["SELECT", "INPUT"].includes(document.activeElement.tagName)) refresh() }, 5000)

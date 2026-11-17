@@ -17,6 +17,7 @@ public sealed class Bridge
     {
         _window = shell;
         shell.OnMessage(OnMessage);
+        ShaderShare.Start();
     }
 
     async void OnMessage(string text)
@@ -50,6 +51,10 @@ public sealed class Bridge
         switch (cmd)
         {
             case "state": return State();
+            // Shader sharing (Sharing.cs): the first-start notice's answer and the Settings switch.
+            case "share.set":
+                ShaderShare.Set(a?["on"]?.GetValue<bool>() == true);
+                return State();
             case "save":
                 SaveFromPage(a.Deserialize<GameSettings>(Json)!);
                 return State();
@@ -205,6 +210,10 @@ public sealed class Bridge
                 if (Game.Running) throw new InvalidOperationException("Close the game first: it holds the wheel's force feedback while it runs.");
                 Wheel.TestForceFeedback();
                 return null;
+            // The ReGPU Discord server: the same invite as FM2:ReGPU's launcher.
+            case "discord":
+                Platform.OpenUrl("https://discord.gg/pVEpmSk2G3");
+                return null;
             case "url":
                 {
                     var url = a?.GetValue<string>() ?? "";
@@ -236,7 +245,10 @@ public sealed class Bridge
         return new
         {
             settings,
-            version = typeof(Bridge).Assembly.GetName().Version?.ToString(3) ?? "0.1.0",
+            share = ShaderShare.State(),
+            // The release name from VERSION (e.g. 0.41.0-beta); AssemblyVersion drops the -beta part.
+            version = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(Bridge).Assembly)?.InformationalVersion.Split('+')[0]
+                ?? typeof(Bridge).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
             paths = new { root = Paths.Root, user = Paths.User, exe = Paths.Exe, gameDefault = Paths.GameDirDefault, gameDir = Paths.GameDir, gameFromEnv = Paths.GameDirFromEnv, log = Paths.Log },
             checks = new
             {

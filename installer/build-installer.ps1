@@ -8,9 +8,11 @@ $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
 if (-not $Version) {
-    $hash = (git rev-parse --short HEAD).Trim()
+    # The release in VERSION (also what the launcher shows); a build that isn't the tagged release adds the commit.
+    $Version = (Get-Content (Join-Path $root "VERSION") -TotalCount 1).Trim()
     $dirty = if (git status --porcelain --untracked-files=no) { "-dirty" } else { "" }
-    $Version = "0.39.0-$hash$dirty"
+    $tagged = git tag --points-at HEAD | Where-Object { $_ -eq "v$Version" }
+    if (-not $tagged -or $dirty) { $Version += "-" + (git rev-parse --short HEAD).Trim() + $dirty }
 }
 
 $iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
@@ -44,7 +46,7 @@ if (Test-Path "$bootSrc\background.png") {
 } else { Write-Warning "No boot screen picture in out\user\boot: the installed game shows the rev counter on black." }
 
 # The launcher, self-contained (the other PC needs no .NET; WebView2 comes with Windows 10/11).
-& $dotnet publish "launcher\FM3Launcher" -c Release -r win-x64 --self-contained true -o "$stage\launcher" --nologo -p:DebugType=none
+& $dotnet publish "launcher\FM3Launcher" -c Release -r win-x64 --self-contained true -o "$stage\launcher" --nologo -p:DebugType=none "-p:Version=$Version"
 if ($LASTEXITCODE) { throw "Launcher publish failed." }
 
 # Licences: ours, the ported runtime's and the wheel code's notices, FFmpeg (LGPL), the AA shaders' sources.
