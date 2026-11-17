@@ -20,8 +20,8 @@
 // the game's own "one tile this frame" byte (+91) leaves the per-tile resolves at two tiles.
 //
 // Frozen grid (session 26): 720p 1x 290.0 -> 316.4 fps (+9.1%, 3 boots each), draws 3,288 -> 2,647; pictures within
-// the cross-boot noise (the seam rows too). Off by default until driven: FM3_ONE_TILE=1 or settings.ini
-// one_tile=1 (start time; logged "one tile: ..."). Photo mode (scenario 0) works with it since session 40 (ReGPU patch
+// the cross-boot noise (the seam rows too). On by default since session 40 (the user drove it from session 26 on); off: FM3_ONE_TILE=0 or
+// settings.ini one_tile=0 (start time; logged "one tile: ..."). Photo mode (scenario 0) works with it since session 40 (ReGPU patch
 // regpu-msaa-scale-64: its 64-bit picture target was cleared through an unscaled 4x view, washed yellow).
 #include <cstdint>
 #include <cstdlib>
@@ -57,7 +57,7 @@ bool OneTileEnabled()
     static const bool on = [] {
         const char* v = getenv("FM3_ONE_TILE");
         const std::string s = v ? std::string(v) : GetSettings().Extra("one_tile");
-        return !s.empty() && s != "0";
+        return s != "0"; // (on by default since session 40, user's decision; FM3_ONE_TILE=0 or one_tile=0: off)
     }();
     return on;
 }

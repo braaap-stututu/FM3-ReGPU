@@ -27,6 +27,10 @@
   scenario's first tile edge; `photo40-fix-tile0.png`); with one tile on it is gone.
 - Also: `Start-TourPhoto <env> @{ENV=..}` from session 28's wip diff added to `tools/tour.ps1`; the launcher's one-tile
   tooltip no longer says photo mode breaks.
+- **One guest tile on by default** (user's request, after confirming photo mode): `src/hooks/one_tile.cpp` treats a missing
+  `one_tile` as on (`one_tile=0` / `FM3_ONE_TILE=0` = off), the launcher's default is on and reads anything but `0` as on;
+  tooltip says so. Settings files the launcher already wrote with `one_tile=0` stay off (an explicit choice can't be told
+  from an old default). Benchmark scripts pin `FM3_ONE_TILE` themselves.
 - **Next:** the session 40 list below. Only the band with one tile **off** is unconfirmed in game (still there on our shot).
 
 ### ▶ Start here (session 40): state at the end of session 39 (2026-11-16)

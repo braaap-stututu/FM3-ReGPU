@@ -122,7 +122,7 @@ public sealed class GameSettings
     public bool HalfRateReflections { get; set; } = false; // reflect_rate=2: the car reflection faces every second time (src/hooks/car_reflections.cpp, session 32)
     public bool HalfRateShadows { get; set; } = false; // shadow_rate=2: the car shadow passes every second frame (src/hooks/car_shadows.cpp, session 32)
     public bool HalfRateMirror { get; set; } = false; // mirror_rate=2: the rear-view mirror rendered every second frame (src/hooks/mirror.cpp)
-    public bool OneTile { get; set; } = false; // one_tile: L36, the race scene drawn as one guest tile (src/hooks/one_tile.cpp; read by the game, so play.cmd too)
+    public bool OneTile { get; set; } = true; // one_tile (on by default since session 40, user): L36, the race scene drawn as one guest tile (src/hooks/one_tile.cpp; read by the game, so play.cmd too)
     public bool DxcShaders { get; set; } // shader_compiler=dxc: ReGPU compiles shaders with DXC (REGPU_DXC, src/gpu_host.cpp; read by the game, so play.cmd too)
     public bool VramUploadRing { get; set; } = true; // vram_upload_ring: L47, ReGPU's upload ring in VRAM via resizable BAR (src/gpu_host.cpp; read by the game, so play.cmd too)
     public bool AsyncPresent { get; set; } = true; // async_present: L12, the frame ends on ReGPU's replay thread (src/gpu_host.cpp; read by the game, so play.cmd too)
@@ -182,7 +182,7 @@ public sealed class GameSettings
                 case "async_present": s.AsyncPresent = v != "0"; break;
                 case "vram_upload_ring": s.VramUploadRing = v == "1"; break;
                 case "shader_compiler": s.DxcShaders = v == "dxc"; break;
-                case "one_tile": s.OneTile = v == "1"; break;
+                case "one_tile": s.OneTile = v != "0"; break;
                 case "vr_camera_motion": s.VrCameraMotion = v == "1"; break;
                 case "vr_pace": s.VrPace = v != "0"; break;
                 case "linux_runner": s.LinuxRunner = v is "auto" or "umu" or "proton" or "wine" ? v : "auto"; break;
