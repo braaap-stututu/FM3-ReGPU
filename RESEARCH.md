@@ -2265,6 +2265,18 @@ power from the GPU. Ask: when (boot screen / first race / later), fm3.exe's shar
 log (it shows compile progress and fps). Leads: compile threads at lower priority and fewer of them once the game is
 playing; on iGPU/UMA or <= 4 physical cores, CP idle sleep regardless of the cap.
 
+**The tester's screenshot (session 40):** 1920x1080, race grid with the game's pause menu open (8 cars). Our fps panel:
+33 fps, 29.9 ms average, **p99 127.6 ms** with tall spikes at the start of its 400-frame graph; the tester's overlay
+(RTSS/Afterburner): 43 fps, 18.4 ms frame time, **GPU 96%**, **every listed CPU thread 100%**, 18.5 GB system RAM in
+use, ~3.9 GB graphics memory. Reading: GPU-bound at 1080p (~2x the Deck's pixels), and **a fully busy CPU while the
+game is paused**, when the game itself does least: almost certainly ReGPU's background shader/pipeline compiles of a
+first run (seed pipelines after the boot screen, plus fetch-specialisation and alpha-test variants compiled on first
+sight of each draw; cached afterwards), with the compile spikes in the graph. On a 15-28 W chip those compiles take
+power from the GPU too. Next: the same spot after a few minutes or on a second start, at the Deck's settings (1280x800
+or 720p, MSAA 2x, one tile, anisotropy as the game asks, cap 60), with the log. Code lead: on <= 4 physical cores or an
+iGPU, run background compiles on fewer threads at below-normal priority once the game is playing (the worker count is
+in ReGPU's compile code: check it locally), and say in the fps panel/boot screen that shaders are still being prepared.
+
 **Order:** the tester's log and benchmark with the Deck's settings (and the memory-channel check) first; then N1 as a
 variant script; then N2/N4/N6/N7 (small, help every iGPU); N3 and N5 with an Intel capture; N8/N9 last.
 
