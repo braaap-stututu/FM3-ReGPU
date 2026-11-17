@@ -2254,6 +2254,17 @@ EDRAM surfaces, MSAA, resolves, uploads) and per-draw heavy (~2,700 draws), the 
 Also seen in Xenia reports: Intel's D3D12 driver has had render-target/depth correctness bugs on Iris Xe (black
 artifacts); if the tester sees corruption, note the driver version.
 
+**User's follow-up: the tester's CPU showed 100%.** Our steady state can't fill 8 threads: at 2c/4t the whole game used
+3.25 hardware threads, and on our GPU-bound AMD iGPU ~1.2 cores (session 37). So a full 4C/8T CPU most likely means
+(a) the **first-boot shader compile** (static scan + pipeline seed compile on every core; it also runs on in the
+background after the boot screen while the first race plays), (b) something else at the same time (antivirus scanning
+the 6.8 GB just extracted, Windows Update, indexing), or (c) Task Manager's "utility" figure, which on Windows 11 counts
+clocks above base frequency and reaches 100% before every core is busy. Spin-waiting adds a little when uncapped (the
+command processor spins on one thread unless the cap is <= 144 or vsync is on). On a 15-28 W chip any of these takes
+power from the GPU. Ask: when (boot screen / first race / later), fm3.exe's share in Task Manager's Details tab, and the
+log (it shows compile progress and fps). Leads: compile threads at lower priority and fewer of them once the game is
+playing; on iGPU/UMA or <= 4 physical cores, CP idle sleep regardless of the cap.
+
 **Order:** the tester's log and benchmark with the Deck's settings (and the memory-channel check) first; then N1 as a
 variant script; then N2/N4/N6/N7 (small, help every iGPU); N3 and N5 with an Intel capture; N8/N9 last.
 
