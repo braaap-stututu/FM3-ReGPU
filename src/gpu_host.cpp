@@ -182,6 +182,11 @@ void ApplyPerfPreset(regpu::Config& c)
     h.resolve1010 = num("hyper_resolve1010");
     h.aniso = num("hyper_aniso");
     h.cullPixels = num("hyper_cull");
+    if (h.cullPixels == 0) // (the launcher's "Off": Hyper's 0 would cull only fully hidden draws)
+    {
+        h.cullPixels = -1;
+        DefaultEnv("REGPU_HYPER_CULL_PIXELS", "-1");
+    }
     h.freeze = num("hyper_freeze");
     if (const int cuts = num("hyper_shader_cuts"); cuts >= 0)
         h.shaderCuts = cuts;
@@ -190,6 +195,17 @@ void ApplyPerfPreset(regpu::Config& c)
     // settings.ini hyper_helpers= or REGPU_HYPER_HELPERS asks.
     if (h.helpers < 0 && !getenv("REGPU_HYPER_HELPERS"))
         h.helpers = 100;
+    // The launcher's iGPU tab (session 43, Intel/integrated GPU tests): each key to its ReGPU switch (patch
+    // regpu-igpu-intel), an explicit environment variable still winning.
+    static const std::pair<const char*, const char*> kIgpuKeys[] = {
+        { "igpu_rootsig11", "REGPU_ROOTSIG_11" }, { "igpu_spec_constants", "REGPU_SPEC_CONSTANTS" }, { "igpu_half_regs", "REGPU_HALF_REGS" },
+        { "igpu_uma_no_arena", "REGPU_UMA_NO_ARENA" }, { "igpu_uma_textures", "REGPU_UMA_TEXTURES" },
+    };
+    for (const auto& [key, env] : kIgpuKeys)
+        if (s.Extra(key) == "1")
+            DefaultEnv(env, "1");
+    if (const std::string t = s.Extra("igpu_compile_threads"); !t.empty() && t != "auto")
+        DefaultEnv("REGPU_COMPILE_BACKGROUND_THREADS", t.c_str());
     // Culling blended draws (REGPU_HYPER_CULL_ALL, for FM2's blended cars) drops FM3's HUD text: blended, depth-tested
     // glyphs whose strokes cover ~70 guest pixels (session 43, REGPU_TRACE_HYPER_CULL). FM3 culls opaque draws only.
     DefaultEnv("REGPU_HYPER_CULL_ALL", "0");

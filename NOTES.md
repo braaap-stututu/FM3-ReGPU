@@ -1,6 +1,27 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-18, session 42)
+## ▶ Current status / next step  (updated 2026-11-18, session 43)
+
+### ▶ Start here (session 44): state at the end of session 43 (2026-11-18)
+- **In short:** the speed presets are now **ReGPU's Hyper**, ported from the FM2 port's `hyper-prototype` branch (it is
+  meant to go upstream into ReGPU): ReGPU patch 77 `regpu-hyper`. The Intel iGPU leads N2-N10 (RESEARCH "Intel iGPUs")
+  and lighter background shader compiles are ReGPU patch 78 `regpu-igpu-intel`. The launcher has a new **iGPU
+  (testing)** tab. Details: "Session 43" below.
+- **Build state:** `build/rel` = ReXenon + 78 ReGPU patches (verified with `tools\setup.ps1 -NoBuild`).
+- **Presets** (launcher slider / settings.ini `perf_preset` or `hyper`, `FM3_PERF_PRESET`, `REGPU_HYPER`): off, mild,
+  low, extreme, potato, auto (potato on an integrated GPU). Old `turbo` = off + the shader cuts. Mild and up still add
+  FM3's own draw-cutting options. **iGPU 720p frozen grid: off 65.0, potato 78.1 fps (+20%)**, picture right (HUD,
+  brightness; road softer: no anisotropy). FM3 differences from FM2's defaults: helper surfaces stay full size
+  (smaller ones wash FM3 out yellow, as in session 23) and only opaque draws are culled (culling blended draws dropped
+  the HUD text). Frozen helpers find no FM3 pass made of 3D geometry alone, so they do nothing here.
+- **iGPU leads, all opt-in (none measurable on Intel here; AMD iGPU results):** UMA detection + `REGPU_UMA_NO_ARENA`
+  (65 -> 51 fps on AMD: its driver's carve-out is faster), `REGPU_UMA_TEXTURES` (63 vs 65), `REGPU_ROOTSIG_11` and
+  `REGPU_SPEC_CONSTANTS` (65.4/65.1 vs 64.4: noise), `REGPU_HALF_REGS` (dataflow-safe 16-bit pixel registers, real
+  halves under DXC: no change on RDNA2). N6 n/a, N10 checked (a 15 fps iGPU boot runs). **Default:** background
+  shader compiles throttled during play on <= 8 hardware threads or a UMA GPU (`REGPU_COMPILE_BACKGROUND_THREADS`).
+- **Waiting on the user (asked at the end of session 43):** (1) **meshoptimizer** (MIT, a download) for Hyper's mesh
+  decimation and vertex-cache reordering (FM2: VCACHE +4.5% on an HD 630); (2) the **XeSS SDK** (a download) for N8;
+  (3) an Intel tester's runs of the iGPU tab's options (N1/N5: GPA capture). The user hasn't driven Potato yet.
 
 ### ▶ Start here (session 43): state at the end of session 42 (2026-11-18)
 - **In short:** the Fiat 500's rear-wing vinyl is fixed (ReGPU patch 76 `regpu-depth-reset-color`); the Civic's "uncovered"
@@ -33,6 +54,47 @@
   Never hand-write GPU barriers for a dump (two driver timeouts tonight: the surface state is tracked in C().colorState).
 - **Still open from before:** NOTES "Start here (session 42)" below (shader-sharing server, seed filtering, next release),
   session 40's list, OPEN-ISSUES.md.
+
+### Session 43 (2026-11-18): Hyper presets (ReGPU 77), Intel iGPU leads + compile throttle (ReGPU 78), launcher iGPU tab
+- **User's request:** switch our speed presets to the FM2 port's Hyper ("potato mode") from
+  `ircluzar/Forza-Motorsport-2-ReGPU` branch `hyper-prototype` (commits aadaf073, 3af446d7, c4de2b1a: `src/gpu/hyper.*`,
+  their renderer/translator changes, `docs/hyper/*`), as it will go upstream into ReGPU; then implement all the Intel
+  iGPU code leads (RESEARCH "Intel iGPUs", N1-N10); then check and improve shader/pipeline loading; finally a separate
+  launcher tab. Questions held to the end.
+- **The port (patch 77 `regpu-hyper`):** `include/regpu/hyper.h` + `src/gpu/hyper.cpp` (namespace `regpu::hypermode`:
+  `hyper` is `#define`d by the Windows SDK's rpcndr.h). Their cuts this tree already had are mapped onto our switches
+  (NODISCARD = `REGPU_SPLIT_ALPHA_TEST`, RESOLVE1010 = `REGPU_COPIES_1010102`, FETCHSPEC = `REGPU_FETCH_SPECIALIZE`,
+  HELPERS = `REGPU_HELPER_SCALE`, SHADER_OPT = `REGPU_OPTIMIZE_SHADERS` (built in the background: no 3-minute first
+  load)); new: PLAIN_MUL=5 (per-register taint; translated twice so loops stay conservative), SWIZZLE_SEL, TAILSPEC
+  (pinfo words as literals in the fetch-spec variant), RESOLVE_BY_SIZE, CULL_* (CPU-readback culling decided before the
+  pipeline lookup; probe pipeline = depth-tested, no writes, flags 0x1000), FREEZE/REFRESH/SHADOWS (warm-up + refresh on
+  our FreezeHelpers). LEAN_LOD has no target here (no forced-LOD test in our preamble). Their A2M_TEST (our old turbo's
+  `REGPU_A2M_AS_TEST`, which they found removes the crowd and fences) is no longer in any preset.
+- **Bugs found on the way (frozen grid, 1440p):** (1) Potato washed the picture out yellow: the helper scale (session
+  23's known problem) and my freeze key holding the EDRAM mode (resolves never matched their pass's draws); freezing is
+  now only for passes of 3D geometry alone (a real depth compare, not a screen pass) and FM3 keeps helpers at 100%.
+  Note the frozen grid also freezes FM3's auto-exposure, so a wrong exposure stays wrong until the next boot. (2) The
+  HUD text vanished: its glyphs are blended, depth-tested and depth-writing, ~70 guest pixels for "PLACE / LAPS /
+  timer" (found with `REGPU_TRACE_HYPER_CULL`); culling now needs depth writes and a real compare, and FM3 sets
+  `REGPU_HYPER_CULL_ALL=0` (opaque only).
+- **Intel leads (patch 78 `regpu-igpu-intel`), measured on the 9800X3D's Radeon iGPU, 720p, frozen grid:** N2 UMA
+  arena off 65 -> 51 fps (kept as `REGPU_UMA_NO_ARENA`), in-place textures 63 vs 65 (`REGPU_UMA_TEXTURES`, committed
+  L0 heap, `WriteToSubresource`, new textures only); N4 descriptor heaps were already set once a frame, root signature
+  1.1 opt-in; N3 bool+loop literals opt-in (FM2 saw no gain from bools on an HD 630); N9/N5 `REGPU_HALF_REGS`; N6 not
+  applicable (our resolve sums native float samples: no per-sample conversion); N10 checked (an 8K SSAA boot ran the
+  iGPU out of memory, a device reset at surface creation: not this bug; 1440p 4x at 15 fps ran fine); N7 = the
+  launcher's "Apply iGPU defaults"; N1 = the tab itself; N8 needs the XeSS SDK (download: asked).
+- **Shader/pipeline loading:** already multi-threaded everywhere (compile pool = cores - 1, pipeline pool 3/4 cores up
+  to 12, scan and texture decode). A warm boot prepares 3,531 pipelines in ~1 s; a cold pipeline library boots as fast
+  (the boot waits for shaders, not pipelines: `REGPU_PIPELINE_LIBRARY_TAG` showed it); a cold shader set (a preamble
+  change) held the boot 67 s compiling ~500 large shaders with FXC. More pipeline workers during the boot were tried and
+  dropped (they would compete with those compiles). Kept: the background throttle (one worker, lowest priority, after
+  the boot, on <= 8 threads or UMA), `REGPU_PIPELINE_THREADS`.
+- **Launcher:** Graphics' slider = Hyper's presets; new tab "iGPU (testing)" (Shader cuts, Draw culling, Background
+  shader compiles, the five Intel experiments, Apply iGPU defaults); keys `hyper_shader_cuts`, `hyper_cull`,
+  `igpu_*` read by `src/gpu_host.cpp`. Checked through WebView2's DevTools port (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+  =--remote-debugging-port=9333` + a CDP client: page screenshots without grabbing the screen); a save round trip and a
+  game boot with those settings; the user's settings.ini restored byte-identical afterwards.
 
 ### Session 42 (2026-11-17/18): Fiat wing fixed (ReGPU 76), Civic bands = layer size, ReXenon PR, hl360 profile copy
 - **ReXenon PR:** the vsldoi128 decode fix (our `rexenon-vsldoi128.patch`, comment reworded, README line) on our fork

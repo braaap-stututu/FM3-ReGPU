@@ -6,20 +6,23 @@ let state = null
 let customFps = false // "Custom…" picked in the Max FPS list
 let nextId = 1
 const pending = new Map()
-const PAGES = ["play", "profiles", "graphics", "vr", "triple", "wheel", "settings", "about"]
-// The speed presets (settings.ini perf_preset; src/gpu_host.cpp ApplyPerfPreset), sharpest first.
+const PAGES = ["play", "profiles", "graphics", "vr", "triple", "igpu", "wheel", "settings", "about"]
+// The speed presets: ReGPU's Hyper presets (session 43; settings.ini perf_preset; src/gpu_host.cpp ApplyPerfPreset), sharpest first.
+const DRAW_CUTS = " Also turns on the draw-cutting options: one tile, half-rate shadows, mirror and reflections, lower detail for distant cars."
 const PRESETS = [
   { value: "off", name: "Off", note: "Everything drawn as the console does." },
-  { value: "turbo", name: "Turbo", note: "Faster shaders and fewer wasted draws. The picture stays the same." },
-  { value: "mild", name: "Mild", note: "Turbo, with the 3D scene drawn at 67% (upscaled) and 4x texture filtering. Also turns on the draw-cutting options: one tile, half-rate shadows, mirror and reflections, lower detail for distant cars." },
-  { value: "potato", name: "Potato", note: "Turbo at full resolution with 2x texture filtering. Also turns on the draw-cutting options: one tile, half-rate shadows, mirror and reflections, lower detail for distant cars." },
-  { value: "low", name: "Low", note: "Potato with the 3D scene drawn at 59% (upscaled). Also turns on the draw-cutting options: one tile, half-rate shadows, mirror and reflections, lower detail for distant cars." },
-  { value: "extreme", name: "Extreme", note: "Potato with the 3D scene drawn at half size and no texture filtering boost. The fastest. Also turns on the draw-cutting options: one tile, half-rate shadows, mirror and reflections, lower detail for distant cars." },
+  { value: "mild", name: "Mild", note: "The 3D scene drawn at half size (upscaled with FSR 1) and 4x texture filtering." + DRAW_CUTS },
+  { value: "low", name: "Low", note: "The 3D scene at 35% with a plain one-pass upscale and 2x texture filtering." + DRAW_CUTS },
+  { value: "extreme", name: "Extreme", note: "The 3D scene at its smallest (33%), plain upscale, 2x texture filtering. The softest." + DRAW_CUTS },
+  { value: "potato", name: "Potato", note: "Full resolution: faster shaders (same picture), tiny far objects skipped, no texture filtering boost. Made for integrated GPUs: on the Ryzen 9800X3D's graphics +20%." + DRAW_CUTS },
+  { value: "auto", name: "Auto", note: "Potato on an integrated GPU (built into the processor), Off on a graphics card." },
 ]
+const CULL_CHOICES = [{ value: -1, name: "As the speed preset says" }, { value: 0, name: "Off" }, { value: 64, name: "64 pixels (subtle)" }, { value: 256, name: "256 pixels (Potato)" }]
+const COMPILE_CHOICES = [{ value: "auto", name: "Automatic" }, { value: "0", name: "No limit" }, { value: "1", name: "One at a time" }, { value: "2", name: "Two at a time" }]
 // Mild and up turn these on by themselves (src/gpu_host.cpp ApplyPerfPreset): shown on and locked there; Off and
 // Turbo leave them to their own switches.
 const PRESET_OPTIONS = ["oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "carLodFar"]
-const SWITCHES = ["vsync", "vrCameraMotion", "vrPace", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "dxcShaders", "eqaa", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "quickRace", "gridTest"]
+const SWITCHES = ["vsync", "vrCameraMotion", "vrPace", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "dxcShaders", "eqaa", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "quickRace", "gridTest", "hyperShaderCuts", "igpuRootSig11", "igpuSpecConstants", "igpuHalfRegs", "igpuUmaNoArena", "igpuUmaTextures"]
 
 // ---- host calls
 
@@ -246,7 +249,11 @@ function render() {
   if (document.activeElement !== $("perfPreset")) $("perfPreset").value = preset
   $("perfPreset-v").textContent = PRESETS[preset].name
   $("perfPreset-note").textContent = PRESETS[preset].note
-  const presetOptions = preset >= 2 // (Mild onwards)
+  // iGPU tab
+  fill($("hyperCull"), CULL_CHOICES, set.hyperCull)
+  fill($("igpuCompileThreads"), COMPILE_CHOICES, set.igpuCompileThreads)
+  $("igpuHalfRegs").title = set.dxcShaders ? "" : "Needs the DXC shader compiler (Settings) to have an effect"
+  const presetOptions = preset >= 1 && PRESETS[preset].value !== "auto" // (Mild onwards; Auto decides at the start)
   for (const k of PRESET_OPTIONS) {
     const b = $(k)
     if (presetOptions) b.classList.add("on")
@@ -399,6 +406,13 @@ $("ssaa").onchange = (e) => change({ ssaa: e.target.value })
 $("gpu").onchange = (e) => change({ gpu: e.target.value })
 $("perfPreset").oninput = (e) => { const p = PRESETS[+e.target.value]; $("perfPreset-v").textContent = p.name; $("perfPreset-note").textContent = p.note }
 $("perfPreset").onchange = (e) => change({ perfPreset: PRESETS[+e.target.value].value })
+$("hyperCull").onchange = (e) => change({ hyperCull: +e.target.value })
+$("igpuCompileThreads").onchange = (e) => change({ igpuCompileThreads: e.target.value })
+// N7 (session 43): a small GPU's starting point (RESEARCH "Intel iGPUs"): 720p, no MSAA + FXAA, 60 fps cap, Potato.
+$("igpuDefaults").onclick = () => {
+  change({ resolution: "1280x720", msaa: 1, aa: "fxaa", maxFps: 60, perfPreset: "potato" })
+  $("igpuDefaults-note").textContent = "Set: 1280x720, MSAA off, FXAA, 60 fps cap, Potato (see the Graphics tab)."
+}
 $("upscaler").onchange = (e) => change({ upscaler: e.target.value })
 $("upscale").onchange = (e) => change({ upscale: +e.target.value })
 $("sharpening").onchange = (e) => change({ sharpening: +e.target.value })

@@ -2281,4 +2281,11 @@ iGPU, run background compiles on fewer threads at below-normal priority once the
 in ReGPU's compile code: check it locally), and say in the fps panel/boot screen that shaders are still being prepared.
 
 **Order:** the tester's log and benchmark with the Deck's settings (and the memory-channel check) first; then N1 as a
+
+**Status after session 43 (built, all switches in the launcher's iGPU tab; measured on the AMD iGPU only):** N1 = the
+iGPU tab; N2 UMA detection + `REGPU_UMA_NO_ARENA` / `REGPU_UMA_TEXTURES` (both slower on the AMD iGPU: its driver keeps a
+faster carve-out; worth an Intel run); N3 `REGPU_SPEC_CONSTANTS`; N4 `REGPU_ROOTSIG_11` (heaps were already set once a
+frame); N5/N9 `REGPU_HALF_REGS` (DXC); N6 not applicable; N7 "Apply iGPU defaults"; N8 waits for the XeSS SDK (a
+download); N10 checked. Also the Hyper presets from the FM2 port (Potato: their Intel set, +213% on an HD 630 there,
++20% on the AMD iGPU here) and background compiles throttled on weak CPUs. Patches `regpu-hyper`, `regpu-igpu-intel`.
 variant script; then N2/N4/N6/N7 (small, help every iGPU); N3 and N5 with an Intel capture; N8/N9 last.

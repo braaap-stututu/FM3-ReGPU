@@ -106,9 +106,20 @@ public sealed class GameSettings
     public bool SkipIntro { get; set; }            // skip_intro: straight to the title screen (src/hooks/boot_options.cpp)
     public bool QuickRace { get; set; }            // quick_race: Free Play > Quick Race by itself after boot (implies skip_intro)
     public bool GridTest { get; set; }             // grid_test: the reference career race's start grid by itself, world frozen there (src/hooks/grid_test.cpp)
-    // perf_preset: off, turbo, mild, potato, low, extreme (src/gpu_host.cpp ApplyPerfPreset; read by the game, so play.cmd too).
+    // perf_preset: ReGPU's Hyper presets (session 43): off, mild, low, extreme, potato, auto (src/gpu_host.cpp ApplyPerfPreset;
+    // read by the game, so play.cmd too). The older "turbo" reads as off.
     public string PerfPreset { get; set; } = "off";
-    public static readonly string[] PerfPresets = ["off", "turbo", "mild", "potato", "low", "extreme"];
+    public static readonly string[] PerfPresets = ["off", "mild", "low", "extreme", "potato", "auto"];
+    // The iGPU tab (session 43, Intel/integrated GPU tests; all read by the game, so play.cmd too; src/gpu_host.cpp):
+    public bool HyperShaderCuts { get; set; }      // hyper_shader_cuts: Hyper's lossless shader cuts in any preset
+    public int HyperCull { get; set; } = -1;       // hyper_cull: -1 preset decides, 0 off, 64 or 256 pixels
+    public bool IgpuRootSig11 { get; set; }        // igpu_rootsig11: REGPU_ROOTSIG_11
+    public bool IgpuSpecConstants { get; set; }    // igpu_spec_constants: REGPU_SPEC_CONSTANTS
+    public bool IgpuHalfRegs { get; set; }         // igpu_half_regs: REGPU_HALF_REGS (real halves with DXC)
+    public bool IgpuUmaNoArena { get; set; }       // igpu_uma_no_arena: REGPU_UMA_NO_ARENA
+    public bool IgpuUmaTextures { get; set; }      // igpu_uma_textures: REGPU_UMA_TEXTURES
+    public string IgpuCompileThreads { get; set; } = "auto"; // igpu_compile_threads: REGPU_COMPILE_BACKGROUND_THREADS (auto, 0 no limit, 1, 2)
+    public static readonly string[] IgpuCompileChoices = ["auto", "0", "1", "2"];
     // Launcher only, set on the game's environment at launch (Game.Launch):
     public bool Anisotropy { get; set; } = true;   // off: REGPU_NO_ANISO
     public bool CarLodFar { get; set; }            // car_lod_far: AI cars past the nearest 1-2 at detail level 3 (session 32, L60; read by the game)
@@ -135,7 +146,7 @@ public sealed class GameSettings
     static double Num(string v, double fallback, double min, double max) =>
         double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? Math.Clamp(d, min, max) : fallback;
 
-    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_mode", "vr_resolution", "triple_resolution", "triple_fullscreen", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "triple_mode", "triple_diag", "triple_dist", "triple_bezel_mm", "triple_gap_mm", "triple_angle_left", "triple_angle_right", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder"];
+    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_mode", "vr_resolution", "triple_resolution", "triple_fullscreen", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "triple_mode", "triple_diag", "triple_dist", "triple_bezel_mm", "triple_gap_mm", "triple_angle_left", "triple_angle_right", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder", "hyper_shader_cuts", "hyper_cull", "igpu_rootsig11", "igpu_spec_constants", "igpu_half_regs", "igpu_uma_no_arena", "igpu_uma_textures", "igpu_compile_threads"];
 
     public static GameSettings Load()
     {
@@ -170,6 +181,14 @@ public sealed class GameSettings
                 case "quick_race": s.QuickRace = v == "1"; break;
                 case "grid_test": s.GridTest = v == "1"; break;
                 case "perf_preset": s.PerfPreset = PerfPresets.Contains(v) ? v : "off"; break;
+                case "hyper_shader_cuts": s.HyperShaderCuts = v == "1"; break;
+                case "hyper_cull": s.HyperCull = v is "0" or "64" or "256" ? int.Parse(v) : -1; break;
+                case "igpu_rootsig11": s.IgpuRootSig11 = v == "1"; break;
+                case "igpu_spec_constants": s.IgpuSpecConstants = v == "1"; break;
+                case "igpu_half_regs": s.IgpuHalfRegs = v == "1"; break;
+                case "igpu_uma_no_arena": s.IgpuUmaNoArena = v == "1"; break;
+                case "igpu_uma_textures": s.IgpuUmaTextures = v == "1"; break;
+                case "igpu_compile_threads": s.IgpuCompileThreads = IgpuCompileChoices.Contains(v) ? v : "auto"; break;
                 case "anisotropy": s.Anisotropy = v != "0"; break;
                 case "aniso_from_game": s.AnisoFromGame = v == "1"; break;
                 case "car_lod_far": s.CarLodFar = v == "1"; break;
@@ -225,6 +244,10 @@ public sealed class GameSettings
         sb.Append($"language={Language}\n");
         sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n"); // (session 23: these three were read but never saved)
         sb.Append($"perf_preset={(PerfPresets.Contains(PerfPreset) ? PerfPreset : "off")}\n");
+        if (HyperShaderCuts) sb.Append("hyper_shader_cuts=1\n"); // (the iGPU tab: written only when set, so the preset decides otherwise)
+        if (HyperCull is 0 or 64 or 256) sb.Append($"hyper_cull={HyperCull}\n");
+        sb.Append($"igpu_rootsig11={B(IgpuRootSig11)}\nigpu_spec_constants={B(IgpuSpecConstants)}\nigpu_half_regs={B(IgpuHalfRegs)}\nigpu_uma_no_arena={B(IgpuUmaNoArena)}\nigpu_uma_textures={B(IgpuUmaTextures)}\n");
+        sb.Append($"igpu_compile_threads={(IgpuCompileChoices.Contains(IgpuCompileThreads) ? IgpuCompileThreads : "auto")}\n");
         sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\nvr_camera_motion={B(VrCameraMotion)}\nvr_pace={B(VrPace)}\nlinux_runner={LinuxRunner}\nlinux_proton={LinuxProton}\nlinux_prefix={LinuxPrefix}\nvr_eye_limit={(Options.VrEyeLimit.Any(x => x.Value == VrEyeLimit) ? VrEyeLimit : "0")}\ntriple=0\ntriple_fov={(Options.TripleFov.Any(x => x.Value == TripleFov) ? TripleFov : "0")}\ndebug_server={B(DebugServer)}\n");
         sb.Append(DxcShaders ? "shader_compiler=dxc\n" : "shader_compiler=fxc\n");
         sb.Append($"game_folder={Clean(GameFolder)}\n");

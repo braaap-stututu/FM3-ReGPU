@@ -20,6 +20,7 @@
       <button data-tab="graphics">Graphics</button>
       <button data-tab="vr">VR</button>
       <button data-tab="triple">Triple screens</button>
+      <button data-tab="igpu">iGPU (testing)</button>
       <button data-tab="wheel">Wheel stuff</button>
       <button data-tab="settings">Settings</button>
     </nav>
@@ -154,7 +155,7 @@
         <div><div class="toggle-title">VSync</div><div class="toggle-sub">Sync frames to the display</div></div>
         <button class="switch" id="vsync" role="switch"></button>
       </div>
-      <label class="field" data-tip="Trades picture for speed. Turbo keeps the picture as it is. Mild, Potato, Low and Extreme lower texture filtering and (Mild, Low, Extreme) draw the 3D scene smaller. Applies at the next start.">
+      <label class="field" data-tip="Trades picture for speed (ReGPU's Hyper presets, from the Forza Motorsport 2 port). Mild, Low and Extreme draw the 3D scene smaller and lower texture filtering. Potato keeps full resolution and makes the shaders faster, skips tiny far objects and turns texture filtering down: made for integrated GPUs. Auto picks Potato on an integrated GPU. The iGPU tab has the single cuts. Applies at the next start.">
         <span>Speed preset <b id="perfPreset-v"></b></span>
         <input type="range" id="perfPreset" min="0" max="5" step="1">
       </label>
@@ -257,6 +258,55 @@
       <p class="hint">Starts the game with the headset on, using this tab and the Graphics tab's other settings (upscalers and edge filters are off in stereo). The Play tab's button starts it without VR.</p>
       <button class="launch" id="vr-launch" data-tip="Saves these settings and starts the game with the headset.">Play in VR</button>
       <div class="status" id="vr-status"></div>
+    </section>
+  </main>
+
+  <!-- iGPU (session 43: Intel Iris Xe / integrated GPU options, for testing) -->
+  <main class="page grid3" id="page-igpu" hidden>
+    <section class="panel">
+      <div class="panel-head"><h2>Integrated GPUs</h2></div>
+      <p class="hint">Options for laptops and other computers whose graphics are built into the processor (Intel Iris Xe and UHD, AMD Radeon graphics). They are new and mostly untested on Intel: try one at a time, run the benchmark (Settings) or a race, and compare. Every option here is read when the game starts.</p>
+      <button class="link" id="igpuDefaults" data-tip="Sets the Graphics tab for a small GPU: 1280x720, MSAA off with FXAA (a cheap edge filter), a 60 fps cap (power for the GPU on a 15-28 W chip) and the Potato speed preset. Change any of them afterwards.">Apply iGPU defaults</button>
+      <div class="hint" id="igpuDefaults-note"></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Speed cuts</h2></div>
+      <div class="toggle-row" data-tip="The Hyper presets' lossless shader cuts in any preset (Potato has them already): plain multiplies where no infinity can reach, swizzle selects, shaders specialised to each draw's settings, optimised shader builds. Same picture. Measured in the Forza Motorsport 2 port: about +200% on an Intel HD 630 together with the rest of Potato. The first start compiles every shader again.">
+        <div><div class="toggle-title">Shader cuts</div><div class="toggle-sub">Lossless, from the Hyper presets</div></div>
+        <button class="switch" id="hyperShaderCuts" role="switch"></button>
+      </div>
+      <label class="field" data-tip="Skips 3D objects that covered this many pixels or fewer the last time they were measured (re-measured every 4th frame without drawing, so nothing blinks). Small far things (distant crowd pieces, signs) disappear. Preset: Potato uses 256. The HUD is never culled.">
+        <span>Draw culling</span>
+        <select id="hyperCull"></select>
+      </label>
+      <label class="field" data-tip="While the game runs, shaders it hasn't needed yet compile in the background. Automatic: on processors with 8 threads or fewer, or an integrated GPU, one at a time at the lowest priority, so the game keeps the processor (and a laptop chip its power). No limit: every core, as before.">
+        <span>Background shader compiles</span>
+        <select id="igpuCompileThreads"></select>
+      </label>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Experiments (Intel)</h2></div>
+      <p class="hint">Built for Intel's integrated GPUs from Intel's own advice, but only measured on an AMD integrated GPU so far (there they made no difference, or were slower where noted). Same picture.</p>
+      <div class="toggle-row" data-tip="Tells the graphics driver that each draw's constants don't change while it runs (root signature 1.1), so it may prefetch them. AMD integrated GPU: no measurable difference.">
+        <div><div class="toggle-title">Static draw constants</div><div class="toggle-sub">Root signature 1.1</div></div>
+        <button class="switch" id="igpuRootSig11" role="switch"></button>
+      </div>
+      <div class="toggle-row" data-tip="Each draw's switches and loop counts written into its own shader version, so the GPU skips the branches. Intel's advice: branches on constant data compile poorly. The Forza Motorsport 2 port saw no gain from the switches alone on an HD 630.">
+        <div><div class="toggle-title">Constants in shaders</div><div class="toggle-sub">Branch specialisation</div></div>
+        <button class="switch" id="igpuSpecConstants" role="switch"></button>
+      </div>
+      <div class="toggle-row" data-tip="Colour maths in 16 bits where nothing that needs full precision (texture positions, depth, comparisons) depends on it: Intel's GPUs run 16-bit maths twice as fast and need fewer registers. Needs the DXC shader compiler (Settings); without it the driver ignores the hint. AMD integrated GPU: no difference.">
+        <div><div class="toggle-title">16-bit colour maths</div><div class="toggle-sub">Needs DXC</div></div>
+        <button class="switch" id="igpuHalfRegs" role="switch"></button>
+      </div>
+      <div class="toggle-row" data-tip="Large vertex buffers are normally copied into a video-memory area. An integrated GPU has no video memory of its own, so on Intel this may be a wasted copy. On an AMD integrated GPU turning it off was much slower (65 to 51 fps): its driver keeps a faster reserved area.">
+        <div><div class="toggle-title">No vertex copy</div><div class="toggle-sub">Integrated GPUs only; slower on AMD</div></div>
+        <button class="switch" id="igpuUmaNoArena" role="switch"></button>
+      </div>
+      <div class="toggle-row" data-tip="New textures written straight into memory the GPU reads, without the usual two copies. AMD integrated GPU: slightly slower (63 vs 65 fps).">
+        <div><div class="toggle-title">Textures written in place</div><div class="toggle-sub">Integrated GPUs only</div></div>
+        <button class="switch" id="igpuUmaTextures" role="switch"></button>
+      </div>
     </section>
   </main>
 
