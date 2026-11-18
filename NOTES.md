@@ -36,7 +36,7 @@
   `REGPU_EXP_GPU_CONSTANTS`, off): correct (0 differences in 25 M checked draws, picture right) but **slower** (2-core grid
   -4%, draw thread 1.40 vs 1.33 us a draw, GPU +0.4 ms). Kept off; a stage 2 is the user's call (EXPERIMENTAL.md).
   **Found on the way: `REGPU_DUMP_EACH_RESOLVE` (my session-42 patch 76) called getenv on every resolve (~1.5% of the draw
-  thread, normal build too)**; fixed in patch 85 `regpu-resolve-dump-frame-env` (applies on main's stack; not on main yet).
+  thread, normal build too)**; fixed in patch 85 `regpu-resolve-dump-frame-env`; **also on main** (patch 82 there, commit 38d9dbc, `buildel` rebuilt, grid normal; main and this branch list it in different places, so run `tools\setup.ps1 -NoBuild` after switching branches).
   The earlier env-generation +0.9% was probably noise. One unexplained crash (shader-compiler threads, corrupted locale table,
   sampler on; not repeated in 2 boots).
 - **AI tour (request from session 44), paused by the user:** environments 0-13 (to Nordschleife layout 2) raced with
