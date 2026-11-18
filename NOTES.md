@@ -23,6 +23,9 @@
   `REGPU_DUMP_RESOLVES_AT`, `REGPU_DUMP_EACH_RESOLVE` (patches/README). Seen, not new: the wing's rear face looks dark green from
   behind (same with the fix off): maybe the olive/green item below. The user asked me to drive editor tests myself (route: title A,
   FORZA MOTORSPORT 3, menu wakes on Y, Paint (4th), Apply Decals, RB to the tab; leaving and re-entering Apply Decals rebuilds the livery).
+- **hl360 with the Fiat profile (session 42):** `boot hl360 fiat.cmd` starts hl360 with `--user_data_root` = its `user-fiat` folder: a
+  copy of our Baseline save's ForzaProfile + LivCatalog under XUID E0000BA5E11E0001, hl360's own `Headers` files (its format differs
+  from our `.title` files), the DLC folder linked (junction) to `user/0000000000000000`. hl360's own saves and `out/user` are untouched.
 - **Vinyls, open:** (1) the wing's dark-green rear face (see above; compare with hl360);
   (2) olive rear bumpers on some Asian Car Pack cars (1994 Civic VTi): the final atlas is 0.8 x vinyl + 0.2 x pure green
   under the bumper; the region compose is right, so the mix comes from the later strip pass with the car's base texture:
