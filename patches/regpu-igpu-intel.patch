@@ -1,0 +1,573 @@
+diff --git a/src/gpu/dxc.cpp b/src/gpu/dxc.cpp
+index 43a78ac..8c1dd21 100644
+--- a/src/gpu/dxc.cpp
++++ b/src/gpu/dxc.cpp
+@@ -125,9 +125,14 @@ HRESULT DxcCompileShader(const std::string& hlsl, bool pixel, ID3DBlob** code, s
+         return v;
+     }();
+     // REGPU_DXC_SM (start-time): the shader model, e.g. 6_2 (with REGPU_DXC_ARGS="-denorm ftz") or 6_6; default 6_0.
++    // REGPU_HALF_REGS (hlsl.cpp, FM3 port session 43): 16-bit registers as real halves, which needs SM 6.2 and
++    // -enable-16bit-types (without it DXC treats min16float as 32-bit).
++    static const bool halfRegs = getenv("REGPU_HALF_REGS") && atoi(getenv("REGPU_HALF_REGS")) != 0;
+     static const std::wstring smVer = [] {
+         const char* e = getenv("REGPU_DXC_SM");
+-        const std::string v = e && *e ? e : "6_0";
++        std::string v = e && *e ? e : "6_0";
++        if (halfRegs && v < "6_2")
++            v = "6_2";
+         return std::wstring(v.begin(), v.end());
+     }();
+     const std::wstring profile = (pixel ? L"ps_" : L"vs_") + smVer;
+@@ -138,6 +143,8 @@ HRESULT DxcCompileShader(const std::string& hlsl, bool pixel, ID3DBlob** code, s
+     // instructions and VGPRs within 0.5%), but compiles faster: the slowest vertex shader 54 -> 20 s, pixel shaders ~15%.
+     // REGPU_DXC_ARGS come after it, so an -O there wins. (Same cache files as -O3: the code is the same.)
+     args.push_back(L"-O1");
++    if (halfRegs && pixel)
++        args.push_back(L"-enable-16bit-types");
+     for (const std::wstring& a : extra)
+         args.push_back(a.c_str());
+     const DxcBuffer source{ hlsl.data(), hlsl.size(), DXC_CP_UTF8 };
+diff --git a/src/gpu/hlsl.cpp b/src/gpu/hlsl.cpp
+index 64e9d5e..58264d5 100644
+--- a/src/gpu/hlsl.cpp
++++ b/src/gpu/hlsl.cpp
+@@ -430,6 +430,39 @@ struct Emitter
+     }
+     uint64_t taint = 0;
+     bool psTaint = false;
++
++    // N9 (FM3 port session 43; REGPU_HALF_REGS=1): registers that must stay 32-bit in a pixel shader. Roots: texture
++    // coordinates, predicate, kill and address operands, the depth export; then every register those were computed
++    // from (Precision32 closes over `deps`). A relative register access keeps the whole shader 32-bit.
++    uint64_t full32 = 0;
++    bool relativeRegs = false;
++    std::vector<std::pair<uint32_t, uint64_t>> deps; // dest register <- source registers
++    uint64_t SrcRegs(const Source& s)
++    {
++        if (s.isConstant)
++            return 0;
++        if (s.relative)
++        {
++            relativeRegs = true;
++            return 0;
++        }
++        return 1ull << (s.reg & 63);
++    }
++    uint64_t Precision32() const
++    {
++        uint64_t m = full32;
++        for (bool changed = true; changed;)
++        {
++            changed = false;
++            for (const auto& [dest, src] : deps)
++                if ((m >> dest) & 1 && (m | src) != m)
++                {
++                    m |= src;
++                    changed = true;
++                }
++        }
++        return m;
++    }
+     bool curTaint = true; // the instruction being emitted reads a tainted operand
+     bool SrcTaint(const Source& s) const
+     {
+@@ -706,6 +739,30 @@ struct Emitter
+             body += ScalarCode(a) + " ";
+         }
+         curTaint = true;
++        if (pixel)
++        {
++            const uint64_t srcs = SrcRegs(a.src[0]) | SrcRegs(a.src[1]) | SrcRegs(a.src[2]);
++            const uint64_t scalarSrcs = SrcRegs(a.src[2]);
++            const bool vectorRoot = (a.vectorOp >= 20 && a.vectorOp <= 27) || a.vectorOp == 29;
++            const bool scalarRoot = a.scalarOp == 23 || a.scalarOp == 24 || (a.scalarOp >= 27 && a.scalarOp <= 39);
++            if (vectorRoot && !vectorUnused)
++                full32 |= srcs;
++            if (scalarRoot && !scalarKept)
++                full32 |= scalarSrcs;
++            if (a.exportData && a.vectorDest == 61) // the depth export
++                full32 |= srcs;
++            if (a.scalarOp >= 42 && a.scalarOp <= 47) // (a temp spread over the opcode bits: keep it simple)
++                relativeRegs = true;
++            if (!a.exportData)
++            {
++                if (a.vectorMask && !vectorUnused)
++                    deps.push_back({ a.vectorDest & 63, srcs });
++                if (a.scalarMask && !scalarKept)
++                    deps.push_back({ a.scalarDest & 63, scalarSrcs });
++                if (a.scalarDestRelative)
++                    relativeRegs = true;
++            }
++        }
+         if (!a.exportData)
+         {
+             if (vectorTaint && a.vectorMask && !vectorUnused)
+@@ -764,6 +821,8 @@ struct Emitter
+ 
+     void EmitFetch(const Fetch& f)
+     {
++        if (pixel && f.opcode != 0)
++            full32 |= 1ull << (f.src & 63); // texture coordinates
+         std::string body;
+         if (f.opcode == 0)
+         {
+@@ -1802,8 +1861,18 @@ TranslatedShader TranslateShader(const Shader& shader)
+             h += "float4 main(VSOut input) : SV_Target0\n{\n";
+         // Interpolators land in r0-r15; the generated parameter in the register pinfo.y names.
+         std::string inputs;
++        // N9 (REGPU_HALF_REGS=1): registers no coordinate, predicate, address or depth depends on, declared 16-bit
++        // (DXC with REGPU_HALF_REGS compiles them as real halves: dxc.cpp; FXC only as a min-precision hint). Not when a
++        // register is accessed relatively, nor for the generated-parameter register (a pixel position).
++        static const bool halfEnv = getenv("REGPU_HALF_REGS") && atoi(getenv("REGPU_HALF_REGS")) != 0;
++        const bool halfRegs = halfEnv && !e.relativeRegs;
++        static const bool halfInputs = halfEnv && atoi(getenv("REGPU_HALF_REGS")) >= 2;
++        const uint64_t keep32 = halfRegs ? e.Precision32() : ~0ull;
+         for (uint32_t n : regs)
+-            decl += "    float4 r" + std::to_string(n) + (n < 16 ? " = input.o[" + std::to_string(n) + "];\n" : " = 0;\n");
++            // (r0-r15 can receive the pixel position at run time (pinfo.y), which 16 bits can't hold exactly above 2048:
++            // only with REGPU_HALF_REGS=2.)
++            decl += std::string(halfRegs && !((keep32 >> (n & 63)) & 1) && (n >= 16 || halfInputs) ? "    min16float4 r" : "    float4 r") + std::to_string(n) +
++                (n < 16 ? " = input.o[" + std::to_string(n) + "];\n" : " = 0;\n");
+         for (uint32_t n : regs)
+             if (n < 16)
+                 inputs += "    if (pinfo.y == " + std::to_string(n) + "u) r" + std::to_string(n) + " = float4(((pinfo.z & 65536u) ? floor(input.pos.xy) : input.pos.xy) * pinfo2.yz, input.pcoord);\n";
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 3666d56..942c811 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -1814,6 +1814,7 @@ D3D12_GPU_DESCRIPTOR_HANDLE Gpu(ID3D12DescriptorHeap* heap, UINT index, UINT str
+ }
+ 
+ bool g_gpuUploadHeap = false; // GPU upload heaps reported and allowed (see the ring set-up)
++bool g_uma = false, g_cacheCoherentUma = false; // the GPU shares system memory (Init, D3D12_FEATURE_ARCHITECTURE1)
+ 
+ ComPtr<ID3D12Resource> CreateBuffer(UINT64 size, D3D12_HEAP_TYPE heap, D3D12_RESOURCE_STATES state);
+ 
+@@ -2257,10 +2258,94 @@ bool AnisoFromFetch()
+     return fromFetch;
+ }
+ 
++// N4 (FM3 port session 43, Intel's D3D12 guidance): REGPU_ROOTSIG_11=1 (start-time) serializes the main root
++// signatures as version 1.1, so the root CBVs (b0/b1: per-draw constants in the upload ring, written before the draw
++// is recorded and never changed while the list runs) are DATA_STATIC_WHILE_SET_AT_EXECUTE, which lets a driver
++// prefetch or fold them. Every descriptor table keeps 1.0's meaning (descriptors and data volatile: the guest-memory
++// view changes under the GPU, bindless slots are rewritten). Same results; measure on the GPU in question.
++HRESULT SerializeRootSignatureFor(const D3D12_ROOT_SIGNATURE_DESC& rs, ComPtr<ID3DBlob>& blob, ComPtr<ID3DBlob>& error)
++{
++    static const bool v11 = getenv("REGPU_ROOTSIG_11") && atoi(getenv("REGPU_ROOTSIG_11")) != 0;
++    if (!v11)
++        return D3D12SerializeRootSignature(&rs, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error);
++    std::vector<D3D12_ROOT_PARAMETER1> params(rs.NumParameters);
++    std::vector<std::vector<D3D12_DESCRIPTOR_RANGE1>> ranges(rs.NumParameters);
++    for (UINT i = 0; i < rs.NumParameters; i++)
++    {
++        const D3D12_ROOT_PARAMETER& a = rs.pParameters[i];
++        D3D12_ROOT_PARAMETER1& b = params[i];
++        b.ParameterType = a.ParameterType;
++        b.ShaderVisibility = a.ShaderVisibility;
++        if (a.ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
++        {
++            for (UINT r = 0; r < a.DescriptorTable.NumDescriptorRanges; r++)
++            {
++                const D3D12_DESCRIPTOR_RANGE& x = a.DescriptorTable.pDescriptorRanges[r];
++                D3D12_DESCRIPTOR_RANGE1 y{};
++                y.RangeType = x.RangeType;
++                y.NumDescriptors = x.NumDescriptors;
++                y.BaseShaderRegister = x.BaseShaderRegister;
++                y.RegisterSpace = x.RegisterSpace;
++                y.OffsetInDescriptorsFromTableStart = x.OffsetInDescriptorsFromTableStart;
++                y.Flags = x.RangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER ? D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE
++                                                                              : D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE | D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE;
++                ranges[i].push_back(y);
++            }
++            b.DescriptorTable.NumDescriptorRanges = UINT(ranges[i].size());
++            b.DescriptorTable.pDescriptorRanges = ranges[i].data();
++        }
++        else if (a.ParameterType == D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
++            b.Constants = a.Constants;
++        else
++        {
++            b.Descriptor.ShaderRegister = a.Descriptor.ShaderRegister;
++            b.Descriptor.RegisterSpace = a.Descriptor.RegisterSpace;
++            b.Descriptor.Flags = a.ParameterType == D3D12_ROOT_PARAMETER_TYPE_CBV ? D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE
++                                                                                    : D3D12_ROOT_DESCRIPTOR_FLAG_DATA_VOLATILE;
++        }
++    }
++    D3D12_VERSIONED_ROOT_SIGNATURE_DESC v{};
++    v.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
++    v.Desc_1_1.NumParameters = rs.NumParameters;
++    v.Desc_1_1.pParameters = params.data();
++    v.Desc_1_1.NumStaticSamplers = rs.NumStaticSamplers;
++    v.Desc_1_1.pStaticSamplers = rs.pStaticSamplers;
++    v.Desc_1_1.Flags = rs.Flags;
++    static bool logged = false;
++    if (!logged)
++    {
++        logged = true;
++        Log("renderer: root signatures as version 1.1 (root constant buffers static while set: REGPU_ROOTSIG_11)");
++    }
++    return D3D12SerializeVersionedRootSignature(&v, &blob, &error);
++}
++
+ void Init()
+ {
+     g_r.device = RenderDevice();
+     g_r.queue = RenderQueue();
++    // N2 (FM3 port session 43, Intel iGPU leads): a GPU sharing system memory (UMA: every integrated GPU). The idea was
++    // that the vertex arena's "VRAM" copy is the same RAM again, a pure extra copy; measured on the Ryzen 9800X3D's
++    // Radeon iGPU (720p frozen grid) turning it off cost 65 -> 51 fps: the driver puts the arena in its dedicated
++    // carve-out, which the GPU reads faster than guest memory mapped in place. So it stays; REGPU_UMA_NO_ARENA=1
++    // (start-time) turns it off on a UMA GPU, for tests on Intel (no carve-out). Read before the arena's switches are
++    // first looked at (the heap view below, the first frame).
++    {
++        D3D12_FEATURE_DATA_ARCHITECTURE1 arch{};
++        if (SUCCEEDED(g_r.device->CheckFeatureSupport(D3D12_FEATURE_ARCHITECTURE1, &arch, sizeof(arch))))
++        {
++            g_uma = arch.UMA;
++            g_cacheCoherentUma = arch.CacheCoherentUMA;
++        }
++        Log("renderer: memory architecture %s%s", g_uma ? "UMA (shared system memory)" : "discrete (own video memory)",
++            g_cacheCoherentUma ? ", cache-coherent" : "");
++        if (g_uma && getenv("REGPU_UMA_NO_ARENA") && atoi(getenv("REGPU_UMA_NO_ARENA")) != 0 && getenv("REGPU_VERTEX_ARENA") &&
++            strcmp(getenv("REGPU_VERTEX_ARENA"), "0") != 0)
++        {
++            _putenv_s("REGPU_VERTEX_ARENA", "0");
++            Log("renderer: vertex arena off on a UMA GPU (REGPU_UMA_NO_ARENA)");
++        }
++    }
+     // REGPU_D3D12_STACKS=1 (with REGPU_D3D12_DEBUG): each debug-layer error is logged when it
+     // happens, with the stack of the call that made it (the first 3 of each kind).
+     if (getenv("REGPU_D3D12_STACKS"))
+@@ -2385,7 +2470,7 @@ void Init()
+         WriteSamplerBank(0, -1);
+     }
+     ComPtr<ID3DBlob> blob, error;
+-    if (FAILED(D3D12SerializeRootSignature(&rs, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error)))
++    if (FAILED(SerializeRootSignatureFor(rs, blob, error)))
+         Fatal("renderer: root signature: %s", error ? static_cast<const char*>(error->GetBufferPointer()) : "?");
+     Check(d->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&g_r.rootSignature)), "CreateRootSignature");
+     if (const char* dumpRs = getenv("REGPU_DUMP_ROOTSIG")) // the root signature as a file, for offline shader analysis (Radeon GPU Analyzer --rs-bin; the FM3 port's tools/rga_shaders.ps1)
+@@ -2397,7 +2482,7 @@ void Init()
+     rs.NumParameters++;
+     blob.Reset();
+     error.Reset();
+-    if (FAILED(D3D12SerializeRootSignature(&rs, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error)))
++    if (FAILED(SerializeRootSignatureFor(rs, blob, error)))
+         Fatal("renderer: motion root signature: %s", error ? static_cast<const char*>(error->GetBufferPointer()) : "?");
+     Check(d->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&g_r.motionRootSignature)),
+         "CreateRootSignature(motion)");
+@@ -4485,6 +4570,22 @@ struct ShaderCompiler
+     // game never draws) are parked instead: translated, compiled only if a draw promotes them.
+     std::atomic<bool> park{ false };
+     std::unordered_set<const CompiledShader*> parked;
++    // FM3 port session 43 (the Intel laptop's "every CPU thread at 100%" on a paused grid): once the game runs, background
++    // compiles (static shaders no draw has asked for yet) take at most this many workers, at the lowest priority, so
++    // a weak CPU keeps its cores (and a 15 W chip its power budget) for the game; a draw that needs one promotes it to
++    // the urgent queue, which keeps every worker. Default: 1 on 8 hardware threads or fewer or a UMA GPU, else no
++    // limit (as before). REGPU_COMPILE_BACKGROUND_THREADS=<n> (start-time; 0 = no limit).
++    int backgroundActive = 0; // guarded by mutex
++    static int BackgroundLimit()
++    {
++        static const int n = [] {
++            if (const char* v = getenv("REGPU_COMPILE_BACKGROUND_THREADS"); v && *v)
++                return std::max(0, atoi(v));
++            return std::thread::hardware_concurrency() <= 8 || g_uma ? 1 : 0;
++        }();
++        return n;
++    }
++    bool BackgroundAllowed() const { return !park.load() || !BackgroundLimit() || backgroundActive < BackgroundLimit(); }
+ 
+     void Start()
+     {
+@@ -4549,13 +4650,16 @@ struct ShaderCompiler
+             bool urgent;
+             {
+                 std::unique_lock lock(mutex);
+-                cv.wait(lock, [this] { return !queue.empty() || !background.empty(); });
++                cv.wait(lock, [this] { return !queue.empty() || (!background.empty() && BackgroundAllowed()); });
+                 urgent = !queue.empty();
+                 auto& from = urgent ? queue : background;
+                 cs = from.front();
+                 from.pop_front();
+                 if (!urgent)
++                {
+                     waiting--;
++                    backgroundActive++;
++                }
+             }
+             if (urgent)
+             {
+@@ -4566,7 +4670,19 @@ struct ShaderCompiler
+                 jobs--;
+             }
+             else
++            {
++                const bool throttled = park.load() && BackgroundLimit();
++                if (throttled)
++                    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST);
+                 Compile(*cs);
++                if (throttled)
++                    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
++                {
++                    std::lock_guard lock(mutex);
++                    backgroundActive--;
++                }
++                cv.notify_one();
++            }
+         }
+     }
+ 
+@@ -5295,6 +5411,31 @@ std::string SpecVariant(const std::string& hlsl, uint32_t id)
+             tail.emplace_back("pinfo.z", std::to_string(t.info) + "u");
+             tail.emplace_back("pinfo.w", std::to_string(t.w) + "u");
+         }
++        else if (t.slot >= 0x110 && t.slot < 0x114)
++        {
++            // N3 (REGPU_SPEC_CONSTANTS): bool words 2k, 2k+1: each BoolConstant(pb, N) the shader tests as a literal.
++            const uint32_t k = t.slot - 0x110;
++            for (uint32_t half = 0; half < 2; half++)
++            {
++                const uint32_t word = half ? t.w : t.info, wordIndex = k * 2 + half;
++                for (uint32_t bit = 0; bit < 32; bit++)
++                {
++                    // BoolConstant(b, index): word (index >> 5) (b[index >> 7][(index >> 5) & 3]), bit index & 31.
++                    const uint32_t index = wordIndex * 32 + bit;
++                    tail.emplace_back("BoolConstant(pb, " + std::to_string(index) + ")", (word >> bit) & 1 ? "true" : "false");
++                }
++            }
++        }
++        else if (t.slot >= 0x120 && t.slot < 0x130)
++        {
++            // Loop words 2k, 2k+1 as literals (pl[a][b], a = word >> 2, b = word & 3).
++            const uint32_t k = t.slot - 0x120;
++            for (uint32_t half = 0; half < 2; half++)
++            {
++                const uint32_t word = k * 2 + half;
++                tail.emplace_back("pl[" + std::to_string(word >> 2) + "][" + std::to_string(word & 3) + "]", std::to_string(half ? t.w : t.info) + "u");
++            }
++        }
+         else if (t.slot == 0x102)
+         {
+             float f;
+@@ -5409,7 +5550,8 @@ std::string SpecVariant(const std::string& hlsl, uint32_t id)
+         {
+             // Whole names only (pinfo.x, not pinfo.xy).
+             const char next = at + from.size() < out.size() ? out[at + from.size()] : ' ';
+-            if (isalnum(uint8_t(next)) || next == '_' || (at && (isalnum(uint8_t(out[at - 1])) || out[at - 1] == '_')))
++            const bool closed = from.back() == ')' || from.back() == ']';
++            if ((!closed && (isalnum(uint8_t(next)) || next == '_')) || (at && (isalnum(uint8_t(out[at - 1])) || out[at - 1] == '_')))
+             {
+                 at += 1;
+                 continue;
+@@ -5445,7 +5587,8 @@ const CompiledShader* FetchVariantOf(const CompiledShader& base, uint32_t mask)
+     std::lock_guard lock(g_fetchVariantMutex);
+     if (auto it = g_fetchShaders.find(id); it != g_fetchShaders.end())
+         return it->second.get();
+-    static const bool tailSpec = getenv("REGPU_HYPER_TAILSPEC") && atoi(getenv("REGPU_HYPER_TAILSPEC")) != 0;
++    static const bool tailSpec = (getenv("REGPU_HYPER_TAILSPEC") && atoi(getenv("REGPU_HYPER_TAILSPEC")) != 0) ||
++        (getenv("REGPU_SPEC_CONSTANTS") && atoi(getenv("REGPU_SPEC_CONSTANTS")) != 0);
+     if (g_fetchVariantCount[base.cacheKey] >= ((mask >> 31) ? (tailSpec ? 128u : 64u) : 16u)) // (specialisations: one per material's textures)
+         return nullptr;
+     auto cs = std::make_unique<CompiledShader>();
+@@ -5630,6 +5773,10 @@ struct PipelineLibrary
+         // DXIL pipelines in their own library (REGPU_DXC): pipelines-dxil.bin, pipelines-dxil-<vendor>-<device>.bin.
+         if (DxcEnabled())
+             path = RegpuUserDir() / ("pipelines-dxil" + DxcCacheTag() + path.filename().string().substr(9));
++        // REGPU_PIPELINE_LIBRARY_TAG=<text> (tests, FM3 port session 43): a library file of its own (pipelines-<tag>...),
++        // for cold-library measurements that leave the player's library alone.
++        if (const char* tag = getenv("REGPU_PIPELINE_LIBRARY_TAG"); tag && *tag)
++            path = RegpuUserDir() / ("pipelines-" + std::string(tag) + path.filename().string().substr(9));
+         if (std::ifstream in{ Path(), std::ios::binary | std::ios::ate })
+         {
+             loaded.resize(size_t(in.tellg()));
+@@ -5852,9 +5999,14 @@ struct PipelinePool
+     std::condition_variable cv;
+     std::deque<std::function<void()>> queue;
+ 
++    // Builds run on 3/4 of the hardware threads (at most 12). REGPU_PIPELINE_THREADS=<n> (start-time; FM3 port session
++    // 43, for tests): n workers. (More workers during the boot hold were tried: the boot waits for shader compiles, not
++    // pipelines, so they would only compete with those.)
+     PipelinePool()
+     {
+-        const unsigned n = std::clamp(std::thread::hardware_concurrency() * 3 / 4, 2u, 12u);
++        unsigned n = std::clamp(std::thread::hardware_concurrency() * 3 / 4, 2u, 12u);
++        if (const char* v = getenv("REGPU_PIPELINE_THREADS"); v && atoi(v) > 0)
++            n = unsigned(atoi(v));
+         for (unsigned i = 0; i < n; i++)
+             std::thread([this] { Run(); }).detach();
+     }
+@@ -6803,6 +6955,66 @@ ID3D12Resource* GetTexture(const TextureFetch& fetch, DXGI_FORMAT& format, bool&
+     return r;
+ }
+ 
++// N2 (FM3 port session 43): on a UMA GPU (integrated: the GPU reads system memory) a new texture is created in a
++// CPU-writable heap of that same memory (L0; write-back pages when the GPU's caches are coherent with the CPU's,
++// else write-combined) and written in place (WriteToSubresource): no upload-ring copy and no GPU copy, two of the
++// four memory passes an upload costs. Only a texture's first contents: a texture already in use is updated through
++// the ring as before (frames in flight may still read it). Opt-in, REGPU_UMA_TEXTURES=1 (start-time): on the Radeon
++// iGPU here it measured 63 vs 65 fps (such textures live outside the driver's carve-out); untested on Intel.
++bool UmaTextures()
++{
++    static const bool on = g_uma && getenv("REGPU_UMA_TEXTURES") && atoi(getenv("REGPU_UMA_TEXTURES")) != 0;
++    return on;
++}
++
++ComPtr<ID3D12Resource> CreateUmaTexture(const D3D12_RESOURCE_DESC& desc)
++{
++    D3D12_HEAP_PROPERTIES hp{};
++    hp.Type = D3D12_HEAP_TYPE_CUSTOM;
++    hp.CPUPageProperty = g_cacheCoherentUma ? D3D12_CPU_PAGE_PROPERTY_WRITE_BACK : D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE;
++    hp.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
++    ComPtr<ID3D12Resource> r;
++    if (FAILED(g_r.device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&r))))
++    {
++        static bool logged = false;
++        if (!logged)
++        {
++            logged = true;
++            Log("renderer: CPU-writable textures refused by the driver: uploads go through the ring");
++        }
++        return nullptr;
++    }
++    static bool logged = false;
++    if (!logged)
++    {
++        logged = true;
++        Log("renderer: new textures written in place (UMA, %s pages)", g_cacheCoherentUma ? "write-back" : "write-combined");
++    }
++    return r;
++}
++
++// Writes one subresource of a CPU-writable texture; false if the driver refuses.
++bool UmaWrite(ID3D12Resource* r, UINT sub, const void* data, UINT rowPitch, UINT rows)
++{
++    if (FAILED(r->Map(sub, nullptr, nullptr)))
++        return false;
++    const HRESULT hr = r->WriteToSubresource(sub, nullptr, data, rowPitch, rowPitch * rows);
++    r->Unmap(sub, nullptr);
++    return SUCCEEDED(hr);
++}
++
++// The fresh texture to the shader-read state it is kept in (no copy: it was written in place).
++void UmaReady(ID3D12Resource* r)
++{
++    D3D12_RESOURCE_BARRIER b{};
++    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++    b.Transition.pResource = r;
++    b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
++    b.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
++    b.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
++    C().list->ResourceBarrier(1, &b);
++}
++
+ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format, bool& native)
+ {
+     TextureScope textureScope;
+@@ -6960,6 +7172,33 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+             td.SampleDesc.Count = 1;
+             td.Format = bcFormat;
+             RetireTexture(std::move(cached.resource));
++            if (UmaTextures())
++                if (ComPtr<ID3D12Resource> u = CreateUmaTexture(td))
++                {
++                    bool ok = true;
++                    std::vector<uint8_t> blocks;
++                    for (UINT16 l = 0; ok && l < mipCount; l++)
++                    {
++                        const uint32_t lw = levels[l].Width(), lh = levels[l].Height();
++                        const UINT rowPitch = (((lw + bs - 1) / bs) * blockBytes + 255) & ~255u, rows = (lh + bs - 1) / bs;
++                        blocks.assign(size_t(rowPitch) * rows, 0);
++                        CopyTextureBlocks(levels[l], blocks.data(), rowPitch);
++                        ok = UmaWrite(u.Get(), l, blocks.data(), rowPitch, rows);
++                    }
++                    if (ok)
++                    {
++                        UmaReady(u.Get());
++                        cached.resource = std::move(u);
++                        cached.width = w;
++                        cached.height = h;
++                        cached.format = bcFormat;
++                        cached.contentHash = hash;
++                        cached.native = true;
++                        format = bcFormat;
++                        native = true;
++                        return cached.resource.Get();
++                    }
++                }
+             cached.resource = CreateTexture(td, D3D12_RESOURCE_STATE_COPY_DEST, "texture");
+             cached.width = w;
+             cached.height = h;
+@@ -7043,6 +7282,34 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+         td.SampleDesc.Count = 1;
+         td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+         RetireTexture(std::move(cached.resource));
++        if (UmaTextures())
++            if (ComPtr<ID3D12Resource> u = CreateUmaTexture(td))
++            {
++                bool ok = true;
++                for (UINT16 l = 0; ok && l < mipCount; l++)
++                {
++                    if (l > 0 && !DecodeTexture(levels[l], rgba))
++                    {
++                        NoteTextureFailure("mip decode failed", fetch);
++                        return nullptr;
++                    }
++                    ok = UmaWrite(u.Get(), l, rgba.data(), levels[l].Width() * 4, levels[l].Height());
++                }
++                if (ok)
++                {
++                    UmaReady(u.Get());
++                    cached.resource = std::move(u);
++                    cached.width = w;
++                    cached.height = h;
++                    cached.contentHash = hash;
++                    return cached.resource.Get();
++                }
++                if (!DecodeTexture(fetch, rgba)) // (level 0 again for the ring path)
++                {
++                    NoteTextureFailure("decode failed", fetch);
++                    return nullptr;
++                }
++            }
+         cached.resource = CreateTexture(td, D3D12_RESOURCE_STATE_COPY_DEST, "texture");
+         cached.width = w;
+         cached.height = h;
+@@ -14581,16 +14848,30 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             }
+             // Hyper (REGPU_HYPER_TAILSPEC=1): the export tail's words as literals too (SpecVariant's slots 0x100-0x102).
+             static const bool tailSpec = getenv("REGPU_HYPER_TAILSPEC") && atoi(getenv("REGPU_HYPER_TAILSPEC")) != 0;
+-            FetchSpec all[35];
+-            if (tailSpec && !IsPsEditAlias(C().psHash))
++            // N3 (FM3 port session 43; REGPU_SPEC_CONSTANTS=1, start-time): the bool and loop words the pixel shader reads as
++            // literals too, so its static branches and loop counts compile away (Intel's guidance: control flow on
++            // constant-buffer data makes poor code). FM2's Intel thread measured bools alone on an HD 630: no gain.
++            static const bool specConstants = getenv("REGPU_SPEC_CONSTANTS") && atoi(getenv("REGPU_SPEC_CONSTANTS")) != 0;
++            FetchSpec all[56];
++            if ((tailSpec || specConstants) && !IsPsEditAlias(C().psHash))
+             {
+                 std::copy(spec, spec + n, all);
+-                uint32_t ceil;
+-                memcpy(&ceil, &pc->info2[3], 4);
+-                all[n] = { 0x100, pc->info[0], pc->info[1] };
+-                all[n + 1] = { 0x101, pc->info[2], pc->info[3] };
+-                all[n + 2] = { 0x102, ceil, 0 };
+-                plain = RegisterSpec(all, n + 3);
++                size_t m = n;
++                if (tailSpec)
++                {
++                    uint32_t ceil;
++                    memcpy(&ceil, &pc->info2[3], 4);
++                    all[m++] = { 0x100, pc->info[0], pc->info[1] };
++                    all[m++] = { 0x101, pc->info[2], pc->info[3] };
++                    all[m++] = { 0x102, ceil, 0 };
++                }
++                if (specConstants && psUsed->info.readsBools)
++                    for (uint32_t k = 0; k < 4; k++)
++                        all[m++] = { 0x110 + k, pc->b[k * 2], pc->b[k * 2 + 1] };
++                if (specConstants && psUsed->info.readsLoops)
++                    for (uint32_t k = 0; k < 16; k++)
++                        all[m++] = { 0x120 + k, pc->l[k * 2], pc->l[k * 2 + 1] };
++                plain = m ? RegisterSpec(all, m) : 0u;
+             }
+             else
+                 plain = n ? RegisterSpec(spec, n) : 0u;
