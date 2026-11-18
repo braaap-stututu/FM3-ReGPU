@@ -38,6 +38,7 @@ each piece can still be A/B'd live in the experimental one.
 | X5 | **Optimising shader translator.** Values known per draw are folded in (beyond the fetch and bool specialisations, which were noise on their own), plus dead outputs, register pressure and the AI-car material shaders. Checked against the old output pixel by pixel. | ReGPU `hlsl.cpp` | Later; RGA statistics first |
 | X7 | **Per-frame debug variables read only after a change** (`REGPU_EXP_ENV_GENERATION`). The CRT's getenv took ~10 us a call, and 1.8% of the draw thread went on five once-a-frame reads. | ReGPU patch `regpu-exp-env-generation` | Done, on by default in the experimental build. **Correction:** its +0.9% was probably noise. The getenv cost stayed (1.5%) and came from the resolve path, fixed by `regpu-resolve-dump-frame-env`: 2-core grid draw thread 1.28-1.31 vs 1.32-1.36 us a draw, and it applies to main too |
 | X8 | **Small vertex uploads without hashing on repeat use.** ReGPU's own `REGPU_UPLOAD_STABLE_REUSE` (sampled check): frozen grid on 2 cores +0.9%, 4/5 rounds, 0 pixels. It is not exact, though: a never-changed buffer first rewritten between two draws of a frame can be missed once. Made exact with the vertex arena's page write watch (`REGPU_EXP_UPLOAD_WATCH`, built and measured, then removed): -0.7%, 0/6 rounds, because the game's writes to armed pages fault | ReGPU | Exact version dropped; sampled version left opt-in (picture risk) |
+| X9 | **Loop constants only for shaders that read them** (`REGPU_EXP_LAZY_LOOPS`, from a line profile: 1.7% of the draw thread), bools/loops byte-swapped 4 at a time, and PassScales' check inlined. | ReGPU patch `regpu-exp-lazy-loops` | Done: +1.0%, 6/6 rounds, 0 pixels; on by default in the experimental build |
 | X6 | **More ReXenon:** condition-flag liveness, byte-swap elimination, cross-function inlining, better VMX128 mapping. The guest threads only limit weak CPUs (Steam Deck, 4 cores). | `thirdparty/ReXenon` (patches) | Later |
 
 ## Results
@@ -115,3 +116,15 @@ each piece can still be A/B'd live in the experimental one.
 - **One unexplained crash** (session 45, experimental build, GPU constants off, the draw-thread sampler on): two
   shader-compiler threads jumped through a corrupted C++ locale table while opening a file (`std::ifstream` ->
   `locale::locale`), 15 s into the boot. Not seen again in the next 2 boots; watch for it.
+- **X4 mode 2, draw data staged in system memory** (`REGPU_EXP_GPU_CONSTANTS=2`, session 45):
+  - **Why it was tried:** a line profile put DrawImpl's closing brace at 8.4% of the draw thread, the stores waiting
+    for the write-combined ring writes to drain to VRAM.
+  - **Correctness:** 15.5 M checked draws, 0 differences.
+  - **Speed:** the stall fell to 4.7%, but the bookkeeping takes the same time back. Draw thread 1.29-1.37 vs
+    1.33-1.35 us a draw; GPU +0.8 ms (each block crosses PCIe once more). Off.
+  - **Conclusion for X4:** neither mode pays. The GPU-constants code stays in, off, for later ideas.
+- **Benchmark races, 2 cores, after the resolve fix** (also on main; 2 rounds, but the experimental build's first
+  race was closed by a WM_CLOSE from outside the game 4 s after GO, cause unknown, not seen since):
+  - Experimental 268.4 fps (one race) vs normal 285.1 (sd 8.6).
+  - At equal draw counts +1.6%; GPU +3.6%; long frames 57 vs 146.
+  - Inconclusive: rerun with 3 rounds (`out/bench/matrix-exp3-2cores-*`).

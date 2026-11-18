@@ -1,0 +1,219 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index ce9a4fa..1a17efc 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -14092,10 +14092,20 @@ constexpr uint32_t kGroupDraws = 1024;         // records per group (a fresh gro
+ constexpr uint64_t kOutBytes = 96ull << 20;    // per frame slot: the built blocks
+ constexpr uint64_t kListBytes = 8ull << 20;    // shader constant lists (never freed: shaders aren't)
+ 
+-const bool g_on = [] {
++// 1: the log, records and the blocks' other parts in the upload ring (VRAM when the ring is there); 2: in a per-frame
++// staging buffer in system memory (an upload heap): the draw thread's writes go to RAM, not over PCIe (the stall at
++// DrawImpl's end, 8.4% of the draw thread in a line profile, is those writes draining), and the pass copies each
++// block once into VRAM, where the shaders read it.
++const int g_mode = [] {
+     const char* v = getenv("REGPU_EXP_GPU_CONSTANTS");
+-    return v && *v && atoi(v) != 0;
++    return v && *v ? std::clamp(atoi(v), 0, 2) : 0;
+ }();
++const bool g_on = g_mode != 0;
++constexpr uint64_t kStageBytes = 96ull << 20;
++ComPtr<ID3D12Resource> g_stage[kFrames];
++uint8_t* g_stageCpu[kFrames] = {};
++uint64_t g_stageUsed[kFrames] = {};
++uint64_t g_stageFrame[kFrames] = { ~0ull, ~0ull, ~0ull };
+ bool g_failed = false;
+ ComPtr<ID3D12RootSignature> g_root;
+ ComPtr<ID3D12PipelineState> g_pso;
+@@ -14248,9 +14258,19 @@ bool Init()
+         Log("gpu constants: list buffer failed: off");
+         return false;
+     }
++    if (g_mode == 2)
++        for (UINT i = 0; i < kFrames; i++)
++        {
++            g_stage[i] = CreateBuffer(kStageBytes, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
++            if (!g_stage[i] || FAILED(g_stage[i]->Map(0, &none, reinterpret_cast<void**>(&g_stageCpu[i]))))
++            {
++                Log("gpu constants: staging buffers failed: off");
++                return false;
++            }
++        }
+     g_failed = false;
+-    Log("gpu constants: on (float constants built on the GPU from a log, %u draws a chunk, %llu MB of blocks a frame slot)", kChunkDraws,
+-        (unsigned long long)(kOutBytes >> 20));
++    Log("gpu constants: on (float constants built on the GPU from a log, %u draws a chunk, %llu MB of blocks a frame slot; %s)", kChunkDraws,
++        (unsigned long long)(kOutBytes >> 20), g_mode == 2 ? "draw data staged in system memory" : "draw data in the upload ring");
+     return true;
+ }
+ 
+@@ -14277,6 +14297,42 @@ void Reset()
+     t_pending.clear();
+ }
+ 
++// Where this mode's per-draw data goes: the upload ring (mode 1) or this frame's staging buffer (mode 2).
++UINT SlotOf(FrameResources& f) { return UINT(&f - g_r.frames); }
++UINT64 Alloc(FrameResources& f, UINT64 bytes, UINT64 alignment)
++{
++    if (g_mode != 2)
++        return RingAlloc(bytes, alignment, RingConstants);
++    const UINT slot = SlotOf(f);
++    if (g_stageFrame[slot] != g_r.frame)
++    {
++        g_stageFrame[slot] = g_r.frame;
++        g_stageUsed[slot] = 0;
++    }
++    const UINT64 at = (g_stageUsed[slot] + alignment - 1) & ~(alignment - 1);
++    if (at + bytes > kStageBytes)
++        return ~0ull;
++    g_stageUsed[slot] = at + bytes;
++    return at;
++}
++uint8_t* Base(FrameResources& f) { return g_mode == 2 ? g_stageCpu[SlotOf(f)] : f.ringCpu; }
++ID3D12Resource* Res(FrameResources& f) { return g_mode == 2 ? g_stage[SlotOf(f)].Get() : f.ring.Get(); }
++
++// Mode 2: this draw's VS and PS blocks in the staging buffer (the caller writes them there as it would to the ring).
++bool StageBlocks(uint32_t vsSize, uint32_t psSize, UINT64& vsOffset, UINT64& psOffset, uint8_t*& base, D3D12_GPU_VIRTUAL_ADDRESS& va)
++{
++    if (g_mode != 2 || !Init())
++        return false;
++    FrameResources& f = Frame();
++    vsOffset = Alloc(f, vsSize, 256);
++    psOffset = vsOffset == ~0ull ? ~0ull : Alloc(f, psSize, 256);
++    if (psOffset == ~0ull)
++        return false;
++    base = Base(f);
++    va = Res(f)->GetGPUVirtualAddress();
++    return true;
++}
++
+ // The ring offset of the shader's constant list: (position << 16 | constant) per float the shader reads, pixel shader
+ // constants numbered from 256. Built once per mask.
+ struct ListKey
+@@ -14385,10 +14441,10 @@ bool Draw(const TranslatedShader& vsInfo, const TranslatedShader& psInfo, UINT64
+         g_outFrame[slot] = g_r.frame;
+         g_outUsed[slot] = 0;
+     }
+-    const bool newFrame = t_ring != f.ringCpu || t_frame != g_r.frame;
++    const bool newFrame = t_ring != Base(f) || t_frame != g_r.frame;
+     if (newFrame)
+     {
+-        t_ring = f.ringCpu;
++        t_ring = Base(f);
+         t_frame = g_r.frame;
+         t_reset = true;
+         t_group = ~0ull;
+@@ -14405,10 +14461,10 @@ bool Draw(const TranslatedShader& vsInfo, const TranslatedShader& psInfo, UINT64
+     const uint64_t pendingBytes = uint64_t(t_pending.size()) * 4;
+     if (t_reset || t_chunkDraws >= kChunkDraws || t_deltaUsed + pendingBytes > kDeltaBlock)
+     {
+-        const UINT64 snap = RingAlloc(kAluWords * 4, 256, RingConstants), deltas = RingAlloc(kDeltaBlock, 256, RingConstants);
++        const UINT64 snap = Alloc(f, kAluWords * 4, 256), deltas = Alloc(f, kDeltaBlock, 256);
+         if (snap == ~0ull || deltas == ~0ull)
+             return false;
+-        memcpy(f.ringCpu + snap, gpureg::File() + gpureg::AluConstants * 4, kAluWords * 4);
++        memcpy(Base(f) + snap, gpureg::File() + gpureg::AluConstants * 4, kAluWords * 4);
+         if (check)
+             t_mirror.assign(reinterpret_cast<const uint32_t*>(gpureg::File()) + gpureg::AluConstants,
+                 reinterpret_cast<const uint32_t*>(gpureg::File()) + gpureg::AluConstants + kAluWords);
+@@ -14422,7 +14478,7 @@ bool Draw(const TranslatedShader& vsInfo, const TranslatedShader& psInfo, UINT64
+     }
+     else if (!t_pending.empty())
+     {
+-        memcpy(f.ringCpu + t_deltaBase + t_deltaUsed, t_pending.data(), pendingBytes);
++        memcpy(Base(f) + t_deltaBase + t_deltaUsed, t_pending.data(), pendingBytes);
+         if (check && t_mirror.size() == kAluWords)
+             for (size_t i = 0; i < t_pending.size();)
+             {
+@@ -14444,11 +14500,11 @@ bool Draw(const TranslatedShader& vsInfo, const TranslatedShader& psInfo, UINT64
+     // GPU time 2.23 -> 3.08 ms.)
+     if (t_group == ~0ull || t_groupList != list || t_groupEpoch != list->Epoch() || t_groupCount >= kGroupDraws)
+     {
+-        const UINT64 group = RingAlloc(16 + uint64_t(kGroupDraws) * 64, 256, RingConstants);
++        const UINT64 group = Alloc(f, 16 + uint64_t(kGroupDraws) * 64, 256);
+         if (group == ~0ull)
+             return false;
+         const uint32_t args[4] = { 0, 1, 1, 0 };
+-        memcpy(f.ringCpu + group, args, sizeof(args));
++        memcpy(Base(f) + group, args, sizeof(args));
+         ID3D12Resource* out = g_out[slot].Get();
+         D3D12_RESOURCE_BARRIER b{};
+         b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+@@ -14461,10 +14517,10 @@ bool Draw(const TranslatedShader& vsInfo, const TranslatedShader& psInfo, UINT64
+         list->SetPipelineState(g_pso.Get());
+         const uint32_t root = uint32_t(group);
+         list->SetComputeRoot32BitConstants(0, 1, &root, 0);
+-        list->SetComputeRootShaderResourceView(1, f.ring->GetGPUVirtualAddress());
++        list->SetComputeRootShaderResourceView(1, Res(f)->GetGPUVirtualAddress());
+         list->SetComputeRootShaderResourceView(2, g_lists->GetGPUVirtualAddress());
+         list->SetComputeRootUnorderedAccessView(3, out->GetGPUVirtualAddress());
+-        list->ExecuteIndirect(g_signature.Get(), 1, f.ring.Get(), group);
++        list->ExecuteIndirect(g_signature.Get(), 1, Res(f), group);
+         std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
+         list->ResourceBarrier(1, &b);
+         g_drawState.Invalidate(); // the compute pipeline replaced the draw's
+@@ -14480,9 +14536,9 @@ bool Draw(const TranslatedShader& vsInfo, const TranslatedShader& psInfo, UINT64
+     const uint32_t rec[16] = { uint32_t(t_snap), uint32_t(t_deltaBase), uint32_t(t_deltaBase + t_deltaUsed), vsList, vsCount, psList, psCount,
+         uint32_t(vsAt), uint32_t(psAt), uint32_t(vsRing + vsTail), (vsSize - vsTail) / 4, uint32_t(psRing + psTail), (psSize - psTail) / 4,
+         uint32_t(vsAt + vsTail), uint32_t(psAt + psTail), 0 };
+-    memcpy(f.ringCpu + t_group + 16 + uint64_t(t_groupCount) * 64, rec, sizeof(rec));
++    memcpy(Base(f) + t_group + 16 + uint64_t(t_groupCount) * 64, rec, sizeof(rec));
+     t_groupCount++;
+-    memcpy(f.ringCpu + t_group, &t_groupCount, 4); // the dispatch's thread-group count
++    memcpy(Base(f) + t_group, &t_groupCount, 4); // the dispatch's thread-group count
+     const D3D12_GPU_VIRTUAL_ADDRESS base = g_out[slot]->GetGPUVirtualAddress();
+     vsOut = base + vsAt;
+     psOut = base + psAt;
+@@ -14914,7 +14970,20 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         uint32_t tinfo[32][4];
+         float tbias[32][4];
+     };
+-    UINT64 vsOffset = RingAlloc(sizeof(VSConstants), 256, RingConstants), psOffset = RingAlloc(sizeof(PSConstants), 256, RingConstants);
++    // GpuConstants mode 2: the blocks go to the staging buffer in system memory (the pass copies them into VRAM).
++    uint8_t* blockBase = f.ringCpu;
++    D3D12_GPU_VIRTUAL_ADDRESS blockVa = f.ring->GetGPUVirtualAddress();
++    UINT64 vsOffset = ~0ull, psOffset = ~0ull;
++    const bool staged = GpuConstants::g_mode == 2 && !(regpu::GetHost().onDraw && (vs.tag || ps.tag)) && !g_sw_REGPU_CONSTANTS_IN_RING &&
++                        !regpu::GetConfig().lowPerformance && !motion && !C().worker && !RendererTracing() && !(TraceFrame() && g_r.frame + 1 == TraceFrame()) &&
++                        !g_sw_REGPU_ALL_CONSTANTS && !g_sw_REGPU_CONSTANTS_BY_COUNT && !g_sw_REGPU_FULL_CONSTANT_BLOCKS && !g_sw_REGPU_CONSTANT_REUSE &&
++                        !g_sw_REGPU_TRACE_CONSTANT_BYTES &&
++                        GpuConstants::StageBlocks(uint32_t(sizeof(VSConstants)), uint32_t(sizeof(PSConstants)), vsOffset, psOffset, blockBase, blockVa);
++    if (!staged)
++    {
++        vsOffset = RingAlloc(sizeof(VSConstants), 256, RingConstants);
++        psOffset = RingAlloc(sizeof(PSConstants), 256, RingConstants);
++    }
+     if (vsOffset == ~0ull || psOffset == ~0ull)
+     {
+         TraceSkip("ring full", initiator);
+@@ -14925,8 +14994,8 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+     // block is built in a cached copy and written in one go before the draw is bound: the ring is
+     // write-combined upload memory, where scattered small writes (vc and pc in turn) cost ~5 ms a
+     // frame and reading back is slower still.
+-    auto* vcRing = reinterpret_cast<VSConstants*>(f.ringCpu + vsOffset);
+-    auto* pcRing = reinterpret_cast<PSConstants*>(f.ringCpu + psOffset);
++    auto* vcRing = reinterpret_cast<VSConstants*>(blockBase + vsOffset);
++    auto* pcRing = reinterpret_cast<PSConstants*>(blockBase + psOffset);
+     // Two stages per thread, used in turn while blocks are compared (REGPU_CONSTANT_REUSE): the other
+     // one holds the previous draw's blocks.
+     thread_local VSConstants vcStages[2];
+@@ -15004,7 +15073,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+                     _mm_storeu_si128(dst + (packed ? at++ : i), _mm_shuffle_epi8(_mm_loadu_si128(from + i), swap));
+                 }
+         };
+-        const bool onGpu = GpuConstants::g_on && !hooked && !compareBlocks && !inRing && !motion && !allConstants && !byCount && !C().worker &&
++        const bool onGpu = GpuConstants::g_on && (GpuConstants::g_mode != 2 || staged) && !hooked && !compareBlocks && !inRing && !motion && !allConstants && !byCount && !C().worker &&
+                            !g_sw_REGPU_FULL_CONSTANT_BLOCKS && !RendererTracing() && !(TraceFrame() && g_r.frame + 1 == TraceFrame()) &&
+                            GpuConstants::Draw(vs.info, ps.info, vsOffset, psOffset, uint32_t(offsetof(VSConstants, b)), uint32_t(sizeof(VSConstants)),
+                                uint32_t(offsetof(PSConstants, b)), uint32_t(sizeof(PSConstants)), gpuVs, gpuPs);
+@@ -16161,8 +16230,8 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             }
+         }
+     }
+-    C().list->SetGraphicsRootConstantBufferView(0, gpuVs ? gpuVs : f.ring->GetGPUVirtualAddress() + vsOffset);
+-    C().list->SetGraphicsRootConstantBufferView(1, gpuPs ? gpuPs : f.ring->GetGPUVirtualAddress() + psOffset);
++    C().list->SetGraphicsRootConstantBufferView(0, gpuVs ? gpuVs : blockVa + vsOffset);
++    C().list->SetGraphicsRootConstantBufferView(1, gpuPs ? gpuPs : blockVa + psOffset);
+     if (motion)
+         C().list->SetGraphicsRootConstantBufferView(LeanFetch() ? 5 : 4, motionPrevious);
+     if (const D3D12_GPU_DESCRIPTOR_HANDLE t2 = Gpu(g_r.srvHeap.Get(), f.descriptorBase, g_r.srvStride); t2.ptr != ds.table2.ptr)

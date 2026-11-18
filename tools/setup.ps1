@@ -105,6 +105,7 @@ $regpuPatches = @(
     'regpu-exp-gpu-constants'        # Experimental system (session 45): REGPU_EXP_GPU_CONSTANTS (start-time, off): draws' float constants rebuilt on the GPU from a register log (correct, slower: kept off)
     'regpu-resolve-dump-frame-env'   # REGPU_DUMP_EACH_RESOLVE read once a frame (FrameEnv), not by getenv per resolve (~1.5% of the draw thread; for main too)
     'regpu-exp-lazy-loops'           # Experimental system (session 45): REGPU_EXP_LAZY_LOOPS (loop constants only for shaders that read them, bools/loops byte-swapped 4 at a time); PassScales' check inlined
+    'regpu-exp-gpu-constants-staging' # Experimental system (session 45): REGPU_EXP_GPU_CONSTANTS=2, the draw data staged in system memory (correct; CPU even, GPU +0.8 ms: off)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

@@ -39,6 +39,10 @@
   thread, normal build too)**; fixed in patch 85 `regpu-resolve-dump-frame-env`; **also on main** (patch 82 there, commit 38d9dbc, `buildel` rebuilt, grid normal; main and this branch list it in different places, so run `tools\setup.ps1 -NoBuild` after switching branches).
   The earlier env-generation +0.9% was probably noise. One unexplained crash (shader-compiler threads, corrupted locale table,
   sampler on; not repeated in 2 boots).
+- **Session 45 continued (2026-11-19):** line profile -> ReGPU patch 86 `regpu-exp-lazy-loops` (+1.0%, on in the experimental
+  build); X4 mode 2 (patch 87 `regpu-exp-gpu-constants-staging`, draw data in system memory): correct, CPU even, GPU +0.8 ms,
+  off. Both GPU-constants modes are a wash: X4 closed for now. One experimental benchmark race was closed from outside 4 s after
+  GO (WM_CLOSE, cause unknown). Normal vs experimental race comparison being rerun with 3 rounds.
 - **AI tour (request from session 44), paused by the user:** environments 0-13 (to Nordschleife layout 2) raced with
   the ARX-02a (`Start-AiTour -From 13 -FromLayout 3 -RebootEach` resumes); seed merged: **3,647 pipelines** (commit
   211a4fa on main; `build\rel` not rebuilt with it yet). The renderer-cache growth fix (plan in the session-44
