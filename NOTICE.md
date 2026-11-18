@@ -44,6 +44,8 @@ SOFTWARE.
 - `thirdparty/ReGPU`: MIT.
 - `thirdparty/ffmpeg` (not in the repository): FFmpeg LGPL build, linked dynamically, under its own licence.
 - `thirdparty/fidelityfx` (not in the repository): AMD FidelityFX SDK, MIT.
+- `thirdparty/meshoptimizer` (submodule, v1.3): meshoptimizer, Copyright (c) 2016-2026 Arseny Kapoulkine, MIT (`LICENSE.md`); compiled into ReGPU for the Hyper presets' mesh decimation and vertex-cache order (session 43).
+- `thirdparty/xess` (not in the repository): Intel XeSS SDK 3.0.2 (XeSS 2.0.2 runtime), Copyright (C) 2025 Intel Corporation, Intel Simplified Software License (`LICENSE.txt`, shipped beside fm3.exe as `libxess-LICENSE.txt` and in `licenses/`); `libxess.dll` is redistributed unmodified and loaded at run time (session 43).
 - `thirdparty/openxr` (session 37, not in the repository; VR): the OpenXR SDK headers and `openxr_loader.dll` from
   KhronosGroup/OpenXR-SDK-Source release 1.1.65 (`openxr_loader_windows-1.1.65.zip`, x64), Copyright The Khronos Group
   Inc. and contributors; Apache License 2.0 (`thirdparty/openxr/LICENSE`). The loader DLL ships beside `fm3.exe`.

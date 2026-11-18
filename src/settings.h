@@ -30,7 +30,7 @@ struct Settings
     bool eqaa = false;
     // Upscaling: the 3D scene renders smaller and is upscaled before post-processing and
     // the HUD, which stay at full resolution.
-    enum class Upscaler : uint32_t { Off, Fsr1, Fsr3, Dlss, Fsr4, Bilinear }; // (Fsr4, Bilinear last: the numbers match regpu::Config::Upscaler)
+    enum class Upscaler : uint32_t { Off, Fsr1, Fsr3, Dlss, Fsr4, Bilinear, Xess }; // (Off..Fsr4 match regpu::Config::Upscaler; Bilinear and Xess are mapped in gpu_host.cpp)
     Upscaler upscaler = Upscaler::Off;
     uint32_t quality = 1;   // 0 native (anti-aliasing only), 1 quality, 2 balanced, 3 performance, 4 ultra performance
     float sharpness = 0.5f; // 0-1

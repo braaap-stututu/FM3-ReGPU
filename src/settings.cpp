@@ -29,6 +29,8 @@ Settings::Upscaler ParseUpscaler(const std::string& v)
         return Settings::Upscaler::Fsr4;
     if (v == "bilinear")
         return Settings::Upscaler::Bilinear;
+    if (v == "xess")
+        return Settings::Upscaler::Xess;
     return Settings::Upscaler::Off;
 }
 
@@ -41,6 +43,7 @@ const char* UpscalerName(Settings::Upscaler u)
     case Settings::Upscaler::Dlss: return "dlss";
     case Settings::Upscaler::Fsr4: return "fsr4";
     case Settings::Upscaler::Bilinear: return "bilinear";
+    case Settings::Upscaler::Xess: return "xess";
     default: return "off";
     }
 }
@@ -183,8 +186,8 @@ void Load()
     if (g_settings.upscaler != Settings::Upscaler::Off)
         g_settings.ssaa = 1.0f;
     g_settings.msaa = g_settings.msaa >= 8 ? 8 : g_settings.msaa >= 4 ? 4 : g_settings.msaa >= 2 ? 2 : 1;
-    // FSR 3 and 4 need single-sample colour, depth and motion; MSAA crashed FSR 4 at context creation.
-    if (g_settings.upscaler == Settings::Upscaler::Fsr3 || g_settings.upscaler == Settings::Upscaler::Fsr4)
+    // FSR 3 and 4 (and XeSS, session 43) need single-sample colour, depth and motion; MSAA crashed FSR 4 at context creation.
+    if (g_settings.upscaler == Settings::Upscaler::Fsr3 || g_settings.upscaler == Settings::Upscaler::Fsr4 || g_settings.upscaler == Settings::Upscaler::Xess)
         g_settings.msaa = 1;
     g_settings.width = std::clamp<uint32_t>(g_settings.width, 640, 15360);
     g_settings.height = std::clamp<uint32_t>(g_settings.height, 360, 8640);

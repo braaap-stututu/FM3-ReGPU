@@ -68,6 +68,8 @@ void ApplySettings(regpu::Config& c)
         if (!getenv("REGPU_UPSCALE_BILINEAR"))
             _putenv_s("REGPU_UPSCALE_BILINEAR", "1");
     }
+    else if (s.upscaler == Settings::Upscaler::Xess)
+        c.upscaler = regpu::Config::Upscaler::Xess; // (session 43: Intel XeSS, libxess.dll beside fm3.exe; else FSR 1)
     else
         c.upscaler = regpu::Config::Upscaler(uint32_t(s.upscaler));
     c.quality = s.quality;

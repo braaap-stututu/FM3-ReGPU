@@ -107,6 +107,11 @@ endif()
 if(EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/meshoptimizer/src/meshoptimizer.h")
     set(REGPU_MESHOPT_DIR "${CMAKE_SOURCE_DIR}/thirdparty/meshoptimizer" CACHE PATH "" FORCE)
 endif()
+# Session 43: Intel's XeSS SDK (thirdparty/xess, gitignored; github.com/intel/xess release zip): headers for ReGPU,
+# libxess.dll (redistributable unmodified, Intel Simplified Software License) and its licence copied beside fm3.exe.
+if(EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/xess/inc/xess/xess_d3d12.h")
+    set(REGPU_XESS_DIR "${CMAKE_SOURCE_DIR}/thirdparty/xess" CACHE PATH "" FORCE)
+endif()
 add_subdirectory("${FM3_REGPU_DIR}" regpu)
 
 # Profile-guided optimisation of ReGPU (session 32, PERF-PLAN L23; FH1R measured +6%): FM3_PGO=gen builds ReGPU
@@ -171,3 +176,10 @@ target_include_directories(fm3 PRIVATE "${FM3_FFMPEG}/include")
 target_link_libraries(fm3 PRIVATE "${FM3_FFMPEG}/lib/avcodec.lib" "${FM3_FFMPEG}/lib/avutil.lib" winhttp)
 file(GLOB FM3_FFMPEG_DLLS "${FM3_FFMPEG}/bin/avcodec-*.dll" "${FM3_FFMPEG}/bin/avutil-*.dll" "${FM3_FFMPEG}/bin/swresample-*.dll")
 add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FM3_FFMPEG_DLLS} $<TARGET_FILE_DIR:fm3>)
+
+# Session 43: XeSS's library and its licence beside fm3.exe (loaded at run time: the game runs without it).
+if(EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/xess/bin/libxess.dll")
+    add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/thirdparty/xess/bin/libxess.dll" $<TARGET_FILE_DIR:fm3>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/thirdparty/xess/LICENSE.txt" $<TARGET_FILE_DIR:fm3>/libxess-LICENSE.txt)
+endif()

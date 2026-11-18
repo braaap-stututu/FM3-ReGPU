@@ -7,7 +7,7 @@
   meant to go upstream into ReGPU): ReGPU patch 77 `regpu-hyper`. The Intel iGPU leads N2-N10 (RESEARCH "Intel iGPUs")
   and lighter background shader compiles are ReGPU patch 78 `regpu-igpu-intel`. The launcher has a new **iGPU
   (testing)** tab. Details: "Session 43" below.
-- **Build state:** `build/rel` = ReXenon + 78 ReGPU patches (verified with `tools\setup.ps1 -NoBuild`).
+- **Build state:** `build/rel` = ReXenon + 80 ReGPU patches (verified with `tools\setup.ps1 -NoBuild`).
 - **Presets** (launcher slider / settings.ini `perf_preset` or `hyper`, `FM3_PERF_PRESET`, `REGPU_HYPER`): off, mild,
   low, extreme, potato, auto (potato on an integrated GPU). Old `turbo` = off + the shader cuts. Mild and up still add
   FM3's own draw-cutting options. **iGPU 720p frozen grid: off 65.0, potato 78.1 fps (+20%)**, picture right (HUD,
@@ -19,9 +19,14 @@
   `REGPU_SPEC_CONSTANTS` (65.4/65.1 vs 64.4: noise), `REGPU_HALF_REGS` (dataflow-safe 16-bit pixel registers, real
   halves under DXC: no change on RDNA2). N6 n/a, N10 checked (a 15 fps iGPU boot runs). **Default:** background
   shader compiles throttled during play on <= 8 hardware threads or a UMA GPU (`REGPU_COMPILE_BACKGROUND_THREADS`).
-- **Waiting on the user (asked at the end of session 43):** (1) **meshoptimizer** (MIT, a download) for Hyper's mesh
-  decimation and vertex-cache reordering (FM2: VCACHE +4.5% on an HD 630); (2) the **XeSS SDK** (a download) for N8;
-  (3) an Intel tester's runs of the iGPU tab's options (N1/N5: GPA capture). The user hasn't driven Potato yet.
+- **Then (user: yes to both downloads):** meshoptimizer v1.3 (submodule) for Hyper's mesh decimation (Extreme 25%,
+  Potato 10%) and vertex-cache order (Potato): ReGPU 79 `regpu-hyper-mesh`, iGPU Potato +2% from them, picture unchanged;
+  interleaved iGPU 720p **Off 60.0/60.4, Potato 74.0/73.7 fps (+23%)** (the machine ran ~5 fps lower overall than in the
+  morning). **XeSS** (SDK 3.0.2, runtime 2.0.2) as upscaler `xess`: ReGPU 80 `regpu-xess`, launcher Upscaler list;
+  RX 7900 XTX 1440p quality 295 fps, picture right; on the Radeon iGPU (1080p, 50%) slower than FSR 3 (23.4 vs 29.3,
+  FSR 1 45.7): Intel untested.
+- **Next:** an Intel tester's runs of Potato, the iGPU tab and XeSS (N1/N5: a GPA capture); the user hasn't driven
+  Potato or XeSS yet.
 
 ### ▶ Start here (session 43): state at the end of session 42 (2026-11-18)
 - **In short:** the Fiat 500's rear-wing vinyl is fixed (ReGPU patch 76 `regpu-depth-reset-color`); the Civic's "uncovered"
@@ -95,6 +100,13 @@
   `igpu_*` read by `src/gpu_host.cpp`. Checked through WebView2's DevTools port (`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
   =--remote-debugging-port=9333` + a CDP client: page screenshots without grabbing the screen); a save round trip and a
   game boot with those settings; the user's settings.ini restored byte-identical afterwards.
+- **Downloads (user approved both):** meshoptimizer v1.3 as the submodule `thirdparty/meshoptimizer` (MIT); the XeSS
+  SDK 3.0.2 zip (sha256 88b8a373...71990, matching GitHub's digest) extracted to `thirdparty/xess` (gitignored; Intel
+  Simplified Software License: binaries redistributable unmodified with the notice; NOTICE.md and both packagers carry
+  it). Mesh cuts (ReGPU 79): FM2's hyperdec code, `TranslatedShader::positionFetch`, hooked after both of our
+  `GetIndexBuffer` calls for triangle lists (our wide-index-view code falls back to the separate buffer). XeSS (ReGPU 80):
+  `src/gpu/xess.cpp` beside dlss.cpp, run-time `LoadLibrary`, one context per setup (FM3 re-initialised it 12 times
+  while loading before that: HDR/LDR scenes and a 942x417 pass), FM3 settings `upscaler=xess` (MSAA forced 1x as FSR 3).
 
 ### Session 42 (2026-11-17/18): Fiat wing fixed (ReGPU 76), Civic bands = layer size, ReXenon PR, hl360 profile copy
 - **ReXenon PR:** the vsldoi128 decode fix (our `rexenon-vsldoi128.patch`, comment reworded, README line) on our fork

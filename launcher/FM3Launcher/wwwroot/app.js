@@ -233,12 +233,12 @@ function render() {
   $("eqaaRow").classList.toggle("off", set.msaa <= 1)
   fill($("upscaler"), o.upscalers, set.upscaler)
   // FSR 3 does its own anti-aliasing: fm3.exe turns MSAA off under it (src/settings.cpp), so it's greyed out here.
-  const fsrAa = set.upscaler === "fsr3" || set.upscaler === "fsr4"
+  const fsrAa = set.upscaler === "fsr3" || set.upscaler === "fsr4" || set.upscaler === "xess"
   const mf = $("msaaField")
   if (!mf.dataset.tip0) mf.dataset.tip0 = mf.dataset.tip
   $("msaa").disabled = fsrAa
   mf.classList.toggle("off", fsrAa)
-  mf.dataset.tip = fsrAa ? "Off while FSR 3 or 4 is on: it handles anti-aliasing itself." : mf.dataset.tip0
+  mf.dataset.tip = fsrAa ? "Off while FSR 3, FSR 4 or XeSS is on: it handles anti-aliasing itself." : mf.dataset.tip0
   fill($("upscale"), o.upscale, set.upscale)
   fill($("sharpening"), o.sharpening, set.sharpening)
   $("upscaleField").hidden = set.upscaler === "off"

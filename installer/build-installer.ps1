@@ -52,6 +52,8 @@ if ($LASTEXITCODE) { throw "Launcher publish failed." }
 # Licences: ours, the ported runtime's and the wheel code's notices, FFmpeg (LGPL), the AA shaders' sources.
 Copy-Item LICENSE, NOTICE.md, NOTICE-wheel.md "$stage\licenses"
 if (Test-Path thirdparty\ffmpeg\LICENSE.txt) { Copy-Item thirdparty\ffmpeg\LICENSE.txt "$stage\licenses\FFmpeg-LICENSE.txt" }
+if (Test-Path thirdparty\xess\LICENSE.txt) { Copy-Item thirdparty\xess\LICENSE.txt "$stage\licenses\XeSS-LICENSE.txt" }
+if (Test-Path thirdparty\meshoptimizer\LICENSE.md) { Copy-Item thirdparty\meshoptimizer\LICENSE.md "$stage\licenses\meshoptimizer-LICENSE.md" }
 Copy-Item thirdparty\aa\SOURCES.txt "$stage\licenses\AA-SOURCES.txt"
 Get-ChildItem thirdparty\aa -Recurse -Include LICENSE*, COPYING* | ForEach-Object {
     Copy-Item $_.FullName ("$stage\licenses\AA-" + $_.Directory.Name + "-" + $_.Name)
