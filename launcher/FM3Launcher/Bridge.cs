@@ -12,6 +12,7 @@ public sealed class Bridge
 {
     static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     readonly IShell _window; // the launcher's window or the browser page (Shell.cs)
+    Updater.Release? _latest; // the newest GitHub release, once asked (About tab, and quietly at start)
 
     public Bridge(IShell shell)
     {
@@ -45,6 +46,23 @@ public sealed class Bridge
 
     static readonly (string, string[])[] ZipFilter = [("Profile zip", ["*.zip"])];
     static readonly (string, string[])[] IsoFilter = [("Disc image", ["*.iso"]), ("All files", ["*.*"])];
+
+    object UpdateInfo()
+    {
+        var installed = Updater.InstalledVersion();
+        return new
+        {
+            installed,
+            latest = _latest?.Version,
+            name = _latest?.Name,
+            notes = _latest?.Notes,
+            page = _latest?.Page ?? $"https://github.com/{Updater.Repo}/releases",
+            published = _latest?.Published,
+            patchBytes = _latest?.PatchBytes ?? 0,
+            hasPatch = _latest?.PatchUrl is not null && Updater.Installed,
+            available = _latest is not null && Updater.IsNewer(_latest.Version, installed),
+        };
+    }
 
     async Task<object?> Run(string cmd, JsonNode? a)
     {
@@ -211,6 +229,25 @@ public sealed class Bridge
                 Wheel.TestForceFeedback();
                 return null;
             // The ReGPU Discord server: the same invite as FM2:ReGPU's launcher.
+            // Updates from GitHub releases (Updater.cs), as in FM2's and PGR4's launchers.
+            case "update.check":
+                _latest = await Updater.LatestAsync();
+                return UpdateInfo();
+            case "update.apply":
+                {
+                    _latest ??= await Updater.LatestAsync();
+                    var applied = await Updater.DownloadAndApplyAsync(_latest, (p, text) => Post(new { @event = "update", data = new { p, text } }));
+                    return new { applied.Files, applied.LauncherChanged, update = UpdateInfo() };
+                }
+            case "restart":
+                {
+                    // the new launcher waits for this one to let go of the single-instance mutex (Program.cs)
+                    var psi = new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false };
+                    foreach (var arg in Environment.GetCommandLineArgs().Skip(1)) psi.ArgumentList.Add(arg);
+                    System.Diagnostics.Process.Start(psi);
+                    _ = Task.Delay(300).ContinueWith(_ => Environment.Exit(0));
+                    return null;
+                }
             case "discord":
                 Platform.OpenUrl("https://discord.gg/pVEpmSk2G3");
                 return null;

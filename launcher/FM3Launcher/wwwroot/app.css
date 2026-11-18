@@ -391,3 +391,14 @@ input[type=range] { padding: 0; accent-color: var(--accent); background: transpa
   background: rgba(12, 14, 18, .94); border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
 #gp-hint b { color: var(--text); font-weight: 600; white-space: nowrap; }
 #gp-hint span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* updates (About tab; Updater.cs) */
+.versions { display: flex; align-items: center; gap: 22px; margin-bottom: 10px; }
+.v-label { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 1px; }
+.v-num { font-size: 20px; font-weight: 700; }
+.versions .arrow { color: var(--muted); font-size: 18px; }
+.update-state { font-size: 13px; min-height: 20px; }
+.update-state.ok { color: var(--ok); }
+.update-state.new { color: var(--accent-2); font-weight: 600; }
+.update-notes { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); max-height: 260px; overflow-y: auto; white-space: pre-wrap; }
+.tag .update-flag { color: var(--accent-2); font-weight: 600; }

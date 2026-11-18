@@ -29,6 +29,7 @@ if (host) host.addEventListener("message", (e) => {
   if (m.event === "disc2") return disc2Progress(m.data)
   if (m.event === "disc1") return disc1Progress(m.data)
   if (m.event === "benchmark") return benchProgress(m.data)
+  if (m.event === "update") return updateProgress(m.data)
   const p = pending.get(m.id)
   if (!p) return
   pending.delete(m.id)
@@ -181,6 +182,7 @@ function fill(select, items, value) {
 function render() {
   const s = state, set = s.settings, o = s.options
   $("version").textContent = "Version " + s.version + " · native PC port"
+  if (update && update.available) $("version").append(" · ", el("span", "update-flag", "update available"))
   renderShare()
 
   const chips = $("chips")
@@ -696,5 +698,63 @@ async function refresh() {
   await guarded(async () => { state = await call("state"); render() })
 }
 
-refresh().then(() => guarded(askShare))
+// ---- updates from GitHub releases (Updater.cs), as FM2's and PGR4's launchers
+
+let update = null
+function renderUpdate() {
+  const u = update
+  $("v-installed").textContent = (u && u.installed) || (state && state.version) || "-"
+  $("v-latest").textContent = (u && u.latest) || "-"
+  const us = $("update-state")
+  if (!u || !u.latest) { us.textContent = ""; us.className = "update-state" }
+  else if (u.available) { us.textContent = `Version ${u.latest} is available.` + (u.hasPatch ? "" : " Get it from the release page."); us.className = "update-state new" }
+  else { us.textContent = "You're on the latest version."; us.className = "update-state ok" }
+  $("update-apply").disabled = !(u && u.available && u.hasPatch) || !!(state && state.checks.running)
+  $("update-apply").textContent = u && u.available && u.patchBytes ? `Download & install (${size(u.patchBytes)})` : "Download & install"
+  const notes = $("update-notes")
+  notes.hidden = !(u && u.available && u.notes)
+  if (u && u.notes) notes.textContent = u.notes
+  if (state) $("version").textContent = "Version " + state.version + " · native PC port"
+  if (state && u && u.available) $("version").append(" · ", el("span", "update-flag", "update available"))
+}
+async function checkUpdates(quiet) {
+  try {
+    update = await call("update.check")
+    renderUpdate()
+  } catch (e) {
+    if (!quiet) toast("Couldn't reach GitHub: " + e.message)
+  }
+}
+function updateProgress(d) {
+  $("update-progress").querySelector(".bar").style.width = Math.round(d.p * 100) + "%"
+  $("update-status").textContent = d.text
+}
+$("update-check").onclick = () => checkUpdates(false)
+$("update-page").onclick = () => guarded(() => call("url", update && update.page || "https://github.com/braaap-stututu/FM3-ReGPU/releases"))
+$("update-apply").onclick = () => guarded(async () => {
+  if (!await confirmBox(`Install ${update.latest}?`, "The update is downloaded from GitHub and installed over this install. Saves and settings are kept. The first start afterwards may rebuild the shader cache.", "Install")) return
+  $("update-apply").disabled = true
+  $("update-check").disabled = true
+  $("update-progress").classList.add("on")
+  $("update-status").className = "status"
+  try {
+    const r = await call("update.apply")
+    update = r.update
+    renderUpdate()
+    $("update-status").className = "status done"
+    $("update-status").textContent = `Installed ${r.files} file${r.files === 1 ? "" : "s"}.`
+    if (r.launcherChanged && await confirmBox("Restart the launcher?", "The update includes a new launcher. Restart it now to use the new version.", "Restart")) await call("restart")
+  } catch (e) {
+    $("update-status").className = "status error"
+    $("update-status").textContent = e.message
+    renderUpdate()
+  } finally {
+    $("update-check").disabled = false
+    $("update-progress").classList.remove("on")
+  }
+})
+
+refresh().then(() => guarded(askShare)).then(() => checkUpdates(true)).then(() => {
+  if (update && update.available) toast(`FM3:ReGPU ${update.latest} is available: click the logo to install it.`, true)
+})
 setInterval(() => { if (!document.hidden && $("confirm").hidden && !["SELECT", "INPUT"].includes(document.activeElement.tagName)) refresh() }, 5000)
