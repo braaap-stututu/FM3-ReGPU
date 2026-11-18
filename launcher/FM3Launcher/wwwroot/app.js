@@ -6,7 +6,7 @@ let state = null
 let customFps = false // "Custom…" picked in the Max FPS list
 let nextId = 1
 const pending = new Map()
-const PAGES = ["play", "profiles", "graphics", "vr", "triple", "wheel", "settings", "about"]
+const PAGES = ["play", "profiles", "graphics", "vr", "triple", "wheel", "settings", "updates", "about"]
 // The speed presets (settings.ini perf_preset; src/gpu_host.cpp ApplyPerfPreset), sharpest first.
 const PRESETS = [
   { value: "off", name: "Off", note: "Everything drawn as the console does." },
@@ -182,7 +182,6 @@ function fill(select, items, value) {
 function render() {
   const s = state, set = s.settings, o = s.options
   $("version").textContent = "Version " + s.version + " · native PC port"
-  if (update && update.available) $("version").append(" · ", el("span", "update-flag", "update available"))
   renderShare()
 
   const chips = $("chips")
@@ -705,17 +704,45 @@ function renderUpdate() {
   const u = update
   $("v-installed").textContent = (u && u.installed) || (state && state.version) || "-"
   $("v-latest").textContent = (u && u.latest) || "-"
+  $("update-badge").hidden = !(u && u.available)
   const us = $("update-state")
   if (!u || !u.latest) { us.textContent = ""; us.className = "update-state" }
   else if (u.available) { us.textContent = `Version ${u.latest} is available.` + (u.hasPatch ? "" : " Get it from the release page."); us.className = "update-state new" }
   else { us.textContent = "You're on the latest version."; us.className = "update-state ok" }
   $("update-apply").disabled = !(u && u.available && u.hasPatch) || !!(state && state.checks.running)
   $("update-apply").textContent = u && u.available && u.patchBytes ? `Download & install (${size(u.patchBytes)})` : "Download & install"
-  const notes = $("update-notes")
-  notes.hidden = !(u && u.available && u.notes)
-  if (u && u.notes) notes.textContent = u.notes
-  if (state) $("version").textContent = "Version " + state.version + " · native PC port"
-  if (state && u && u.available) $("version").append(" · ", el("span", "update-flag", "update available"))
+  $("notes-title").textContent = u && u.name ? u.name : "Release notes"
+  const n = $("update-notes")
+  n.replaceChildren()
+  if (u && u.notes) n.append(...markdown(u.notes))
+  else if (u) n.append(el("div", "empty", "No notes for this release."))
+}
+
+// A small Markdown subset (what the release notes use): headings, bullet lists, **bold**, `code`, paragraphs.
+function markdown(text) {
+  const out = []
+  let list = null
+  const inline = (s, into) => {
+    for (const part of s.split(/(\*\*[^*]+\*\*|`[^`]+`)/)) {
+      if (part.startsWith("**") && part.endsWith("**")) into.append(el("b", "", part.slice(2, -2)))
+      else if (part.startsWith("`") && part.endsWith("`")) into.append(el("code", "", part.slice(1, -1)))
+      else if (part) into.append(part.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"))
+    }
+    return into
+  }
+  for (const raw of text.replace(/\r/g, "").split("\n")) {
+    const line = raw.trim()
+    if (/^[-*] /.test(line)) {
+      if (!list) { list = el("ul"); out.push(list) }
+      list.append(inline(line.slice(2), el("li")))
+      continue
+    }
+    list = null
+    if (!line || line.startsWith("🤖")) continue
+    const h = line.match(/^#+\s*(.*)$/)
+    out.push(h ? inline(h[1], el("h3")) : inline(line, el("p")))
+  }
+  return out
 }
 async function checkUpdates(quiet) {
   try {
@@ -723,6 +750,7 @@ async function checkUpdates(quiet) {
     renderUpdate()
   } catch (e) {
     if (!quiet) toast("Couldn't reach GitHub: " + e.message)
+    $("update-notes").replaceChildren(el("div", "empty", "Couldn't reach GitHub. Check your connection and try again."))
   }
 }
 function updateProgress(d) {
@@ -755,6 +783,6 @@ $("update-apply").onclick = () => guarded(async () => {
 })
 
 refresh().then(() => guarded(askShare)).then(() => checkUpdates(true)).then(() => {
-  if (update && update.available) toast(`FM3:ReGPU ${update.latest} is available: click the logo to install it.`, true)
+  if (update && update.available) toast(`FM3:ReGPU ${update.latest} is available: install it from the Updates tab.`, true)
 })
 setInterval(() => { if (!document.hidden && $("confirm").hidden && !["SELECT", "INPUT"].includes(document.activeElement.tagName)) refresh() }, 5000)

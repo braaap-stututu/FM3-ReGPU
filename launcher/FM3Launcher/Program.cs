@@ -135,7 +135,7 @@ internal static class Program
         Photino.NET.PhotinoWindow window;
         if (Platform.Linux) Platform.DesktopEntry(); // (the window's app id and icon on Wayland)
         var (w, h) = DefaultSize(1600, 960);
-        try { window = Web.Create(Title, "index.html", w, h, 1000, 680); }
+        try { window = Web.Create(Title, "index.html", w, h, 1100, 680); }
         catch (Exception ex)
         {
             if (!Platform.Linux) return RunInBrowser("no WebView2: " + ex.Message);
