@@ -5,7 +5,8 @@ the poster bug), what fixed each one, what is still open, and how to test. State
 (2026-11-08)**. The chronology is in NOTES.md's session logs (sessions 9–11); this file is the reference.
 
 ## ▶ Where to continue
-**State at the end of session 41:** NOTES "Start here (session 42)" has the current open list (Fiat wing; olive rear bumpers on Asian Car Pack cars: compare with hl360; write-back by CPU reads) and the method notes (dump the atlas outside the editor; live A/B switches).
+**State at the end of session 42:** NOTES "Start here (session 43)" has the current open list (the menu car once lost its vinyl after an editor exit: watch for it; olive rear bumpers: compare with hl360 via `boot hl360 fiat.cmd`; write-back by CPU reads) and the method (I drive the editor; rebuild by leaving and re-entering Apply Decals; `REGPU_DUMP_RESOLVES_AT` / `REGPU_DUMP_EACH_RESOLVE`). Fiat wing fixed (below); Civic bands = layer size (below).
+*(Session 41:)* NOTES "Start here (session 42)" has the current open list (Fiat wing; olive rear bumpers on Asian Car Pack cars: compare with hl360; write-back by CPU reads) and the method notes (dump the atlas outside the editor; live A/B switches).
 
 **Session 41: the edge gaps (2 below) traced and fixed.** ReGPU sized every big pass `pitch * 64 / 65` (right only for the 2080-pitch strips): the 1400-wide 4x side views became 1378-wide images that the region composes sampled stretched by 22 columns, and the 1416-wide regions 1329-wide images. ReGPU patch `regpu-big-pass-width` (surface's own width, max 2048; `REGPU_BIG_PASS_6465=1` = old). Scion atlas read from memory (`tools/analysis/dumptex.py AB508000 2048 2048 out.png`: physical mirror address): right side +8,000 texels at the rear end, nothing else changed. User: Scion and Supra right. **CRX (3 below) fixed** by ReGPU patch `regpu-resolve-into-own-base`: its rear-bumper region is copied to the atlas's own base (texel 0,0) and replaced the whole atlas (`REGPU_NO_RESOLVE_INTO_OWN_BASE=1` = old); user: right. **Open:** the Fiat's wing; a Civic's rear bumper olive-yellow (0.8 x vinyl + 0.2 x green under it in the final atlas; compare with hl360; NOTES session 41); item 1. `REGPU_TRACE_RESOLVES=1` now logs each copy's `enclosing:` candidates.
 
@@ -22,6 +23,19 @@ the poster bug), what fixed each one, what is still open, and how to test. State
    you paint them there; or swap a save in, see "hl360 comparison"). If hl360 covers them, it's ours. Leads below.
 3. **Honda CRX: vinyls invisible in the paint booth** (seen once, in the build that still had the poster bug).
    Probably the poster bug (a region drawn into the wrong image); re-check with the current build first.
+
+## Civic hood/fender bands (session 42: not a bug, the layer's size)
+
+Red strips along the hood edges, fender tops and next to the headlights on the user's 1994 Civic. The hood/roof region is one
+1640x744 copy at atlas (224,896), built from a 4x big pass (1616x728) whose scratch image is at the atlas's own base, with
+the panel mask at 13D91000 (each panel has its own 1024x1024 linear k_8 mask). Diffing the vinyl image against the mask
+(the user's idea) showed the vinyl cut by two straight lines ~10% from the region's top and bottom: the user's layer edge.
+Enlarging every layer quad 8x (live `vs 7061152fe7f7fc72 opos.xy = r2.xy * 8 * opos.w;`) covered the bands. The user made
+the layer taller: covered. Left: a few red pixels on panel borders (the mask's soft edge + filtering: console behaviour).
+The mask also has thin seams between the hood and the fender-top bands (game artwork).
+
+**Seen once, open:** after an edit and leaving the editor the menu car showed only the front bumper's vinyl (NOTES
+"Start here (session 43)" item 1 for what was ruled out and the lead).
 
 ## Fiat wing (session 42, fixed: ReGPU patch 76 `regpu-depth-reset-color`)
 

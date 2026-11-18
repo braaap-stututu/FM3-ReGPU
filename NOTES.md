@@ -1,6 +1,67 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-17, session 41)
+## ▶ Current status / next step  (updated 2026-11-18, session 42)
+
+### ▶ Start here (session 43): state at the end of session 42 (2026-11-18)
+- **In short:** the Fiat 500's rear-wing vinyl is fixed (ReGPU patch 76 `regpu-depth-reset-color`); the Civic's "uncovered"
+  hood/fender bands were the user's layer being too short (not a bug); the wing's green rear face is the same in hl360
+  (paint, no decal coverage); ReXenon's decode fix went upstream as PR zer0ducksgiven/ReXenon#1; hl360 can now run with a
+  copy of our profile (`boot hl360 fiat.cmd`). Details: "Session 42" below and VINYLISSUES.md.
+- **Build state:** `build/rel` = ReXenon + 76 ReGPU patches (verified with `tools\setup.ps1 -NoBuild`).
+- **Open, first thing:** (1) **menu car lost its vinyl once** after the user edited the Civic and left the decal editor:
+  the front-end car (drawn from the CPU's compressed copy of the livery) showed only the front bumper's vinyl, sides and
+  hood bare paint; memory held the correct livery when read afterwards; a fresh boot rebuilt the menu copy correctly; a
+  second edit-and-exit (traced) was correct. Not caused by patch 76 (switch off: same), not a stale texture
+  (`REGPU_FULL_CONTENT_HASH 1`: same), not deferred timing (`FM3_LIVERY_WRITEBACK_NOW=1`: same, but those A/Bs had no
+  edit, so the menu copy was never remade). The failing exit came right after my debugging (an 8x layer shader edit,
+  ~14 s of back-to-back frame captures, image dumps): possibly that, possibly real. Lead if it recurs: after an edit the
+  editor draws the hood in a 4x high-detail big pass whose scratch image is at the atlas's own base (0B508000 for the
+  Civic); a deferred livery write-back queued while that 1632x726 variant is the image at the base would write the wrong
+  data (QueueDeferredWriteback takes g_r.resolved[base], whatever variant is current). If the user reports it again:
+  read memory at once (`dumptex.py`), then check the variant at the base when the write-backs were queued.
+  (2) Olive rear bumpers on Asian Car Pack cars (the Civic's is yellow-green in memory): compare with hl360 now that it
+  has the profile. (3) The red edge pixels at panel borders (mask's soft edge + filtering): console behaviour; a
+  dilation would deviate (user's call). (4) Proposal step 3 (write-back by CPU reads).
+- **How we work now (user, session 42):** I drive vinyl/menu tests myself: boot `play.cmd` minimized, route: title A,
+  FORZA MOTORSPORT 3 (A), wake the menu with Y, PAINT (4th item; presses are sometimes lost: screenshot after each),
+  APPLY DECALS, RB/LB to the tab; **rebuild the livery by leaving (B) and re-entering Apply Decals** (no layer edits);
+  layer edits and design changes stay the user's. Small screenshots: scratchpad `nav.ps1` pattern (Save-Fm3Shot +
+  System.Drawing resize to 800x450). hl360 has no debug server: comparisons there are the user's (`boot hl360 fiat.cmd`).
+- **New debug tools (patch 76):** `Fm3 "env REGPU_DUMP_RESOLVES_AT <hex>,..."` + `Save-Fm3Shot` writes those resolved
+  images (spares as v1, v2...) to out/run/out/res at idle; `Fm3 "env REGPU_DUMP_EACH_RESOLVE <hex base or WxH>,..."`
+  writes the image right after each matching copy (v100+) plus the host surface it was copied from (base 1C000000).
+  Never hand-write GPU barriers for a dump (two driver timeouts tonight: the surface state is tracked in C().colorState).
+- **Still open from before:** NOTES "Start here (session 42)" below (shader-sharing server, seed filtering, next release),
+  session 40's list, OPEN-ISSUES.md.
+
+### Session 42 (2026-11-17/18): Fiat wing fixed (ReGPU 76), Civic bands = layer size, ReXenon PR, hl360 profile copy
+- **ReXenon PR:** the vsldoi128 decode fix (our `rexenon-vsldoi128.patch`, comment reworded, README line) on our fork
+  braaap-stututu/ReXenon branch `fix-vsldoi128-decode`, PR zer0ducksgiven/ReXenon#1 with the 824B9698 jump-table finding
+  and the benchmark numbers. Drop our patch once merged.
+- **Fiat wing (half white):** the wing's region (176x440 at atlas 1792,1024) lacked the vinyl in its first 272 rows. The
+  editor draws a layer's vinyl into a scratch image (low detail 73x212 1x, or high detail 146x424 **4x MSAA**, pitch 160,
+  EDRAM colour base 0) that the region draw lerps over the paint by the panel mask. In the 4x pass the first 120 columns
+  are cleared only by a depth-only (EDRAM mode 5) stencil reset whose depth surface is at base 0 = the colour's EDRAM:
+  on the console that zeroes the colour; ReGPU kept the colour (the car-shade pass's 256x256 image at the same base,
+  alpha 1 in a 240x256 block), and the layers blend front to back by destination alpha (`RB_BLENDCONTROL 010B010B`), so
+  they added nothing there. Fix: patch 76 (a texture-less mode-5 rectangle at the colour base also writes colour).
+  Verified by me in the editor (switch off: half white; on: fully yellow) and on the frozen grid (0 pixels). A second
+  change (session-16 clear scale only when the pass shows its own 1x layout) was tried and dropped: not needed, and it
+  touched the shade-flicker fix. Ruled out on the way: the user's layer size, the stencil mask draw, the panel mask
+  texture's freshness, the low-detail image. Wrong turns worth remembering: I suspected the sparse texture hash (the
+  forced-decode capture "fixed" it only because it skips the swizzle); dumps from mixed captures misled me until the
+  per-copy dump.
+- **Fiat wing rear face green:** same in hl360 (user): paint, no decal coverage.
+- **Civic hood/fender red bands:** the user's TOP/HOOD layer ended ~10% short of the region's top/bottom (the
+  fender-top bands); proven by enlarging every layer quad 8x in a live vs edit (bands covered). My first answer ("a gap
+  in the game's mask") was wrong: the mask has only thin seams; the user's diff of the vinyl image against the mask
+  showed the straight cut. Lesson: diff the whole image against the mask, don't sample one column. Also: after a test
+  that changes how the livery is built, rebuild once more after undoing it, or the user sees the test's picture (the
+  user took my 8x test's leftover for their own fix).
+- **hl360 with our profile:** `boot hl360 fiat.cmd` (hl360 `--user_data_root` = `user-fiat`: our Baseline save's
+  ForzaProfile + LivCatalog under XUID E0000BA5E11E0001 with hl360's own `Headers`; DLC folder a junction).
+- **Commits:** e925902 (ReXenon PR notes), 5fabea2 (wing trace), e2701e2 (patch 76), 2bee9ca/eb50047 (hl360 launcher),
+  825a2f8 (green face).
 
 ### ▶ Start here (session 42): state at the end of session 41 (2026-11-17)
 - **In short:** vinyls now go through one general rule instead of per-car guesses (ReGPU 73-75), the first GitHub
