@@ -1,0 +1,161 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index e95bdcf..32b1110 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -7696,6 +7696,49 @@ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXG
+ bool ResolveIntoEnclosing(uint32_t base, uint32_t pitch, uint32_t declaredHeight, uint32_t guestBpp, DXGI_FORMAT format, const D3D12_RECT& rect, float scale,
+     const float* destRange, uint32_t toGamma, bool atBase = false);
+ 
++// REGPU_DUMP_EACH_RESOLVE (debug): images copied to readback buffers mid-frame, written out at the frame's end.
++std::mutex g_midDumpLock;
++std::vector<ResolveDump> g_midDumps;
++std::atomic<int> g_midDumpSerial{ 0 };
++void QueueMidFrameDump(uint32_t base, uint32_t surface, const D3D12_RECT& rect)
++{
++    auto it = g_r.resolved.find(base);
++    if (it == g_r.resolved.end() || !it->second.resource)
++        return;
++    ResolvedTexture& r = it->second;
++    ResolveDump d;
++    d.base = base;
++    d.variant = 100 + g_midDumpSerial.fetch_add(1);
++    d.width = r.hostWidth;
++    d.height = r.hostHeight;
++    d.format = r.format;
++    const UINT bpp = r.format == DXGI_FORMAT_R16G16B16A16_FLOAT ? 8 : 4;
++    d.pitch = (d.width * bpp + 255) & ~255u;
++    d.buffer = CreateBuffer(UINT64(d.pitch) * d.height, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
++    D3D12_RESOURCE_BARRIER bar{};
++    bar.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++    bar.Transition.pResource = r.resource.Get();
++    bar.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
++    bar.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
++    C().list->ResourceBarrier(1, &bar);
++    D3D12_TEXTURE_COPY_LOCATION dst{}, src{};
++    dst.pResource = d.buffer.Get();
++    dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
++    dst.PlacedFootprint.Footprint = { r.format, d.width, d.height, 1, d.pitch };
++    src.pResource = r.resource.Get();
++    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++    C().list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
++    std::swap(bar.Transition.StateBefore, bar.Transition.StateAfter);
++    C().list->ResourceBarrier(1, &bar);
++    const PassScaleSnapshot& p = PassScales();
++    Log("dump each resolve: %08X v%d after rect %ld,%ld-%ld,%ld surface %08X color info %08X (image %ux%u host %ux%u, pass scale %.3f x %.3f, pass %ux%u, "
++        "surface %ux%u)",
++        base, d.variant, rect.left, rect.top, rect.right, rect.bottom, surface, gpureg::Get(0x2001), r.width, r.height, r.hostWidth, r.hostHeight, p.scaleX,
++        p.scaleY, p.width, p.height, UINT(C().color->GetDesc().Width), UINT(C().color->GetDesc().Height));
++    std::lock_guard lock(g_midDumpLock);
++    g_midDumps.push_back(std::move(d));
++}
++
+ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXGI_FORMAT format, const D3D12_RECT& rect, float scale, bool swapRB,
+     const float* destRange, uint32_t toGamma)
+ {
+@@ -9881,6 +9924,30 @@ void Resolve()
+         else if (request.mode == regpu::Writeback::Mode::Deferred && (depth || anyFormat))
+             QueueDeferredWriteback(base, width, height, info, depth, rect, request);
+         } // !intoOwnBase
++        // REGPU_DUMP_EACH_RESOLVE=<hex base>[,...] (live, debug): the image at that base right after each resolve
++        // into it, to out/res as <base>_<w>x<h>_v<100+n>.png at the end of the frame (n counts up), and a log line.
++        // Shows what each of several copies into one image wrote (the end-of-frame dumps show only the last).
++        if (const char* each = getenv("REGPU_DUMP_EACH_RESOLVE"); each && *each && !depth)
++            for (const char* p = each; *p;)
++            {
++                uint32_t w = 0, h = 0;
++                const bool bySize = sscanf(p, "%ux%u", &w, &h) == 2 && strchr(p, 'x') && (!strchr(p, ',') || strchr(p, 'x') < strchr(p, ','));
++                if (bySize ? LONG(w) == rect.right - rect.left && LONG(h) == rect.bottom - rect.top
++                           : (uint32_t(strtoul(p, nullptr, 16)) & 0x1FFFFFFF) == base)
++                {
++                    QueueMidFrameDump(base, gpureg::Get(RB_SURFACE_INFO), rect);
++                    // And the host surface it was copied from, through the ordinary copy (1280x720 at the pass's
++                    // scale) into a spare image at a base no title uses this high, dumped the same way.
++                    constexpr uint32_t kSnapBase = 0x1C000000;
++                    BlitResolve(false, kSnapBase, kWidth, kHeight, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RECT{ 0, 0, LONG(kWidth), LONG(kHeight) }, 1.0f);
++                    QueueMidFrameDump(kSnapBase, gpureg::Get(RB_SURFACE_INFO), D3D12_RECT{ 0, 0, LONG(kWidth), LONG(kHeight) });
++                    break;
++                }
++                const char* comma = strchr(p, ',');
++                if (!comma)
++                    break;
++                p = comma + 1;
++            }
+     }
+     // Clears after a tile's resolve prepare the EDRAM for the next tile, which
+     // we draw lower on the same host surface: a full-width clear covers every
+@@ -13202,7 +13269,20 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+                 if (const CompiledShader* k = NoKillShader(ps))
+                     psUsed = k;
+         }
+-        pso = GetPipeline(vs, *psUsed, edramMode == 5, cullable, false, stripCut && directIndex, false, psUsed != &ps);
++        // A depth-only rectangle (EDRAM mode 5, no textures: a depth/stencil reset) whose depth surface starts at the
++        // colour surface's EDRAM base writes the EDRAM that colour surface reads: the console has one EDRAM, and its
++        // depth words land in the colour pixels there. Titles rely on it to zero a colour target with a stencil reset.
++        // We keep colour and depth apart, so the rectangle also writes the colour target, with its own colour output
++        // (a clear's colour; zero, as the zeroed depth/stencil words are, for the resets seen so far). FM3 port: the
++        // vinyl editor's high-detail 4x layer pass (a car's rear wing) clears its first columns only this way; its
++        // layers are blended front to back by the destination's alpha, and over the colour another pass left there
++        // (alpha 1) they added nothing: the wing's vinyl was missing in a 120x256 block. REGPU_NO_DEPTH_RESET_COLOR=1:
++        // depth only, as before (A/B, live).
++        static LiveSwitch noDepthResetColor("REGPU_NO_DEPTH_RESET_COLOR");
++        const bool depthOnly = edramMode == 5 &&
++            !(g_plainRectDraw && !noDepthResetColor && (gpureg::Get(RB_DEPTH_INFO) & 0xFFF) == (gpureg::Get(RB_COLOR_INFO) & 0xFFF) &&
++                (gpureg::Get(0x2200 /* RB_DEPTHCONTROL */) & 5) != 0);
++        pso = GetPipeline(vs, *psUsed, depthOnly, cullable, false, stripCut && directIndex, false, psUsed != &ps);
+     }
+     if (!pso)
+     {
+@@ -15987,6 +16067,13 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     const bool shot = fromResolve && DebugShotPending(shotPath);
+     if (shot)
+         dumpFrame = g_r.frame;
++    bool midDumps = false;
++    {
++        std::lock_guard lock(g_midDumpLock);
++        midDumps = !g_midDumps.empty();
++    }
++    if (midDumps && fromResolve)
++        dumpFrame = g_r.frame;
+     // REGPU_DUMP_AT=<seconds>: dump the first resolved frame after that long (comparable
+     // screenshots whatever the frame rate).
+     {
+@@ -16018,9 +16105,29 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+     // REGPU_DUMP_RESOLVES=1 (with REGPU_DUMP_FRAME): also write every resolved texture to out/res.
+     static std::vector<ResolveDump> resolveDumps;
+     resolveDumps.clear();
++    if (dump)
++    {
++        std::lock_guard lock(g_midDumpLock);
++        for (ResolveDump& d : g_midDumps)
++            resolveDumps.push_back(std::move(d));
++        g_midDumps.clear();
++    }
+     // (Only the captured frame itself: g_hotkeyFrame keeps its value after a capture, and every later debug-server
+     // shot, which sets dumpFrame to its frame, wrote all resolves too: ~30 s per shot with thousands of them.)
+-    if (dump && (getenv("REGPU_DUMP_RESOLVES") || (g_hotkeyFrame.load() && g_r.frame == dumpFrame && dumpFrame == g_hotkeyFrame.load())))
++    // REGPU_DUMP_RESOLVES_AT=<hex base>[,<hex base>...] (live, e.g. the debug server's env): the next dumped frame (a
++    // debug-server shot) also writes those resolved images, spares included, to out/res. Images stay between the
++    // passes that build them, so an editor's preview passes can be read while it sits idle.
++    std::vector<uint32_t> dumpOnly;
++    if (const char* at = getenv("REGPU_DUMP_RESOLVES_AT"); dump && at && *at)
++        for (const char* p = at; *p;)
++        {
++            dumpOnly.push_back(uint32_t(strtoul(p, nullptr, 16)) & 0x1FFFFFFF);
++            const char* comma = strchr(p, ',');
++            if (!comma)
++                break;
++            p = comma + 1;
++        }
++    if (dump && (getenv("REGPU_DUMP_RESOLVES") || !dumpOnly.empty() || (g_hotkeyFrame.load() && g_r.frame == dumpFrame && dumpFrame == g_hotkeyFrame.load())))
+     {
+         auto add = [&](uint32_t base, ResolvedTexture& r, int variant) {
+             if (!r.resource)
+@@ -16054,6 +16161,8 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         };
+         for (auto& [base, r] : g_r.resolved)
+         {
++            if (!dumpOnly.empty() && std::find(dumpOnly.begin(), dumpOnly.end(), base) == dumpOnly.end())
++                continue;
+             add(base, r, 0);
+             int v = 1;
+             for (ResolvedTexture& spare : r.spares)

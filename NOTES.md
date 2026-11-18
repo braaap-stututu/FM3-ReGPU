@@ -9,16 +9,21 @@
   (`build/rel` is ReXenon's code). Details: "Session 41" below.
 - **Build state:** `build/rel` = ReXenon (`out/ppc-rexenon`, CMake `FM3_RECOMPILER=rexenon`, default); XenonRecomp is
   still selectable (`-DFM3_RECOMPILER=xenonrecomp` in another build folder, `play.cmd` with `FM3_BUILD=<folder>`). Patch
-  stacks: 5 XenonRecomp, 75 ReGPU, 1 ReXenon (`tools\setup.ps1 -NoBuild` verifies all three). Recompile: `tools\recomp.ps1`
+  stacks: 5 XenonRecomp, 76 ReGPU, 1 ReXenon (`tools\setup.ps1 -NoBuild` verifies all three). Recompile: `tools\recomp.ps1`
   (defaults to ReXenon; it stops with an error on anything unresolved). Not yet played in a race by the user on ReXenon.
 - **Vinyls, what holds now (user-checked):** Scion, Supra, CR-X right; the general rule (copies drawn into every image
   whose memory holds them, `regpu-copies-by-range`) fixed a Civic's roof/side with no car-specific change; the garage /
   menu livery (the CPU's compressed copy) no longer breaks after editing (user: "it doesn't break anymore"). The user said
   vinyls "still need some fixing up" and parked that for later.
-- **Vinyls, open:** (1) the Fiat 500's wing (session 42, traced, not fixed: see "Fiat wing trace (session 42)" in
-  VINYLISSUES.md: the first 272 rows of its 176x440 region lack the vinyl; the region draw's vinyl input is fine at low
-  detail; suspects: the 4x high-detail vinyl pass (146x424) and its clears (`REGPU_NO_MSAA_COLOR_SCALE` changes the cut);
-  next: a debug-server command that dumps any resolved image by address, then compare inputs at idle);
+- **Session 42: Fiat wing fixed** (ReGPU patch 76 `regpu-depth-reset-color`; VINYLISSUES "Fiat wing (session 42)"): the vinyl
+  editor's high-detail 4x layer pass clears its first columns only with a depth-only stencil reset at the colour surface's EDRAM
+  base (console: one EDRAM, so the colour there is zeroed); ReGPU kept colour apart, the layers (blended by destination alpha)
+  added nothing over the car-shade pass's alpha-1 leftover. Fix: such a rectangle also writes the colour; `REGPU_NO_DEPTH_RESET_COLOR=1`
+  = old. Checked by me in the editor (A/B by re-entering it: half white -> fully yellow) and the frozen grid (0 pixels). New debug:
+  `REGPU_DUMP_RESOLVES_AT`, `REGPU_DUMP_EACH_RESOLVE` (patches/README). Seen, not new: the wing's rear face looks dark green from
+  behind (same with the fix off): maybe the olive/green item below. The user asked me to drive editor tests myself (route: title A,
+  FORZA MOTORSPORT 3, menu wakes on Y, Paint (4th), Apply Decals, RB to the tab; leaving and re-entering Apply Decals rebuilds the livery).
+- **Vinyls, open:** (1) the wing's dark-green rear face (see above; compare with hl360);
   (2) olive rear bumpers on some Asian Car Pack cars (1994 Civic VTi): the final atlas is 0.8 x vinyl + 0.2 x pure green
   under the bumper; the region compose is right, so the mix comes from the later strip pass with the car's base texture:
   compare with hl360 first (is it console behaviour?); (3) proposal step 3 not built: write-back by what the CPU reads

@@ -130,7 +130,7 @@ W / S = throttle / brake, A / D = steer, Q / E = LB / RB, J L I K = right stick.
 |---|---|
 | `CMakeLists.txt` | The game build (needs `out/ppc`, `thirdparty/fidelityfx`, `thirdparty/ffmpeg`) |
 | `config/` | XenonRecomp config and switch tables for `default.xex` |
-| `patches/` | 1 ReXenon, 5 XenonRecomp and 75 ReGPU patches, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
+| `patches/` | 1 ReXenon, 5 XenonRecomp and 76 ReGPU patches, applied by `tools/setup.ps1` ([patches/README.md](patches/README.md)) |
 | `src/` | Runtime: kernel/XAM, loader, threads, fibers, audio, ReGPU host glue ([src/README.md](src/README.md)) |
 | `install-disc2.cmd` | Installs Disc 2's content packages from the disc image (same as the launcher's Disc 2 tile) |
 | `play.cmd` | Development launcher (debug server on, saves in `out/user`, log in `out/run`) |

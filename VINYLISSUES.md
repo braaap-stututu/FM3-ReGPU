@@ -23,7 +23,19 @@ the poster bug), what fixed each one, what is still open, and how to test. State
 3. **Honda CRX: vinyls invisible in the paint booth** (seen once, in the build that still had the poster bug).
    Probably the poster bug (a region drawn into the wrong image); re-check with the current build first.
 
-## Fiat wing trace (session 42, not fixed yet)
+## Fiat wing (session 42, fixed: ReGPU patch 76 `regpu-depth-reset-color`)
+
+**Cause, found with the new per-copy dumps (`REGPU_DUMP_EACH_RESOLVE=152x424`):** the high-detail vinyl pass (4x, pitch 160, EDRAM
+colour base 0) clears columns 120-146 with a colour rectangle but columns 0-120 only with depth-only (EDRAM mode 5) stencil resets,
+one of them on a depth surface at base 0, the colour's own EDRAM: on the console that zeroes the colour too. ReGPU keeps depth and
+colour in separate surfaces, so the colour kept what the car-shade pass (a 256x256 image at the same base, cleared with a
+120x128 rectangle through a 4x view, scaled to 240x256) left there with alpha 1, and the layers, blended front to back by the
+destination's alpha (`RB_BLENDCONTROL 010B010B`), added nothing in that 240x256 block: the wing's first 256 rows of the image.
+Fix: a texture-less mode-5 rectangle whose depth base equals the colour base also writes the colour with its own output (zero
+here). A second change (the session-16 clear scale only when the pass itself shows the 1x layout) was tried and dropped: not
+needed. Verified: editor A/B by re-entering Apply Decals (off: half white; on: fully yellow), frozen grid 0 pixels.
+
+### The trace (kept for the method)
 
 Symptom: the wing's left half takes the vinyl, the right half stays bare paint (white on the test car).
 

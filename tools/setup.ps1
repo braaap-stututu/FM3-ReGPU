@@ -94,6 +94,7 @@ $regpuPatches = @(
     'regpu-big-pass-width'           # Big passes (surfaces wider than 1280) keep their own width, not pitch*64/65: vinyl edge gaps
     'regpu-resolve-into-own-base'    # A copy much narrower than the image at its own base is drawn into that image (FM3's CRX rear-bumper vinyl region at the livery's texel 0,0); trace of every copy's enclosing match
     'regpu-copies-by-range'          # A copy is drawn into every image whose memory holds its destination (tiled range, same pitch/format), not chosen by guessed rules; off-screen draws wait for their pipelines
+    'regpu-depth-reset-color'        # A depth-only rectangle at the colour surface's EDRAM base also writes colour (shared EDRAM); debug dumps REGPU_DUMP_RESOLVES_AT / REGPU_DUMP_EACH_RESOLVE
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }
