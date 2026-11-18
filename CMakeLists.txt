@@ -32,6 +32,16 @@ add_subdirectory(${FM3_XENON_DIR} EXCLUDE_FROM_ALL)
 
 # Recompiled game code: out/ppc (or out/ppc-rexenon), produced from your own default.xex
 # (config/fm3.toml, Phase 2). Never committed.
+# FM3_EXPERIMENTAL (session 45, branch experimental): the experimental system, built in its own folder (build/exp):
+# ReXenon with its register optimisations (tools/recomp.ps1 -Experimental -> out/ppc-rexenon-exp) and the experimental
+# ReGPU paths on by default (src/gpu_host.cpp). The launcher's "Experimental build" option runs build/exp/fm3.exe.
+option(FM3_EXPERIMENTAL "Experimental system: out/ppc-rexenon-exp and the experimental renderer paths" OFF)
+if(FM3_EXPERIMENTAL)
+    if(NOT FM3_RECOMPILER STREQUAL "rexenon")
+        message(FATAL_ERROR "FM3_EXPERIMENTAL needs FM3_RECOMPILER=rexenon")
+    endif()
+    set(FM3_PPC_DEFAULT "${CMAKE_SOURCE_DIR}/out/ppc-rexenon-exp")
+endif()
 set(FM3_PPC_DIR "${FM3_PPC_DEFAULT}")
 file(GLOB FM3_PPC_SOURCES CONFIGURE_DEPENDS "${FM3_PPC_DIR}/*.cpp")
 if(NOT FM3_PPC_SOURCES)
@@ -127,6 +137,7 @@ target_link_libraries(fm3 PRIVATE regpu fm3_ppc XenonUtils synchronization winmm
 # Racing wheels, pedals, shifters and handbrakes (src/input/wheel, DirectInput).
 target_link_libraries(fm3 PRIVATE dinput8 dxguid)
 target_compile_definitions(fm3 PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS FM3_REGPU_FM4=$<BOOL:${FM3_REGPU_FM4}>)
+target_compile_definitions(fm3 PRIVATE FM3_EXPERIMENTAL=$<BOOL:${FM3_EXPERIMENTAL}>)
 target_compile_options(fm3 PRIVATE -gline-tables-only)
 target_link_options(fm3 PRIVATE /STACK:0x1000000 /DEBUG)
 if(FM3_PGO STREQUAL "gen")

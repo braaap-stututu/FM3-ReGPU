@@ -65,6 +65,11 @@ int main(int argc, char** argv)
         }).detach();
     std::filesystem::path gameDir = argc > 1 ? argv[1] : "game";
     Log("fm3: game folder %s", std::filesystem::absolute(gameDir).string().c_str());
+#if FM3_EXPERIMENTAL
+    // Session 45: build/exp (CMake FM3_EXPERIMENTAL): ReXenon with register optimisations (out/ppc-rexenon-exp)
+    // and the experimental renderer paths on by default (src/gpu_host.cpp, ApplyExperimentalDefaults).
+    Log("fm3: experimental build (out/ppc-rexenon-exp, experimental renderer paths)");
+#endif
 
     MemoryInit();
     LoadTitle(gameDir / "default.xex");

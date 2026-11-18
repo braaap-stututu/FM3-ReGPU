@@ -10,7 +10,12 @@
 # -Recompiler rexenon (session 41): ReXenon (thirdparty/ReXenon, build\tools-rexenon) -> out\ppc-rexenon from the same
 # config (config\fm3_rexenon.toml is written from config\fm3.toml with that output folder; log out\recomp-rexenon.log);
 # build it with -DFM3_RECOMPILER=rexenon (build\rexenon). ReXenon stops with an error if anything is left unresolved.
-param([string]$Xex, [switch]$Prepare, [ValidateSet('xenonrecomp', 'rexenon')][string]$Recompiler = 'rexenon')
+# -Experimental (session 45, branch experimental): ReXenon with its register optimisations on -> out\ppc-rexenon-exp
+# (config\fm3_rexenon_exp.toml, log out\recomp-rexenon-exp.log): r14-r31/f14-f31/v14-v31/v64-v127 in host locals
+# (non_volatile_as_local, made safe by ReXenon's context-function analysis), save/restore helpers inlined, empty
+# functions and return LR stores left out. Built in build\exp (-DFM3_EXPERIMENTAL=ON); the launcher's
+# "Experimental build" option runs it. The normal out\ppc-rexenon is untouched.
+param([string]$Xex, [switch]$Prepare, [ValidateSet('xenonrecomp', 'rexenon')][string]$Recompiler = 'rexenon', [switch]$Experimental)
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -41,6 +46,21 @@ if ($Prepare) {
 if ($Recompiler -eq 'rexenon') {
     $rx = Join-Path $root 'build\tools-rexenon\XenonRecomp\XenonRecomp.exe'
     if (-not (Test-Path $rx)) { throw 'build\tools-rexenon is missing: run tools\setup.ps1' }
+    if ($Experimental) {
+        # sub_821F6AF8 hands the frame time back to sub_821F5DE8 in r30/f31 (src/hooks/frame_time.cpp reads and
+        # writes them there): both stay on the context so that hand-back survives.
+        $cfg = (Get-Content config\fm3.toml) -replace '^out_directory_path = "../out/ppc"$', 'out_directory_path = "../out/ppc-rexenon-exp"'
+        $cfg = $cfg -replace '^non_volatile_as_local = false$', (@(
+            'non_volatile_as_local = true', 'inline_register_thunks = true', 'elide_return_lr = true',
+            'elide_empty_functions = true', 'context_functions = [0x821F6AF8, 0x821F5DE8]') -join "`r`n")
+        $cfg | Set-Content -Encoding ascii config\fm3_rexenon_exp.toml
+        if (Test-Path out\ppc-rexenon-exp) { Remove-Item -Recurse -Force out\ppc-rexenon-exp }
+        if ((Invoke-To out\recomp-rexenon-exp.log "`"$rx`" config\fm3_rexenon_exp.toml thirdparty\ReXenon\XenonUtils\ppc_context.h") -ne 0) {
+            Get-Content out\recomp-rexenon-exp.log -Tail 30; throw 'ReXenon failed (out\recomp-rexenon-exp.log)'
+        }
+        Get-Content out\recomp-rexenon-exp.log | Where-Object { $_ -notmatch '^Recompiling' }
+        return
+    }
     (Get-Content config\fm3.toml) -replace '^out_directory_path = "../out/ppc"$', 'out_directory_path = "../out/ppc-rexenon"' |
         Set-Content -Encoding ascii config\fm3_rexenon.toml
     if (Test-Path out\ppc-rexenon) { Remove-Item -Recurse -Force out\ppc-rexenon }
