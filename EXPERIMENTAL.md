@@ -37,6 +37,7 @@ each piece can still be A/B'd live in the experimental one.
 | X4 | **Constants on the GPU.** The guest constant file goes to the GPU as register-write deltas, and shaders read their constants from a per-draw snapshot index, so the CPU stops packing about 1 KB a draw into write-combined memory. | ReGPU | **Next.** Constants are 33% of the draw thread, and the write-combined ring copy is part of submit's 31% |
 | X5 | **Optimising shader translator.** Values known per draw are folded in (beyond the fetch and bool specialisations, which were noise on their own), plus dead outputs, register pressure and the AI-car material shaders. Checked against the old output pixel by pixel. | ReGPU `hlsl.cpp` | Later; RGA statistics first |
 | X7 | **Per-frame debug variables read only after a change** (`REGPU_EXP_ENV_GENERATION`). The CRT's getenv took ~10 us a call, and 1.8% of the draw thread went on five once-a-frame reads. | ReGPU patch `regpu-exp-env-generation` | Done: on 2 cores +0.9%, 6/6 rounds, 0 pixels; on by default in the experimental build |
+| X8 | **Small vertex uploads without hashing on repeat use.** ReGPU's own `REGPU_UPLOAD_STABLE_REUSE` (sampled check): frozen grid on 2 cores +0.9%, 4/5 rounds, 0 pixels. It is not exact, though: a never-changed buffer first rewritten between two draws of a frame can be missed once. Made exact with the vertex arena's page write watch (`REGPU_EXP_UPLOAD_WATCH`, built and measured, then removed): -0.7%, 0/6 rounds, because the game's writes to armed pages fault | ReGPU | Exact version dropped; sampled version left opt-in (picture risk) |
 | X6 | **More ReXenon:** condition-flag liveness, byte-swap elimination, cross-function inlining, better VMX128 mapping. The guest threads only limit weak CPUs (Steam Deck, 4 cores). | `thirdparty/ReXenon` (patches) | Later |
 
 ## Results
@@ -90,3 +91,9 @@ each piece can still be A/B'd live in the experimental one.
 
   Bool/loop constants alone never change. Registers 0x2080-0x2082 are written about 1.7 times a draw, then 0x057F
   and 0x2180 (37% each) and the 0x2200-0x2208 block. A previous-draw fast path is therefore weak.
+- **Command processor** (ReGPU's PM4 thread, guest thread 9, race, `out/bench/matrix-exp-cpprof-*`): waiting or
+  sleeping ~47%, ExecutePacket's own code ~31%, memcpy 5%, atomic stores 4%. No large single cost.
+- **Where this leaves the deep work (session 45):** every measured draw-thread and CP cost is now 1-5%. The
+  remaining big lever is X4 in full: the guest's constants on the GPU and the per-draw blocks no longer packed by
+  the CPU. That means a shader preamble and root signature change, every shader recompiled, and weeks of work. The
+  user decides between that, more small wins, or ReXenon (X6) for weak CPUs.

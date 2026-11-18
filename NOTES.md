@@ -26,6 +26,12 @@
   - **Honest outlook (told the user):** ReGPU's per-draw cost is spread thin; my session-44 estimate (+30-60%) is a
     ceiling. **Next: X4 constants on the GPU** (constants 33% of the draw thread, the WC ring copy part of submit's 31%),
     then X5 shader translator; X6 more ReXenon for weak CPUs.
+- **Later in session 45 (user: "continue with the experimental rebuild"):** the user drove 2 laps of Crown Jewel on the
+  experimental build (CRX): no errors, 346 fps while racing (360 cap up to ~2,400 draws), 9 long frames of 7-20 ms
+  (first run after the seed update; 6 shader-variant compiles = normal); `out/run/fm3.drive45-exp.log`. X8 (small
+  vertex uploads): ReGPU's sampled `REGPU_UPLOAD_STABLE_REUSE` +0.9% on the 2-core grid but not exact; an exact
+  write-watch version (`REGPU_EXP_UPLOAD_WATCH`) -0.7% (page faults), removed. CP profile: no large cost. EXPERIMENTAL.md
+  "Where this leaves the deep work": the user picks full X4 (weeks), small wins, or ReXenon X6.
 - **AI tour (request from session 44), paused by the user:** environments 0-13 (to Nordschleife layout 2) raced with
   the ARX-02a (`Start-AiTour -From 13 -FromLayout 3 -RebootEach` resumes); seed merged: **3,647 pipelines** (commit
   211a4fa on main; `build\rel` not rebuilt with it yet). The renderer-cache growth fix (plan in the session-44
