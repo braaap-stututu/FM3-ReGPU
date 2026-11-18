@@ -409,6 +409,22 @@
       <div class="panel-head"><h2>Backups</h2><button class="ghost small" id="prof-backups-open" data-tip="Opens the backups folder.">Open</button></div>
       <div class="list" id="prof-backups"></div>
     </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Edit profile</h2><span class="count" id="prof-edit-name"></span></div>
+      <p class="hint">Credits for the profile selected on the left. The game applies the change the next time this profile is played, through its own credits code, and saves it at its next save (after a race or a purchase). Up to 20,000,000 (the game cuts back more when it loads).</p>
+      <div class="buttons-row wrap">
+        <select id="prof-cr-mode" data-tip="Add puts the amount on top of what the profile has. Set replaces it.">
+          <option value="add">Add</option>
+          <option value="set">Set to</option>
+        </select>
+        <input id="prof-cr-amount" type="number" min="0" max="20000000" step="1000" value="1000000" spellcheck="false">
+        <span>CR</span>
+        <button class="primary small" id="prof-cr-apply" data-tip="Applies when the game next starts with this profile. If the game is running, it applies the next time the game reads the credits (open a menu that shows them).">Apply</button>
+      </div>
+      <div class="status" id="prof-edit-status"></div>
+      <div class="buttons-row"><button class="ghost small" id="prof-edit-cancel" hidden>Cancel the request</button></div>
+    </section>
   </main>
 
   <!-- SETTINGS -->

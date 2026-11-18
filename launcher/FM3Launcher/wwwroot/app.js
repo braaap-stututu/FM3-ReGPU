@@ -651,6 +651,10 @@ function renderProfiles() {
   for (const id of ["prof-backup", "prof-duplicate", "prof-rename", "prof-export", "prof-delete"]) $(id).disabled = !p
   for (const id of ["prof-duplicate", "prof-rename", "prof-delete", "prof-import"]) if (running) $(id).disabled = true
   $("prof-status").textContent = running ? "The game is running: close it to change profiles (it saves on exit)." : ""
+  $("prof-edit-name").textContent = p ? p.name : ""
+  $("prof-cr-apply").disabled = !p
+  $("prof-edit-status").textContent = p && p.pendingEdit ? `Waiting for the game: ${p.pendingEdit}.` : ""
+  $("prof-edit-cancel").hidden = !(p && p.pendingEdit)
 
   const bl = $("prof-backups")
   bl.replaceChildren()
@@ -707,6 +711,14 @@ $("prof-delete").onclick = async () => {
   $("prof-modal").hidden = true
   refresh()
 }
+$("prof-cr-apply").onclick = () => {
+  const amount = Math.floor(Number($("prof-cr-amount").value))
+  if (!(amount >= 0 && amount <= 20000000)) { toast("Pick an amount from 0 to 20,000,000.", false); return }
+  const mode = $("prof-cr-mode").value
+  profileCall("profiles.credits", { name: profileSel, mode, amount },
+    `${profileSel}: ${mode === "set" ? "credits set to" : "adds"} ${amount.toLocaleString()} CR the next time it's played.`)
+}
+$("prof-edit-cancel").onclick = () => profileCall("profiles.cancelEdit", { name: profileSel }, "Request cancelled.")
 $("prof-backups-open").onclick = () => guarded(() => call("profiles.openBackups"))
 
 async function refresh() {

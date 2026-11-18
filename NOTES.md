@@ -1,6 +1,42 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-18, session 43)
+## ▶ Current status / next step  (updated 2026-11-18, session 44)
+
+### ▶ Start here (session 45): state at the end of session 44 (2026-11-18)
+- **In short:** two things the user asked for.
+  - **Engine sound at high frame rates:** a port of the FM2 port's fix `a7aea015b` in `src/hooks/audio_cadence.cpp`,
+    on by default.
+  - **Profile editing (credits):** `src/hooks/profile_edit.cpp`, plus the launcher's Profiles page > **Edit profile**.
+- **Engine sound:**
+  - **Cause:** FM3's audio is built like FM2's. At the 360 cap the audio thread dropped **~48%** of the per-frame car
+    audio updates in its catch-up replays (frozen grid: 14,416 sent per 5 s, ~7,500 run).
+  - **Fix:** catch-up replays run them all, and the main thread sends the dt updates at most ~120 times a second with
+    the held-back dt added up. Measured: 4,816 sent and 4,816 run per 5 s with the race clock running.
+  - **Not yet heard by the user.** It may be the cause of OPEN-ISSUES **G** (the "AAAAEEEEOOOO" sweep at held revs):
+    ask them to drive and listen. To A/B live: `Fm3 "env FM3_AUDIO_CATCHUP_DROP 1"` (the game's way) and
+    `FM3_AUDIO_UPDATE_HZ 0` (every frame).
+- **Profile editing:**
+  - The launcher (or a hand-written file) puts `credits=N` or `add_credits=N` in `<user>\profiles\<name>\profile-edit.ini`.
+  - The game applies it through FM3's own SetCredits the first time it reads the credits, logs `profile edit: credits A -> B`,
+    and renames the file `profile-edit.applied.ini`.
+  - **Tested on a copy of the session 41 save:** +50,000 applied, the RSX Type-S bought (−10,000), and 63,591 CR after
+    a restart.
+  - The game saves the change only at its next save (a race, a purchase). Quitting from the menus keeps the old amount.
+- **Found while testing: the current Baseline save crashes on buying a car.** The crash is `indirect call to 00000000`
+  from `sub_827C5FD8`, which is **issue H's signature** (a damaged garage record; VINYLISSUES H).
+  - It happens on a copy of today's Baseline (`out/profile-backups/s44-before-credits`). The **session 41 backup**
+    (`s41-before-vinyl`) buys the same car fine.
+  - So the damage came in between, during the session 41-42 vinyl/editor work. The user's Fiat/Civic liveries were
+    made then.
+  - **Next:**
+    1. Tell the user before they buy cars on Baseline (crash = no save, but the purchase is lost).
+    2. Find what changed in the garage between the two saves. hl360 on a copy (`boot hl360 fiat.cmd` style) tells
+       whether it is the save.
+    3. Check whether a car vanished from My Cars (H's old symptom).
+- **Launcher:** rebuild it (`dotnet build launcher\FM3Launcher -c Release`) once the open launcher is closed. That
+  brings session 43's "Texture memory limit" and this session's Edit profile panel. It compiles (checked into a
+  scratch folder), but the panel hasn't been seen live (single-instance lock, the user's launcher was open).
+- **Build state:** `build/rel` = ReXenon + 81 ReGPU patches + the two new hooks (built, booted).
 
 ### ▶ Start here (session 44): state at the end of session 43 (2026-11-18)
 - **In short:** the speed presets are now **ReGPU's Hyper**, ported from the FM2 port's `hyper-prototype` branch (it is
@@ -76,6 +112,59 @@
   Never hand-write GPU barriers for a dump (two driver timeouts tonight: the surface state is tracked in C().colorState).
 - **Still open from before:** NOTES "Start here (session 42)" below (shader-sharing server, seed filtering, next release),
   session 40's list, OPEN-ISSUES.md.
+
+### Session 44 (2026-11-18): engine sound at high frame rates (FM2 port's fix), profile editing (credits)
+- **Engine sound (FM2 ReGPU `a7aea015b`, "the audio thread no longer drops engine updates at high frame rates"):**
+  - **Same design in FM3.** Its audio thread (CAudioThread, loop body `sub_821E9390`, queue at +0x18) sleeps 5 ms
+    when idle. When more packets wait than last time + 2, it replays the head with `sub_821FC878(queue, 1)`. That
+    "catch-up" mode skips the commands recorded droppable: `sub_821FB200`'s r8 = 0, command byte +16 = 0. (Not 1 as
+    one might guess: nearly every command is recorded with r8 = 1.)
+  - **The droppable per-frame ones:**
+    - CCarAudioDeferred slot 7 `sub_821F8308` (dt f1 + 528-byte car snapshot; replayed by `sub_828E6B10`);
+    - CAudioManagerDeferred slot 7 `sub_8222C120` (dt + "game mode running" byte);
+    - slot 9 `sub_821E9520` (224-byte listener snapshot, no dt; not coalesced).
+  - **Measured on the frozen grid at the 360 cap** (`FM3_TRACE_AUDIO_CADENCE=1`): 2,883 car updates a second for 8
+    cars (= 360 per car, one per main-loop pass). ~48% were dropped, and half of the audio thread's replays were
+    catch-ups.
+  - **Fix (`src/hooks/audio_cadence.cpp`, live switches):**
+    - catch-ups keep them (`FM3_AUDIO_CATCHUP_DROP=1` = the game's way);
+    - the two dt updates go out at most ~120 a second per object, with the dt added up (`FM3_AUDIO_UPDATE_HZ`, 0 =
+      every frame; dt <= 0 always passes).
+  - **Result:** 0 dropped. With the race clock running (`FM3_FREEZE_TIME 0`): 4,816 sent and 4,816 run per 5 s.
+  - **Not heard yet.**
+- **Profile editing:**
+  - The saves are encrypted (`cmss` header on ForzaProfile / PlayerDatabase), so editing happens in memory through
+    the game's code.
+  - **How the credits were found:**
+    1. Read the amount off My Profile (3,591 CR, total winnings 23,991).
+    2. `tools/analysis/memscan.py` (new: big-endian value search, optionally near a second value) finds three copies.
+       The live one is a `CVariant` (vtable `8209CD90`, int at +8) in the profile's property tree, next to its
+       "Credits" name record.
+    3. A poke showed 1,000,000 in the menu, but **quitting doesn't save**.
+  - **Code:**
+    - `"Main/Credits"` users: `sub_82261010(profile)` = GetCredits; `sub_82263568(profile, n)` = SetCredits (caps
+      at 999,999,999, writes the tree, notifies).
+    - `sub_822686B8` (a profile check, not on every load) caps credits above **20,000,000** down to 20,000,000.
+  - **`src/hooks/profile_edit.cpp`:**
+    - hooks GetCredits; while `<profile>\profile-edit.ini` exists (checked at most once a second), the next read
+      applies `credits=`/`add_credits=` through SetCredits (kept to 0..20M);
+    - logs `profile edit:` and renames the file `.applied.ini`.
+    - (A first try hooked `sub_822686B8`; it didn't run on this load path.)
+  - **Launcher:** Profiles page > Edit profile (Add / Set to, amount, Apply, pending request + Cancel;
+    `Profiles.RequestCredits`, `profiles.credits` / `profiles.cancelEdit`).
+  - **Tests (copies of the user's save in a `CreditsTest` profile, deleted afterwards; the real Baseline untouched,
+    backup `out/profile-backups/s44-before-credits`):**
+    - the edit applies at profile load (3,591 → 1,003,591, shown by the game's own UI);
+    - on a copy of the session 41 save, 23,591 → 73,591, the RSX Type-S bought, game saved, restart: 63,591 CR and the
+      RSX in My Cars.
+- **Buying crashes on today's Baseline save:** `indirect call to 00000000` from `sub_827C5FD8`, the same as issue H
+  (VINYLISSUES). The session 41 copy is fine. Open; see "Start here (session 45)".
+- **Lessons:**
+  - The **virtual pad in menus**: `hold` + `release` with ~120 ms between and ~2 s after each press works. 300 ms
+    holds auto-repeat (moved 1.5 rows) and plain `press` sometimes drops.
+  - Menus hide after ~5 s idle: `press RB` wakes them without moving.
+  - Guest address = host address − the low block's AllocationBase (`src/memory.cpp`: [0, 7F000000) is one committed
+    allocation starting at the 4 GB placeholder's base).
 
 ### Session 43 (2026-11-18): Hyper presets (ReGPU 77), Intel iGPU leads + compile throttle (ReGPU 78), launcher iGPU tab
 - **User's request:** switch our speed presets to the FM2 port's Hyper ("potato mode") from

@@ -192,6 +192,12 @@ public sealed class Bridge
                     Profiles.Export(name, file);
                     return true;
                 }
+            case "profiles.credits":
+                Profiles.RequestCredits(Str(a, "name"), Str(a, "mode"), a?["amount"]?.GetValue<long>() ?? 0);
+                return ProfilesState();
+            case "profiles.cancelEdit":
+                Profiles.CancelEdit(Str(a, "name"));
+                return ProfilesState();
             case "profiles.openBackups":
                 Platform.OpenFolder(Directory.CreateDirectory(Profiles.Backups).FullName);
                 return null;

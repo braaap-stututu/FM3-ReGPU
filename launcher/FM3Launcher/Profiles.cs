@@ -15,7 +15,7 @@ internal static class Profiles
     public static readonly string Root = Path.Combine(Paths.User, "profiles");
     public static readonly string Backups = Path.Combine(Paths.User, "backups");
 
-    public record Info(string Name, string Xuid, long Bytes, DateTime? LastPlayed, bool Active);
+    public record Info(string Name, string Xuid, long Bytes, DateTime? LastPlayed, bool Active, string? PendingEdit);
     public record Backup(string File, string Profile, long Bytes, DateTime Made);
 
     public static List<Info> List()
@@ -30,10 +30,40 @@ internal static class Profiles
             var files = Directory.Exists(content) ? new DirectoryInfo(content).EnumerateFiles("*", SearchOption.AllDirectories).ToList() : [];
             DateTime? last = files.Count > 0 ? files.Max(f => f.LastWriteTime) : null;
             list.Add(new Info(dir.Name, XuidOf(dir.Name), files.Sum(f => f.Length), last,
-                string.Equals(FolderName(active), dir.Name, StringComparison.OrdinalIgnoreCase)));
+                string.Equals(FolderName(active), dir.Name, StringComparison.OrdinalIgnoreCase), PendingEdit(dir.FullName)));
         }
         return list;
     }
+
+    // Profile editing (session 44): fm3.exe applies <profile>\profile-edit.ini through the game's own SetCredits the
+    // first time it reads the credits (src/hooks/profile_edit.cpp), then renames it profile-edit.applied.ini.
+    // 20,000,000 is the game's own cap at load: more would be cut back.
+    public const long MaxCredits = 20_000_000;
+
+    static string? PendingEdit(string folder)
+    {
+        var file = Path.Combine(folder, "profile-edit.ini");
+        if (!File.Exists(file)) return null;
+        foreach (var line in File.ReadAllLines(file))
+        {
+            var kv = line.Split('=', 2);
+            if (kv.Length != 2 || !long.TryParse(kv[1].Trim(), out var n)) continue;
+            if (kv[0].Trim() == "credits") return $"set the credits to {n:N0}";
+            if (kv[0].Trim() == "add_credits") return n >= 0 ? $"add {n:N0} credits" : $"take away {-n:N0} credits";
+        }
+        return null;
+    }
+
+    /// <summary>Asks the game to set ("set") or add ("add") credits the next time this profile is played.</summary>
+    public static void RequestCredits(string name, string mode, long amount)
+    {
+        if (amount < 0 || amount > MaxCredits) throw new ArgumentException($"Pick an amount from 0 to {MaxCredits:N0}.");
+        var key = mode == "set" ? "credits" : mode == "add" ? "add_credits" : throw new ArgumentException("Unknown mode.");
+        File.WriteAllText(Path.Combine(Dir(name), "profile-edit.ini"),
+            $"; Written by the launcher: fm3.exe applies this the next time the profile is played, then renames it.\n{key}={amount}\n");
+    }
+
+    public static void CancelEdit(string name) => File.Delete(Path.Combine(Dir(name), "profile-edit.ini"));
 
     /// <summary>The folder fm3.exe uses for a profile name (runtime.cpp: characters Windows forbids become '_').</summary>
     public static string FolderName(string name) =>
