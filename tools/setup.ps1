@@ -102,6 +102,8 @@ $regpuPatches = @(
     'regpu-less-ram'                 # Less RAM: memory report line, texture budget with eviction, upload ring's other place made only when used, pipeline library mapped from its file, k_8 kept as R8
     'regpu-exp-state-trace'          # Experimental system (session 45): REGPU_EXP_TRACE_STATE, how often a draw's state is unchanged but its float constants
     'regpu-exp-env-generation'       # Experimental system (session 45): REGPU_EXP_ENV_GENERATION, per-frame debug variables re-read only after the environment changed (g_envGeneration)
+    'regpu-exp-gpu-constants'        # Experimental system (session 45): REGPU_EXP_GPU_CONSTANTS (start-time, off): draws' float constants rebuilt on the GPU from a register log (correct, slower: kept off)
+    'regpu-resolve-dump-frame-env'   # REGPU_DUMP_EACH_RESOLVE read once a frame (FrameEnv), not by getenv per resolve (~1.5% of the draw thread; for main too)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

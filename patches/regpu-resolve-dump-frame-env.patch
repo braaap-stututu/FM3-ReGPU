@@ -1,0 +1,15 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 7d144d8..d1bec36 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -10785,7 +10785,9 @@ void Resolve()
+         // REGPU_DUMP_EACH_RESOLVE=<hex base>[,...] (live, debug): the image at that base right after each resolve
+         // into it, to out/res as <base>_<w>x<h>_v<100+n>.png at the end of the frame (n counts up), and a log line.
+         // Shows what each of several copies into one image wrote (the end-of-frame dumps show only the last).
+-        if (const char* each = getenv("REGPU_DUMP_EACH_RESOLVE"); each && *each && !depth)
++        // (Read through FrameEnv: a getenv per resolve was ~1.5% of the draw thread in an FM3 race, session 45.)
++        thread_local FrameEnv eachEnv{ "REGPU_DUMP_EACH_RESOLVE" };
++        if (const char* each = eachEnv.Get(); each && *each && !depth)
+             for (const char* p = each; *p;)
+             {
+                 uint32_t w = 0, h = 0;

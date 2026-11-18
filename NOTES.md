@@ -32,6 +32,13 @@
   vertex uploads): ReGPU's sampled `REGPU_UPLOAD_STABLE_REUSE` +0.9% on the 2-core grid but not exact; an exact
   write-watch version (`REGPU_EXP_UPLOAD_WATCH`) -0.7% (page faults), removed. CP profile: no large cost. EXPERIMENTAL.md
   "Where this leaves the deep work": the user picks full X4 (weeks), small wins, or ReXenon X6.
+- **Then (user chose "Full GPU constants"):** X4 stage 1 built (ReGPU patch 84 `regpu-exp-gpu-constants`,
+  `REGPU_EXP_GPU_CONSTANTS`, off): correct (0 differences in 25 M checked draws, picture right) but **slower** (2-core grid
+  -4%, draw thread 1.40 vs 1.33 us a draw, GPU +0.4 ms). Kept off; a stage 2 is the user's call (EXPERIMENTAL.md).
+  **Found on the way: `REGPU_DUMP_EACH_RESOLVE` (my session-42 patch 76) called getenv on every resolve (~1.5% of the draw
+  thread, normal build too)**; fixed in patch 85 `regpu-resolve-dump-frame-env` (applies on main's stack; not on main yet).
+  The earlier env-generation +0.9% was probably noise. One unexplained crash (shader-compiler threads, corrupted locale table,
+  sampler on; not repeated in 2 boots).
 - **AI tour (request from session 44), paused by the user:** environments 0-13 (to Nordschleife layout 2) raced with
   the ARX-02a (`Start-AiTour -From 13 -FromLayout 3 -RebootEach` resumes); seed merged: **3,647 pipelines** (commit
   211a4fa on main; `build\rel` not rebuilt with it yet). The renderer-cache growth fix (plan in the session-44

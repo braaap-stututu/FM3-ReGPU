@@ -34,9 +34,9 @@ each piece can still be A/B'd live in the experimental one.
 | X1 | **ReXenon register optimisations.** r14-r31, f14-f31, v14-v31 and v64-v127 are kept in host locals (`non_volatile_as_local`; ReXenon's dataflow keeps the 196 functions that read them before writing on the context). Save/restore helpers are inlined, and calls to the 1,257 empty functions and the return-LR stores are left out. `sub_821F6AF8`/`sub_821F5DE8` stay on the context, because the frame-time hook hands the frame time back in r30/f31. | `tools/recomp.ps1 -Experimental` | Built; races on 2 cores +1.75% (+4.4% at equal draws), p99 -3% (below); a drive is still to be done |
 | X2 | **Measure the draw thread per draw in a race** (line profile, 2 cores and full CPU): how much of DrawImpl is state derivation that repeats every frame, how much is constants, hashing, the WC ring store and pass scales. | `FM3_SAMPLE_THREAD=name:gpu draw worker`, `FM3_SAMPLE_CALLERS`, ReGPU `REGPU_EXP_TRACE_STATE` | Done (below) |
 | X3 | **Draw-state cache.** The pipeline, descriptor tables, index/vertex views and pass scales built once for a draw's state and reused while that state (registers, fetch constants, texture serials) is unchanged. Only the constants are written per draw. | ReGPU | **Dropped in this form:** only 10.5% of a race's draws keep the previous draw's state (X2). A cache across frames (the same draw in the next frame) would be the only version worth building; not yet designed |
-| X4 | **Constants on the GPU.** The guest constant file goes to the GPU as register-write deltas, and shaders read their constants from a per-draw snapshot index, so the CPU stops packing about 1 KB a draw into write-combined memory. | ReGPU | **Next.** Constants are 33% of the draw thread, and the write-combined ring copy is part of submit's 31% |
+| X4 | **Constants on the GPU.** The guest constant file goes to the GPU as register-write deltas, and shaders read their constants from a per-draw snapshot index, so the CPU stops packing about 1 KB a draw into write-combined memory. | ReGPU patch `regpu-exp-gpu-constants` (`REGPU_EXP_GPU_CONSTANTS`, off) | **Stage 1 built and correct, but slower** (results below). Kept off |
 | X5 | **Optimising shader translator.** Values known per draw are folded in (beyond the fetch and bool specialisations, which were noise on their own), plus dead outputs, register pressure and the AI-car material shaders. Checked against the old output pixel by pixel. | ReGPU `hlsl.cpp` | Later; RGA statistics first |
-| X7 | **Per-frame debug variables read only after a change** (`REGPU_EXP_ENV_GENERATION`). The CRT's getenv took ~10 us a call, and 1.8% of the draw thread went on five once-a-frame reads. | ReGPU patch `regpu-exp-env-generation` | Done: on 2 cores +0.9%, 6/6 rounds, 0 pixels; on by default in the experimental build |
+| X7 | **Per-frame debug variables read only after a change** (`REGPU_EXP_ENV_GENERATION`). The CRT's getenv took ~10 us a call, and 1.8% of the draw thread went on five once-a-frame reads. | ReGPU patch `regpu-exp-env-generation` | Done, on by default in the experimental build. **Correction:** its +0.9% was probably noise. The getenv cost stayed (1.5%) and came from the resolve path, fixed by `regpu-resolve-dump-frame-env`: 2-core grid draw thread 1.28-1.31 vs 1.32-1.36 us a draw, and it applies to main too |
 | X8 | **Small vertex uploads without hashing on repeat use.** ReGPU's own `REGPU_UPLOAD_STABLE_REUSE` (sampled check): frozen grid on 2 cores +0.9%, 4/5 rounds, 0 pixels. It is not exact, though: a never-changed buffer first rewritten between two draws of a frame can be missed once. Made exact with the vertex arena's page write watch (`REGPU_EXP_UPLOAD_WATCH`, built and measured, then removed): -0.7%, 0/6 rounds, because the game's writes to armed pages fault | ReGPU | Exact version dropped; sampled version left opt-in (picture risk) |
 | X6 | **More ReXenon:** condition-flag liveness, byte-swap elimination, cross-function inlining, better VMX128 mapping. The guest threads only limit weak CPUs (Steam Deck, 4 cores). | `thirdparty/ReXenon` (patches) | Later |
 
@@ -97,3 +97,21 @@ each piece can still be A/B'd live in the experimental one.
   remaining big lever is X4 in full: the guest's constants on the GPU and the per-draw blocks no longer packed by
   the CPU. That means a shader preamble and root signature change, every shader recompiled, and weeks of work. The
   user decides between that, more small wins, or ReXenon (X6) for weak CPUs.
+- **X4 stage 1, GPU constants** (session 45):
+  - **How it works:** the draw thread logs the float-constant runs it applies, plus an 8 KB copy every 128 draws, and
+    writes a 64-byte record per draw. Per command list, an ExecuteIndirect compute pass rebuilds every draw's whole
+    VS/PS block in a GPU buffer, and the shaders are unchanged.
+  - **Correctness:** the CPU check (`REGPU_EXP_GPU_CONSTANTS_CHECK`) found 0 differences in 25 M draws, and the grid
+    picture is right (cross-boot diff only in the crowd).
+  - **Speed, 2-core frozen grid, alternating boots:** off 265 / 272 fps, on 257 / 258 (about -4%).
+    - Draw thread: 1.33 vs 1.40 us a draw.
+    - GPU: 2.2 vs 2.67 ms. With a group per draw-state invalidation it was ~30 groups and 3.08 ms; every group's two
+      output-buffer transitions drain the GPU.
+    - The bookkeeping per draw (list lookup, log copy, record) costs as much as the float packing it replaces. The
+      ring bytes it saves (966 -> ~560 a draw) don't show as time.
+  - **What a stage 2 would need to pay off:** the rest of each block (fetch, viewport, flags) built on the GPU too.
+    That logic is ReGPU's most game-specific code (MSAA view scaling, fetch translation). Reading the floats through a
+    second CBV would drop the tail copy (a preamble change, all shaders recompiled). Not started: the user decides.
+- **One unexplained crash** (session 45, experimental build, GPU constants off, the draw-thread sampler on): two
+  shader-compiler threads jumped through a corrupted C++ locale table while opening a file (`std::ifstream` ->
+  `locale::locale`), 15 s into the boot. Not seen again in the next 2 boots; watch for it.

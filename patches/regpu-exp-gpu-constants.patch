@@ -1,0 +1,711 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index db40272..82a0164 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -769,6 +769,7 @@ void Append(const uint32_t* record, uint32_t words)
+ void Replay()
+ {
+     memcpy(work::g_file.data(), g_startFile.data(), g_startFile.size());
++    RendererGpuConstantsReset();
+     for (int t = 0; t < 2; t++)
+         if (!g_startShader[t].empty())
+             FrameOnShaderLoad(ShaderType(t), g_startShader[t].data(), uint32_t(g_startShader[t].size()), g_startShaderAddress[t]);
+@@ -783,6 +784,8 @@ void Replay()
+         {
+         case work::kRegs:
+             memcpy(work::g_file.data() + a[0] * 4, a + 1, size_t(words - 1) * 4);
++            if (RendererGpuConstantsOn())
++                RendererGpuConstantsLog(a[0], a + 1, words - 1);
+             break;
+         case work::kShader:
+             FrameOnShaderLoad(ShaderType(a[0]), a + 3, a[2], a[1]);
+@@ -818,6 +821,7 @@ void TripleAtSwap(uint32_t frontBuffer)
+         }
+     RendererSetTripleView(nullptr, false);
+     memcpy(work::g_file.data(), g_endFile.data(), g_endFile.size());
++    RendererGpuConstantsReset();
+     g_frames++;
+     g_words += g_log.size();
+     if (g_frames == 1 || g_frames % 3600 == 0)
+@@ -855,6 +859,7 @@ void AtSwap(uint32_t frontBuffer)
+     Replay();
+     RendererSetStereoEye(0);
+     memcpy(work::g_file.data(), g_endFile.data(), g_endFile.size()); // (the same values: the records ran in full)
++    RendererGpuConstantsReset();
+     RendererStereoCaptureEye(1 - g_firstEye, frontBuffer);
+     g_frames++;
+     g_words += g_log.size();
+@@ -872,11 +877,19 @@ namespace expstate
+ {
+ enum : uint32_t { kFetch = 1, kBoolLoop = 2, kOther = 4, kShader = 8 };
+ uint32_t g_dirty = ~0u;
+-uint64_t g_draws = 0, g_same = 0, g_by[16] = {}, g_frames = 0;
++uint64_t g_draws = 0, g_same = 0, g_by[16] = {}, g_frames = 0, g_aluWords = 0, g_aluRuns = 0, g_vsWords = 0;
+ std::unordered_map<uint32_t, uint64_t> g_otherRegs; // register -> draws it broke (kOther only)
+ void OnRegs(uint32_t index, uint32_t count)
+ {
+     const uint32_t end = index + count;
++    // ALU (float) constant words changed (X4: what a GPU-side constant log would carry instead of packed blocks).
++    if (const uint32_t a = std::max(index, gpureg::AluConstants), b = std::min(end, gpureg::FetchConstants); a < b)
++    {
++        g_aluWords += b - a;
++        g_aluRuns++;
++        if (a < gpureg::AluConstants + 256 * 4)
++            g_vsWords += std::min(b, gpureg::AluConstants + 256 * 4) - a;
++    }
+     if (index < gpureg::AluConstants || end > gpureg::FetchConstants)
+     {
+         if (end > gpureg::FetchConstants && index < gpureg::BoolConstants)
+@@ -924,6 +937,9 @@ void OnSwap()
+         s += t;
+     }
+     Log("exp state: other registers written between draws (share of draws):%s", s.c_str());
++    Log("exp state: float constants changed between draws: %.0f bytes a draw (vertex %.0f, pixel %.0f) in %.1f runs",
++        4.0 * double(g_aluWords) / n, 4.0 * double(g_vsWords) / n, 4.0 * double(g_aluWords - g_vsWords) / n, double(g_aluRuns) / n);
++    g_aluWords = g_aluRuns = g_vsWords = 0;
+     g_draws = g_same = 0;
+     memset(g_by, 0, sizeof(g_by));
+     g_otherRegs.clear();
+@@ -934,6 +950,7 @@ void WorkerLoop()
+ {
+     SetThreadDescription(GetCurrentThread(), L"gpu draw worker");
+     static LiveSwitch expTraceState("REGPU_EXP_TRACE_STATE");
++    const bool g_gpuConstantsLog = RendererGpuConstantsOn(); // (renderer.cpp GpuConstants: the draws' float constants on the GPU)
+     // REGPU_DRAW_THREAD_PRIORITY=<Win32 level> (start-time; 1 above normal, 2 highest, 15 time critical): the draw thread
+     // (and the replay thread, recorded_list.h) above the title's threads, which a port may map to "highest" (session 33
+     // of the FM3 port: the 1% slowest frames at a frame cap, from the draw thread being pre-empted?).
+@@ -974,6 +991,8 @@ void WorkerLoop()
+             {
+             case work::kRegs:
+                 memcpy(work::g_file.data() + a[0] * 4, a + 1, size_t(words - 1) * 4);
++                if (g_gpuConstantsLog)
++                    RendererGpuConstantsLog(a[0], a + 1, words - 1);
+                 if (expTraceState)
+                     expstate::OnRegs(a[0], words - 1);
+                 if (seg::g_open)
+@@ -1945,6 +1964,7 @@ void CommandProcessorLoop(PPCContext& ctx)
+     if (work::g_enabled)
+     {
+         memcpy(work::g_file.data(), gpureg::LiveFile(), work::g_file.size());
++        RendererGpuConstantsReset();
+         memcpy(work::g_sent.data(), gpureg::LiveFile(), work::g_sent.size()); // (what the draw thread has)
+         std::thread worker(WorkerLoop);
+         static HANDLE workerHandle = nullptr;
+diff --git a/src/gpu/recorded_list.h b/src/gpu/recorded_list.h
+index bda353f..1e4e0bf 100644
+--- a/src/gpu/recorded_list.h
++++ b/src/gpu/recorded_list.h
+@@ -65,7 +65,11 @@ public:
+     {
+         Drain();
+         m_real = real;
++        m_epoch++;
+     }
++    // Bumped whenever recording moves to another real list (Rebind, HandOff to a next list, Switch, Reset): work that
++    // must stay inside one list (renderer.cpp GpuConstants groups) starts again when it changes.
++    uint64_t Epoch() const { return m_epoch; }
+ 
+     // Hands the list over in order, without waiting: when the replay reaches this point, fn gets the real
+     // list so far (to close and queue) and the replay goes on into next. With next null, fn is just called
+@@ -77,6 +81,8 @@ public:
+         struct A { ID3D12GraphicsCommandList* next; HandOffFn fn; void* ctx; } a{ next, fn, ctx };
+         Put(kHandOff, &a, sizeof(a));
+         Submit();
++        if (next)
++            m_epoch++;
+     }
+ 
+     // fn(real list, ctx) when the replay reaches this point; the replay goes on in the same list (unless fn closed it:
+@@ -89,7 +95,11 @@ public:
+     }
+ 
+     // Records into another list from here on, without waiting (Rebind waits for the replay).
+-    void Switch(ID3D12GraphicsCommandList* next) { Put(kSwitch, &next, sizeof(next)); }
++    void Switch(ID3D12GraphicsCommandList* next)
++    {
++        Put(kSwitch, &next, sizeof(next));
++        m_epoch++;
++    }
+ 
+     // The real list, with everything recorded so far replayed into it.
+     ID3D12GraphicsCommandList* Real()
+@@ -124,6 +134,11 @@ public:
+         Put(kComputeRoot32, &a, sizeof(a), data, n * 4);
+     }
+     void Dispatch(UINT x, UINT y, UINT z) { UINT a[3] = { x, y, z }; Put(kDispatch, a, sizeof(a)); }
++    void ExecuteIndirect(ID3D12CommandSignature* sig, UINT maxCount, ID3D12Resource* args, UINT64 argsOffset)
++    {
++        struct A { ID3D12CommandSignature* sig; UINT maxCount; ID3D12Resource* args; UINT64 offset; } a{ sig, maxCount, args, argsOffset };
++        Put(kExecuteIndirect, &a, sizeof(a));
++    }
+     void SetComputeRootShaderResourceView(UINT i, D3D12_GPU_VIRTUAL_ADDRESS v) { struct A { UINT i; D3D12_GPU_VIRTUAL_ADDRESS v; } a{ i, v }; Put(kComputeSrv, &a, sizeof(a)); }
+     void SetComputeRootUnorderedAccessView(UINT i, D3D12_GPU_VIRTUAL_ADDRESS v) { struct A { UINT i; D3D12_GPU_VIRTUAL_ADDRESS v; } a{ i, v }; Put(kComputeUav, &a, sizeof(a)); }
+     void SetPredication(ID3D12Resource* r, UINT64 offset, D3D12_PREDICATION_OP op) { struct A { ID3D12Resource* r; UINT64 offset; D3D12_PREDICATION_OP op; } a{ r, offset, op }; Put(kPredication, &a, sizeof(a)); }
+@@ -188,7 +203,11 @@ public:
+     }
+     // Close and Reset go straight to the real list after a drain.
+     HRESULT Close() { return Real()->Close(); }
+-    HRESULT Reset(ID3D12CommandAllocator* a, ID3D12PipelineState* p) { return Real()->Reset(a, p); }
++    HRESULT Reset(ID3D12CommandAllocator* a, ID3D12PipelineState* p)
++    {
++        m_epoch++;
++        return Real()->Reset(a, p);
++    }
+ 
+ private:
+     enum Op : uint32_t
+@@ -196,11 +215,12 @@ private:
+         kBarrier, kCopyTexture, kRootSignature, kTable, kCbv, kRoot32, kTargets, kPipeline, kViewports, kScissors, kStencilRef, kBlendFactor,
+         kTopology, kHeaps, kDraw, kEndQuery, kResolveQuery, kClearRtv, kClearDsv, kCreateRtv, kCreateDsv, kDrawIndexed, kIndexBuffer, kCopyBuffer,
+         kComputeRootSignature, kComputeTable, kComputeRoot32, kDispatch, kBeginQuery, kHandOff, kComputeSrv, kComputeUav, kPredication,
+-        kCall, kSwitch, kResolveRegion
++        kCall, kSwitch, kResolveRegion, kExecuteIndirect
+     };
+     static constexpr size_t kChunk = 64 << 10;
+ 
+     ID3D12GraphicsCommandList* m_real = nullptr;
++    uint64_t m_epoch = 0;
+     bool m_direct = false;
+     RecordBytes m_current;
+     std::mutex m_mutex;
+@@ -463,6 +483,13 @@ private:
+                 l->Dispatch(d[0], d[1], d[2]);
+                 break;
+             }
++            case kExecuteIndirect:
++            {
++                struct A { ID3D12CommandSignature* sig; UINT maxCount; ID3D12Resource* args; UINT64 offset; };
++                const A& c = At<A>(a);
++                l->ExecuteIndirect(c.sig, c.maxCount, c.args, c.offset, nullptr, 0);
++                break;
++            }
+             case kCreateRtv:
+             {
+                 struct A { ID3D12Device* d; ID3D12Resource* r; D3D12_CPU_DESCRIPTOR_HANDLE h; };
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index e305205..7d144d8 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -1509,9 +1509,16 @@ struct DrawState
+     bool motionTargets = false; // the motion target is bound as the second render target
+     bool motionRoot = false;    // the motion root signature is set
+     D3D12_INDEX_BUFFER_VIEW indexBuffer{};
+-    void Invalidate() { *this = DrawState{}; }
++    void Invalidate();
+ };
+ thread_local DrawState g_drawState;
++// Counts invalidations (renderer.cpp GpuConstants starts a group of draws after each).
++thread_local uint64_t g_drawStateGen = 0;
++void DrawState::Invalidate()
++{
++    *this = DrawState{};
++    g_drawStateGen++;
++}
+ 
+ // Texture cache key: address (4 KB aligned), format (6 bits), width and height (13 bits each).
+ uint64_t TextureKey(uint32_t address, uint32_t format, uint32_t w, uint32_t h)
+@@ -14049,6 +14056,439 @@ void EndFrame()
+ } // namespace HyperCull
+ void HyperCullCollect(UINT frameIndex) { HyperCull::Collect(frameIndex); }
+ 
++// ---- GPU constants (experimental system, FM3 port session 45, EXPERIMENTAL.md X4) ------------------------------
++// REGPU_EXP_GPU_CONSTANTS=1 (start-time): a draw's float constants are no longer packed into its upload-ring block
++// by the draw thread. The draw thread logs the ALU constant words the command stream changes (they arrive as
++// register runs, already cut to the changed words by the command processor: ~174 bytes a draw in an FM3 race against
++// ~710 bytes of packed floats), plus a full copy of the 512 constants (8 KB, raw big-endian) every kChunkDraws draws.
++// Each draw gets a 64-byte record. A compute pass, recorded at the start of each group of draws (a group lives inside
++// one command list, between two draw-state invalidations) as an ExecuteIndirect whose thread-group count the draw
++// thread raises with every draw it adds, builds each draw's whole VS and PS block in a GPU buffer: the floats it
++// reads (rebuilt from the chunk's copy and the logged runs, byte-swapped, packed or not as the shader expects) and
++// the rest of the block copied from what the draw thread still writes to the ring. The draws read those blocks.
++// The GPU runs a list only after the draw thread recorded all of it, so the records are complete by then.
++// Shaders are unchanged. Not used for: hooked draws, motion-vector draws, constants kept in the ring, draw workers,
++// traced frames, the A/B switches that write every constant (a draw falls back to the old path per draw).
++// REGPU_EXP_GPU_CONSTANTS_CHECK=1 (live): the draw thread also replays the log on the CPU and compares it with the
++// register file for each draw's constants (log completeness), logging mismatches.
++namespace GpuConstants
++{
++constexpr uint32_t kAluWords = 512 * 4;        // 256 vertex + 256 pixel float constants
++constexpr uint32_t kChunkDraws = 128;          // draws between full copies
++constexpr uint64_t kDeltaBlock = 64 << 10;     // a chunk's run log (a fresh chunk when it would overflow)
++constexpr uint32_t kGroupDraws = 1024;         // records per group (a fresh group when full)
++constexpr uint64_t kOutBytes = 96ull << 20;    // per frame slot: the built blocks
++constexpr uint64_t kListBytes = 8ull << 20;    // shader constant lists (never freed: shaders aren't)
++
++const bool g_on = [] {
++    const char* v = getenv("REGPU_EXP_GPU_CONSTANTS");
++    return v && *v && atoi(v) != 0;
++}();
++bool g_failed = false;
++ComPtr<ID3D12RootSignature> g_root;
++ComPtr<ID3D12PipelineState> g_pso;
++ComPtr<ID3D12CommandSignature> g_signature;
++ComPtr<ID3D12Resource> g_out[kFrames];
++ComPtr<ID3D12Resource> g_lists;
++uint8_t* g_listsCpu = nullptr;
++uint64_t g_listsUsed = 0;
++uint64_t g_outUsed[kFrames] = {};
++uint64_t g_outFrame[kFrames] = { ~0ull, ~0ull, ~0ull };
++uint64_t g_draws = 0, g_fallbacks = 0, g_groups = 0, g_chunks = 0, g_deltaBytes = 0, g_logFrame = 0;
++
++// The draw thread's state (serial draw thread only).
++std::vector<uint32_t> t_pending;               // logged runs since the last draw: header (word | count << 16), words
++bool t_reset = true;                           // the next draw starts a chunk (full copy)
++const uint8_t* t_ring = nullptr;               // the frame's ring the chunk and group live in
++uint64_t t_frame = ~0ull;
++UINT64 t_snap = 0, t_deltaBase = 0, t_deltaUsed = 0;
++uint32_t t_chunkDraws = 0;
++UINT64 t_group = ~0ull;                        // ring offset of the group's block (dispatch args + records)
++uint32_t t_groupCount = 0;
++uint64_t t_groupEpoch = ~0ull, t_groupGen = ~0ull;
++const void* t_groupList = nullptr;
++std::vector<uint32_t> t_mirror;                // REGPU_EXP_GPU_CONSTANTS_CHECK: the log replayed on the CPU (raw words)
++uint64_t g_checkMismatches = 0, g_checkDraws = 0;
++
++constexpr const char kSource[] = R"(
++ByteAddressBuffer ring : register(t0);
++ByteAddressBuffer lists : register(t1);
++RWByteAddressBuffer outb : register(u0);
++cbuffer Root : register(b0) { uint recBlock; };
++uint4 Swap(uint4 v) { return (v >> 24) | ((v >> 8) & 0xFF00) | ((v << 8) & 0xFF0000) | (v << 24); }
++uint4 Fetch(uint snap, uint d0, uint d1, uint reg)
++{
++    uint4 v = ring.Load4(snap + reg * 16);
++    uint w0 = reg * 4;
++    uint p = d0;
++    [loop] while (p < d1)
++    {
++        uint h = ring.Load(p);
++        uint idx = h & 0xFFFF, cnt = h >> 16;
++        if (idx < w0 + 4 && idx + cnt > w0)
++        {
++            [unroll] for (uint k = 0; k < 4; k++)
++            {
++                uint w = w0 + k;
++                if (w >= idx && w < idx + cnt)
++                    v[k] = ring.Load(p + 4 + (w - idx) * 4);
++            }
++        }
++        p += 4 + cnt * 4;
++    }
++    return Swap(v);
++}
++[numthreads(64, 1, 1)]
++void main(uint3 g : SV_GroupID, uint t : SV_GroupIndex)
++{
++    uint r = recBlock + 16 + g.x * 64;
++    uint4 a = ring.Load4(r), b = ring.Load4(r + 16), c = ring.Load4(r + 32), e = ring.Load4(r + 48);
++    // a: snapshot, chunk log start, this draw's log end, vs list; b: vs count, ps list, ps count, vs out;
++    // c: ps out, vs tail source, vs tail words, ps tail source; e: ps tail words, vs tail out, ps tail out
++    uint i;
++    for (i = t; i < b.x; i += 64)
++    {
++        uint en = lists.Load(a.w + i * 4);
++        outb.Store4(b.w + (en >> 16) * 16, Fetch(a.x, a.y, a.z, en & 0xFFFF));
++    }
++    for (i = t; i < b.z; i += 64)
++    {
++        uint en = lists.Load(b.y + i * 4);
++        outb.Store4(c.x + (en >> 16) * 16, Fetch(a.x, a.y, a.z, en & 0xFFFF));
++    }
++    for (i = t; i < c.z; i += 64)
++        outb.Store(e.y + i * 4, ring.Load(c.y + i * 4));
++    for (i = t; i < e.x; i += 64)
++        outb.Store(e.z + i * 4, ring.Load(c.w + i * 4));
++}
++)";
++
++bool Init()
++{
++    if (g_pso || g_failed)
++        return !g_failed;
++    g_failed = true;
++    ID3D12Device* d = g_r.device;
++    D3D12_ROOT_PARAMETER params[4]{};
++    params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
++    params[0].Constants.Num32BitValues = 1;
++    params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
++    params[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
++    params[2].Descriptor.ShaderRegister = 1;
++    params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
++    for (auto& p : params)
++        p.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
++    D3D12_ROOT_SIGNATURE_DESC rs{};
++    rs.NumParameters = 4;
++    rs.pParameters = params;
++    ComPtr<ID3DBlob> blob, error, cs;
++    if (FAILED(D3D12SerializeRootSignature(&rs, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error)) ||
++        FAILED(d->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&g_root))))
++    {
++        Log("gpu constants: root signature failed: off");
++        return false;
++    }
++    if (FAILED(D3DCompile(kSource, sizeof(kSource) - 1, nullptr, nullptr, nullptr, "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &cs, &error)))
++    {
++        Log("gpu constants: compute shader failed: %s: off", error ? static_cast<const char*>(error->GetBufferPointer()) : "?");
++        return false;
++    }
++    D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};
++    pd.pRootSignature = g_root.Get();
++    pd.CS = { cs->GetBufferPointer(), cs->GetBufferSize() };
++    if (FAILED(d->CreateComputePipelineState(&pd, IID_PPV_ARGS(&g_pso))))
++    {
++        Log("gpu constants: pipeline failed: off");
++        return false;
++    }
++    D3D12_INDIRECT_ARGUMENT_DESC arg{};
++    arg.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
++    D3D12_COMMAND_SIGNATURE_DESC sd{};
++    sd.ByteStride = 16;
++    sd.NumArgumentDescs = 1;
++    sd.pArgumentDescs = &arg;
++    if (FAILED(d->CreateCommandSignature(&sd, nullptr, IID_PPV_ARGS(&g_signature))))
++    {
++        Log("gpu constants: command signature failed: off");
++        return false;
++    }
++    D3D12_HEAP_PROPERTIES hp{};
++    hp.Type = D3D12_HEAP_TYPE_DEFAULT;
++    D3D12_RESOURCE_DESC rd{};
++    rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
++    rd.Width = kOutBytes;
++    rd.Height = 1;
++    rd.DepthOrArraySize = 1;
++    rd.MipLevels = 1;
++    rd.SampleDesc.Count = 1;
++    rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
++    rd.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
++    for (auto& o : g_out)
++        if (FAILED(d->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER, nullptr, IID_PPV_ARGS(&o))))
++        {
++            Log("gpu constants: output buffers failed: off");
++            return false;
++        }
++    g_lists = CreateBuffer(kListBytes, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
++    const D3D12_RANGE none{ 0, 0 };
++    if (!g_lists || FAILED(g_lists->Map(0, &none, reinterpret_cast<void**>(&g_listsCpu))))
++    {
++        Log("gpu constants: list buffer failed: off");
++        return false;
++    }
++    g_failed = false;
++    Log("gpu constants: on (float constants built on the GPU from a log, %u draws a chunk, %llu MB of blocks a frame slot)", kChunkDraws,
++        (unsigned long long)(kOutBytes >> 20));
++    return true;
++}
++
++// The log of the draw thread's register writes (gpu.cpp WorkerLoop and the stereo replay): the ALU part of a run.
++void LogRegs(uint32_t index, const uint32_t* wordsBE, uint32_t count)
++{
++    const uint32_t from = std::max(index, gpureg::AluConstants), to = std::min(index + count, gpureg::AluConstants + kAluWords);
++    if (from >= to || t_reset)
++        return;
++    if (t_pending.size() + (to - from) + 1 > 4096) // more than a fresh copy would cost: take one at the next draw
++    {
++        t_reset = true;
++        t_pending.clear();
++        return;
++    }
++    t_pending.push_back((from - gpureg::AluConstants) | (to - from) << 16);
++    t_pending.insert(t_pending.end(), wordsBE + (from - index), wordsBE + (to - index));
++}
++
++// The register file was replaced in bulk (a stereo/triple replay's start or end): the next draw takes a fresh copy.
++void Reset()
++{
++    t_reset = true;
++    t_pending.clear();
++}
++
++// The ring offset of the shader's constant list: (position << 16 | constant) per float the shader reads, pixel shader
++// constants numbered from 256. Built once per mask.
++struct ListKey
++{
++    std::array<uint64_t, 4> mask;
++    bool packed, pixel;
++    bool operator==(const ListKey& o) const { return mask == o.mask && packed == o.packed && pixel == o.pixel; }
++};
++struct ListKeyHash
++{
++    size_t operator()(const ListKey& k) const
++    {
++        uint64_t h = (k.packed ? 0x9E3779B97F4A7C15ull : 0) ^ (k.pixel ? 0xC2B2AE3D27D4EB4Full : 0);
++        for (uint64_t w : k.mask)
++            h = (h ^ w) * 0x100000001B3ull;
++        return size_t(h ^ h >> 29);
++    }
++};
++std::unordered_map<ListKey, std::pair<uint32_t, uint32_t>, ListKeyHash> g_listMemo;
++bool ListFor(const TranslatedShader& info, bool pixel, uint32_t& offset, uint32_t& count)
++{
++    // (A memo by the shader's info: consecutive draws mostly share shaders, and a map lookup with a 4-word key twice a
++    // draw cost about what the old float packing did.)
++    struct Last
++    {
++        const TranslatedShader* info = nullptr;
++        uint32_t offset = 0, count = 0;
++    };
++    static Last last[2][4];
++    for (Last& l : last[pixel])
++        if (l.info == &info)
++        {
++            offset = l.offset;
++            count = l.count;
++            return true;
++        }
++    static uint32_t victim[2] = {};
++    auto remember = [&](uint32_t o, uint32_t n) {
++        last[pixel][victim[pixel]++ & 3] = { &info, o, n };
++    };
++    const ListKey key{ info.constantMask, info.packedConstants, pixel };
++    if (auto it = g_listMemo.find(key); it != g_listMemo.end())
++    {
++        offset = it->second.first;
++        count = it->second.second;
++        remember(offset, count);
++        return true;
++    }
++    uint32_t n = 0;
++    for (uint64_t w : info.constantMask)
++        n += uint32_t(__builtin_popcountll(w));
++    if (g_listsUsed + uint64_t(n) * 4 > kListBytes)
++        return false;
++    offset = uint32_t(g_listsUsed);
++    uint32_t* out = reinterpret_cast<uint32_t*>(g_listsCpu + g_listsUsed);
++    uint32_t at = 0;
++    for (uint32_t w = 0; w < 4; w++)
++        for (uint64_t bits = info.constantMask[w]; bits; bits &= bits - 1)
++        {
++            const uint32_t i = w * 64 + uint32_t(_tzcnt_u64(bits));
++            const uint32_t position = info.packedConstants ? at : i;
++            out[at++] = position << 16 | (i + (pixel ? 256u : 0u));
++        }
++    g_listsUsed += uint64_t(n) * 4;
++    count = n;
++    g_listMemo.emplace(key, std::make_pair(offset, n));
++    remember(offset, n);
++    return true;
++}
++
++// The CPU replay of the log (REGPU_EXP_GPU_CONSTANTS_CHECK): the draw's constants as the GPU will rebuild them,
++// against the register file.
++void Check(const TranslatedShader& vsInfo, const TranslatedShader& psInfo)
++{
++    const uint32_t* file = reinterpret_cast<const uint32_t*>(gpureg::File()) + gpureg::AluConstants;
++    uint32_t bad = 0, first = ~0u;
++    auto scan = [&](const TranslatedShader& info, uint32_t base) {
++        for (uint32_t w = 0; w < 4; w++)
++            for (uint64_t bits = info.constantMask[w]; bits; bits &= bits - 1)
++            {
++                const uint32_t reg = base + w * 64 + uint32_t(_tzcnt_u64(bits));
++                if (memcmp(&t_mirror[reg * 4], &file[reg * 4], 16) != 0 && bad++ == 0)
++                    first = reg;
++            }
++    };
++    scan(vsInfo, 0);
++    scan(psInfo, 256);
++    g_checkDraws++;
++    if (bad)
++    {
++        if (g_checkMismatches++ < 20)
++            Log("gpu constants check: frame %llu: %u constants differ from the register file (first c%u)", (unsigned long long)g_r.frame, bad, first);
++    }
++}
++
++// The draw's blocks on the GPU; false: this draw packs its floats on the CPU as before (the caller does).
++bool Draw(const TranslatedShader& vsInfo, const TranslatedShader& psInfo, UINT64 vsRing, UINT64 psRing, uint32_t vsTail, uint32_t vsSize,
++    uint32_t psTail, uint32_t psSize, D3D12_GPU_VIRTUAL_ADDRESS& vsOut, D3D12_GPU_VIRTUAL_ADDRESS& psOut)
++{
++    if (!Init())
++        return false;
++    FrameResources& f = Frame();
++    const UINT slot = UINT(&f - g_r.frames);
++    if (g_outFrame[slot] != g_r.frame)
++    {
++        g_outFrame[slot] = g_r.frame;
++        g_outUsed[slot] = 0;
++    }
++    const bool newFrame = t_ring != f.ringCpu || t_frame != g_r.frame;
++    if (newFrame)
++    {
++        t_ring = f.ringCpu;
++        t_frame = g_r.frame;
++        t_reset = true;
++        t_group = ~0ull;
++    }
++    const uint64_t vsBytes = (uint64_t(vsSize) + 255) & ~255ull, psBytes = (uint64_t(psSize) + 255) & ~255ull;
++    if (g_outUsed[slot] + vsBytes + psBytes > kOutBytes)
++        return false;
++    uint32_t vsList = 0, vsCount = 0, psList = 0, psCount = 0;
++    if (!ListFor(vsInfo, false, vsList, vsCount) || !ListFor(psInfo, true, psList, psCount))
++        return false;
++    // The chunk: a full copy, or this draw's logged runs appended.
++    static LiveSwitch checkSwitch("REGPU_EXP_GPU_CONSTANTS_CHECK");
++    const bool check = checkSwitch;
++    const uint64_t pendingBytes = uint64_t(t_pending.size()) * 4;
++    if (t_reset || t_chunkDraws >= kChunkDraws || t_deltaUsed + pendingBytes > kDeltaBlock)
++    {
++        const UINT64 snap = RingAlloc(kAluWords * 4, 256, RingConstants), deltas = RingAlloc(kDeltaBlock, 256, RingConstants);
++        if (snap == ~0ull || deltas == ~0ull)
++            return false;
++        memcpy(f.ringCpu + snap, gpureg::File() + gpureg::AluConstants * 4, kAluWords * 4);
++        if (check)
++            t_mirror.assign(reinterpret_cast<const uint32_t*>(gpureg::File()) + gpureg::AluConstants,
++                reinterpret_cast<const uint32_t*>(gpureg::File()) + gpureg::AluConstants + kAluWords);
++        t_snap = snap;
++        t_deltaBase = deltas;
++        t_deltaUsed = 0;
++        t_chunkDraws = 0;
++        t_reset = false;
++        t_pending.clear();
++        g_chunks++;
++    }
++    else if (!t_pending.empty())
++    {
++        memcpy(f.ringCpu + t_deltaBase + t_deltaUsed, t_pending.data(), pendingBytes);
++        if (check && t_mirror.size() == kAluWords)
++            for (size_t i = 0; i < t_pending.size();)
++            {
++                const uint32_t h = t_pending[i], word = h & 0xFFFF, n = h >> 16;
++                memcpy(&t_mirror[word], &t_pending[i + 1], size_t(n) * 4);
++                i += 1 + n;
++            }
++        t_deltaUsed += pendingBytes;
++        g_deltaBytes += pendingBytes;
++        t_pending.clear();
++    }
++    t_chunkDraws++;
++    if (check && t_mirror.size() == kAluWords)
++        Check(vsInfo, psInfo);
++    // The group: a fresh one in a new list or when full. Its pass goes first in the list.
++    RecordedList* list = C().list;
++    // (Not after every draw-state invalidation: the pass earlier in the same list still runs first. Starting a group
++    // after each one made ~30 a frame in an FM3 race, and every group's two output-buffer transitions drain the GPU:
++    // GPU time 2.23 -> 3.08 ms.)
++    if (t_group == ~0ull || t_groupList != list || t_groupEpoch != list->Epoch() || t_groupCount >= kGroupDraws)
++    {
++        const UINT64 group = RingAlloc(16 + uint64_t(kGroupDraws) * 64, 256, RingConstants);
++        if (group == ~0ull)
++            return false;
++        const uint32_t args[4] = { 0, 1, 1, 0 };
++        memcpy(f.ringCpu + group, args, sizeof(args));
++        ID3D12Resource* out = g_out[slot].Get();
++        D3D12_RESOURCE_BARRIER b{};
++        b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
++        b.Transition.pResource = out;
++        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
++        b.Transition.StateBefore = D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER;
++        b.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
++        list->ResourceBarrier(1, &b);
++        list->SetComputeRootSignature(g_root.Get());
++        list->SetPipelineState(g_pso.Get());
++        const uint32_t root = uint32_t(group);
++        list->SetComputeRoot32BitConstants(0, 1, &root, 0);
++        list->SetComputeRootShaderResourceView(1, f.ring->GetGPUVirtualAddress());
++        list->SetComputeRootShaderResourceView(2, g_lists->GetGPUVirtualAddress());
++        list->SetComputeRootUnorderedAccessView(3, out->GetGPUVirtualAddress());
++        list->ExecuteIndirect(g_signature.Get(), 1, f.ring.Get(), group);
++        std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
++        list->ResourceBarrier(1, &b);
++        g_drawState.Invalidate(); // the compute pipeline replaced the draw's
++        t_group = group;
++        t_groupList = list;
++        t_groupEpoch = list->Epoch();
++        t_groupGen = g_drawStateGen;
++        t_groupCount = 0;
++        g_groups++;
++    }
++    const UINT64 vsAt = g_outUsed[slot], psAt = vsAt + vsBytes;
++    g_outUsed[slot] = psAt + psBytes;
++    const uint32_t rec[16] = { uint32_t(t_snap), uint32_t(t_deltaBase), uint32_t(t_deltaBase + t_deltaUsed), vsList, vsCount, psList, psCount,
++        uint32_t(vsAt), uint32_t(psAt), uint32_t(vsRing + vsTail), (vsSize - vsTail) / 4, uint32_t(psRing + psTail), (psSize - psTail) / 4,
++        uint32_t(vsAt + vsTail), uint32_t(psAt + psTail), 0 };
++    memcpy(f.ringCpu + t_group + 16 + uint64_t(t_groupCount) * 64, rec, sizeof(rec));
++    t_groupCount++;
++    memcpy(f.ringCpu + t_group, &t_groupCount, 4); // the dispatch's thread-group count
++    const D3D12_GPU_VIRTUAL_ADDRESS base = g_out[slot]->GetGPUVirtualAddress();
++    vsOut = base + vsAt;
++    psOut = base + psAt;
++    g_draws++;
++    if (g_r.frame >= g_logFrame + 600)
++    {
++        const double frames = g_logFrame ? double(g_r.frame - g_logFrame) : 1.0;
++        g_logFrame = g_r.frame;
++        Log("gpu constants: %.0f draws a frame on the GPU path, %.0f fallbacks, %.1f groups, %.1f chunks, %.0f log bytes a draw%s",
++            double(g_draws) / frames, double(g_fallbacks) / frames, double(g_groups) / frames, double(g_chunks) / frames,
++            double(g_deltaBytes) / double(std::max<uint64_t>(g_draws, 1)), check ? "" : "");
++        if (check)
++            Log("gpu constants check: %llu draws checked, %llu with differences", (unsigned long long)g_checkDraws, (unsigned long long)g_checkMismatches);
++        g_draws = g_fallbacks = g_groups = g_chunks = g_deltaBytes = 0;
++    }
++    return true;
++}
++} // namespace GpuConstants
+ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+ {
+     // (PassScales: asks in this draw after the first skip the register reads; 0 again when the draw returns.)
+@@ -14510,6 +14950,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         lastBlocks.vs = nullptr, lastBlocks.ps = nullptr;
+     auto* vc = inRing ? vcRing : &vcStages[stageParity];
+     auto* pc = inRing ? pcRing : &pcStages[stageParity];
++    D3D12_GPU_VIRTUAL_ADDRESS gpuVs = 0, gpuPs = 0; // GpuConstants: this draw's blocks built on the GPU
+     {
+         // Byte-swapped block copy of both constant banks (1024 dwords each).
+         const __m128i swap = _mm_setr_epi8(3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12);
+@@ -14551,8 +14992,18 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+                     _mm_storeu_si128(dst + (packed ? at++ : i), _mm_shuffle_epi8(_mm_loadu_si128(from + i), swap));
+                 }
+         };
+-        copy(dv, src, vs.info.constantMask, nv, allConstants || hooked, vs.info.packedConstants);
+-        copy(dp, src + 256, ps.info.constantMask, np, allConstants || hooked, ps.info.packedConstants);
++        const bool onGpu = GpuConstants::g_on && !hooked && !compareBlocks && !inRing && !motion && !allConstants && !byCount && !C().worker &&
++                           !g_sw_REGPU_FULL_CONSTANT_BLOCKS && !RendererTracing() && !(TraceFrame() && g_r.frame + 1 == TraceFrame()) &&
++                           GpuConstants::Draw(vs.info, ps.info, vsOffset, psOffset, uint32_t(offsetof(VSConstants, b)), uint32_t(sizeof(VSConstants)),
++                               uint32_t(offsetof(PSConstants, b)), uint32_t(sizeof(PSConstants)), gpuVs, gpuPs);
++        if (!onGpu)
++        {
++            gpuVs = gpuPs = 0;
++            if (GpuConstants::g_on)
++                GpuConstants::g_fallbacks++;
++            copy(dv, src, vs.info.constantMask, nv, allConstants || hooked, vs.info.packedConstants);
++            copy(dp, src + 256, ps.info.constantMask, np, allConstants || hooked, ps.info.packedConstants);
++        }
+         if (motion)
+         {
+             // This draw's constants for the next frame, and last frame's for its motion. The
+@@ -15670,8 +16121,8 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             }
+         }
+     }
+-    C().list->SetGraphicsRootConstantBufferView(0, f.ring->GetGPUVirtualAddress() + vsOffset);
+-    C().list->SetGraphicsRootConstantBufferView(1, f.ring->GetGPUVirtualAddress() + psOffset);
++    C().list->SetGraphicsRootConstantBufferView(0, gpuVs ? gpuVs : f.ring->GetGPUVirtualAddress() + vsOffset);
++    C().list->SetGraphicsRootConstantBufferView(1, gpuPs ? gpuPs : f.ring->GetGPUVirtualAddress() + psOffset);
+     if (motion)
+         C().list->SetGraphicsRootConstantBufferView(LeanFetch() ? 5 : 4, motionPrevious);
+     if (const D3D12_GPU_DESCRIPTOR_HANDLE t2 = Gpu(g_r.srvHeap.Get(), f.descriptorBase, g_r.srvStride); t2.ptr != ds.table2.ptr)
+@@ -17663,3 +18114,8 @@ std::string RendererDrawStats()
+ }
+ 
+ void regpu::SetGameWidescreen(bool on) { g_gameWidescreen.store(on, std::memory_order_relaxed); }
++
++// Experimental GPU constants (GpuConstants above): gpu.cpp logs the draw thread's register writes through these.
++bool RendererGpuConstantsOn() { return GpuConstants::g_on; }
++void RendererGpuConstantsLog(uint32_t index, const uint32_t* wordsBE, uint32_t count) { GpuConstants::LogRegs(index, wordsBE, count); }
++void RendererGpuConstantsReset() { GpuConstants::Reset(); }
+diff --git a/src/gpu/renderer.h b/src/gpu/renderer.h
+index 6d7fee9..b162c83 100644
+--- a/src/gpu/renderer.h
++++ b/src/gpu/renderer.h
+@@ -48,6 +48,11 @@ bool LongFramesOn();
+ void RendererDrawThreadIdle(double ms);
+ // True while REGPU_TRACE_DRAWS's frame is being recorded.
+ bool RendererTracing();
++// Experimental GPU constants (renderer.cpp GpuConstants, REGPU_EXP_GPU_CONSTANTS, start-time): on; the ALU part of a
++// register run the draw thread applied; the register file replaced in bulk (a replay).
++bool RendererGpuConstantsOn();
++void RendererGpuConstantsLog(uint32_t index, const uint32_t* wordsBE, uint32_t count);
++void RendererGpuConstantsReset();
+ 
+ // Parallel draw translation (gpu.cpp cuts the draw stream between resolves into pieces).
+ #include <functional>
