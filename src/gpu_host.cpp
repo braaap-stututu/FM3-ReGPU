@@ -28,6 +28,7 @@
 
 #include "regpu/driver.h"
 #include "regpu/regpu.h"
+#include "regpu/hyper.h"
 
 #include "kernel/runtime.h"
 #include "kernel/thread.h"
@@ -143,91 +144,76 @@ void DefaultEnv(const char* name, const char* value)
         _putenv_s(name, value);
 }
 
-// Performance presets (settings.ini perf_preset, the launcher's slider; FM3_PERF_PRESET overrides), modelled
-// on a ReGPU study of FM2 at 720p on a Ryzen 3 5300U ("Turbo" keeps the picture, the others trade it).
-// Each piece is a ReGPU switch (our patch regpu-turbo-hyper); one set in the environment wins over the preset.
-//   off      as before
-//   turbo    lean texture fetch v2 (plain textures: one sample), vertex fetches load only their dwords, index
-//            lists hashed once a frame, draws that drew nothing last time predicated off (every other frame
-//            retested), 2_10_10_10 copies kept in 10 bits, alpha-to-mask as a plain test at 1x MSAA (FM2 with
-//            IEEE pixel-shader multiplies too: 42.7 -> 52.0 fps; on FM3 those turn the crowd's flags black,
-//            session 23, so they are out)
-//   mild     turbo + scene at 67% (FSR 1 unless an upscaler is chosen), 4x anisotropy
-//   potato   turbo + 2x anisotropy; native resolution
-//   (session 23: the helper-pass pieces, small off-screen passes at half/quarter scale and reflections drawn every
-//   3rd frame, broke the race picture and are out of the presets: see kPresets)
-//   low      potato at 59%
-//   extreme  potato at 50%, no anisotropy
-// Mesh decimation (in the study's Hyper set) is not done: inside its run-to-run noise there, and it bends geometry.
-// Skipping draws under 64 px (REGPU_DRAW_CULL=64) is in ReGPU but in no preset: a draw is retested every other
-// frame, so small things flicker instead of vanishing (session 19: FM3's menu letters I, L, T, Y at 1440p 4x).
-struct PerfPreset
-{
-    const char* name;
-    bool turbo;
-    float helperScale; // REGPU_HELPER_SCALE (1 = off)
-    int drawCull;      // REGPU_DRAW_CULL guest pixels (0 = off)
-    int freeze;        // REGPU_FREEZE_HELPERS (0 = off)
-    int anisotropy;    // regpu::SetAnisotropy (-1 = the fetch's own)
-    uint32_t quality;  // upscale_quality at least this (0 = native)
-    bool drawCut = false; // the draw-cutting options too (ApplyPerfPreset)
-};
-// Session 23 (PERF-RESULTS.md phase 6): in a race, smaller helper passes (REGPU_HELPER_SCALE) wash out a large
-// rectangle of the picture (one of FM3's exposure/bloom-type passes counts as a helper and is read back at the wrong
-// size), and frozen helper passes (REGPU_FREEZE_HELPERS) wash out everything above the EDRAM tile seam (a pass run
-// once per tile, frozen for one tile). Both are off in every preset until they are fixed; set either in the
-// environment to try it. Mild/Potato/Low/Extreme are now Turbo + render scale (FSR 1) + lower anisotropy, and (session 33) the draw-cutting options.
-constexpr PerfPreset kPresets[] = {
-    { "off", false, 1.0f, 0, 0, -1, 0 },
-    { "turbo", true, 1.0f, 1, 0, -1, 0 },
-    { "mild", true, 1.0f, 1, 0, 4, 1, true },
-    { "potato", true, 1.0f, 1, 0, 2, 0, true },
-    { "low", true, 1.0f, 1, 0, 2, 2, true },
-    { "extreme", true, 1.0f, 1, 0, 0, 3, true },
-};
-
-const PerfPreset& CurrentPreset()
-{
-    static const PerfPreset* preset = [] {
-        std::string name = getenv("FM3_PERF_PRESET") ? getenv("FM3_PERF_PRESET") : GetSettings().Extra("perf_preset");
-        for (char& c : name)
-            c = char(tolower(uint8_t(c)));
-        for (const PerfPreset& p : kPresets)
-            if (name == p.name)
-                return &p;
-        if (!name.empty())
-            Log("settings: perf_preset=%s unknown, using off", name.c_str());
-        return &kPresets[0];
-    }();
-    return *preset;
-}
-
+// Performance presets: ReGPU's Hyper (include/regpu/hyper.h, ported from the FM2 port's hyper-prototype branch,
+// session 43, which replaced our older turbo/potato presets). settings.ini hyper= (or the older perf_preset=, the
+// launcher's slider) = off|mild|low|extreme|potato|auto; FM3_PERF_PRESET or REGPU_HYPER override; each cut also
+// has its own REGPU_HYPER_* switch and settings.ini hyper_* key (helpers, aniso, resolve1010, nodiscard, scene,
+// upscale, cull, freeze, shader_cuts):
+//   mild     scene 50% (FSR 1), anisotropy 4x, helper surfaces 75%, lossless copies and no-discard shaders
+//   low      scene 35%, one-pass bilinear upscale, anisotropy 2x, helpers 50%
+//   extreme  scene 25% (FSR 1's smallest step here: 33%), bilinear upscale, anisotropy 2x, helpers 50%
+//   potato   native resolution; the lossless shader cuts (smart multiplies, swizzle selects, tail and fetch
+//            specialisation, optimised builds, resolve by size), draws under 256 px culled (probe, hysteresis, pin),
+//            3D helper views frozen after 120 frames and redrawn every 4th, helpers 25%, no anisotropic filtering
+//   auto     potato on an integrated GPU, else off
+// FM3 adds its own draw-cutting options from Mild up (game hooks ReGPU can't do: one tile, half-rate shadows,
+// mirror and reflections, distant AI cars at detail level 3). The old "turbo" name maps to off plus the shader cuts.
+// Not ported (needs the meshoptimizer library, not in this tree): mesh decimation and vertex-cache reordering.
 void ApplyPerfPreset(regpu::Config& c)
 {
-    const PerfPreset& p = CurrentPreset();
-    if (p.turbo)
+    const Settings& s = GetSettings();
+    regpu::hypermode::Settings h;
+    std::string name = getenv("FM3_PERF_PRESET") ? getenv("FM3_PERF_PRESET") : s.Extra("hyper");
+    if (name.empty())
+        name = s.Extra("perf_preset");
+    for (char& ch : name)
+        ch = char(tolower(uint8_t(ch)));
+    if (name == "turbo")
     {
-        DefaultEnv("REGPU_LEAN_FETCH", "2");
-        DefaultEnv("REGPU_LEAN_VFETCH", "1");
-        DefaultEnv("REGPU_INDEX_HASH_ONCE", "1");
-        DefaultEnv("REGPU_COPIES_1010102", "1");
-        DefaultEnv("REGPU_A2M_AS_TEST", "1");
-        // (Not REGPU_PLAIN_MUL_PS since session 23: IEEE multiplies turned the crowd's waving flags black, a
-        // shader relying on the console's 0 * inf = 0. Set it in the environment to try it.)
+        name = "off";
+        h.shaderCuts = 1;
     }
-    if (p.drawCull)
-        DefaultEnv("REGPU_DRAW_CULL", std::to_string(p.drawCull).c_str());
-    if (p.helperScale < 1.0f)
-        DefaultEnv("REGPU_HELPER_SCALE", std::to_string(p.helperScale).c_str());
-    if (p.freeze)
-        DefaultEnv("REGPU_FREEZE_HELPERS", std::to_string(p.freeze).c_str());
-    if (p.anisotropy >= 0 && !getenv("REGPU_NO_ANISO"))
-        regpu::SetAnisotropy(p.anisotropy);
-    // Mild and up (user's request, session 33): also the draw-cutting options, each normally its own launcher switch:
-    // one guest tile, half-rate car shadows, mirror and reflections, distant AI cars at detail level 3. iGPU races at
-    // 720p with fetch specialisation: Low 64.0 fps, Low + these 78.0 (+22%). Through their environment variables
-    // (read before settings.ini by each hook), so an explicit FM3_* value still wins; Off and Turbo leave them alone.
-    if (p.drawCut)
+    h.preset = name;
+    auto num = [&s](const char* key) { const std::string v = s.Extra(key); return v.empty() ? -1 : atoi(v.c_str()); };
+    h.scenePercent = num("hyper_scene");
+    h.cheapUpscale = num("hyper_upscale");
+    h.noDiscard = num("hyper_nodiscard");
+    h.helpers = num("hyper_helpers");
+    h.resolve1010 = num("hyper_resolve1010");
+    h.aniso = num("hyper_aniso");
+    h.cullPixels = num("hyper_cull");
+    h.freeze = num("hyper_freeze");
+    if (const int cuts = num("hyper_shader_cuts"); cuts >= 0)
+        h.shaderCuts = cuts;
+    // Smaller helper surfaces wash FM3's whole picture out yellow (session 23, again in session 43: one of its
+    // exposure passes counts as a helper and is read back at the wrong size), so FM3 keeps them full size unless
+    // settings.ini hyper_helpers= or REGPU_HYPER_HELPERS asks.
+    if (h.helpers < 0 && !getenv("REGPU_HYPER_HELPERS"))
+        h.helpers = 100;
+    // Culling blended draws (REGPU_HYPER_CULL_ALL, for FM2's blended cars) drops FM3's HUD text: blended, depth-tested
+    // glyphs whose strokes cover ~70 guest pixels (session 43, REGPU_TRACE_HYPER_CULL). FM3 culls opaque draws only.
+    DefaultEnv("REGPU_HYPER_CULL_ALL", "0");
+    regpu::hypermode::Configure(h);
+    const regpu::hypermode::Preset p = regpu::hypermode::Level();
+    if (const uint32_t aniso = regpu::hypermode::AnisotropyCap(); aniso < 16 && !getenv("REGPU_NO_ANISO"))
+        regpu::SetAnisotropy(int(aniso));
+    if (regpu::hypermode::CheapUpscale())
+        DefaultEnv("REGPU_UPSCALE_BILINEAR", "1");
+    if (const uint32_t scene = regpu::hypermode::SceneScalePercent())
+    {
+        // FSR 1's steps: 1 = 67%, 2 = 59%, 3 = 50%, 4 = 33% of the output per axis.
+        const uint32_t quality = scene >= 67 ? 1 : scene >= 59 ? 2 : scene >= 50 ? 3 : 4;
+        if (c.upscaler == regpu::Config::Upscaler::Off)
+        {
+            c.upscaler = regpu::Config::Upscaler::Fsr1;
+            c.quality = quality;
+        }
+        else
+            c.quality = std::max(c.quality, quality);
+    }
+    // Mild and up (user's request, session 33): FM3's draw-cutting options too, each normally its own launcher switch.
+    // Through their environment variables (read before settings.ini by each hook), so an explicit FM3_* value wins.
+    if (p != regpu::hypermode::Preset::Off)
     {
         DefaultEnv("FM3_ONE_TILE", "1");
         DefaultEnv("FM3_SHADOW_RATE", "2");
@@ -235,17 +221,7 @@ void ApplyPerfPreset(regpu::Config& c)
         DefaultEnv("FM3_REFLECT_RATE", "2");
         DefaultEnv("FM3_CAR_LOD_FAR", "3");
     }
-    if (p.quality)
-    {
-        if (c.upscaler == regpu::Config::Upscaler::Off)
-        {
-            c.upscaler = regpu::Config::Upscaler::Fsr1;
-            c.quality = p.quality;
-        }
-        else
-            c.quality = std::max(c.quality, p.quality);
-    }
-    Log("gpu: performance preset %s", p.name);
+    regpu::hypermode::LogSummary();
 }
 } // namespace
 
