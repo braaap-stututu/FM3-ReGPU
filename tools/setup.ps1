@@ -100,6 +100,7 @@ $regpuPatches = @(
     'regpu-hyper-mesh'               # Hyper's mesh decimation + vertex-cache order with meshoptimizer (REGPU_MESHOPT_DIR; REGPU_HYPER_DECIMATE, REGPU_HYPER_VCACHE)
     'regpu-xess'                     # Intel XeSS upscaler (Upscaler::Xess; libxess.dll loaded at run time; REGPU_XESS_DIR headers), one context per setup
     'regpu-less-ram'                 # Less RAM: memory report line, texture budget with eviction, upload ring's other place made only when used, pipeline library mapped from its file, k_8 kept as R8
+    'regpu-resolve-dump-frame-env'   # REGPU_DUMP_EACH_RESOLVE read once a frame (FrameEnv), not by getenv per resolve (~1.5% of the draw thread, session 45)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

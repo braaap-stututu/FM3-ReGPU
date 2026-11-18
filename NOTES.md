@@ -1,6 +1,16 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-18, session 44)
+## ▶ Current status / next step  (updated 2026-11-18, session 45)
+
+### Session 45 on main (2026-11-18): resolve getenv fix; the rest is on branch `experimental`
+- **ReGPU patch 82 `regpu-resolve-dump-frame-env` (main):** `REGPU_DUMP_EACH_RESOLVE` (patch 76, session 42) was read with
+  getenv on every resolve, ~1.5% of the draw thread in a race; now a FrameEnv (once a frame). Found on the experimental
+  branch (draw-thread profile + the PDB's inlining info on getenv call sites). `buildel` rebuilt with it and with the AI
+  tour's seed (3,647 pipelines, commit 211a4fa); frozen grid normal, 356 fps.
+- **Everything else from session 45 is on branch `experimental`** (EXPERIMENTAL.md and NOTES there): ReXenon register
+  optimisations (`build\exp`, launcher Testing "Experimental build"; races on 2 cores +1.75%), draw-thread measurements,
+  GPU constants stage 1 (correct, slower, off). Switching branches: run `tools\setup.ps1 -NoBuild` afterwards (the two
+  branches list different ReGPU patches) and rebuild.
 
 ### ▶ Start here (session 45): state at the end of session 44 (2026-11-18)
 - **In short:** two things the user asked for.
