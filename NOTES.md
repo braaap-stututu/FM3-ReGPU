@@ -7,6 +7,14 @@
   getenv on every resolve, ~1.5% of the draw thread in a race; now a FrameEnv (once a frame). Found on the experimental
   branch (draw-thread profile + the PDB's inlining info on getenv call sites). `buildel` rebuilt with it and with the AI
   tour's seed (3,647 pipelines, commit 211a4fa); frozen grid normal, 356 fps.
+- **Proven experimental pieces moved to main (session 45, user's decision):** (1) ReXenon's register options are now the
+  default recompile (`tools/recomp.ps1` writes them into `config/fm3_rexenon.toml`: `non_volatile_as_local`,
+  `inline_register_thunks`, `elide_return_lr`, `elide_empty_functions`, context functions `sub_821F6AF8`/`sub_821F5DE8` for
+  the frame-time hook's r30/f31 hand-back); out/ppc-rexenon regenerated (byte-identical to the experimental branch's);
+  (2) ReGPU patch 83 `regpu-exp-lazy-loops` (`REGPU_EXP_LAZY_LOOPS`, on by default in src/gpu_host.cpp; +1.0%). Evidence:
+  benchmark races on 2 cores, 3 rounds: +1.9% fps, +5.1% at equal draws, p99 6.03 -> 5.84 ms, long frames 143 -> 99
+  (`out/bench/matrix-exp3-2cores-20261119-001912`). `buildel` rebuilt; frozen grid 359 fps, freeze/unfreeze works.
+  Not yet driven by the user on main (one clean Crown Jewel drive on the experimental build).
 - **Everything else from session 45 is on branch `experimental`** (EXPERIMENTAL.md and NOTES there): ReXenon register
   optimisations (`build\exp`, launcher Testing "Experimental build"; races on 2 cores +1.75%), draw-thread measurements,
   GPU constants stage 1 (correct, slower, off). Switching branches: run `tools\setup.ps1 -NoBuild` afterwards (the two

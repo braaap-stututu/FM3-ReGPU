@@ -292,6 +292,10 @@ void GpuStart()
     if (!getenv("FM3_FOREIGN_MSAA"))
         DefaultEnv("REGPU_NO_FOREIGN_MSAA", "1");
 
+    // Session 45 (from the experimental branch): the 32 loop constants only for draws whose shaders read them (+1.0% on
+    // the 2-core grid, 0 pixels). REGPU_EXP_LAZY_LOOPS=0 copies them for every draw as before (live).
+    DefaultEnv("REGPU_EXP_LAZY_LOOPS", "1");
+
     // Frame rate near other cars (OPEN-ISSUES.md P, session 13): at every INTERRUPT packet the command
     // processor waited until every queued fence had passed the host GPU (ReGPU's fence ordering, from the
     // FM4 port), so the game, the command processor and the GPU took turns. Off, as PGR4 runs: 1440p 4x

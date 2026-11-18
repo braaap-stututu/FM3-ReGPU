@@ -41,8 +41,16 @@ if ($Prepare) {
 if ($Recompiler -eq 'rexenon') {
     $rx = Join-Path $root 'build\tools-rexenon\XenonRecomp\XenonRecomp.exe'
     if (-not (Test-Path $rx)) { throw 'build\tools-rexenon is missing: run tools\setup.ps1' }
-    (Get-Content config\fm3.toml) -replace '^out_directory_path = "../out/ppc"$', 'out_directory_path = "../out/ppc-rexenon"' |
-        Set-Content -Encoding ascii config\fm3_rexenon.toml
+    # Session 45 (proven on the experimental branch, EXPERIMENTAL.md X1; benchmark races on 2 cores +1.9%, +5.1% at equal
+    # draws, p99 and long frames better): ReXenon's register options, which XenonRecomp's config doesn't take safely, so
+    # only here. r14-r31/f14-f31/v14-v31/v64-v127 in host locals (non_volatile_as_local, made safe by ReXenon's analysis),
+    # save/restore helpers inlined, empty functions and return LR stores left out. sub_821F6AF8 hands the frame time back
+    # to sub_821F5DE8 in r30/f31 (src/hooks/frame_time.cpp reads and writes them there): both stay on the context.
+    $cfg = (Get-Content config\fm3.toml) -replace '^out_directory_path = "../out/ppc"$', 'out_directory_path = "../out/ppc-rexenon"'
+    $cfg = $cfg -replace '^non_volatile_as_local = false$', (@(
+        'non_volatile_as_local = true', 'inline_register_thunks = true', 'elide_return_lr = true',
+        'elide_empty_functions = true', 'context_functions = [0x821F6AF8, 0x821F5DE8]') -join "`r`n")
+    $cfg | Set-Content -Encoding ascii config\fm3_rexenon.toml
     if (Test-Path out\ppc-rexenon) { Remove-Item -Recurse -Force out\ppc-rexenon }
     if ((Invoke-To out\recomp-rexenon.log "`"$rx`" config\fm3_rexenon.toml thirdparty\ReXenon\XenonUtils\ppc_context.h") -ne 0) {
         Get-Content out\recomp-rexenon.log -Tail 30; throw 'ReXenon failed (out\recomp-rexenon.log)'
