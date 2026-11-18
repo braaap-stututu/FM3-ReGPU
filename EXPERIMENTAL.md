@@ -128,3 +128,16 @@ each piece can still be A/B'd live in the experimental one.
   - Experimental 268.4 fps (one race) vs normal 285.1 (sd 8.6).
   - At equal draw counts +1.6%; GPU +3.6%; long frames 57 vs 146.
   - Inconclusive: rerun with 3 rounds (`out/bench/matrix-exp3-2cores-*`).
+- **Rerun, 3 rounds each, all 6 races complete** (`out/bench/matrix-exp3-2cores-20261119-001912`; experimental =
+  X1 + X7 + X9, both builds with the resolve fix):
+
+  | | Normal | Experimental |
+  |---|---|---|
+  | fps | 290.6 (sd 20.4) | 296.2 (sd 25.1) |
+  | p99 | 6.03 ms | 5.84 ms |
+  | Long frames | 143 | 99 |
+  | GPU | 2.15 ms | 2.16 ms |
+
+  That is **+1.9% fps and +5.1% at equal draw counts**, the same direction as the first matrix (+1.75% / +4.4%).
+  ReXenon's README warns that code placement alone moves fps 3-10% between relinks, so the plain figure is within
+  that. The equal-draw figure and the p99 / long-frame improvement held in both matrices.

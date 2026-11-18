@@ -42,7 +42,9 @@
 - **Session 45 continued (2026-11-19):** line profile -> ReGPU patch 86 `regpu-exp-lazy-loops` (+1.0%, on in the experimental
   build); X4 mode 2 (patch 87 `regpu-exp-gpu-constants-staging`, draw data in system memory): correct, CPU even, GPU +0.8 ms,
   off. Both GPU-constants modes are a wash: X4 closed for now. One experimental benchmark race was closed from outside 4 s after
-  GO (WM_CLOSE, cause unknown). Normal vs experimental race comparison being rerun with 3 rounds.
+  GO (WM_CLOSE, cause unknown). **3-round rerun (2 cores): experimental +1.9% fps, +5.1% at equal draws, p99 6.03 -> 5.84 ms,
+  long frames 143 -> 99** (code placement alone can move fps 3-10%: ReXenon README). ReXenon's function_table_address does not
+  apply (our own host-side indirect table). Remaining ReXenon ideas are compiler work inside that noise.
 - **AI tour (request from session 44), paused by the user:** environments 0-13 (to Nordschleife layout 2) raced with
   the ARX-02a (`Start-AiTour -From 13 -FromLayout 3 -RebootEach` resumes); seed merged: **3,647 pipelines** (commit
   211a4fa on main; `build\rel` not rebuilt with it yet). The renderer-cache growth fix (plan in the session-44
