@@ -296,7 +296,8 @@ void GpuStart()
     // Experimental system (session 45, EXPERIMENTAL.md): its ReGPU pieces on by default in build/exp only; each stays
     // a live switch, so `Fm3 "switch REGPU_EXP_... 0"` A/Bs it in the running game (or set it to 0 before starting).
     DefaultEnv("REGPU_EXP_ENV_GENERATION", "1"); // per-frame debug variables re-read only after a change
-    Log("gpu: experimental renderer pieces: env generation %s", getenv("REGPU_EXP_ENV_GENERATION"));
+    DefaultEnv("REGPU_EXP_LAZY_LOOPS", "1");     // loop constants copied only for shaders that read them
+    Log("gpu: experimental renderer pieces: env generation %s, lazy loops %s", getenv("REGPU_EXP_ENV_GENERATION"), getenv("REGPU_EXP_LAZY_LOOPS"));
 #endif
 
     // Frame rate near other cars (OPEN-ISSUES.md P, session 13): at every INTERRUPT packet the command

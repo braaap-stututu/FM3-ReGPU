@@ -1,0 +1,80 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index d1bec36..ce9a4fa 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -312,7 +312,7 @@ struct PassScaleSnapshot
+     uint32_t big = 0, width = 0, height = 0;
+     float passScale = 1, scaleY = 1, scaleWide = 1, scaleX = 1;
+ };
+-const PassScaleSnapshot& PassScales();
++[[gnu::always_inline]] inline const PassScaleSnapshot& PassScales();
+ // Which other parts of the constant blocks a shader's code reads (TranslatedShader::readsBools ...), from its final
+ // HLSL past the preamble: the names it would read them by. A false match only writes a part it doesn't need.
+ void ScanBlockUse(TranslatedShader& info)
+@@ -463,11 +463,21 @@ LiveSwitch g_passNoSnapshot("REGPU_NO_PASS_SNAPSHOT"), g_passFullCheck("REGPU_PA
+ // draw thread at ~25 asks a draw). REGPU_PASS_SNAPSHOT_PER_CALL=1: the registers are read at every ask (A/B, live).
+ thread_local uint64_t t_passDrawId = 0;
+ LiveSwitch g_passPerCall("REGPU_PASS_SNAPSHOT_PER_CALL");
+-const PassScaleSnapshot& PassScales()
++// (Experimental branch, FM3 port session 45: the asks were ~5% of the draw thread as calls; the check that answers almost
++// all of them is now a small function the compiler inlines into each caller, the rest a separate one.)
++thread_local PassScaleSnapshot t_passSnapshot;
++[[gnu::noinline]] const PassScaleSnapshot& PassScalesSlow();
++[[gnu::always_inline]] inline const PassScaleSnapshot& PassScales()
+ {
+-    thread_local PassScaleSnapshot s, fresh;
++    const PassScaleSnapshot& s = t_passSnapshot;
+     if (t_passDrawId && s.drawId == t_passDrawId && s.epoch == g_passEpoch.load(std::memory_order_relaxed) && !g_passPerCall)
+         return s;
++    return PassScalesSlow();
++}
++const PassScaleSnapshot& PassScalesSlow()
++{
++    PassScaleSnapshot& s = t_passSnapshot;
++    thread_local PassScaleSnapshot fresh;
+     // Asked ~25 times a draw: the memo is checked against the surface registers and the pass epoch (g_passEpoch:
+     // every other input bumps it), not each input (that check was ~7% of the draw thread, FM3 session 30).
+     // REGPU_PASS_SNAPSHOT_FULL_CHECK=1 compares every input again (A/B, live).
+@@ -15038,10 +15048,38 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         }
+     }
+     Sub(0); // index list, ring allocations, float constants
+-    for (uint32_t i = 0; i < 8; i++)
+-        vc->b[i] = pc->b[i] = gpureg::Get(gpureg::BoolConstants + i);
+-    for (uint32_t i = 0; i < 32; i++)
+-        vc->l[i] = pc->l[i] = gpureg::Get(gpureg::LoopConstants + i);
++    if (static LiveSwitch lazyBools("REGPU_EXP_LAZY_LOOPS"); lazyBools) // (the same switch: bools byte-swapped 4 at a time)
++    {
++        const __m128i swap = _mm_setr_epi8(3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12);
++        const auto* src = reinterpret_cast<const __m128i*>(gpureg::File() + gpureg::BoolConstants * 4);
++        for (uint32_t i = 0; i < 2; i++)
++        {
++            const __m128i v = _mm_shuffle_epi8(_mm_loadu_si128(src + i), swap);
++            _mm_storeu_si128(reinterpret_cast<__m128i*>(vc->b + i * 4), v);
++            _mm_storeu_si128(reinterpret_cast<__m128i*>(pc->b + i * 4), v);
++        }
++    }
++    else
++        for (uint32_t i = 0; i < 8; i++)
++            vc->b[i] = pc->b[i] = gpureg::Get(gpureg::BoolConstants + i);
++    // REGPU_EXP_LAZY_LOOPS=1 (live; experimental system, FM3 port session 45: this copy was 1.7% of the draw thread in a
++    // line profile): the 32 loop constants only for draws whose shaders read them (ScanBlockUse's readsLoops; the ring
++    // gets them only then anyway, and the spec-constant path reads them only then), byte-swapped 4 at a time.
++    static LiveSwitch lazyLoops("REGPU_EXP_LAZY_LOOPS");
++    if (!lazyLoops)
++        for (uint32_t i = 0; i < 32; i++)
++            vc->l[i] = pc->l[i] = gpureg::Get(gpureg::LoopConstants + i);
++    else if (vs.info.readsLoops || ps.info.readsLoops || hooked)
++    {
++        const __m128i swap = _mm_setr_epi8(3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12);
++        const auto* src = reinterpret_cast<const __m128i*>(gpureg::File() + gpureg::LoopConstants * 4);
++        for (uint32_t i = 0; i < 8; i++)
++        {
++            const __m128i v = _mm_shuffle_epi8(_mm_loadu_si128(src + i), swap);
++            _mm_storeu_si128(reinterpret_cast<__m128i*>(vc->l + i * 4), v);
++            _mm_storeu_si128(reinterpret_cast<__m128i*>(pc->l + i * 4), v);
++        }
++    }
+     // Debug: REGPU_FORCE_BOOL=<index>:<0|1> forces one boolean constant for every draw.
+     if (static const char* force = getenv("REGPU_FORCE_BOOL"); force)
+     {
