@@ -45,6 +45,11 @@
   GO (WM_CLOSE, cause unknown). **3-round rerun (2 cores): experimental +1.9% fps, +5.1% at equal draws, p99 6.03 -> 5.84 ms,
   long frames 143 -> 99** (code placement alone can move fps 3-10%: ReXenon README). ReXenon's function_table_address does not
   apply (our own host-side indirect table). Remaining ReXenon ideas are compiler work inside that noise.
+- **Moved to main (user: "move the proven ones into the normal build and keep experimenting"):** ReXenon register options
+  as main's default recompile (`tools/recomp.ps1`; `-Experimental` here now writes the same options, a separate folder for
+  future experiments) and `regpu-exp-lazy-loops` on by default (src/gpu_host.cpp, outside `#if FM3_EXPERIMENTAL`). Main commit
+  f32a9dc, merged back here. On this branch the experimental-only pieces left are the env generation (on) and the GPU-constants
+  code (off).
 - **AI tour (request from session 44), paused by the user:** environments 0-13 (to Nordschleife layout 2) raced with
   the ARX-02a (`Start-AiTour -From 13 -FromLayout 3 -RebootEach` resumes); seed merged: **3,647 pipelines** (commit
   211a4fa on main; `build\rel` not rebuilt with it yet). The renderer-cache growth fix (plan in the session-44

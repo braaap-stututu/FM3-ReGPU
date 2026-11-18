@@ -292,12 +292,15 @@ void GpuStart()
     if (!getenv("FM3_FOREIGN_MSAA"))
         DefaultEnv("REGPU_NO_FOREIGN_MSAA", "1");
 
+    // Session 45 (from the experimental branch): the 32 loop constants only for draws whose shaders read them (+1.0% on
+    // the 2-core grid, 0 pixels). REGPU_EXP_LAZY_LOOPS=0 copies them for every draw as before (live).
+    DefaultEnv("REGPU_EXP_LAZY_LOOPS", "1");
+
 #if FM3_EXPERIMENTAL
     // Experimental system (session 45, EXPERIMENTAL.md): its ReGPU pieces on by default in build/exp only; each stays
     // a live switch, so `Fm3 "switch REGPU_EXP_... 0"` A/Bs it in the running game (or set it to 0 before starting).
     DefaultEnv("REGPU_EXP_ENV_GENERATION", "1"); // per-frame debug variables re-read only after a change
-    DefaultEnv("REGPU_EXP_LAZY_LOOPS", "1");     // loop constants copied only for shaders that read them
-    Log("gpu: experimental renderer pieces: env generation %s, lazy loops %s", getenv("REGPU_EXP_ENV_GENERATION"), getenv("REGPU_EXP_LAZY_LOOPS"));
+    Log("gpu: experimental renderer pieces: env generation %s", getenv("REGPU_EXP_ENV_GENERATION"));
 #endif
 
     // Frame rate near other cars (OPEN-ISSUES.md P, session 13): at every INTERRUPT packet the command
