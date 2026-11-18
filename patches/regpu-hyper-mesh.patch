@@ -1,0 +1,425 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 3206a5f..81df097 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -101,6 +101,15 @@ target_compile_definitions(regpu PUBLIC ${REGPU_GUEST_DEFINES})
+ target_include_directories(regpu PRIVATE src "${REGPU_GENERATED}")
+ # VR through OpenXR (src/render/xr.cpp, REGPU_VR=screen): the OpenXR SDK's include/openxr headers. The loader DLL is
+ # loaded at run time (openxr_loader.dll beside the exe), so nothing links against it.
++# Hyper's mesh decimation and vertex-cache order (src/gpu/renderer.cpp hyperdec, FM3 port session 43): meshoptimizer
++# (MIT, github.com/zeux/meshoptimizer) compiled in when its folder is given; empty: built without (the cuts log so).
++set(REGPU_MESHOPT_DIR "" CACHE PATH "meshoptimizer source folder (with src/meshoptimizer.h)")
++if(REGPU_MESHOPT_DIR AND EXISTS "${REGPU_MESHOPT_DIR}/src/meshoptimizer.h")
++    file(GLOB REGPU_MESHOPT_SOURCES "${REGPU_MESHOPT_DIR}/src/*.cpp")
++    target_sources(regpu PRIVATE ${REGPU_MESHOPT_SOURCES})
++    target_compile_definitions(regpu PRIVATE REGPU_MESHOPT=1)
++    target_include_directories(regpu PRIVATE "${REGPU_MESHOPT_DIR}/src")
++endif()
+ set(REGPU_OPENXR_DIR "" CACHE PATH "OpenXR SDK folder with include/openxr/openxr.h (VR; empty: built without)")
+ if(REGPU_OPENXR_DIR AND EXISTS "${REGPU_OPENXR_DIR}/include/openxr/openxr.h")
+     target_compile_definitions(regpu PRIVATE REGPU_OPENXR=1)
+diff --git a/include/regpu/hyper.h b/include/regpu/hyper.h
+index d0538d3..cd6ab92 100644
+--- a/include/regpu/hyper.h
++++ b/include/regpu/hyper.h
+@@ -23,7 +23,7 @@ struct Settings
+     int helpers = -1;       // percent, 25-100
+     int resolve1010 = -1;   // 0 or 1
+     int aniso = -1;         // 0, 2, 4, 8 or 16
+-    int decimate = -1;      // percent of triangles kept (needs meshoptimizer: not built in this tree)
++    int decimate = -1;      // percent of triangles kept (needs meshoptimizer, REGPU_MESHOPT_DIR)
+     int cullPixels = -1;    // -1 off, else the pixel threshold
+     int freeze = -1;        // frames before a 3D helper view freezes, 0 off
+     int shaderCuts = -1;    // 0 or 1: the lossless shader cuts as one group
+diff --git a/src/gpu/hlsl.cpp b/src/gpu/hlsl.cpp
+index 58264d5..77076ad 100644
+--- a/src/gpu/hlsl.cpp
++++ b/src/gpu/hlsl.cpp
+@@ -849,6 +849,8 @@ struct Emitter
+             // FM4 port. REGPU_NO_MINI_CONST=1 takes the mini's own field again (A/B; read at translation).
+             static const bool miniOwnConst = getenv("REGPU_NO_MINI_CONST") != nullptr;
+             const uint32_t constIndex = f.isMini && !miniOwnConst ? lastConst : f.constIndex;
++            if (!f.isMini && !result.positionFetch[0])
++                result.positionFetch = { constIndex + 1, f.format | (f.isSigned ? 0x100u : 0), lastStride, f.offset };
+             // The index register, or (ScanFetchIndex) the value the full fetch kept before overwriting it.
+             const std::string indexReg = "r[" + std::to_string(lastSrc) + "]." + "xyzw"[lastSrcSwizzle & 3];
+             const std::string indexSrc = saveFetchIndex ? "vfi" : indexReg;
+@@ -1558,6 +1560,7 @@ bool TranslateVertexFetchLayout(const Shader& shader, TranslatedShader& out)
+             break;
+     }
+     out.vertexFetchLayout = std::move(result.vertexFetchLayout);
++    out.positionFetch = result.positionFetch;
+     out.vertexFetchConstants = std::move(result.vertexFetchConstants);
+     return true;
+ }
+diff --git a/src/gpu/hlsl.h b/src/gpu/hlsl.h
+index 827708b..bd82fb6 100644
+--- a/src/gpu/hlsl.h
++++ b/src/gpu/hlsl.h
+@@ -30,6 +30,9 @@ struct TranslatedShader
+     bool memExport = false;         // a vertex shader writing eA/eM (memory export): not translated, its writes are lost
+     std::vector<uint32_t> vertexFetchConstants; // vertex shaders
+     std::vector<std::array<uint32_t, 4>> vertexFetchLayout; // vfl[k] for each vertex fetch (see hlsl.cpp)
++    // The first full vertex fetch (Hyper's mesh decimation reads positions through it; from the FM2 port): fetch constant
++    // + 1 (0: none), format | 0x100 when signed, stride and offset in dwords.
++    std::array<uint32_t, 4> positionFetch{};
+     // Float constants the code reads: c[0] up to this (exclusive), 256 with relative
+     // addressing. Only these are uploaded per draw.
+     uint32_t constantsUsed = 0;
+diff --git a/src/gpu/hyper.cpp b/src/gpu/hyper.cpp
+index d6615c9..95ddbd3 100644
+--- a/src/gpu/hyper.cpp
++++ b/src/gpu/hyper.cpp
+@@ -139,8 +139,14 @@ void Configure(const Settings& settings)
+         Default("REGPU_HYPER_SWIZZLE_SEL", "1");
+         Default("REGPU_HYPER_TAILSPEC", "1");
+         Default("REGPU_HYPER_RESOLVE_BY_SIZE", "1");
++        Default("REGPU_HYPER_VCACHE", "2"); // triangles reordered for the vertex cache and overdraw (lossless; meshoptimizer)
+     }
+ 
++    // Mesh decimation (meshoptimizer): big meshes keep this percent of their triangles. Extreme 25, Potato 10.
++    const int decimate = Value("REGPU_HYPER_DECIMATE", g_settings.decimate, p == Preset::Extreme ? 25 : p == Preset::Potato ? 10 : 0);
++    if (decimate > 0 && decimate < 100)
++        Default("REGPU_HYPER_DECIMATE", decimate);
++
+     // Draw culling by pixel count (Potato 256 px, with the probe, 200% hysteresis and the pin: the version that
+     // gained on both Intel and AMD and does not flicker).
+     const int cull = Value("REGPU_HYPER_CULL_PIXELS", g_settings.cullPixels, p == Preset::Potato ? 256 : -1);
+@@ -228,6 +234,10 @@ void LogSummary()
+     if (on("REGPU_HYPER_FREEZE"))
+         Log("hyper: 3D helper views frozen after %s frames, redrawn every %s", getenv("REGPU_HYPER_FREEZE"),
+             getenv("REGPU_HYPER_FREEZE_REFRESH") ? getenv("REGPU_HYPER_FREEZE_REFRESH") : "never");
++    if (on("REGPU_HYPER_DECIMATE"))
++        Log("hyper: big meshes keep %s%% of their triangles", getenv("REGPU_HYPER_DECIMATE"));
++    if (on("REGPU_HYPER_VCACHE"))
++        Log("hyper: mesh triangles reordered for the vertex cache%s", atoi(getenv("REGPU_HYPER_VCACHE")) >= 2 ? " and overdraw" : "");
+     if (on("REGPU_COPIES_1010102"))
+         Log("hyper: 10:10:10:2 copies kept at 32 bits");
+     if (HelperScalePercent() < 100)
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 942c811..6705eb2 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -8,6 +8,9 @@
+ // skipped; render-target configuration (EDRAM surfaces, MSAA, tiles) comes
+ // next.
+ 
++#if REGPU_MESHOPT
++#include <meshoptimizer.h>
++#endif
+ #include <algorithm>
+ #include <bit>
+ #include <immintrin.h>
+@@ -4035,6 +4038,294 @@ uint64_t VertexCache(uint32_t address, uint32_t bytes, bool& arenaHit)
+ bool GetIndexBufferLocked(uint32_t base, uint32_t count, bool is32, uint32_t endian, D3D12_INDEX_BUFFER_VIEW& view, uint64_t hash);
+ thread_local bool g_indexChanging = false; // set by GetIndexBufferLocked: the entry is checked at every draw
+ // Each thread remembers this frame's index buffers (checked once per frame), except ones seen changing.
++// ---- Hyper mesh decimation and vertex-cache order (from the FM2 port's hyper-prototype, MIT; FM3 port session 43).
++// A triangle-list draw of a big mesh gets an index buffer of its own: the same vertices, with REGPU_HYPER_DECIMATE=<10-90>
++// fewer triangles (percent kept; meshoptimizer's simplifier, borders locked so pieces still meet) and/or, with
++// REGPU_HYPER_VCACHE=1|2, the triangles reordered for the post-transform vertex cache (2: also for less overdraw; same
++// triangles, lossless). Positions come from the vertex shader's first full fetch (TranslatedShader::positionFetch),
++// read from guest memory; the work runs on a worker thread, and until a mesh is done (or for meshes it can't help) the
++// draw uses its own indices. Keyed by the index data's address, size and content and the vertex buffer. Needs
++// meshoptimizer (REGPU_MESHOPT_DIR at build time); without it both switches only log that.
++// Tuning: REGPU_HYPER_DECIMATE_MIN=<indices> smallest mesh (300), REGPU_HYPER_DECIMATE_ERROR=<0-1> largest change (0.2).
++bool DynamicBuffer(uint32_t address, uint32_t bytes);
++namespace hyperdec
++{
++uint32_t DecimatePercent()
++{
++    static const uint32_t v = [] {
++        const char* e = getenv("REGPU_HYPER_DECIMATE");
++        const int n = e && *e ? atoi(e) : 0;
++        return n <= 0 || n >= 100 ? 0u : uint32_t(std::clamp(n, 10, 90));
++    }();
++    return v;
++}
++int Vcache()
++{
++    static const int v = getenv("REGPU_HYPER_VCACHE") ? std::clamp(atoi(getenv("REGPU_HYPER_VCACHE")), 0, 2) : 0;
++    return v;
++}
++#if REGPU_MESHOPT
++struct Mesh
++{
++    std::atomic<int> state{ 0 }; // 0 queued, 1 ready, 2 left as it is
++    std::vector<uint32_t> indices; // the result: vertex IDs as in the source
++    uint64_t hash = 0, checkedFrame = ~0ull;
++    ComPtr<ID3D12Resource> buffer;
++    D3D12_INDEX_BUFFER_VIEW view{};
++    uint32_t count = 0;
++};
++struct Job
++{
++    std::shared_ptr<Mesh> mesh;
++    std::vector<uint32_t> indices; // rebased to the first vertex
++    std::vector<float> positions;  // xyz per vertex
++    uint32_t firstVertex = 0, target = 0;
++};
++std::mutex g_mutex;
++std::condition_variable g_cv;
++std::deque<Job> g_jobs;
++std::unordered_map<uint64_t, std::shared_ptr<Mesh>> g_meshes;
++std::atomic<uint32_t> g_done{ 0 }, g_kept{ 0 };
++
++void Worker()
++{
++    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
++    for (;;)
++    {
++        Job job;
++        {
++            std::unique_lock lock(g_mutex);
++            g_cv.wait(lock, [] { return !g_jobs.empty(); });
++            job = std::move(g_jobs.front());
++            g_jobs.pop_front();
++        }
++        const size_t vertices = job.positions.size() / 3;
++        std::vector<uint32_t> out(job.indices.size());
++        size_t n = job.indices.size();
++        float error = 0;
++        if (DecimatePercent())
++        {
++            static const float maxError = getenv("REGPU_HYPER_DECIMATE_ERROR") ? float(atof(getenv("REGPU_HYPER_DECIMATE_ERROR"))) : 0.2f;
++            n = meshopt_simplify(out.data(), job.indices.data(), job.indices.size(), job.positions.data(), vertices, 12, job.target, maxError,
++                meshopt_SimplifyLockBorder, &error);
++        }
++        const bool cut = DecimatePercent() && n >= 3 && n < job.indices.size() * 9 / 10;
++        if (!cut)
++        {
++            out = job.indices;
++            n = out.size();
++        }
++        if (Vcache() > 0 && n >= 3)
++        {
++            std::vector<uint32_t> tmp(n);
++            meshopt_optimizeVertexCache(tmp.data(), out.data(), n, vertices);
++            if (Vcache() >= 2)
++                meshopt_optimizeOverdraw(out.data(), tmp.data(), n, job.positions.data(), vertices, 12, 1.05f);
++            else
++                std::copy(tmp.begin(), tmp.end(), out.begin());
++        }
++        if (cut || (Vcache() > 0 && n >= 3))
++        {
++            out.resize(n);
++            for (uint32_t& i : out)
++                i += job.firstVertex;
++            job.mesh->indices = std::move(out);
++            job.mesh->state.store(1, std::memory_order_release);
++            g_done++;
++        }
++        else
++        {
++            job.mesh->state.store(2, std::memory_order_release);
++            g_kept++;
++        }
++    }
++}
++
++uint32_t Word(const uint8_t* p, uint32_t endian)
++{
++    uint32_t v;
++    memcpy(&v, p, 4);
++    return endian == 2 ? __builtin_bswap32(v) : endian == 1 ? ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu) : v;
++}
++
++float Half(uint16_t h)
++{
++    const uint32_t s = (h >> 15) & 1, e = (h >> 10) & 31, m = h & 1023;
++    const float v = e ? std::ldexp(1.0f + m / 1024.0f, int(e) - 15) : std::ldexp(m / 1024.0f, -14);
++    return s ? -v : v;
++}
++
++// The vertex's position, false for formats it can't read.
++bool Position(const uint8_t* v, uint32_t format, uint32_t endian, float* xyz)
++{
++    const bool isSigned = format & 0x100;
++    switch (format & 0xFF)
++    {
++    case 57: // 32_32_32_FLOAT
++    case 38: // 32_32_32_32_FLOAT
++        for (int i = 0; i < 3; i++)
++        {
++            const uint32_t w = Word(v + i * 4, endian);
++            memcpy(&xyz[i], &w, 4);
++        }
++        return std::isfinite(xyz[0]) && std::isfinite(xyz[1]) && std::isfinite(xyz[2]);
++    case 26: // 16_16_16_16
++    {
++        const uint32_t w0 = Word(v, endian), w1 = Word(v + 4, endian);
++        const uint32_t u[3] = { w0 & 0xFFFF, w0 >> 16, w1 & 0xFFFF };
++        for (int i = 0; i < 3; i++)
++            xyz[i] = isSigned ? float(int16_t(u[i])) : float(u[i]);
++        return true;
++    }
++    case 32: // 16_16_16_16_FLOAT
++    {
++        const uint32_t w0 = Word(v, endian), w1 = Word(v + 4, endian);
++        xyz[0] = Half(uint16_t(w0));
++        xyz[1] = Half(uint16_t(w0 >> 16));
++        xyz[2] = Half(uint16_t(w1));
++        return std::isfinite(xyz[0]) && std::isfinite(xyz[1]) && std::isfinite(xyz[2]);
++    }
++    }
++    return false;
++}
++#endif
++
++// Replaces view and drawCount with the mesh's own index buffer when it has one ready.
++void Apply(const TranslatedShader& vs, uint32_t base, uint32_t count, bool is32, uint32_t endian, D3D12_INDEX_BUFFER_VIEW& view, uint32_t& drawCount)
++{
++    if (!DecimatePercent() && !Vcache())
++        return;
++#if !REGPU_MESHOPT
++    static bool logged = false;
++    if (!logged)
++    {
++        logged = true;
++        Log("hyper decimate: REGPU_HYPER_DECIMATE / REGPU_HYPER_VCACHE need meshoptimizer (REGPU_MESHOPT_DIR): built without it");
++    }
++    (void)vs, (void)base, (void)count, (void)is32, (void)endian, (void)view, (void)drawCount;
++#else
++    static const uint32_t kMinIndices = getenv("REGPU_HYPER_DECIMATE_MIN") ? uint32_t(atoi(getenv("REGPU_HYPER_DECIMATE_MIN"))) : 300;
++    static uint64_t seen = 0, tooSmall = 0, noFetch = 0, dynamic = 0, used = 0, logFrame = 0;
++    seen++;
++    if (g_r.frame >= logFrame + 600)
++    {
++        logFrame = g_r.frame;
++        Log("hyper decimate: %llu draws, %llu small, %llu no position fetch, %llu dynamic, %llu with their own indices; meshes %u done, %u kept "
++            "(decimate %u%%, vertex cache %d)",
++            (unsigned long long)seen, (unsigned long long)tooSmall, (unsigned long long)noFetch, (unsigned long long)dynamic, (unsigned long long)used,
++            g_done.load(), g_kept.load(), DecimatePercent(), Vcache());
++    }
++    if (count < kMinIndices)
++        return void(tooSmall++);
++    if (!vs.positionFetch[0] || C().worker)
++        return void(noFetch++);
++    const uint32_t k = vs.positionFetch[0] - 1, format = vs.positionFetch[1], stride = vs.positionFetch[2], offset = vs.positionFetch[3];
++    if (!stride || k >= 96)
++        return;
++    const uint32_t d0 = gpureg::Get(gpureg::FetchConstants + k * 2), d1 = gpureg::Get(gpureg::FetchConstants + k * 2 + 1);
++    const uint32_t address = d0 & 0x1FFFFFFC, bytes = ((d1 >> 2) & 0xFFFFFF) * 4, vendian = d1 & 3;
++    if (!address || !bytes || DynamicBuffer(address, bytes))
++        return void(dynamic++);
++    const uint32_t indexOffset = gpureg::Get(VGT_INDX_OFFSET);
++    const uint64_t key = (uint64_t(base) << 32) ^ (uint64_t(count) << 2) ^ (uint64_t(address) * 0x9E3779B97F4A7C15ull) ^ (uint64_t(stride) << 56) ^
++        (uint64_t(offset) << 48) ^ indexOffset ^ uint64_t(is32) << 1;
++    static const bool started = [] { std::thread(Worker).detach(); return true; }();
++    (void)started;
++    std::shared_ptr<Mesh>& slot = g_meshes[key];
++    const uint8_t* src = GuestPtr<uint8_t>(GpuPhysToGuest(base));
++    const uint32_t indexBytes = count * (is32 ? 4 : 2);
++    if (slot && slot->checkedFrame != g_r.frame)
++    {
++        slot->checkedFrame = g_r.frame;
++        if (FullHash(src, indexBytes) != slot->hash)
++            slot.reset(); // new content at the same place: made again
++    }
++    if (!slot)
++    {
++        auto mesh = std::make_shared<Mesh>();
++        mesh->hash = FullHash(src, indexBytes);
++        mesh->checkedFrame = g_r.frame;
++        slot = mesh;
++        Job job;
++        job.mesh = mesh;
++        job.indices.resize(count);
++        uint32_t lo = ~0u, hi = 0;
++        for (uint32_t i = 0; i < count; i++)
++        {
++            uint32_t v;
++            if (is32)
++                v = Word(src + i * 4, endian);
++            else
++            {
++                uint16_t h;
++                memcpy(&h, src + i * 2, 2);
++                v = endian ? __builtin_bswap16(h) : h;
++            }
++            job.indices[i] = v;
++            lo = std::min(lo, v);
++            hi = std::max(hi, v);
++        }
++        // Vertex ID = index + VGT_INDX_OFFSET; each within the fetch constant's buffer.
++        if (hi - lo > 1u << 20 || (uint64_t(hi) + indexOffset) * stride * 4 + uint64_t(offset) * 4 + 16 > bytes)
++        {
++            mesh->state = 2;
++            return;
++        }
++        job.firstVertex = lo;
++        job.positions.resize(size_t(hi - lo + 1) * 3);
++        const uint8_t* vb = GuestPtr<uint8_t>(GpuPhysToGuest(address));
++        for (uint32_t v = lo; v <= hi; v++)
++            if (!Position(vb + ((uint64_t(v) + indexOffset) * stride + offset) * 4, format, vendian, &job.positions[size_t(v - lo) * 3]))
++            {
++                static int logged = 0;
++                if (logged++ < 8)
++                    Log("hyper decimate: position format %u (signed %d) not read", format & 0xFF, (format >> 8) & 1);
++                mesh->state = 2;
++                return;
++            }
++        for (uint32_t& i : job.indices)
++            i -= lo;
++        job.target = uint32_t(uint64_t(count) * std::max(DecimatePercent(), 1u) / 100 / 3 * 3);
++        std::lock_guard lock(g_mutex);
++        g_jobs.push_back(std::move(job));
++        g_cv.notify_one();
++        return;
++    }
++    Mesh& m = *slot;
++    if (m.state.load(std::memory_order_acquire) != 1)
++        return;
++    if (!m.buffer)
++    {
++        const UINT64 size = UINT64(m.indices.size()) * (is32 ? 4 : 2);
++        m.buffer = CreateBuffer((size + 255) & ~255ull, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
++        if (!m.buffer)
++        {
++            m.state = 2;
++            return;
++        }
++        uint8_t* p = nullptr;
++        const D3D12_RANGE none{ 0, 0 };
++        m.buffer->Map(0, &none, reinterpret_cast<void**>(&p));
++        for (size_t i = 0; i < m.indices.size(); i++)
++            if (is32)
++                memcpy(p + i * 4, &m.indices[i], 4);
++            else
++            {
++                const uint16_t h = uint16_t(m.indices[i]);
++                memcpy(p + i * 2, &h, 2);
++            }
++        m.buffer->Unmap(0, nullptr);
++        m.view = { m.buffer->GetGPUVirtualAddress(), UINT(size), is32 ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT };
++        m.count = uint32_t(m.indices.size());
++        m.indices = {};
++    }
++    view = m.view;
++    drawCount = m.count;
++    used++;
++#endif
++}
++} // namespace hyperdec
++
+ bool GetIndexBuffer(uint32_t base, uint32_t count, bool is32, uint32_t endian, D3D12_INDEX_BUFFER_VIEW& view)
+ {
+     thread_local FrameMap<D3D12_INDEX_BUFFER_VIEW> known;
+@@ -13732,6 +14023,8 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+             indexedCount = prim == 4 ? count / 3 * 3 : count;
+             if (indexedCount < 3 || !GetIndexBuffer(dmaBase & 0x1FFFFFFF & ~(is32 ? 3u : 1u), count, is32, dmaSize >> 30, indexView))
+                 indexedCount = 0;
++            else if (prim == 4) // Hyper: the mesh's decimated or reordered indices, when made (hyperdec)
++                hyperdec::Apply(vs.info, dmaBase & 0x1FFFFFFF & ~(is32 ? 3u : 1u), indexedCount, is32, dmaSize >> 30, indexView, indexedCount);
+             indexedTried = true;
+         }
+         directIndex = indexedCount != 0;
+@@ -14320,6 +14613,8 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         indexedCount = prim == 4 ? count / 3 * 3 : count;
+         if (indexedCount < 3 || !GetIndexBuffer(dmaBase & 0x1FFFFFFF & ~(is32 ? 3u : 1u), count, is32, dmaSize >> 30, indexView))
+             indexedCount = 0;
++        else if (prim == 4) // Hyper: the mesh's decimated or reordered indices, when made (hyperdec)
++            hyperdec::Apply(vs.info, dmaBase & 0x1FFFFFFF & ~(is32 ? 3u : 1u), indexedCount, is32, dmaSize >> 30, indexView, indexedCount);
+     }
+     if (stripCut && directIndex && !indexedCount)
+     {

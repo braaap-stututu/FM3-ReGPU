@@ -158,7 +158,8 @@ void DefaultEnv(const char* name, const char* value)
 //   auto     potato on an integrated GPU, else off
 // FM3 adds its own draw-cutting options from Mild up (game hooks ReGPU can't do: one tile, half-rate shadows,
 // mirror and reflections, distant AI cars at detail level 3). The old "turbo" name maps to off plus the shader cuts.
-// Not ported (needs the meshoptimizer library, not in this tree): mesh decimation and vertex-cache reordering.
+// Mesh decimation (Extreme 25%, Potato 10% of triangles kept) and vertex-cache order (Potato) use meshoptimizer
+// (thirdparty/meshoptimizer, session 43); settings.ini hyper_decimate= overrides.
 void ApplyPerfPreset(regpu::Config& c)
 {
     const Settings& s = GetSettings();
@@ -188,6 +189,7 @@ void ApplyPerfPreset(regpu::Config& c)
         DefaultEnv("REGPU_HYPER_CULL_PIXELS", "-1");
     }
     h.freeze = num("hyper_freeze");
+    h.decimate = num("hyper_decimate");
     if (const int cuts = num("hyper_shader_cuts"); cuts >= 0)
         h.shaderCuts = cuts;
     // Smaller helper surfaces wash FM3's whole picture out yellow (session 23, again in session 43: one of its

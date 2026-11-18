@@ -103,6 +103,10 @@ set(FM3_OPENXR "${CMAKE_SOURCE_DIR}/thirdparty/openxr")
 if(EXISTS "${FM3_OPENXR}/include/openxr/openxr.h")
     set(REGPU_OPENXR_DIR "${FM3_OPENXR}" CACHE PATH "" FORCE)
 endif()
+# Session 43: meshoptimizer (submodule, MIT) for Hyper's mesh decimation and vertex-cache order (ReGPU REGPU_MESHOPT_DIR).
+if(EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/meshoptimizer/src/meshoptimizer.h")
+    set(REGPU_MESHOPT_DIR "${CMAKE_SOURCE_DIR}/thirdparty/meshoptimizer" CACHE PATH "" FORCE)
+endif()
 add_subdirectory("${FM3_REGPU_DIR}" regpu)
 
 # Profile-guided optimisation of ReGPU (session 32, PERF-PLAN L23; FH1R measured +6%): FM3_PGO=gen builds ReGPU
