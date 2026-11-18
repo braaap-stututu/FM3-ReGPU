@@ -1440,6 +1440,14 @@ moved per frame** matter more than shader math. Read from ReGPU at our pin (`thi
    `c830cbc`); keep the pipeline library compacted (ReGPU does already); size render targets to the rows drawn
    (FH1R's idea).
 
+**Status after session 43 (measured with `tools/analysis/memmap.py` and the `renderer memory:` line):** 1 done (the
+memory line); 2 = the launcher's iGPU defaults; 3 superseded (the ring is 128 MB and grows; the duplicate "other place"
+rings, 3 x 128 MB, are now made only when used); 4 done (`REGPU_TEXTURE_BUDGET_MB`, default 1 GB, launcher limit); 5 done
+for k_8, FM3's only heavy small format (220 textures, 78 -> 20 MB); 6 checked, load time only (~0.5 GB of traffic per
+track load); 7 built opt-in (`REGPU_UMA_TEXTURES`, slower on the AMD iGPU); 8 not worth it (FM2's 8-bit ceiling test:
+no gain); 9 done (XMA spares capped on <= 12 GB PCs, ~8 MB a codec; pipeline library mapped from its file). iGPU 720p
+Potato: ~0.85 GB less RAM in all. Patch `regpu-less-ram`.
+
 Not worth it: replacing the zero-copy mapping (already ideal on UMA), finer change detection (already sampled
 and staggered), 16-bit shader math for bandwidth (section above: it saves registers, not memory traffic).
 

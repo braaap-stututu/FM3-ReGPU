@@ -6,11 +6,14 @@
 - **In short:** the speed presets are now **ReGPU's Hyper**, ported from the FM2 port's `hyper-prototype` branch (it is
   meant to go upstream into ReGPU): ReGPU patch 77 `regpu-hyper`. The Intel iGPU leads N2-N10 (RESEARCH "Intel iGPUs")
   and lighter background shader compiles are ReGPU patch 78 `regpu-igpu-intel`. The launcher has a new **iGPU
-  (testing)** tab. Details: "Session 43" below.
+  (testing)** tab. Then Hyper's mesh decimation + vertex-cache order with meshoptimizer (79 `regpu-hyper-mesh`), the
+  Intel **XeSS** upscaler (80 `regpu-xess`) and **less RAM** (81 `regpu-less-ram` + an XMA spare cap). All committed and
+  pushed. Details: "Session 43" below.
 - **Build state:** `build/rel` = ReXenon + 81 ReGPU patches (verified with `tools\setup.ps1 -NoBuild`).
 - **Presets** (launcher slider / settings.ini `perf_preset` or `hyper`, `FM3_PERF_PRESET`, `REGPU_HYPER`): off, mild,
   low, extreme, potato, auto (potato on an integrated GPU). Old `turbo` = off + the shader cuts. Mild and up still add
-  FM3's own draw-cutting options. **iGPU 720p frozen grid: off 65.0, potato 78.1 fps (+20%)**, picture right (HUD,
+  FM3's own draw-cutting options. **iGPU 720p frozen grid, interleaved: off 60.0/60.4, potato 74.0/73.7 fps (+23%)**
+  (an earlier single 78.1 was a high run), picture right (HUD,
   brightness; road softer: no anisotropy). FM3 differences from FM2's defaults: helper surfaces stay full size
   (smaller ones wash FM3 out yellow, as in session 23) and only opaque draws are culled (culling blended draws dropped
   the HUD text). Frozen helpers find no FM3 pass made of 3D geometry alone, so they do nothing here.
@@ -36,7 +39,9 @@
   Checked and not built: GPU untiling (~0.5 GB of traffic per track load: load time only), smaller render-target
   formats (FM2's 8-bit ceiling test gained nothing on a Vega iGPU; 89-250 MB at the iGPU defaults; aliasing risk).
   First try of R8 broke the car's black trim (the CPU decode had already applied the fetch swizzle): fixed by keeping
-  R8 unswizzled and "native". The launcher rebuild was blocked by a running launcher (the user's, started 13:14).
+  R8 unswizzled and "native". **The launcher exe is not rebuilt yet** (a launcher was open, the user's, started 13:14):
+  run `dotnet build launcher\FM3Launcher -c Release` with it closed, so the iGPU tab's "Texture memory limit" appears
+  (the game already reads `igpu_texture_budget`).
 - **Next:** an Intel tester's runs of Potato, the iGPU tab and XeSS (N1/N5: a GPA capture); the user hasn't driven
   Potato or XeSS yet.
 
@@ -119,6 +124,21 @@
   `GetIndexBuffer` calls for triangle lists (our wide-index-view code falls back to the separate buffer). XeSS (ReGPU 80):
   `src/gpu/xess.cpp` beside dlss.cpp, run-time `LoadLibrary`, one context per setup (FM3 re-initialised it 12 times
   while loading before that: HDR/LDR scenes and a 942x417 pass), FM3 settings `upscaler=xess` (MSAA forced 1x as FSR 3).
+
+- **Less RAM (later the same day):** measured with the new `tools/analysis/memmap.py` (committed + resident per
+  allocation; run it with the game on the grid) and the new `renderer memory:` log line. XTX 1440p and the Radeon iGPU
+  720p Potato, warm boots only (a boot that compiles shader variants holds far more memory: compare warm, interleaved).
+  Mapped library tested end to end with a tagged test library (`REGPU_PIPELINE_LIBRARY_TAG`, FXC via `REGPU_DXC=0`; the
+  user's own library is DXC, `shader_compiler=dxc`): a cold boot saves it, the next maps it and saves over the mapped
+  file (110 -> 115 MB), the third maps the new one. MoveFileEx refuses to replace a mapped file (error 5);
+  `SetFileInformationByHandle(FileRenameInfoEx, REPLACE_IF_EXISTS | POSIX_SEMANTICS)` does, the old view keeps its data.
+- **Lessons:** (1) `hyper` is `#define`d by the Windows SDK (rpcndr.h): a namespace of that name breaks the build
+  (hence `regpu::hypermode`). (2) Bash heredocs here turn a backslash-n inside Python string literals into a real
+  newline, so replacements containing a C++ newline escape silently failed to match: use the Edit tool for those lines.
+  (3) A launcher page can be checked without screen grabs: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`
+  and a CDP client (Runtime.evaluate + Page.captureScreenshot over a WebSocket); start it with `launcher.cmd`'s
+  `FM3_GAME_DIR` / `FM3_USER_DIR` and back up `out\user\settings.ini` first (clicks save it). (4) Decoded textures are
+  already fetch-swizzled on the CPU; anything stored raw must be `native` so the shader swizzles.
 
 ### Session 42 (2026-11-17/18): Fiat wing fixed (ReGPU 76), Civic bands = layer size, ReXenon PR, hl360 profile copy
 - **ReXenon PR:** the vsldoi128 decode fix (our `rexenon-vsldoi128.patch`, comment reworded, README line) on our fork
