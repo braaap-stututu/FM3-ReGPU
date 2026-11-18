@@ -26,7 +26,7 @@
 - **hl360 with the Fiat profile (session 42):** `boot hl360 fiat.cmd` starts hl360 with `--user_data_root` = its `user-fiat` folder: a
   copy of our Baseline save's ForzaProfile + LivCatalog under XUID E0000BA5E11E0001, hl360's own `Headers` files (its format differs
   from our `.title` files), the DLC folder linked (junction) to `user/0000000000000000`. hl360's own saves and `out/user` are untouched.
-- **Vinyls, open:** (1) the wing's dark-green rear face (see above; compare with hl360);
+- **Vinyls, open:** (1) closed: the wing's dark-green rear face is the same in hl360 (user, `boot hl360 fiat.cmd`): the car's paint is green and that face has no decal coverage;
   (2) olive rear bumpers on some Asian Car Pack cars (1994 Civic VTi): the final atlas is 0.8 x vinyl + 0.2 x pure green
   under the bumper; the region compose is right, so the mix comes from the later strip pass with the car's base texture:
   compare with hl360 first (is it console behaviour?); (3) proposal step 3 not built: write-back by what the CPU reads
