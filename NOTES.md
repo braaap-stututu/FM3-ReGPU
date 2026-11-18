@@ -1,6 +1,51 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-18, session 44)
+## ▶ Current status / next step  (updated 2026-11-18, session 45)
+
+### ▶ Start here (session 46): state at the end of session 45 (2026-11-18)
+- **In short:** the user paused the AI tour and asked for the deep ReXenon/ReGPU reworks (session 44's "big
+  improvements" answer) as a **separate experimental system, selectable in the launcher.** It lives on **branch
+  `experimental`** (main untouched since the tour commit 211a4fa). **[EXPERIMENTAL.md](EXPERIMENTAL.md)** is its plan,
+  build steps and results; read it first.
+  - **How it is chosen:** `build\exp\fm3.exe` (CMake `-DFM3_EXPERIMENTAL=ON`, from `out\ppc-rexenon-exp`). Launcher
+    Settings > Testing **"Experimental build"** (`experimental=1`; `Paths.ExperimentalExe`: `experimental\fm3.exe` in an
+    install, `build\exp\fm3.exe` in a checkout; the normal exe if missing). `play.cmd`: `FM3_BUILD=exp`. Log line 2:
+    `fm3: experimental build`. **The launcher is not rebuilt yet:** the user's launcher was open.
+  - **X1 ReXenon register optimisations** (`tools\recomp.ps1 -Experimental`): `non_volatile_as_local`,
+    `inline_register_thunks`, `elide_return_lr`, `elide_empty_functions` (1,257; none hooked), context functions
+    `sub_821F6AF8`/`sub_821F5DE8` (the frame-time hook's r30/f31 hand-back). Benchmark races on 2 cores
+    (`tools\perf\affinity_watch.ps1 -Mask 0x0F` + `bench_matrix`): **+1.75% fps, +4.4% at equal draws, p99 5.68 -> 5.50
+    ms**, long frames 92 -> 70. Grid picture normal. **Not driven by the user yet.**
+  - **X2 measured:** draw-thread profile in a race (DrawImpl body 35%, waits 12%, index buffers 4.4%, hashing ~6%,
+    pipelines ~3.4%, getenv 1.8%; the full perf log alone is ~30% of samples: profile with it off) and
+    `REGPU_EXP_TRACE_STATE` (ReGPU patch 82 `regpu-exp-state-trace`): only **10.5%** of draws keep the previous draw's
+    state, 24% change fetch constants only, 24% other registers, 42% shaders -> the planned previous-draw state cache
+    (X3) is dropped in that form.
+  - **X7 per-frame getenv** (ReGPU patch 83 `regpu-exp-env-generation`, `REGPU_EXP_ENV_GENERATION`, default on in the
+    experimental build via `src/gpu_host.cpp` `#if FM3_EXPERIMENTAL`): **+0.9% on 2 cores, 6/6 rounds, 0 pixels.**
+  - **Honest outlook (told the user):** ReGPU's per-draw cost is spread thin; my session-44 estimate (+30-60%) is a
+    ceiling. **Next: X4 constants on the GPU** (constants 33% of the draw thread, the WC ring copy part of submit's 31%),
+    then X5 shader translator; X6 more ReXenon for weak CPUs.
+- **AI tour (request from session 44), paused by the user:** environments 0-13 (to Nordschleife layout 2) raced with
+  the ARX-02a (`Start-AiTour -From 13 -FromLayout 3 -RebootEach` resumes); seed merged: **3,647 pipelines** (commit
+  211a4fa on main; `build\rel` not rebuilt with it yet). The renderer-cache growth fix (plan in the session-44
+  scratch notes: TexturePool free ranges + empty heaps released, resolved/cube/mip sweeps, `REGPU_NO_CACHE_RELEASE`)
+  is still to build: the user asked for it after the tour.
+- **Still open from session 44:** the Baseline save's car-purchase crash (asked, no answer), the engine-sound listen,
+  triple-screen per-screen cull (research in RESEARCH.md, user not asked to build yet).
+
+### Session 45 (2026-11-18): experimental branch (ReXenon register optimisations, launcher option), draw-thread measurements
+- Tour paused (task stopped, game closed normally), seed merged and committed on main (211a4fa, with tour.ps1 /
+  tour_state.py / RESEARCH.md Steam Deck + triple-screen research).
+- Branch `experimental`: `tools/recomp.ps1 -Experimental` (6 s), CMake `FM3_EXPERIMENTAL` (fatal unless rexenon),
+  `src/main.cpp` log line, launcher `Experimental` setting + `Paths.NormalExe/ExperimentalExe` + Testing toggle,
+  `.gitignore` `config/fm3_rexenon_exp.toml`, `tools/perf/affinity_watch.ps1`. Exe 37.8 vs 40.1 MB.
+- Measurements: frozen 720p grid at the 360 cap for both builds; races 2 cores rel 295.6 / exp 300.7
+  (`out/bench/matrix-exp-2cores-20261118-220048`); profiles `out/bench/matrix-exp-profile*-*`; state trace
+  `out/bench/matrix-exp-state-*`; env generation A/B `out/perf/s45-envgen`.
+- Lesson: the CRT's getenv is ~10 us a call in this process (103 variables, `_putenv_s` used); even once-a-frame
+  readers add up on the draw thread. Lesson: draw-thread profiles with `REGPU_PERF` on are dominated by its own
+  timing (QPC + atomics ~30%).
 
 ### ▶ Start here (session 45): state at the end of session 44 (2026-11-18)
 - **In short:** two things the user asked for.

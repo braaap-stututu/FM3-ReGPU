@@ -1,0 +1,110 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index 806e216..db40272 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -864,9 +864,76 @@ void AtSwap(uint32_t frontBuffer)
+ }
+ }
+ 
++// REGPU_EXP_TRACE_STATE=1 (live; experimental system, FM3 port session 45): how often a draw arrives with nothing
++// changed since the draw before but the shader float constants (ALU constants 0x4000-0x47FF), and, for the others,
++// what changed (fetch constants, bool/loop constants, other registers, shaders). The ceiling for a "same state as
++// the previous draw" fast path (EXPERIMENTAL.md X3). Logged every 300 frames.
++namespace expstate
++{
++enum : uint32_t { kFetch = 1, kBoolLoop = 2, kOther = 4, kShader = 8 };
++uint32_t g_dirty = ~0u;
++uint64_t g_draws = 0, g_same = 0, g_by[16] = {}, g_frames = 0;
++std::unordered_map<uint32_t, uint64_t> g_otherRegs; // register -> draws it broke (kOther only)
++void OnRegs(uint32_t index, uint32_t count)
++{
++    const uint32_t end = index + count;
++    if (index < gpureg::AluConstants || end > gpureg::FetchConstants)
++    {
++        if (end > gpureg::FetchConstants && index < gpureg::BoolConstants)
++            g_dirty |= kFetch;
++        if (end > gpureg::BoolConstants && index < gpureg::LoopConstants + 32)
++            g_dirty |= kBoolLoop;
++        if (index < gpureg::AluConstants || end > gpureg::LoopConstants + 32)
++        {
++            g_dirty |= kOther;
++            for (uint32_t r = index; r < end && r < index + 8; r++)
++                if (r < gpureg::AluConstants || r >= gpureg::LoopConstants + 32)
++                    g_otherRegs[r]++;
++        }
++    }
++}
++void OnDraw()
++{
++    g_draws++;
++    if (g_dirty == 0)
++        g_same++;
++    else if (g_dirty != ~0u)
++        g_by[g_dirty & 15]++;
++    g_dirty = 0;
++}
++void OnSwap()
++{
++    if (++g_frames % 300 || !g_draws)
++        return;
++    const double n = double(g_draws);
++    Log("exp state: %.0f draws a frame; same state as the draw before but float constants %.1f%%; changed: fetch only %.1f%%, "
++        "bool/loop only %.1f%%, fetch+bool/loop %.1f%%, other registers (with or without those) %.1f%%, shader (with or without) %.1f%%",
++        n / 300.0, 100.0 * double(g_same) / n, 100.0 * double(g_by[kFetch]) / n, 100.0 * double(g_by[kBoolLoop]) / n,
++        100.0 * double(g_by[kFetch | kBoolLoop]) / n,
++        100.0 * double(g_by[4] + g_by[5] + g_by[6] + g_by[7]) / n,
++        100.0 * double(g_by[8] + g_by[9] + g_by[10] + g_by[11] + g_by[12] + g_by[13] + g_by[14] + g_by[15]) / n);
++    std::vector<std::pair<uint64_t, uint32_t>> top;
++    for (const auto& [r, c] : g_otherRegs)
++        top.emplace_back(c, r);
++    std::sort(top.rbegin(), top.rend());
++    std::string s;
++    for (size_t i = 0; i < top.size() && i < 16; i++)
++    {
++        char t[48];
++        snprintf(t, sizeof(t), " %04X:%.1f%%", top[i].second, 100.0 * double(top[i].first) / n);
++        s += t;
++    }
++    Log("exp state: other registers written between draws (share of draws):%s", s.c_str());
++    g_draws = g_same = 0;
++    memset(g_by, 0, sizeof(g_by));
++    g_otherRegs.clear();
++}
++} // namespace expstate
++
+ void WorkerLoop()
+ {
+     SetThreadDescription(GetCurrentThread(), L"gpu draw worker");
++    static LiveSwitch expTraceState("REGPU_EXP_TRACE_STATE");
+     // REGPU_DRAW_THREAD_PRIORITY=<Win32 level> (start-time; 1 above normal, 2 highest, 15 time critical): the draw thread
+     // (and the replay thread, recorded_list.h) above the title's threads, which a port may map to "highest" (session 33
+     // of the FM3 port: the 1% slowest frames at a frame cap, from the draw thread being pre-empted?).
+@@ -907,10 +974,14 @@ void WorkerLoop()
+             {
+             case work::kRegs:
+                 memcpy(work::g_file.data() + a[0] * 4, a + 1, size_t(words - 1) * 4);
++                if (expTraceState)
++                    expstate::OnRegs(a[0], words - 1);
+                 if (seg::g_open)
+                     seg::Append(seg::kRegs, a, words);
+                 break;
+             case work::kShader:
++                if (expTraceState)
++                    expstate::g_dirty |= expstate::kShader;
+                 stereo::OnShader(a[0], a[1], a + 3, a[2]);
+                 SegShaderLoad(ShaderType(a[0]), a + 3, a[2], a[1]);
+                 break;
+@@ -918,9 +989,13 @@ void WorkerLoop()
+                 stereo::BeforeDraw();
+                 if (stereo::g_armed && stereo::g_log.empty())
+                     stereo::Append(p, words + 1); // (the draw that started the recording)
++                if (expTraceState)
++                    expstate::OnDraw();
+                 SegDraw(a[0], a[1], a[2]);
+                 break;
+             case work::kSwap:
++                if (expTraceState)
++                    expstate::OnSwap();
+                 seg::Flush();
+                 stereo::AtSwap(a[2]);
+                 seg::EndFrame();

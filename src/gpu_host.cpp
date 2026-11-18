@@ -292,6 +292,13 @@ void GpuStart()
     if (!getenv("FM3_FOREIGN_MSAA"))
         DefaultEnv("REGPU_NO_FOREIGN_MSAA", "1");
 
+#if FM3_EXPERIMENTAL
+    // Experimental system (session 45, EXPERIMENTAL.md): its ReGPU pieces on by default in build/exp only; each stays
+    // a live switch, so `Fm3 "switch REGPU_EXP_... 0"` A/Bs it in the running game (or set it to 0 before starting).
+    DefaultEnv("REGPU_EXP_ENV_GENERATION", "1"); // per-frame debug variables re-read only after a change
+    Log("gpu: experimental renderer pieces: env generation %s", getenv("REGPU_EXP_ENV_GENERATION"));
+#endif
+
     // Frame rate near other cars (OPEN-ISSUES.md P, session 13): at every INTERRUPT packet the command
     // processor waited until every queued fence had passed the host GPU (ReGPU's fence ordering, from the
     // FM4 port), so the game, the command processor and the GPU took turns. Off, as PGR4 runs: 1440p 4x
