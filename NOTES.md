@@ -7,7 +7,7 @@
   meant to go upstream into ReGPU): ReGPU patch 77 `regpu-hyper`. The Intel iGPU leads N2-N10 (RESEARCH "Intel iGPUs")
   and lighter background shader compiles are ReGPU patch 78 `regpu-igpu-intel`. The launcher has a new **iGPU
   (testing)** tab. Details: "Session 43" below.
-- **Build state:** `build/rel` = ReXenon + 80 ReGPU patches (verified with `tools\setup.ps1 -NoBuild`).
+- **Build state:** `build/rel` = ReXenon + 81 ReGPU patches (verified with `tools\setup.ps1 -NoBuild`).
 - **Presets** (launcher slider / settings.ini `perf_preset` or `hyper`, `FM3_PERF_PRESET`, `REGPU_HYPER`): off, mild,
   low, extreme, potato, auto (potato on an integrated GPU). Old `turbo` = off + the shader cuts. Mild and up still add
   FM3's own draw-cutting options. **iGPU 720p frozen grid: off 65.0, potato 78.1 fps (+20%)**, picture right (HUD,
@@ -25,6 +25,18 @@
   morning). **XeSS** (SDK 3.0.2, runtime 2.0.2) as upscaler `xess`: ReGPU 80 `regpu-xess`, launcher Upscaler list;
   RX 7900 XTX 1440p quality 295 fps, picture right; on the Radeon iGPU (1080p, 50%) slower than FSR 3 (23.4 vs 29.3,
   FSR 1 45.7): Intel untested.
+- **Less RAM (user: "check all of these"):** `tools/analysis/memmap.py` maps fm3.exe (committed and resident per
+  allocation). Found: the upload ring's other place kept 3 x 128 MB for nothing, the pipeline library read into private
+  memory, the XMA spare pool ~200 MB (~8 MB a codec), k_8 textures expanded 4x (78 MB of 280), the texture cache never
+  letting go; the AMD driver's own cache tables (2 x 256 MB "NTRY") and .parc shader-cache files (~500 MB resident,
+  file-backed) are the driver's. ReGPU 81 `regpu-less-ram` (memory report line, texture budget 1 GB default, one ring,
+  mapped library with a POSIX-rename save, k_8 as native R8 with the shader swizzle) + FM3: XMA spares capped at 4 a
+  format on PCs with <= 12 GB of RAM (`FM3_XMA_POOL_MAX`), launcher iGPU tab "Texture memory limit". **iGPU 720p Potato,
+  warm: private 7,386 -> 6,788 MB, working set 6,035 -> 5,566, GPU memory 3,255 -> 2,860 (~0.85 GB of RAM in all).**
+  Checked and not built: GPU untiling (~0.5 GB of traffic per track load: load time only), smaller render-target
+  formats (FM2's 8-bit ceiling test gained nothing on a Vega iGPU; 89-250 MB at the iGPU defaults; aliasing risk).
+  First try of R8 broke the car's black trim (the CPU decode had already applied the fetch swizzle): fixed by keeping
+  R8 unswizzled and "native". The launcher rebuild was blocked by a running launcher (the user's, started 13:14).
 - **Next:** an Intel tester's runs of Potato, the iGPU tab and XeSS (N1/N5: a GPA capture); the user hasn't driven
   Potato or XeSS yet.
 

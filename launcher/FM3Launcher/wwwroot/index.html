@@ -283,6 +283,10 @@
         <span>Background shader compiles</span>
         <select id="igpuCompileThreads"></select>
       </label>
+      <label class="field" data-tip="The most memory the game's textures may take; past it, the ones not used for a while are let go (and loaded again if they come back into view). Over a long session every track and car you visit adds textures. On an integrated GPU they live in your system RAM: 512 MB suits an 8 GB PC. Same picture; a texture coming back may take a moment.">
+        <span>Texture memory limit</span>
+        <select id="igpuTextureBudget"></select>
+      </label>
     </section>
     <section class="panel">
       <div class="panel-head"><h2>Experiments (Intel)</h2></div>

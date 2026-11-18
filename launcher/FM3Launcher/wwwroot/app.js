@@ -18,6 +18,7 @@ const PRESETS = [
   { value: "auto", name: "Auto", note: "Potato on an integrated GPU (built into the processor), Off on a graphics card." },
 ]
 const CULL_CHOICES = [{ value: -1, name: "As the speed preset says" }, { value: 0, name: "Off" }, { value: 64, name: "64 pixels (subtle)" }, { value: 256, name: "256 pixels (Potato)" }]
+const TEXTURE_BUDGETS = [{ value: "512", name: "512 MB (8 GB PCs)" }, { value: "1024", name: "1 GB (default)" }, { value: "2048", name: "2 GB" }, { value: "0", name: "No limit" }]
 const COMPILE_CHOICES = [{ value: "auto", name: "Automatic" }, { value: "0", name: "No limit" }, { value: "1", name: "One at a time" }, { value: "2", name: "Two at a time" }]
 // Mild and up turn these on by themselves (src/gpu_host.cpp ApplyPerfPreset): shown on and locked there; Off and
 // Turbo leave them to their own switches.
@@ -252,6 +253,7 @@ function render() {
   // iGPU tab
   fill($("hyperCull"), CULL_CHOICES, set.hyperCull)
   fill($("igpuCompileThreads"), COMPILE_CHOICES, set.igpuCompileThreads)
+  fill($("igpuTextureBudget"), TEXTURE_BUDGETS, set.igpuTextureBudget)
   $("igpuHalfRegs").title = set.dxcShaders ? "" : "Needs the DXC shader compiler (Settings) to have an effect"
   const presetOptions = preset >= 1 && PRESETS[preset].value !== "auto" // (Mild onwards; Auto decides at the start)
   for (const k of PRESET_OPTIONS) {
@@ -408,6 +410,7 @@ $("perfPreset").oninput = (e) => { const p = PRESETS[+e.target.value]; $("perfPr
 $("perfPreset").onchange = (e) => change({ perfPreset: PRESETS[+e.target.value].value })
 $("hyperCull").onchange = (e) => change({ hyperCull: +e.target.value })
 $("igpuCompileThreads").onchange = (e) => change({ igpuCompileThreads: e.target.value })
+$("igpuTextureBudget").onchange = (e) => change({ igpuTextureBudget: e.target.value })
 // N7 (session 43): a small GPU's starting point (RESEARCH "Intel iGPUs"): 720p, no MSAA + FXAA, 60 fps cap, Potato.
 $("igpuDefaults").onclick = () => {
   change({ resolution: "1280x720", msaa: 1, aa: "fxaa", maxFps: 60, perfPreset: "potato" })

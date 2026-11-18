@@ -99,6 +99,7 @@ $regpuPatches = @(
     'regpu-igpu-intel'               # iGPU/Intel leads N2-N10 + compiles: UMA detection (REGPU_UMA_NO_ARENA, REGPU_UMA_TEXTURES), REGPU_ROOTSIG_11, REGPU_SPEC_CONSTANTS, REGPU_HALF_REGS (DXC 16-bit), background compile throttle, REGPU_PIPELINE_THREADS / _LIBRARY_TAG
     'regpu-hyper-mesh'               # Hyper's mesh decimation + vertex-cache order with meshoptimizer (REGPU_MESHOPT_DIR; REGPU_HYPER_DECIMATE, REGPU_HYPER_VCACHE)
     'regpu-xess'                     # Intel XeSS upscaler (Upscaler::Xess; libxess.dll loaded at run time; REGPU_XESS_DIR headers), one context per setup
+    'regpu-less-ram'                 # Less RAM: memory report line, texture budget with eviction, upload ring's other place made only when used, pipeline library mapped from its file, k_8 kept as R8
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

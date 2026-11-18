@@ -120,6 +120,8 @@ public sealed class GameSettings
     public bool IgpuUmaTextures { get; set; }      // igpu_uma_textures: REGPU_UMA_TEXTURES
     public string IgpuCompileThreads { get; set; } = "auto"; // igpu_compile_threads: REGPU_COMPILE_BACKGROUND_THREADS (auto, 0 no limit, 1, 2)
     public static readonly string[] IgpuCompileChoices = ["auto", "0", "1", "2"];
+    public string IgpuTextureBudget { get; set; } = "1024"; // igpu_texture_budget: REGPU_TEXTURE_BUDGET_MB (session 43: 512, 1024, 2048, 0 = no limit)
+    public static readonly string[] IgpuTextureBudgets = ["512", "1024", "2048", "0"];
     // Launcher only, set on the game's environment at launch (Game.Launch):
     public bool Anisotropy { get; set; } = true;   // off: REGPU_NO_ANISO
     public bool CarLodFar { get; set; }            // car_lod_far: AI cars past the nearest 1-2 at detail level 3 (session 32, L60; read by the game)
@@ -146,7 +148,7 @@ public sealed class GameSettings
     static double Num(string v, double fallback, double min, double max) =>
         double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? Math.Clamp(d, min, max) : fallback;
 
-    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_mode", "vr_resolution", "triple_resolution", "triple_fullscreen", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "triple_mode", "triple_diag", "triple_dist", "triple_bezel_mm", "triple_gap_mm", "triple_angle_left", "triple_angle_right", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder", "hyper_shader_cuts", "hyper_cull", "igpu_rootsig11", "igpu_spec_constants", "igpu_half_regs", "igpu_uma_no_arena", "igpu_uma_textures", "igpu_compile_threads"];
+    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_mode", "vr_resolution", "triple_resolution", "triple_fullscreen", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "triple_mode", "triple_diag", "triple_dist", "triple_bezel_mm", "triple_gap_mm", "triple_angle_left", "triple_angle_right", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder", "hyper_shader_cuts", "hyper_cull", "igpu_rootsig11", "igpu_spec_constants", "igpu_half_regs", "igpu_uma_no_arena", "igpu_uma_textures", "igpu_compile_threads", "igpu_texture_budget"];
 
     public static GameSettings Load()
     {
@@ -189,6 +191,7 @@ public sealed class GameSettings
                 case "igpu_uma_no_arena": s.IgpuUmaNoArena = v == "1"; break;
                 case "igpu_uma_textures": s.IgpuUmaTextures = v == "1"; break;
                 case "igpu_compile_threads": s.IgpuCompileThreads = IgpuCompileChoices.Contains(v) ? v : "auto"; break;
+                case "igpu_texture_budget": s.IgpuTextureBudget = IgpuTextureBudgets.Contains(v) ? v : "1024"; break;
                 case "anisotropy": s.Anisotropy = v != "0"; break;
                 case "aniso_from_game": s.AnisoFromGame = v == "1"; break;
                 case "car_lod_far": s.CarLodFar = v == "1"; break;
@@ -248,6 +251,7 @@ public sealed class GameSettings
         if (HyperCull is 0 or 64 or 256) sb.Append($"hyper_cull={HyperCull}\n");
         sb.Append($"igpu_rootsig11={B(IgpuRootSig11)}\nigpu_spec_constants={B(IgpuSpecConstants)}\nigpu_half_regs={B(IgpuHalfRegs)}\nigpu_uma_no_arena={B(IgpuUmaNoArena)}\nigpu_uma_textures={B(IgpuUmaTextures)}\n");
         sb.Append($"igpu_compile_threads={(IgpuCompileChoices.Contains(IgpuCompileThreads) ? IgpuCompileThreads : "auto")}\n");
+        sb.Append($"igpu_texture_budget={(IgpuTextureBudgets.Contains(IgpuTextureBudget) ? IgpuTextureBudget : "1024")}\n");
         sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\nvr_camera_motion={B(VrCameraMotion)}\nvr_pace={B(VrPace)}\nlinux_runner={LinuxRunner}\nlinux_proton={LinuxProton}\nlinux_prefix={LinuxPrefix}\nvr_eye_limit={(Options.VrEyeLimit.Any(x => x.Value == VrEyeLimit) ? VrEyeLimit : "0")}\ntriple=0\ntriple_fov={(Options.TripleFov.Any(x => x.Value == TripleFov) ? TripleFov : "0")}\ndebug_server={B(DebugServer)}\n");
         sb.Append(DxcShaders ? "shader_compiler=dxc\n" : "shader_compiler=fxc\n");
         sb.Append($"game_folder={Clean(GameFolder)}\n");

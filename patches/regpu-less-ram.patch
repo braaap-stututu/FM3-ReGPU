@@ -1,0 +1,402 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 97632da..3da11ca 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -950,6 +950,7 @@ namespace
+ // Shared caches used by draws on several threads (see DrawContext).
+ std::recursive_mutex g_shaderMutex;  // shaders, pipelines, the compiler's maps
+ std::recursive_mutex g_textureMutex; // textures, cubes, mip chains, bindless, texture memory, index arena
++std::map<uint32_t, std::pair<uint64_t, uint64_t>> g_expandedFormats; // guest formats decoded to RGBA8: uploads, bytes (FM3 port session 43)
+ uint32_t g_zeroedEdramBase = ~0u; // EDRAM base a depth clear to zero has just emptied (BindSurfaces)
+ std::mutex g_surfaceMutex;           // EDRAM surfaces
+ // Parallel segments: texture uploads and copies a worker makes go to this list, executed
+@@ -2555,9 +2556,14 @@ void Init()
+         f.ring = CreateBuffer(kRingSize, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+         f.ring->Map(0, nullptr, reinterpret_cast<void**>(&f.ringCpu));
+         f.ringSize = kRingSize;
+-        if (g_gpuUploadHeap && !(f.ringAlt = CreateGpuUploadRing(kRingSize, f.ringAltCpu)))
+-            g_gpuUploadHeap = false;
+-        f.ringAltSize = f.ringAlt ? kRingSize : 0;
++        // (The other place's ring is made when REGPU_GPU_UPLOAD_RING first asks for it, and the one it replaces is
++        // released: FM3 port session 43, both kept 3 x 128 MB of RAM for a live switch. REGPU_KEEP_BOTH_RINGS=1: as before.)
++        if (g_gpuUploadHeap && getenv("REGPU_KEEP_BOTH_RINGS"))
++        {
++            if (!(f.ringAlt = CreateGpuUploadRing(kRingSize, f.ringAltCpu)))
++                g_gpuUploadHeap = false;
++            f.ringAltSize = f.ringAlt ? kRingSize : 0;
++        }
+         f.descriptorBase = i * kDescriptorsPerFrame;
+     }
+     Check(d->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, g_r.frames[0].allocator.Get(), nullptr, IID_PPV_ARGS(&g_r.realList)),
+@@ -2944,6 +2950,8 @@ UINT BindlessIndexLocked(ID3D12Resource* resource, DXGI_FORMAT format, uint32_t
+     srv.Format = format;
+     srv.Shader4ComponentMapping = format == DXGI_FORMAT_BC4_UNORM
+         ? D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(0, 0, 0, 0) // DXT5A: its one channel in all four
++        : format == DXGI_FORMAT_R8_UNORM // k_8 kept as one channel (GetTextureLocked): (v, v, v, 1) as its RGBA8 expansion
++        ? D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(0, 0, 0, D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1)
+         : D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+     if (kind == 1)
+     {
+@@ -3272,6 +3280,116 @@ void BeginFrameIfNeeded()
+                 k[RingOther] / 1024.0 / frames, n[RingOther] / frames);
+         }
+     }
++    // Texture budget (FM3 port session 43, after PGR4's and FM2's caps): the texture cache never let go of a texture, so
++    // it only grew over a session (every track and car seen). Every 64 frames, when the 2D textures together pass
++    // REGPU_TEXTURE_BUDGET_MB (default 1024; 0 = no limit), the ones unused longest (none used in the last 600 frames)
++    // are released until they are under 90% of it. A released texture is decoded again if it is drawn again. On an
++    // integrated GPU every texture is system RAM.
++    if (g_r.frame % 64 == 0)
++    {
++        static const uint64_t budget = uint64_t(getenv("REGPU_TEXTURE_BUDGET_MB") ? std::max(0, atoi(getenv("REGPU_TEXTURE_BUDGET_MB"))) : 1024) << 20;
++        if (budget)
++        {
++            std::lock_guard<std::recursive_mutex> lock(g_textureMutex);
++            struct Old
++            {
++                uint64_t frame, key, bytes;
++            };
++            std::vector<Old> old;
++            uint64_t total = 0;
++            for (const auto& [key, t] : g_r.textures)
++            {
++                if (!t.resource)
++                    continue;
++                const D3D12_RESOURCE_DESC d = t.resource->GetDesc();
++                const uint64_t b = g_r.device->GetResourceAllocationInfo(0, 1, &d).SizeInBytes;
++                total += b;
++                if (t.checkedFrame == ~0ull || t.checkedFrame + 600 < g_r.frame)
++                    old.push_back({ t.checkedFrame == ~0ull ? 0 : t.checkedFrame, key, b });
++            }
++            if (total > budget && !old.empty())
++            {
++                std::sort(old.begin(), old.end(), [](const Old& a, const Old& b) { return a.frame < b.frame; });
++                uint64_t freed = 0;
++                size_t n = 0;
++                for (const Old& o : old)
++                {
++                    if (total - freed <= budget / 10 * 9)
++                        break;
++                    auto it = g_r.textures.find(o.key);
++                    RetireTexture(std::move(it->second.resource));
++                    g_r.textures.erase(it);
++                    freed += o.bytes;
++                    n++;
++                }
++                Log("renderer: texture budget %llu MB: %zu unused textures released (%.0f MB; %.0f MB left)", (unsigned long long)(budget >> 20), n,
++                    freed / 1048576.0, (total - freed) / 1048576.0);
++            }
++        }
++    }
++    // FM3 port session 43 (less RAM for 8 GB PCs): every 30 s, what the renderer holds on the GPU (on an integrated GPU
++    // that is system RAM too), from each resource's description. REGPU_NO_MEMORY_REPORT=1: no line.
++    {
++        static auto next = std::chrono::steady_clock::now() + std::chrono::seconds(30);
++        static const bool off = getenv("REGPU_NO_MEMORY_REPORT") != nullptr;
++        if (!off && std::chrono::steady_clock::now() >= next)
++        {
++            next = std::chrono::steady_clock::now() + std::chrono::seconds(30);
++            auto bytes = [](ID3D12Resource* r) -> uint64_t {
++                if (!r)
++                    return 0;
++                const D3D12_RESOURCE_DESC d = r->GetDesc();
++                return g_r.device->GetResourceAllocationInfo(0, 1, &d).SizeInBytes;
++            };
++            auto sum = [&](const auto& map, uint64_t& n) {
++                uint64_t b = 0;
++                for (const auto& [k, t] : map)
++                    if (t.resource)
++                        b += bytes(t.resource.Get()), n++;
++                return b;
++            };
++            uint64_t nTex = 0, nCube = 0, nVol = 0, nMip = 0, nRes = 0, nSurf = 0, nOld = 0;
++            const uint64_t tex = sum(g_r.textures, nTex), cube = sum(g_r.cubes, nCube), vol = sum(g_r.volumes, nVol), mips = sum(g_r.mipChains, nMip);
++            uint64_t res = 0, surf = 0, oldBytes = 0;
++            for (const auto& [k, r] : g_r.resolved)
++            {
++                if (r.resource)
++                    res += bytes(r.resource.Get()), nRes++;
++                for (const ResolvedTexture& sp : r.spares)
++                    if (sp.resource)
++                        res += bytes(sp.resource.Get()), nRes++;
++            }
++            for (auto* m : { &g_r.colorSurfaces, &g_r.depthSurfaces })
++                for (const auto& [k, sf] : *m)
++                    if (sf.resource)
++                        surf += bytes(sf.resource.Get()), nSurf++;
++            for (const auto& [k, t] : g_r.textures)
++                if (t.resource && t.checkedFrame + 1800 < g_r.frame)
++                    oldBytes += bytes(t.resource.Get()), nOld++;
++            uint64_t rings = 0;
++            for (UINT i = 0; i < kFrames; i++)
++                rings += g_r.frames[i].ringSize * (g_r.frames[i].ringAlt ? 2 : 1);
++            const double mb = 1024.0 * 1024.0;
++            Log("renderer memory: textures %.0f MB (%llu; %.0f MB in %llu not used for 30 s), cubes %.0f MB (%llu), 3D %.0f MB (%llu), mip chains %.0f MB (%llu), "
++                "resolved images %.0f MB (%llu), EDRAM surfaces %.0f MB (%llu), texture heaps %zu x 128 MB, upload rings %.0f MB",
++                tex / mb, (unsigned long long)nTex, oldBytes / mb, (unsigned long long)nOld, cube / mb, (unsigned long long)nCube, vol / mb,
++                (unsigned long long)nVol, mips / mb, (unsigned long long)nMip, res / mb, (unsigned long long)nRes, surf / mb, (unsigned long long)nSurf,
++                g_texturePool.heaps.size(), rings / mb);
++            std::string expanded;
++            {
++                std::lock_guard<std::recursive_mutex> lock(g_textureMutex);
++                for (const auto& [fmt, e] : g_expandedFormats)
++                {
++                    char b[96];
++                    const char* name = TextureFormatName(fmt);
++                    snprintf(b, sizeof(b), "%s%s %llu (%.0f MB)", expanded.empty() ? "" : ", ", name ? name : "?", (unsigned long long)e.first, e.second / mb);
++                    expanded += b;
++                }
++            }
++            if (!expanded.empty())
++                Log("renderer memory: uploads decoded to RGBA8 by guest format: %s", expanded.c_str());
++        }
++    }
+     if (const UINT64 used = f.ringUsed.load(); used > g_ringPeak)
+     {
+         g_ringPeak = used;
+@@ -3346,10 +3464,21 @@ void BeginFrameIfNeeded()
+             }
+         }
+     }
+-    const bool wantVram = ringAuto.on && g_gpuUploadHeap && f.ringAlt
++    const bool wantVram = ringAuto.on && g_gpuUploadHeap
+         ? (ringAuto.window >= 0 ? ((ringAuto.window & 1) ? !ringAuto.trialStartVram : ringAuto.trialStartVram) : ringAuto.wantVram)
+         : bool(vramRing);
+-    // REGPU_GPU_UPLOAD_RING: this slot's ring in VRAM or system memory (its last use finished with its frame).
++    // REGPU_GPU_UPLOAD_RING: this slot's ring in VRAM or system memory (its last use finished with its frame). The other
++    // place's ring is made here when first wanted; without REGPU_KEEP_BOTH_RINGS the replaced one goes (garbage of this
++    // slot: its frame has finished).
++    static const bool keepBoth = getenv("REGPU_KEEP_BOTH_RINGS") != nullptr;
++    if (g_gpuUploadHeap && !f.ringAlt && wantVram != f.ringInVram)
++    {
++        if (wantVram)
++            f.ringAlt = CreateGpuUploadRing(f.ringSize, f.ringAltCpu);
++        else if ((f.ringAlt = CreateBuffer(f.ringSize, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ)))
++            f.ringAlt->Map(0, nullptr, reinterpret_cast<void**>(&f.ringAltCpu));
++        f.ringAltSize = f.ringAlt ? f.ringSize : 0;
++    }
+     if (f.ringAlt && wantVram != f.ringInVram)
+     {
+         std::swap(f.ring, f.ringAlt);
+@@ -3358,6 +3487,13 @@ void BeginFrameIfNeeded()
+         f.ringInVram = !f.ringInVram;
+         if (frameIndex == 0 && !ringAuto.on)
+             Log("renderer: upload ring in %s", f.ringInVram ? "VRAM (GPU upload heap)" : "system memory");
++        if (!keepBoth && !ringAuto.on)
++        {
++            f.garbage.push_back(f.ringAlt);
++            f.ringAlt.Reset();
++            f.ringAltCpu = nullptr;
++            f.ringAltSize = 0;
++        }
+     }
+     if (const UINT64 want = g_ringWant.load(); want > f.ringSize)
+     {
+@@ -6031,6 +6167,29 @@ struct PipelineLibrary
+     std::shared_mutex access;
+     std::chrono::steady_clock::time_point lastSave = std::chrono::steady_clock::now();
+     std::vector<char> loaded;
++    // FM3 port session 43 (less RAM): the file mapped read-only instead of read into private memory (its pages are the
++    // file's, so Windows can drop and re-read them under memory pressure: 100-130 MB for an FXC library). The library
++    // keeps using the view; saving replaces the file with a POSIX-semantics rename, which works while it is mapped (the
++    // view keeps the old contents). REGPU_LIBRARY_IN_MEMORY=1 (start-time): read into memory as before.
++    const char* blob = nullptr;
++    size_t blobSize = 0;
++    HANDLE mapFile = INVALID_HANDLE_VALUE, mapping = nullptr;
++    bool LoadMapped(const std::filesystem::path& path)
++    {
++        if (getenv("REGPU_LIBRARY_IN_MEMORY"))
++            return false;
++        mapFile = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
++        if (mapFile == INVALID_HANDLE_VALUE)
++            return false;
++        LARGE_INTEGER size{};
++        if (!GetFileSizeEx(mapFile, &size) || size.QuadPart <= 0 || !(mapping = CreateFileMappingW(mapFile, nullptr, PAGE_READONLY, 0, 0, nullptr)))
++            return CloseHandle(mapFile), mapFile = INVALID_HANDLE_VALUE, false;
++        blob = static_cast<const char*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
++        if (!blob)
++            return CloseHandle(mapping), CloseHandle(mapFile), mapping = nullptr, mapFile = INVALID_HANDLE_VALUE, false;
++        blobSize = size_t(size.QuadPart);
++        return true;
++    }
+     // Compaction: entries are never removed, so every translator or driver change leaves the old ones
+     // behind (FM2 port: 574 MB read at every boot). Every pipeline this session loads or builds also
+     // goes into `fresh`; once that holds every pipeline the manifest lists and is at least 10% smaller,
+@@ -6070,22 +6229,25 @@ struct PipelineLibrary
+         // for cold-library measurements that leave the player's library alone.
+         if (const char* tag = getenv("REGPU_PIPELINE_LIBRARY_TAG"); tag && *tag)
+             path = RegpuUserDir() / ("pipelines-" + std::string(tag) + path.filename().string().substr(9));
+-        if (std::ifstream in{ Path(), std::ios::binary | std::ios::ate })
+-        {
+-            loaded.resize(size_t(in.tellg()));
+-            in.seekg(0);
+-            in.read(loaded.data(), std::streamsize(loaded.size()));
+-        }
+-        if (const HRESULT hr = d1->CreatePipelineLibrary(loaded.data(), loaded.size(), IID_PPV_ARGS(&library)); FAILED(hr))
++        if (!LoadMapped(Path()))
++            if (std::ifstream in{ Path(), std::ios::binary | std::ios::ate })
++            {
++                loaded.resize(size_t(in.tellg()));
++                in.seekg(0);
++                in.read(loaded.data(), std::streamsize(loaded.size()));
++                blob = loaded.data();
++                blobSize = loaded.size();
++            }
++        if (const HRESULT hr = d1->CreatePipelineLibrary(blob, blobSize, IID_PPV_ARGS(&library)); FAILED(hr))
+         {
+-            if (!loaded.empty())
+-                Log("renderer: %s (%zu bytes) not usable (%08lX): starting a new one", Path().filename().string().c_str(), loaded.size(), (unsigned long)hr);
+-            loaded.clear();
++            if (blobSize)
++                Log("renderer: %s (%zu bytes) not usable (%08lX): starting a new one", Path().filename().string().c_str(), blobSize, (unsigned long)hr);
++            blobSize = 0;
+             if (FAILED(d1->CreatePipelineLibrary(nullptr, 0, IID_PPV_ARGS(&library))))
+                 library.Reset();
+         }
+-        Log("renderer: pipeline library %s (%zu bytes loaded)", library ? "ready" : "unavailable", loaded.size());
+-        if (library && !loaded.empty() && !getenv("REGPU_NO_LIBRARY_COMPACT") && FAILED(d1->CreatePipelineLibrary(nullptr, 0, IID_PPV_ARGS(&fresh))))
++        Log("renderer: pipeline library %s (%zu bytes %s)", library ? "ready" : "unavailable", blobSize, mapping ? "mapped from the file" : "loaded");
++        if (library && blobSize && !getenv("REGPU_NO_LIBRARY_COMPACT") && FAILED(d1->CreatePipelineLibrary(nullptr, 0, IID_PPV_ARGS(&fresh))))
+             fresh.Reset();
+     }
+ 
+@@ -6207,7 +6369,7 @@ struct PipelineLibrary
+         {
+             std::unique_lock lock(access);
+             // Only when it saves something: else the old library stays and is not written again.
+-            if (fresh && fresh->GetSerializedSize() * 10 < loaded.size() * 9)
++            if (fresh && fresh->GetSerializedSize() * 10 < blobSize * 9)
+             {
+                 library = fresh;
+                 swap = true;
+@@ -6269,9 +6431,30 @@ struct PipelineLibrary
+         const auto tmp = Path().string() + ".tmp";
+         { std::ofstream(tmp, std::ios::binary).write(blob.data(), std::streamsize(blob.size())); }
+         std::error_code ec;
+-        std::filesystem::rename(tmp, Path(), ec);
+-        if (ec)
++        // (A POSIX-semantics rename first: the library file may be mapped (LoadMapped), which an ordinary replace refuses.)
++        bool renamed = false;
++        {
++            const std::wstring target = std::filesystem::absolute(Path()).wstring();
++            HANDLE t = CreateFileW(std::filesystem::path(tmp).c_str(), DELETE | GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
++                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
++            if (t != INVALID_HANDLE_VALUE)
++            {
++                std::vector<uint8_t> info(sizeof(FILE_RENAME_INFO) + target.size() * sizeof(wchar_t));
++                auto* r = reinterpret_cast<FILE_RENAME_INFO*>(info.data());
++                r->Flags = 0x1 /* FILE_RENAME_FLAG_REPLACE_IF_EXISTS */ | 0x2 /* FILE_RENAME_FLAG_POSIX_SEMANTICS */;
++                r->FileNameLength = DWORD(target.size() * sizeof(wchar_t));
++                memcpy(r->FileName, target.data(), r->FileNameLength);
++                renamed = SetFileInformationByHandle(t, FileRenameInfoEx, r, DWORD(info.size())) != 0;
++                CloseHandle(t);
++            }
++        }
++        if (!renamed)
++            std::filesystem::rename(tmp, Path(), ec);
++        if (!renamed && ec)
++        {
++            Log("renderer: pipeline library not saved (%s)", ec.message().c_str());
+             std::filesystem::remove(tmp, ec);
++        }
+         if (getenv("REGPU_PERF"))
+             Log("perf: pipeline library saved in the background (%.0f MB): serialize %.0f ms, write %.0f ms", blob.size() / 1048576.0,
+                 std::chrono::duration<double, std::milli>(serialized - start).count(),
+@@ -7543,6 +7726,12 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+         NoteTextureFailure("decode failed", fetch);
+         return nullptr;
+     }
++    // Which guest formats end up expanded to RGBA8 (the memory report lists them; FM3 port session 43).
++    {
++        auto& e = g_expandedFormats[fetch.Format()];
++        e.first++;
++        e.second += uint64_t(w) * h * 4;
++    }
+     if (RendererTracing())
+         Log("texture upload: %08X %s %ux%u (%s)", fetch.Address(), TextureFormatName(fetch.Format()), w, h, cached.resource ? "changed" : "new");
+     static const uint32_t dumpAddress = getenv("REGPU_DUMP_TEXTURE") ? uint32_t(strtoul(getenv("REGPU_DUMP_TEXTURE"), nullptr, 16)) : 0;
+@@ -7559,11 +7748,34 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+         Log("renderer: wrote texture.png (%s %ux%u, endian %u, tiled %u, pitch %u)", TextureFormatName(fetch.Format()), w, h, fetch.Endian(),
+             fetch.Tiled(), fetch.Pitch());
+     }
+-    if (!cached.resource || cached.width != w || cached.height != h || cached.format != DXGI_FORMAT_R8G8B8A8_UNORM ||
++    // k_8 (FM3 port session 43, less memory): kept as R8_UNORM, a quarter of the RGBA8 it was expanded to; its view maps
++    // the one channel to R, G and B with alpha 1 (BindlessIndex), the (v, v, v, 1) the expansion gives before the fetch
++    // swizzle, and like the block-compressed textures it is "native": the shader applies the swizzle (DecodeTexture
++    // already swizzled the RGBA8, so v is read back from an output channel the swizzle fills from X, Y or Z). The same
++    // values. FM3: 220 such textures, 78 -> 20 MB. REGPU_NO_NATIVE_R8=1 (start-time): RGBA8 as before.
++    static const bool noNativeR8 = getenv("REGPU_NO_NATIVE_R8") != nullptr;
++    const bool r8 = fetch.Format() == 2 && !noNativeR8;
++    const DXGI_FORMAT texFormat = r8 ? DXGI_FORMAT_R8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
++    const uint32_t bpp = r8 ? 1 : 4;
++    int r8From = -1; // the swizzled channel that holds v (-1: none does, v is never seen)
++    for (int c = 0; c < 4 && r8; c++)
++        if (((fetch.Swizzle() >> (c * 3)) & 7) < 3)
++        {
++            r8From = c;
++            break;
++        }
++    auto pack = [r8, r8From](std::vector<uint8_t>& v, size_t texels) {
++        if (r8)
++            for (size_t i = 0; i < texels; i++)
++                v[i] = r8From >= 0 ? v[i * 4 + size_t(r8From)] : 0;
++    };
++    format = texFormat;
++    native = r8;
++    if (!cached.resource || cached.width != w || cached.height != h || cached.format != texFormat ||
+         cached.resource->GetDesc().MipLevels != mipCount)
+     {
+-        cached.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+-        cached.native = false;
++        cached.format = texFormat;
++        cached.native = r8;
+         D3D12_HEAP_PROPERTIES hp{};
+         hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+         D3D12_RESOURCE_DESC td{};
+@@ -7573,7 +7785,7 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+         td.DepthOrArraySize = 1;
+         td.MipLevels = mipCount;
+         td.SampleDesc.Count = 1;
+-        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
++        td.Format = texFormat;
+         RetireTexture(std::move(cached.resource));
+         if (UmaTextures())
+             if (ComPtr<ID3D12Resource> u = CreateUmaTexture(td))
+@@ -7586,7 +7798,8 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+                         NoteTextureFailure("mip decode failed", fetch);
+                         return nullptr;
+                     }
+-                    ok = UmaWrite(u.Get(), l, rgba.data(), levels[l].Width() * 4, levels[l].Height());
++                    pack(rgba, size_t(levels[l].Width()) * levels[l].Height());
++                    ok = UmaWrite(u.Get(), l, rgba.data(), levels[l].Width() * bpp, levels[l].Height());
+                 }
+                 if (ok)
+                 {
+@@ -7625,7 +7838,8 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+             return nullptr;
+         }
+         const uint32_t lw = levels[l].Width(), lh = levels[l].Height();
+-        const UINT rowPitch = (lw * 4 + 255) & ~255u;
++        pack(rgba, size_t(lw) * lh);
++        const UINT rowPitch = (lw * bpp + 255) & ~255u;
+         const UINT64 offset = RingAlloc(UINT64(rowPitch) * lh, 512, RingTexture);
+         if (offset == ~0ull)
+         {
+@@ -7633,7 +7847,7 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+             return nullptr;
+         }
+         for (uint32_t y = 0; y < lh; y++)
+-            memcpy(Frame().ringCpu + offset + UINT64(y) * rowPitch, &rgba[size_t(y) * lw * 4], size_t(lw) * 4);
++            memcpy(Frame().ringCpu + offset + UINT64(y) * rowPitch, &rgba[size_t(y) * lw * bpp], size_t(lw) * bpp);
+         D3D12_TEXTURE_COPY_LOCATION dst{};
+         dst.pResource = cached.resource.Get();
+         dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+@@ -7642,7 +7856,7 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
+         src.pResource = Frame().ring.Get();
+         src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+         src.PlacedFootprint.Offset = offset;
+-        src.PlacedFootprint.Footprint = { DXGI_FORMAT_R8G8B8A8_UNORM, lw, lh, 1, rowPitch };
++        src.PlacedFootprint.Footprint = { texFormat, lw, lh, 1, rowPitch };
+         C().list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+     }
+     D3D12_RESOURCE_BARRIER b{};

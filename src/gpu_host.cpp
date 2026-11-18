@@ -210,6 +210,8 @@ void ApplyPerfPreset(regpu::Config& c)
             DefaultEnv(env, "1");
     if (const std::string t = s.Extra("igpu_compile_threads"); !t.empty() && t != "auto")
         DefaultEnv("REGPU_COMPILE_BACKGROUND_THREADS", t.c_str());
+    if (const std::string t = s.Extra("igpu_texture_budget"); !t.empty()) // (session 43: ReGPU's texture budget, default 1024 MB)
+        DefaultEnv("REGPU_TEXTURE_BUDGET_MB", t.c_str());
     // Culling blended draws (REGPU_HYPER_CULL_ALL, for FM2's blended cars) drops FM3's HUD text: blended, depth-tested
     // glyphs whose strokes cover ~70 guest pixels (session 43, REGPU_TRACE_HYPER_CULL). FM3 culls opaque draws only.
     DefaultEnv("REGPU_HYPER_CULL_ALL", "0");

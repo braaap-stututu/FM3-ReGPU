@@ -218,7 +218,23 @@ AVCodecContext* OpenCodec(uint32_t ch, uint32_t hz)
 // it has taken between two refills at its busiest, from 2 up to 40: memory only once a format has needed it.
 // FM3_XMA_NO_CODEC_POOL=1: opened in place.
 // (Ported from zer0ducksgiven's Forza-Motorsport-2-ReGPU, 7870b2b and c830cbc.)
-constexpr size_t kMinPooledCodecs = 2, kMaxPooledCodecs = 40;
+constexpr size_t kMinPooledCodecs = 2;
+// The most spare codecs kept per format. Each FFmpeg XMA context holds ~8 MB: FM3 keeps ~18 spares (up to 11 for
+// 1 ch 48 kHz), ~200 MB (session 43: private bytes with the pool off -200 MB). On PCs with 12 GB of RAM or less, 4 a
+// format (a race start then opens a few in place, as a stream that waits too long already does). FM3_XMA_POOL_MAX=<n>.
+size_t MaxPooledCodecs()
+{
+    static const size_t n = [] {
+        if (const char* v = getenv("FM3_XMA_POOL_MAX"); v && *v)
+            return size_t(std::max(1, atoi(v)));
+        MEMORYSTATUSEX m{ sizeof(m) };
+        const bool small = GlobalMemoryStatusEx(&m) && m.ullTotalPhys <= (12ull << 30);
+        if (small)
+            Log("xma: %llu MB of RAM: at most 4 spare codecs a format (FM3_XMA_POOL_MAX)", (unsigned long long)(m.ullTotalPhys >> 20));
+        return small ? size_t(4) : size_t(40);
+    }();
+    return n;
+}
 std::mutex g_poolMutex;
 std::map<std::pair<uint32_t, uint32_t>, std::vector<AVCodecContext*>> g_codecPool;
 std::map<std::pair<uint32_t, uint32_t>, size_t> g_codecsTaken, g_codecTarget; // taken since the last refill, spares kept
@@ -307,7 +323,7 @@ void RefillCodecPool()
         for (const auto& [key, pool] : g_codecPool)
         {
             size_t& target = g_codecTarget[key];
-            const size_t taken = std::min(g_codecsTaken[key], kMaxPooledCodecs);
+            const size_t taken = std::min(g_codecsTaken[key], MaxPooledCodecs());
             if (taken > target && taken > kMinPooledCodecs)
                 Log("xma: keeping %zu spare codecs for %u ch %u Hz (%zu taken between refills)", taken, key.first, key.second, g_codecsTaken[key]);
             target = std::max({ target, taken, kMinPooledCodecs });
