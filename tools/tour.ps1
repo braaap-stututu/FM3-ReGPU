@@ -1,4 +1,4 @@
-<#
+﻿<#
   tour.ps1 - shader/pipeline discovery tour (session 28): drives FM3 through Free Play quick races on every
   environment, so the pipelines each track, car, photo mode and post-race replay need are drawn once and land in
   <user>\pipelines.manifest (merge it into the seed afterwards: python -I tools/pipeline_seed.py out/user/pipelines.manifest).
@@ -76,7 +76,7 @@ function Tour-Coverage {
 }
 
 # Boot (minimized, Baseline profile via play.cmd) and drive to Environment select with the Acura RSX.
-function Start-TourBoot([hashtable]$Env = @{}) {
+function Start-TourBoot([hashtable]$Env = @{}, [int]$CarSteps = 0) {
     if (Get-Process fm3 -ErrorAction SilentlyContinue) { throw 'fm3 is running: close it first' }
     $env:FM3_MINIMIZED = '1'
     foreach ($k in $Env.Keys) { Set-Item "env:$k" $Env[$k] }   # start-time switches, e.g. @{FM3_ONE_TILE='0'}
@@ -90,6 +90,10 @@ function Start-TourBoot([hashtable]$Env = @{}) {
     Tour-Press DOWN 1; Tour-Press A 4          # Free Play (Quick Race highlighted)
     if (-not (Tour-Expect envselect { Tour-Press A 5 } 1 'manufacturer')) { return $false }
     if (-not (Tour-Expect envselect { Tour-Press A 5 } 1 'car')) { return $false }
+    # (Each step above is labelled by the screen it reaches: 'car' = Car select, open on Acura's first car, the RSX Type-S.) -CarSteps N moves right N times first (session 44: 12 = the
+    # last Acura, the #66 ARX-02a R1 prototype: one of the fastest cars, so the AI tour's races are shorter; the list
+    # does not wrap, so extra presses stay on it). Short holds: menus repeat a long one.
+    for ($i = 0; $i -lt $CarSteps; $i++) { Fm3 'hold RIGHT' | Out-Null; Start-Sleep -Milliseconds 120; Fm3 'release RIGHT' | Out-Null; Start-Sleep 2 }
     if (-not (Tour-Expect assists { Tour-Press A 5 } 3 'assists')) { return $false }   # colour, then assists
     if (-not (Tour-Expect envselect { Tour-Press A 4 } 1 'envselect')) { return $false }
     $script:TourCursor = 0
@@ -151,4 +155,87 @@ function Start-TourPhoto([int]$Index = 3, [hashtable]$Env = @{}) {
     Tour-Press DOWN 0.6; Tour-Press DOWN 0.6; Tour-Press A 5
     Tour-Note "photo mode on $($TourEnvs[$Index]) ($(($Env.Keys | % { "$_=$($Env[$_])" }) -join ' '))" | Out-Host
     $true
+}
+
+# ---- AI tour (session 44, user request): FM3's race AI drives the player's car (FM3_AI_PLAYER=1) through every layout
+# of every environment, each race to the finish, on the iGPU at 720p with a 60 fps cap (little power); camera views are
+# cycled during the race, the post-race replay plays for a while. Afterwards merge the manifest into the seed:
+#     python -I tools/pipeline_seed.py out/user/pipelines.manifest
+#     . .\tools\tour.ps1 -Run name; Start-AiTour [-From 0 -To 24]
+# Runs on a copy of Baseline (profile Tour), never the user's save; settings.ini is not touched (FM3_* overrides).
+$AiTourEnv = @{ FM3_PROFILE = 'Tour'; FM3_VR = 'off'; XR_RUNTIME_JSON = 'C:\none\none.json'; FM3_AI_PLAYER = '1';
+    FM3_RESOLUTION = '1280x720'; FM3_MSAA = '1'; FM3_MAX_FPS = '60'; REGPU_ADAPTER = 'Radeon(TM) Graphics' }
+
+# Another layout to the right of the selected one in Track select ("more"/"end"; "?" if the screen isn't Track select).
+function Tour-More {
+    $p = Tour-Shot 'layout'
+    if ((& python -I (Join-Path $TourRoot 'tools\analysis\tour_state.py') $p).Trim() -ne 'trackselect') { return '?' }
+    (& python -I (Join-Path $TourRoot 'tools\analysis\tour_state.py') $p --more).Trim()
+}
+
+# From Track select: race the selected layout to the finish (AI driving), back to Track select.
+function Invoke-TourAiRace([string]$Label, [int]$TimeoutMin = 30) {
+    Tour-Press A 2                              # Go race: loading, then the pre-race menu over the fly-over
+    Start-Sleep 45
+    if (-not (Tour-Expect menu { Tour-Press LB 1 } 5 "$Label-prerace")) { return $false }
+    Tour-Press A 16                             # Start race; countdown
+    Tour-Shot "$Label-race" | Out-Null
+    $t0 = Get-Date; $s = 'other'; $n = 0
+    while ($s -ne 'menu' -and ((Get-Date) - $t0).TotalMinutes -lt $TimeoutMin) {
+        Start-Sleep 15; $n++
+        if ($n % 3 -eq 0) { Fm3 'press RB 300' | Out-Null; Start-Sleep 1 }   # next camera view every ~45 s
+        $s = Tour-State 'poll'
+    }
+    if ($s -ne 'menu') {
+        Copy-Item (Join-Path $TourOut 'poll.png') (Join-Path $TourOut "stuck-$Label-race.png") -Force
+        Tour-Note "stuck: $Label race not finished after $TimeoutMin min" | Out-Host
+        return $false
+    }
+    Tour-Note "$Label finished in $([int]((Get-Date) - $t0).TotalSeconds) s. Coverage: $(Tour-Coverage)" | Out-Host
+    Tour-Shot "$Label-finish" | Out-Null
+    Start-Sleep 20                              # post-race replay behind the menu
+    Tour-Expect trackselect { Tour-Press A 8 } 2 "$Label-continue"
+}
+
+# One environment: every layout from the first, then back to Environment select.
+function Invoke-TourAiEnv([int]$Index, [int]$FromLayout = 0) {
+    $moves = $Index - $script:TourCursor
+    $btn = if ($moves -ge 0) { 'RIGHT' } else { 'LEFT' }
+    for ($i = 0; $i -lt [math]::Abs($moves); $i++) { Tour-Press $btn 0.9 }
+    $script:TourCursor = $Index
+    Start-Sleep 1
+    if (-not (Tour-Expect trackselect { Tour-Press A 4 } 2 "$Index-trackselect")) { return $false }
+    for ($i = 0; $i -lt $FromLayout; $i++) { Tour-Press RIGHT 1.5 }   # resume part-way through an environment
+    for ($layout = $FromLayout; $layout -lt 20; $layout++) {
+        $label = '{0:D2}-{1:D2}' -f $Index, $layout
+        Tour-Note "$label $($TourEnvs[$Index]) layout $layout" | Out-Host
+        if (-not (Invoke-TourAiRace $label)) { return $false }
+        Start-Sleep 2
+        $more = Tour-More
+        if ($more -eq '?') { Start-Sleep 3; $more = Tour-More }
+        if ($more -ne 'more') { break }
+        Tour-Press RIGHT 1.5
+    }
+    Tour-Expect envselect { Tour-Press B 3 } 2 "$Index-back"
+}
+
+# Every environment From..To; a failed environment restarts the game and goes on with the next one.
+function Start-AiTour([int]$From = 0, [int]$To = 24, [switch]$RebootEach, [int]$FromLayout = 0, [int]$CarSteps = 12) {
+    # -RebootEach: a fresh game per environment (session 44: the renderer's resolved-image, cube and mip-chain caches
+    # grow ~1-1.5 GB per new track on the iGPU, so one boot for all 25 would run out of RAM)
+    Tour-Note "AI tour $From..$To from layout $FromLayout (iGPU 720p, 60 fps cap, profile Tour, car steps $CarSteps)"
+    $booted = $false
+    for ($k = $From; $k -le $To; $k++) {
+        if (-not $booted -or -not (Get-Process fm3 -ErrorAction SilentlyContinue)) {
+            Get-Process fm3 -ErrorAction SilentlyContinue | ForEach-Object { $_.CloseMainWindow() | Out-Null }
+            Start-Sleep 8
+            Get-Process fm3 -ErrorAction SilentlyContinue | Stop-Process -Force
+            $booted = Start-TourBoot $AiTourEnv $CarSteps
+            if (-not $booted) { Tour-Note "boot failed before environment $k"; return }
+        }
+        if (-not (Invoke-TourAiEnv $k $(if ($k -eq $From) { $FromLayout } else { 0 }))) { Tour-Note "environment $k ($($TourEnvs[$k])) failed: restarting"; $booted = $false }
+        elseif ($RebootEach) { $booted = $false }
+    }
+    Tour-Note "AI tour finished ($From..$To). Coverage: $(Tour-Coverage)"
+    Get-Process fm3 -ErrorAction SilentlyContinue | ForEach-Object { $_.CloseMainWindow() | Out-Null }
 }

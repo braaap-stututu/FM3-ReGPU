@@ -4,7 +4,8 @@
 
 Prints one word: mainmenu, assists, envselect (also manufacturer and car select), trackselect, menu (a dark side
 menu with its first item highlighted: pre-race Start race, pause Resume, post-race Continue), or other. --probes
-prints the probe colours too. Probe points were read off session 28's hand-made shots (out/perf/s28tour);
+prints the probe colours too. --more (track select) prints "more" if another layout follows to the right, else "end"
+(session 44). Probe points were read off session 28's hand-made shots (out/perf/s28tour);
 coordinates scale with the shot's width.
 """
 import os
@@ -23,6 +24,7 @@ PROBES = {
     'menu_red': (400, 430),           # first item of a side menu, highlighted red
     'menu_red2': (560, 430),
     'main_red': (1200, 770),          # main menu: its first item (Forza Motorsport 3) highlighted red
+    'next_arrow': (2360, 670),        # track select's right arrow: dark (~112) while more layouts follow, light (226) on the last
 }
 
 
@@ -57,4 +59,7 @@ def state(img):
 if __name__ == '__main__':
     for p in [a for a in sys.argv[1:] if not a.startswith('--')]:
         s, c = state(read_png(p))
+        if '--more' in sys.argv:
+            print('more' if max(c['next_arrow']) < 170 else 'end')
+            continue
         print(s if '--probes' not in sys.argv else '%-12s %s %s' % (s, os.path.basename(p), c))

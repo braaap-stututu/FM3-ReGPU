@@ -28,6 +28,8 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [TAAU (TAA upscaling)](#taau-taa-upscaling-session-39-2026-11-16) (session 39) | Feasible and small: our TAA already has jitter, motion vectors, depth, history and the mip bias; TAAU = the same resolve run at output size from a lower-res scene (one new compute pass + an `upscaler=taau` entry). Worth it mainly for weak GPUs (iGPU, Steam Deck): cheaper than FSR 3, much sharper than FSR 1/bilinear; on the 7900 XTX at 1440p no gain (draw-thread bound). Measure the motion vectors' cost on the iGPU first |
 | [A launcher without a web view, for SteamOS game mode](#a-launcher-without-a-web-view-for-steamos-game-mode-cloud-2026-11-16) (cloud, 2026-11-16/17) | Game mode = gamescope: one app window on screen, X11 via Xwayland, **no file-picker portal**, Steam must keep tracking the process it started. Recommended: **options and installer inside `fm3.exe`** (Dear ImGui on ReGPU's D3D12 = vkd3d-proton there; the Unleashed Recompiled pattern), the existing C# launcher kept for desktop; headless `--install-disc1/2` reused. Alternative keeping C#: **Avalonia** (X11, Skia) + SDL3 for the pad. Zero-work stopgap: Steam shortcut runs `--play`, set up in desktop mode |
 | [In-game options menu, quit tab and restart prompt](#in-game-options-menu-quit-tab-and-restart-prompt-cloud-2026-11-16) (cloud, 2026-11-16/17) | A **host overlay menu** (Dear ImGui on ReGPU's present, one new ReGPU host callback), not a tab in FM3's own menus (unknown UI system, fonts lack glyphs). Opened by F1 / BACK+START; while open the game gets a neutral pad (`ReadPad`) and the world is held (`FM3_FREEZE_TIME` hook). Quit = the existing `WM_CLOSE` save-and-exit. Restart prompt: every setting tagged live / restart in one shared schema; on closing the menu, restart keys that differ from the values this process **started** with list in a dialog (Restart now / Later / Undo). Restart = exit code 3 to a supervisor `fm3.exe` that relaunches (Steam keeps tracking it) |
+| [Steam Deck optimisations](#steam-deck-optimisations-session-44-2026-11-18) (session 44) | Measure on the Deck first (GPU busy vs CPU; nobody knows which limits its 70-90 fps grid). Wine-specific costs never checked: high-resolution waitable timers (maybe unsupported or a wineserver round trip each wait), the vertex arena's write faults (SIGSEGV per fault under Wine), our pipeline library being a dummy under vkd3d-proton's own cache. Then a "Steam Deck" launcher preset of existing parts and opt-in 4-core thread pinning |
+| [Triple screen speed](#triple-screen-speed-session-44-2026-11-18) (session 44) | Triple is draw-thread bound (~130 vs ~300 fps centre only): each side screen replays every main-view draw of FM3's 166-degree frustum, though roughly half lie off that screen. Per-screen draw threads: no (shared per-frame state, serial GPU queue, s37: workers ~2x the cost per draw). Do instead: per-screen cull from last frame's GPU answers (Hyper cull keyed by screen), then FM3's own object cull per screen, view instancing as the long shot |
 | [ReXenon instead of XenonRecomp](#rexenon-instead-of-xenonrecomp-cloud-2026-11-16) (cloud, 2026-11-16/17) | Feasible and fairly cheap: ReXenon (MIT, by ReGPU's author, built for the FM2 port) already carries 4 of our 5 XenonRecomp patches (divides, MSR[EE] hook, switch on u32, VMX128/`vcmpbfp`/`vsldoi128`); the per-image name prefix is unused in FM3. Gains: fails loudly on what it can't translate, `PPC_MFTB()` replaces `patch_mftb.py`, fixed `vpkd3d128`/`dcbz`/memset-class bugs, relaxed-atomic guest accesses (FM2: main thread -10..17% CPU on Zen 3, ~0 on an FX). Risk: days old, no human playtests yet. Try it side by side (`out/ppc-rx`), not as a swap. **Done in session 41:** added beside XenonRecomp, then made the default (NOTES session 41) |
 | [Intel iGPUs (Iris Xe, UHD): causes and fixes](#intel-igpus-iris-xe-uhd-causes-and-fixes-cloud-2026-11-17) (cloud, 2026-11-16/17) | A tester's i5-1135G7 (Iris Xe, 32 GB DDR4) ran far below the user's Steam Deck. On paper the GPUs are equal (~1.6 TFLOPS); the Deck has ~1.7x the memory bandwidth, RADV/ACO under Proton and a GPU we tuned for. Check first: settings, single-channel RAM (Iris Xe then runs as "UHD Graphics"), power mode, driver. Code leads (none tested on Intel): constants-driven branches specialised away (Intel's own top rule), root-signature hints, UMA paths (no vertex-arena copy, textures written in place), MSAA off + post AA, resolve shader trick, XeSS, DXC/FP16 |
 
@@ -2297,3 +2299,92 @@ frame); N5/N9 `REGPU_HALF_REGS` (DXC); N6 not applicable; N7 "Apply iGPU default
 download); N10 checked. Also the Hyper presets from the FM2 port (Potato: their Intel set, +213% on an HD 630 there,
 +20% on the AMD iGPU here) and background compiles throttled on weak CPUs. Patches `regpu-hyper`, `regpu-igpu-intel`.
 variant script; then N2/N4/N6/N7 (small, help every iGPU); N3 and N5 with an Intel capture; N8/N9 last.
+
+## Steam Deck optimisations (session 44, 2026-11-18)
+
+Research by an agent (reading and web only, nothing run). [S] = from a source or our code, [I] = inference.
+Starting point (PERF-PLAN L52b): the user's Deck OLED under Proton, 1280x800, MSAA 2x, DXC, one tile, runs
+**70-90 fps on a full grid and 120 (the cap) without AI cars**. Nobody has measured whether it is CPU- or GPU-bound.
+
+| # | Idea | Expected gain | Effort | Test where |
+|---|---|---|---|---|
+| 1 | **Diagnosis run on the Deck**: `perf_log_light=1` (GPU ms), MangoHud GPU busy, `top -H`, `FM3_TRACE_SLEEP=1` (`src/main.cpp:53`, real Sleep(1) lengths) | Decides 2-10 | Low | Deck |
+| 2 | **Sleeps under Wine**: our frame limiter, vblank, ring waits and CP idle sleep use `CreateWaitableTimerExW(HIGH_RESOLUTION)` (`src/precise_sleep.h:14`, ReGPU's copy, `src/hooks/ring_wait.cpp:46`, ReGPU `gpu.cpp:1952`). [S] Wine timers are wineserver objects, and high resolution was reported unsupported (spice2x). Detect Wine once (`wine_get_version`, as `launcher/FM3Launcher/Shell.cs:306`) and use `NtDelayExecution` | Pacing, CPU, battery | Low | Linux desktop, then Deck |
+| 3 | **Vertex arena off under Wine**: each first write to an armed 64 KB block = a guard fault (`src/memory.cpp:302-331`); [I] under Wine a SIGSEGV + exception dispatch + mprotect, tens of us each. Log `g_watchFaults`/s, A/B | Unknown, maybe large | Trivial | Linux desktop |
+| 4 | **Pipeline library under vkd3d-proton**: [S] with vkd3d's internal cache on (the default), `ID3D12PipelineLibrary` is a dummy; its cache goes to the working directory. Either the launcher sets `VKD3D_CONFIG=pipeline_library_app_cache` (`Runner.cs:83-120`; our `pipelines-*.bin` becomes the real cache) or skip the library under vkd3d (ReGPU `InitPipelineLibrary`, `renderer.cpp:6201`). Steam's Fossilize pre-cache doesn't cover non-Steam shortcuts | Faster cached boots, less RAM/disk | Low | Linux desktop |
+| 5 | **"Steam Deck" launcher preset** of existing opt-ins: one tile, DXC, MSAA 2x (or 1x + FXAA/CMAA2), `car_lod_far=1` (+4.1%), `shadow_rate=2` (+8.2%), `mirror_rate=2`, `reflect_rate=2`, cap 45 (divides 90 Hz) or 60, front-end limit = the cap. 1280x800 already letterboxes to 16:9 (`src/settings.cpp:204`) | The measured parts' gains | Low | Here (720p, affinity 0xFF) + Deck |
+| 6 | **Proton and sync**: [S] ntsync in Linux 6.14 / SteamOS 3.7.20; GE-Proton since 10-9, Proton 11 with its Wine 11 rebase. Valve says fsync is as fast or faster. Unleashed Recompiled reports Linux CPU-bound gains from heavy thread sync. Launcher: pass user env vars through | Unknown | Low | Deck |
+| 7 | **Thread pinning for 4C/8T** (FM2_PIN, FM2 +8.3% on an FX-8350): needs an FM3 split (ReGPU's draw thread is our heaviest host thread); under Wine use affinity masks (CPU sets likely stubs). Hooks: `src/kernel/thread.cpp:~172`, ReGPU `gpu.cpp:870`. Opt-in | Unknown on 4 cores | Medium | Partly here, then Deck |
+| 8 | **Display/power docs**: 45/90 Hz with a matching cap; [S] Unleashed: max GPU clock in the quick menu "noticeably improves performance, even when mainly CPU-bound"; our upscaler over gamescope FSR (keeps the HUD sharp) | Smoothness, battery | Docs | Deck |
+| 9 | **UMA on the Deck**: [S] vkd3d reports UMA when all memory types are HOST_VISIBLE (`device.c` `d3d12_device_is_uma`); [I] RADV on Van Gogh likely does, so `g_uma` and the compile throttle switch on. A/B `REGPU_UMA_TEXTURES`, `REGPU_UMA_NO_ARENA`; [S] vkd3d promotes UPLOAD heaps to ReBAR until a GPU_UPLOAD heap appears, so upload-ring A/Bs mean something else there. Check the 1 GB texture budget against the UMA carve-out | Unknown | Trivial A/B | Deck |
+| 10 | TAAU / FSR1 at 0.67-0.75 (only if GPU-bound) | Scales with pixels | TAAU ~1 session | Here + Deck |
+| 11 | Game mode: `--play` shortcut now; in-game options overlay later (RESEARCH cloud 2026-11-16) | Usability | Low / High | Deck |
+
+Not re-proposed: 16-bit registers, VRS, smaller render-target formats, more boot pipeline workers (measured or parked).
+Gaps: RADV's Van Gogh memory types (UMA inferred); current Wine support of the high-resolution timer flag
+(`FM3_TRACE_SLEEP` on the Deck settles it). Under Wine `SetThreadPriority` mostly does nothing without nice/RT rights.
+Sources: [vkd3d-proton README](https://github.com/HansKristian-Work/vkd3d-proton/blob/master/README.md) and
+`libs/vkd3d/{device,memory,cache}.c`; [GE-Proton 10-9](https://www.gamingonlinux.com/2025/07/ge-proton-10-9-released-with-ntsync-and-fsr4-upgrade-support);
+[ntsync in 6.14](https://www.gamingonlinux.com/2025/01/ntsync-for-proton-wine-now-in-linux-kernel-6-14-that-should-make-many-steamos-users-happy);
+[UnleashedRecomp README](https://github.com/hedge-dev/UnleashedRecomp); FM2 pinning
+[commit 4999ebcf](https://github.com/zer0ducksgiven/Forza-Motorsport-2-ReGPU/commit/4999ebcf).
+**Suggested order:** 1 (the user's Deck run), then 2, 3, 4 (A/B on a Linux desktop first), then 5 and 7.
+
+## Triple screen speed (session 44, 2026-11-18)
+
+User's question: can triple screen be made faster, would a separate draw thread per screen work better? Code read
+(`thirdparty/ReGPU/src/gpu/gpu.cpp` namespace `stereo`, `renderer.cpp` HyperCull), no new measurements (the AI tour
+held the game).
+
+**How it works now:** FM3's camera is widened to a 166-degree frustum (`src/hooks/vr_camera.cpp` `TripleHandOff`) so
+its culling keeps everything any screen sees. The draw thread records every guest record from the frame's first
+main-view draw to the swap; the game's own pass draws the centre screen, then at the swap `TripleAtSwap` replays the
+records twice more, serially on the same thread, with the left and right screen's clip-space turn
+(`RendererSetTripleView`). Shadow maps, reflections and the mirror (before the first main-view draw) are shared.
+Session 39 grid: ~9,000 draws a frame, **~130 fps, draw-thread bound**; `REGPU_TRIPLE_CENTRE_ONLY=1` ~300.
+
+**Where the time goes:** every screen draws every object in the 166-degree frustum. A side screen covers ~55 degrees,
+so a good part of its replay (my estimate: half or more: roadside objects of the other side, most distant geometry
+that only the centre shows) produces no pixel at all: the GPU clips it, but the draw thread still pays the full
+per-draw cost (~1 us: pipeline lookup, constants, textures, the command itself). The centre pass likewise draws the
+side screens' objects.
+
+**Separate draw threads per screen: not recommended.**
+- A replay is not independent work: it changes the renderer's per-frame state as it records: EDRAM surface
+  bookkeeping, resolved images (the bloom/post chain resolves into the same images on each screen), resolve serials,
+  the texture cache's per-frame checks, the upload ring and descriptor allocation, `work::g_file` (the register file
+  the replay rewinds), and the globals `g_tripleView` / `g_stereoReplay`. Two screens recording at once would race on
+  all of it; each screen would need its own copy of every main-view surface and resolved image, and those would need
+  separate state machines: a large refactor of the renderer core.
+- The GPU runs the three passes one after another anyway (one queue); only CPU recording would overlap.
+- Session 37 measured parallel recording on this draw thread: draw workers -7.6% (pieces ~2 us a draw vs ~1 us
+  serial: cold per-thread caches, register-file snapshots, wake-ups), and the spliced-pieces experiment was dropped as
+  slower. Whole screens per thread avoid the per-piece snapshots but not the cold caches, and CPUs with 4-6 cores
+  (Steam Deck) are already saturated.
+- Best case on the 9800X3D: frame time = max(centre, side) instead of the sum, so maybe ~1.6-2x; at the cost above.
+
+**What should work better (in order):**
+1. **Per-screen cull from last frame's GPU answers** (small, ReGPU only): Hyper's draw cull (`renderer.cpp`
+   `HyperCull`, patch 77) already counts each draw's samples with an occlusion query and skips a draw that produced
+   none *before* its pipeline, constants and textures are looked up (a culled draw costs no CPU), retesting every 4th
+   frame. Key it by screen (add the triple slot to the draw key) and make the main-view draws of all three passes
+   eligible: each pass then drops what lies off its screen. Needed: `kPerFrame` (4,096 queries) raised for ~9,000
+   draws; limited to depth-tested opaque draws (blended ones stay, as in Hyper). Visible risk: an object entering a
+   screen while culled appears up to ~3 frames late (probe retests avoid blinking but not the delay); at 200 fps that
+   is ~15 ms, mostly at the side screens' inner edges, where objects come from the centre screen. Opt-in launcher
+   toggle (perf options rule). Estimate: 9,000 -> ~5,500-6,500 draws, ~130 -> ~170-200 fps (to measure).
+2. **FM3's own object cull per screen** (lossless, game RE): find FM3's frustum test on its scene objects (the one
+   `FM3_TRIPLE_NARROW` showed: narrowing the camera dropped buildings and cars), run it against the three screen
+   frustums and pass a per-object screen mask to ReGPU (a tag in the command stream, as the VR pose tags do); the
+   replays skip draws whose mask excludes their screen, no delay, no GPU queries. Same gain as 1 without the pop-in, plus
+   the centre pass loses the side-only objects. The same hook point is where the open triple shadow shimmer fix belongs
+   (fit FM3's shadow frustum to the centre screen while culling keeps the wide view), so the two could share the RE work.
+3. **View instancing (SV_ViewID), long shot:** one draw call renders all three screens (one wide surface, three
+   viewports), so the draw thread pays once per draw (~300 fps class) and the GPU runs vertices three times. It needs the
+   main-view surfaces, resolves and every screen-space post pass made three-wide with per-view texture coordinates,
+   plus a ViewID path in every translated shader: very large, and FM3's post passes that compute coordinates from the
+   pixel position make it fragile.
+
+**Also:** measure first on a triple grid boot (`FM3_TRIPLE=1 FM3_VR=off FM3_RESOLUTION=3840x720`, `tools/perf/threads.ps1`,
+the light perf log): the draw-thread share and the fraction of each side pass's draws that produce no samples
+(`REGPU_HYPER_CULL_PASSES=1`, `REGPU_TRACE_HYPER_CULL`) give the real ceiling for 1 and 2.
