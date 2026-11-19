@@ -106,6 +106,7 @@ $regpuPatches = @(
     'regpu-resolve-dump-frame-env'   # REGPU_DUMP_EACH_RESOLVE read once a frame (FrameEnv), not by getenv per resolve (~1.5% of the draw thread; for main too)
     'regpu-exp-lazy-loops'           # Experimental system (session 45): REGPU_EXP_LAZY_LOOPS (loop constants only for shaders that read them, bools/loops byte-swapped 4 at a time); PassScales' check inlined
     'regpu-exp-gpu-constants-staging' # Experimental system (session 45): REGPU_EXP_GPU_CONSTANTS=2, the draw data staged in system memory (correct; CPU even, GPU +0.8 ms: off)
+    'regpu-exp-repeat-trace'         # Experimental system (session 45): REGPU_EXP_TRACE_STATE also counts draws whose whole state repeats an earlier draw's in the frame (~40% in a race)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }

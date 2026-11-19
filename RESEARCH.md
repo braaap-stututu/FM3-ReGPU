@@ -30,6 +30,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [In-game options menu, quit tab and restart prompt](#in-game-options-menu-quit-tab-and-restart-prompt-cloud-2026-11-16) (cloud, 2026-11-16/17) | A **host overlay menu** (Dear ImGui on ReGPU's present, one new ReGPU host callback), not a tab in FM3's own menus (unknown UI system, fonts lack glyphs). Opened by F1 / BACK+START; while open the game gets a neutral pad (`ReadPad`) and the world is held (`FM3_FREEZE_TIME` hook). Quit = the existing `WM_CLOSE` save-and-exit. Restart prompt: every setting tagged live / restart in one shared schema; on closing the menu, restart keys that differ from the values this process **started** with list in a dialog (Restart now / Later / Undo). Restart = exit code 3 to a supervisor `fm3.exe` that relaunches (Steam keeps tracking it) |
 | [Steam Deck optimisations](#steam-deck-optimisations-session-44-2026-11-18) (session 44) | Measure on the Deck first (GPU busy vs CPU; nobody knows which limits its 70-90 fps grid). Wine-specific costs never checked: high-resolution waitable timers (maybe unsupported or a wineserver round trip each wait), the vertex arena's write faults (SIGSEGV per fault under Wine), our pipeline library being a dummy under vkd3d-proton's own cache. Then a "Steam Deck" launcher preset of existing parts and opt-in 4-core thread pinning |
 | [Triple screen speed](#triple-screen-speed-session-44-2026-11-18) (session 44) | Triple is draw-thread bound (~130 vs ~300 fps centre only): each side screen replays every main-view draw of FM3's 166-degree frustum, though roughly half lie off that screen. Per-screen draw threads: no (shared per-frame state, serial GPU queue, s37: workers ~2x the cost per draw). Do instead: per-screen cull from last frame's GPU answers (Hyper cull keyed by screen), then FM3's own object cull per screen, view instancing as the long shot |
+| [More ways to optimise](#more-ways-to-optimise-session-45-2026-11-19) (session 45) | After the experimental branch: FM2's draw-path cuts of 15 Nov (FX +12%, +6.6%) mostly not here yet; **40% of race draws repeat an earlier draw's whole state in the frame** (a frame-wide translated-state cache); FM2's thread pinning for 4-core CPUs; the 4-entry sampler table (FM2 +5.3% GPU); Vulkan; frame generation |
 | [ReXenon instead of XenonRecomp](#rexenon-instead-of-xenonrecomp-cloud-2026-11-16) (cloud, 2026-11-16/17) | Feasible and fairly cheap: ReXenon (MIT, by ReGPU's author, built for the FM2 port) already carries 4 of our 5 XenonRecomp patches (divides, MSR[EE] hook, switch on u32, VMX128/`vcmpbfp`/`vsldoi128`); the per-image name prefix is unused in FM3. Gains: fails loudly on what it can't translate, `PPC_MFTB()` replaces `patch_mftb.py`, fixed `vpkd3d128`/`dcbz`/memset-class bugs, relaxed-atomic guest accesses (FM2: main thread -10..17% CPU on Zen 3, ~0 on an FX). Risk: days old, no human playtests yet. Try it side by side (`out/ppc-rx`), not as a swap. **Done in session 41:** added beside XenonRecomp, then made the default (NOTES session 41) |
 | [Intel iGPUs (Iris Xe, UHD): causes and fixes](#intel-igpus-iris-xe-uhd-causes-and-fixes-cloud-2026-11-17) (cloud, 2026-11-16/17) | A tester's i5-1135G7 (Iris Xe, 32 GB DDR4) ran far below the user's Steam Deck. On paper the GPUs are equal (~1.6 TFLOPS); the Deck has ~1.7x the memory bandwidth, RADV/ACO under Proton and a GPU we tuned for. Check first: settings, single-channel RAM (Iris Xe then runs as "UHD Graphics"), power mode, driver. Code leads (none tested on Intel): constants-driven branches specialised away (Intel's own top rule), root-signature hints, UMA paths (no vertex-arena copy, textures written in place), MSAA off + post AA, resolve shader trick, XeSS, DXC/FP16 |
 
@@ -2388,3 +2389,73 @@ side screens' objects.
 **Also:** measure first on a triple grid boot (`FM3_TRIPLE=1 FM3_VR=off FM3_RESOLUTION=3840x720`, `tools/perf/threads.ps1`,
 the light perf log): the draw-thread share and the fraction of each side pass's draws that produce no samples
 (`REGPU_HYPER_CULL_PASSES=1`, `REGPU_TRACE_HYPER_CULL`) give the real ceiling for 1 and 2.
+
+## More ways to optimise (session 45, 2026-11-19)
+
+Written after the experimental branch (EXPERIMENTAL.md), at the user's request. Where FM3 stands:
+- **Races on the user's PC are draw-thread bound** above ~2,400 draws (100% busy, ~1.1-1.3 us a draw).
+- **4K, the iGPU and the Steam Deck are GPU-bound.**
+- **4-core CPUs** are short of cores for the draw thread, the command processor and the game's own threads.
+
+The experimental branch ruled out:
+- the GPU-constants rework (correct, no faster);
+- a previous-draw state cache (10-15% of draws);
+- PGO of the game code (no gain);
+- further ReXenon options (inside the 3-10% code-placement noise).
+
+The ideas left, by what they help:
+
+### Draw thread (races on most PCs)
+1. **FM2's draw-path cuts of 15 Nov.** In FM2's own ReGPU copy, commits `bee437d9c` ("cut per-draw copies and locked
+   ops", FX-8350 +12% fps) and `0b2a10831` ("round 3", FX +6.6%). Each has a switch back to the old way. Missing here:
+   - texture slot bindings that survive resolves: ours clear at every `g_resolveEpoch++`, and FM3 resolves many times
+     a frame;
+   - small front caches before the shader, pipeline and fetch-variant map lookups (GetPipeline + MakePipelineKey +
+     GetShader + the shader map ~4% of our draw thread);
+   - shader loads comparing only the words that matter, with a code cache per context (our `FrameOnShaderLoad`
+     memcmp 1.5%);
+   - repeated small vertex buffers served from a sticky area above the upload ring instead of copied every frame;
+   - bool constants only for shaders that read them (loops done in patch `regpu-exp-lazy-loops`);
+   - plain adds instead of locked ops where only the serial draw thread runs (`RingAlloc`'s compare-exchange alone
+     1.3%).
+
+   FM2 measured on an old FX; a modern CPU gains less. **Estimate here +3-8% where the draw thread limits.** Low risk,
+   each piece switchable and lossless.
+2. **A frame-wide cache of translated draw state (new; ceiling measured).** `REGPU_EXP_TRACE_STATE` (patch
+   `regpu-exp-repeat-trace`): **37.5-42.2% of race draws have the same whole state as an earlier draw in the frame**
+   (render registers 0x2000-0x23FF, fetch/bool/loop constants, shaders), against 10-15% for the draw right before.
+   That is the AI cars (same meshes and shaders, different transforms) and repeated scenery.
+   - **Keyed by:** that state's hash plus the resolve and pass epochs.
+   - **Reused:** the pipeline, texture bindings and descriptor indices, viewport, scissor, the non-float block parts
+     and the index buffer view. Only the floats are written.
+   - **The key must be cheap:** hashing 1,200 words a draw costs as much as it saves, so a Zobrist-style hash updated
+     per changed register word as the draw thread applies the runs (the command processor already sends only the
+     ~27% of words that change).
+   - **Risk:** state derived from things outside the registers (texture contents, resolve images, native MSAA
+     tables). Those must invalidate, or a draw shows stale textures.
+   - **Estimate +10-20% of the draw thread if it works; medium-large.** Build it behind a switch with a check mode
+     that translates both ways and compares.
+3. **Thread pinning for 4-core CPUs** (FM2 `FM2_PIN=auto`, default since 16 Nov). Each guest thread is pinned to a
+   core as it is created, and the host threads are kept on the spare ones. FM2: "about 10% on an FX, needs 4 cores".
+   FH1R measured -1.3% on a modern CPU (session 22, dropped then). It could help the Steam Deck (4c/8t) and 4-core
+   PCs. **Opt-in toggle; test at 2c/4t and 4c/8t affinity.**
+
+### GPU (4K, iGPU, Steam Deck)
+4. **4-entry sampler table** (PERF-PLAN L5, FM2 `ce5bf5a`): 2 sample instructions per fetch instead of ~8. FM2:
+   213.8 -> 225.2 fps (+5.3%, RTX 4070 1440p). Root signature change, separate shader cache. Not built.
+5. **X5 shader translator work** with RGA (`tools/rga_shaders.ps1`) on the hottest shaders (AI-car paint ~0.19 ms a
+   car), and **L4 overdraw** (pixel-shader invocations per car draw: a depth pre-pass only pays if car pixels are
+   shaded several times).
+6. **Frame generation:** only where the frame rate is below the display's refresh.
+   - **AMD Fluid Motion Frames 2 / NVIDIA Smooth Motion** need no code: a driver toggle (the HUD may wobble). Worth a
+     line in the launcher's tooltips or docs for iGPU and Steam Deck players.
+   - **FSR 3/4 frame generation** is large: a HUD-less image, mirror motion vectors, pacing; RESEARCH "Upscalers and
+     frame generation".
+
+### Larger
+7. **A Vulkan renderer** (the FM2 port has one, from a contributor, since 11 Nov). On Linux and the Steam Deck it
+   skips vkd3d-proton's D3D12-to-Vulkan translation. On Windows AMD it may cut driver cost per draw. A large port of
+   FM2's backend into our ReGPU stack; read FM2's measurements first.
+
+**Suggested order:** 1 (small, lossless, likely a few percent), then 2 behind a switch with a check mode (the
+biggest measured ceiling), then 3 as a toggle; 4 for GPU-bound setups.

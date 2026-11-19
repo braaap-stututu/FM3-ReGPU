@@ -1,0 +1,67 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index 82a0164..908f069 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -10,6 +10,7 @@
+ #include <atomic>
+ #include <map>
+ #include <unordered_map>
++#include <unordered_set>
+ #include <deque>
+ #include <chrono>
+ #include <thread>
+@@ -905,8 +906,30 @@ void OnRegs(uint32_t index, uint32_t count)
+         }
+     }
+ }
++// The draw's whole state but the float constants (render registers 0x2000-0x23FF, fetch, bool and loop constants, the
++// loaded shaders' hashes via SQ registers in that range): how many draws repeat an earlier draw's state in the same frame
++// (the ceiling for a cache of translated draws across a frame; the 7 AI cars draw the same meshes).
++std::unordered_set<uint64_t> g_seenStates;
++uint64_t g_shader[2] = {}; // the last shader load of each type (address << 32 | size)
++uint64_t g_repeatState = 0;
++void OnDrawState()
++{
++    const uint32_t* f = reinterpret_cast<const uint32_t*>(work::g_file.data());
++    uint64_t h = 0xCBF29CE484222325ull;
++    auto mix = [&](uint32_t from, uint32_t to) {
++        for (uint32_t r = from; r < to; r++)
++            h = (h ^ f[r]) * 0x100000001B3ull;
++    };
++    mix(0x2000, 0x2400);
++    mix(gpureg::FetchConstants, gpureg::LoopConstants + 32);
++    h = (h ^ g_shader[0]) * 0x100000001B3ull;
++    h = (h ^ g_shader[1]) * 0x100000001B3ull;
++    if (!g_seenStates.insert(h).second)
++        g_repeatState++;
++}
+ void OnDraw()
+ {
++    OnDrawState();
+     g_draws++;
+     if (g_dirty == 0)
+         g_same++;
+@@ -916,8 +939,12 @@ void OnDraw()
+ }
+ void OnSwap()
+ {
++    g_seenStates.clear();
+     if (++g_frames % 300 || !g_draws)
+         return;
++    Log("exp state: %.1f%% of draws repeat the whole state (render registers, fetch/bool/loop constants) of an earlier draw in the frame",
++        100.0 * double(g_repeatState) / double(g_draws));
++    g_repeatState = 0;
+     const double n = double(g_draws);
+     Log("exp state: %.0f draws a frame; same state as the draw before but float constants %.1f%%; changed: fetch only %.1f%%, "
+         "bool/loop only %.1f%%, fetch+bool/loop %.1f%%, other registers (with or without those) %.1f%%, shader (with or without) %.1f%%",
+@@ -1000,7 +1027,10 @@ void WorkerLoop()
+                 break;
+             case work::kShader:
+                 if (expTraceState)
++                {
+                     expstate::g_dirty |= expstate::kShader;
++                    expstate::g_shader[a[0] & 1] = uint64_t(a[1]) << 32 | a[2];
++                }
+                 stereo::OnShader(a[0], a[1], a + 3, a[2]);
+                 SegShaderLoad(ShaderType(a[0]), a + 3, a[2], a[1]);
+                 break;
