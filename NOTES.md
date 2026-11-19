@@ -52,7 +52,7 @@
   (sparse checkout, signed DLL hashes pinned), FFmpeg 8.1 LGPL (pinned BtbN build, rolling fallback); `-Launcher`
   adds the .NET 9 SDK. All SHA-256-checked; ~2.2 GB of downloads, ~6 GB unpacked. `tools/vcenv.cmd` uses
   `toolchain\env.cmd` when present (`FM3_SYSTEM_TOOLCHAIN=1` = installed tools); CMakeLists takes `d3dcompiler_47.dll`
-  from the environment's SDK (Redist, else `bin\<version>d`). Not used: the SDK's Redistributables MSI (1603 on
+  from the environment's SDK (Redist, else `bin\<version>\x64`). Not used: the SDK's Redistributables MSI (1603 on
   `msiexec /a`). **Tested:** a fresh `build/portable` configured and built from an environment with only Windows and
   Git on PATH (every tool from the test toolchain), the exe reached the frozen grid. Test files: `out/toolchain-test`
   (~6 GB), `build/portable`. The feed's SDK is a newer revision (26100.9457, d3dcompiler 10.0.26100.9457, DXC 1.9)
