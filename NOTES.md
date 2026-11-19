@@ -1,11 +1,52 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-18, session 45)
+## ▶ Current status / next step  (updated 2026-11-19, end of session 45)
+
+### ▶ Start here (session 46), on main: state at the end of session 45 (2026-11-19)
+- **The full session-46 start is on branch `experimental`** (its NOTES.md "Start here (session 46)", EXPERIMENTAL.md and
+  RESEARCH.md "More ways to optimise (session 45)" with Fable's review). The checkout was left on `experimental`; after
+  switching branches run `tools\setup.ps1 -NoBuild` and rebuild (the branches list different ReGPU patches).
+- **On main from session 45:** the AI tour seed (3,647 pipelines), ReGPU patches 82 `regpu-resolve-dump-frame-env` and
+  83 `regpu-exp-lazy-loops` (on by default), ReXenon register options as the default recompile. `build\rel` rebuilt,
+  grid normal; **not driven by the user yet**.
+- **Next on main:** the renderer cache growth fix (plan below; the user asked for it after the AI tour, which is paused
+  at environment 13). Next on experimental: the user picks Fable's quick measurements or FM2's per-draw cuts.
+
+### Renderer cache growth: plan (session 44 AI tour on the iGPU; to build, the game closed)
+- **Measured** (fm3.log of the first tour boot, 2 h: Amalfi, Benchmark x20, Camino Viejo, Catalunya):
+  - private bytes 5.3 -> 11.6 GB, GPU local 2.2 -> 6.3 GB;
+  - textures flat at ~1 GB (the budget works);
+  - texture heaps 1 -> 16 x 128 MB;
+  - resolved images 71 -> 571 MB (45 -> 1,883 including spares);
+  - cubes 0 -> 196 MB, mip chains 0 -> 110 MB.
+- **All in thirdparty/ReGPU/src/gpu/renderer.cpp; new ReGPU patch `regpu-cache-release`:**
+  1. **TexturePool** (~line 1231): free blocks are reused only for an exact size, and heaps are never released. Use
+     per-heap free ranges (a map from offset to size), best fit across heaps, coalescing in ReclaimTextureBlocks, and
+     release a heap whose live bytes reach 0 (keep one empty spare). Keep heap-ahead. `REGPU_OLD_TEXTURE_POOL=1`
+     (start-time) = the old allocator.
+  2. **Resolved images** (`g_r.resolved`, never evicted): sweep in BeginFrameIfNeeded next to the texture budget,
+     every 64 frames, a bounded number of entries.
+     - A main image not resolved for 60 s or more whose guest memory changed (GuestImageHash != memHash, the test
+       ResolveCurrent uses) is never returned again: retire its resources and spares, erase the entry.
+     - Spares not resolved for 60 s or more: retire them, unless REGPU_HYPER_RESOLVE_BY_SIZE reads them.
+     - Unchanged memory and written back: the memory holds it too, so it may go after 120 s unused (needs a last-use
+       stamp set in ResolveCurrent).
+     - Not written back with unchanged memory: keep it (a later sample would read garbage).
+     - Nobody keeps a ResolvedTexture* across frames (checked: all locals; deferred write-backs look up by base).
+  3. **Cubes and mip chains** (built from resolved faces/levels, rebuilt on a miss): release when unused for 60 s or
+     more and 1,800 frames or more. Cubes set checkedFrame per use; mip chains only on rebuild, so add a usedFrame.
+  4. **Memory log:** pool live/free MB, the resolved split (main/spares/stale), released counts.
+- **Switch:** `REGPU_NO_CACHE_RELEASE=1` (live) turns the sweeps off.
+- **Test:**
+  - several tour environments in one boot on the iGPU (3-4 tracks), comparing the memory lines;
+  - the user's 1440p XTX grid fps unchanged (Start-Grid A/B);
+  - vinyl and menu pictures intact (resolved eviction is the risky part).
+- **Branch:** this is a fix for the normal build: do it on main.
 
 ### Session 45 on main (2026-11-18): resolve getenv fix; the rest is on branch `experimental`
 - **ReGPU patch 82 `regpu-resolve-dump-frame-env` (main):** `REGPU_DUMP_EACH_RESOLVE` (patch 76, session 42) was read with
   getenv on every resolve, ~1.5% of the draw thread in a race; now a FrameEnv (once a frame). Found on the experimental
-  branch (draw-thread profile + the PDB's inlining info on getenv call sites). `buildel` rebuilt with it and with the AI
+  branch (draw-thread profile + the PDB's inlining info on getenv call sites). `build\rel` rebuilt with it and with the AI
   tour's seed (3,647 pipelines, commit 211a4fa); frozen grid normal, 356 fps.
 - **Proven experimental pieces moved to main (session 45, user's decision):** (1) ReXenon's register options are now the
   default recompile (`tools/recomp.ps1` writes them into `config/fm3_rexenon.toml`: `non_volatile_as_local`,
@@ -13,7 +54,7 @@
   the frame-time hook's r30/f31 hand-back); out/ppc-rexenon regenerated (byte-identical to the experimental branch's);
   (2) ReGPU patch 83 `regpu-exp-lazy-loops` (`REGPU_EXP_LAZY_LOOPS`, on by default in src/gpu_host.cpp; +1.0%). Evidence:
   benchmark races on 2 cores, 3 rounds: +1.9% fps, +5.1% at equal draws, p99 6.03 -> 5.84 ms, long frames 143 -> 99
-  (`out/bench/matrix-exp3-2cores-20261119-001912`). `buildel` rebuilt; frozen grid 359 fps, freeze/unfreeze works.
+  (`out/bench/matrix-exp3-2cores-20261119-001912`). `build\rel` rebuilt; frozen grid 359 fps, freeze/unfreeze works.
   Not yet driven by the user on main (one clean Crown Jewel drive on the experimental build).
 - **Everything else from session 45 is on branch `experimental`** (EXPERIMENTAL.md and NOTES there): ReXenon register
   optimisations (`build\exp`, launcher Testing "Experimental build"; races on 2 cores +1.75%), draw-thread measurements,
