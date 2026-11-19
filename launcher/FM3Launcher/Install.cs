@@ -31,6 +31,8 @@ public static class Paths
     static string FindUser()
     {
         if (Env("FM3_USER_DIR") is { } custom) return Path.GetFullPath(custom);
+        // Portable mode: a portable.txt beside fm3.exe keeps saves, settings and caches in user\ there (src/user_dir.cpp).
+        if (File.Exists(Path.Combine(Root, "portable.txt"))) return Path.Combine(Root, "user");
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "fm3");
     }
 

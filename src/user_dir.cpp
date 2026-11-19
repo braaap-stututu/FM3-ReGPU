@@ -17,6 +17,14 @@ const std::filesystem::path& DocumentsUserDir()
         std::error_code ec;
         if (wchar_t custom[MAX_PATH]; GetEnvironmentVariableW(L"FM3_USER_DIR", custom, MAX_PATH) - 1u < MAX_PATH - 1u)
             return std::filesystem::absolute(std::filesystem::path(custom), ec);
+        // Portable mode (session 46, the portable release): a portable.txt beside fm3.exe keeps everything in a user
+        // folder there, so the whole game travels as one folder (USB stick, Steam Deck) and nothing goes to Documents.
+        if (wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH) - 1u < MAX_PATH - 1u)
+        {
+            const std::filesystem::path beside = std::filesystem::path(exe).parent_path();
+            if (std::filesystem::exists(beside / "portable.txt", ec))
+                return beside / "user";
+        }
         std::filesystem::path documents;
         PWSTR known = nullptr;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &known)) && known)
