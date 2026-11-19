@@ -1,4 +1,5 @@
-# Builds the installer for the current build: out\installer\dist\FM3-ReGPU-Setup-<version>.exe.
+# Builds the installer for the current build: out\installer\dist\FM3-ReGPU-Setup-<version>.exe, and beside it the
+# launcher updater's FM3-ReGPU-<version>-patch.zip (attach both to the GitHub release).
 #   powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 [-Version x.y.z] [-NoGameBuild]
 # Needs: build\rel\fm3.exe built (the game is rebuilt first unless -NoGameBuild; close it), the .NET 9 SDK,
 # Inno Setup 6 (winget install JRSoftware.InnoSetup). No game files are packed: see installer\fm3.iss.
@@ -74,7 +75,27 @@ The first start compiles shaders for the graphics card, which takes a while.
 Saves and settings go to Documents\fm3. The game's log is out\run\fm3.log in the install folder.
 "@ | Set-Content -Encoding utf8 "$stage\before-install.txt"
 
+# The install's file list (launcher\FM3Launcher\Updater.cs Manifest): installed with the setup exe and in every patch, so an
+# update removes files the previous release had and this one doesn't.
+$manifest = Join-Path $stage "install-manifest.txt"
+if (Test-Path $manifest) { Remove-Item $manifest }
+$names = Get-ChildItem $stage -Recurse -File | Where-Object { $_.Name -ne "before-install.txt" } |
+    ForEach-Object { $_.FullName.Substring($stage.Length + 1).Replace('\', '/') }
+@($names) + "install-manifest.txt" | Set-Content -Encoding ascii $manifest
 $out = Join-Path $root "out\installer\dist"
 & $iscc "/DAppVersion=$Version" "/DStageDir=$stage" "/DOutDir=$out" "installer\fm3.iss"
 if ($LASTEXITCODE) { throw "Inno Setup failed." }
-Get-ChildItem $out -Filter "FM3-ReGPU-Setup-$Version.exe" | Select-Object FullName, @{ n = "MB"; e = { [math]::Round($_.Length / 1MB, 1) } }
+# The launcher's updater (launcher\FM3Launcher\Updater.cs) takes this from the GitHub release: the installer's files,
+# laid out as the install folder, unpacked over an existing install.
+$patch = Join-Path $out "FM3-ReGPU-$Version-patch.zip"
+if (Test-Path $patch) { Remove-Item $patch }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [System.IO.Compression.ZipFile]::Open($patch, "Create")
+try {
+    Get-ChildItem $stage -Recurse -File | Where-Object { $_.Name -ne "before-install.txt" } | ForEach-Object {
+        $name = $_.FullName.Substring($stage.Length + 1).Replace('\', '/')
+        [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $name, "Optimal")
+    }
+} finally { $zip.Dispose() }
+
+Get-Item (Join-Path $out "FM3-ReGPU-Setup-$Version.exe"), $patch | Select-Object FullName, @{ n = "MB"; e = { [math]::Round($_.Length / 1MB, 1) } }

@@ -19,10 +19,11 @@
       <button data-tab="profiles">Profiles</button>
       <button data-tab="graphics">Graphics</button>
       <button data-tab="vr">VR</button>
-      <button data-tab="triple">Triple screens</button>
-      <button data-tab="igpu">iGPU (testing)</button>
-      <button data-tab="wheel">Wheel stuff</button>
+      <button data-tab="triple">Triple<span class="tab-long"> screens</span></button>
+      <button data-tab="igpu">iGPU<span class="tab-long"> (testing)</span></button>
+      <button data-tab="wheel">Wheel<span class="tab-long"> stuff</span></button>
       <button data-tab="settings">Settings</button>
+      <button data-tab="updates">Updates <span class="dot-badge" id="update-badge" hidden></span></button>
     </nav>
     <button class="ghost small discord" id="discord" data-tip="Join the ReGPU Discord server (the same one as FM2 ReGPU): support, news and testing.">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M20.32 4.37A19.8 19.8 0 0 0 15.43 2.85a.07.07 0 0 0-.08.04c-.21.37-.44.86-.6 1.25a18.3 18.3 0 0 0-5.5 0 12.6 12.6 0 0 0-.61-1.25.08.08 0 0 0-.08-.04 19.7 19.7 0 0 0-4.89 1.52.07.07 0 0 0-.03.03C.53 9.05-.32 13.58.1 18.06a.08.08 0 0 0 .03.06 19.9 19.9 0 0 0 6 3.03.08.08 0 0 0 .08-.03c.46-.63.88-1.3 1.23-2a.08.08 0 0 0-.04-.1 13.1 13.1 0 0 1-1.87-.9.08.08 0 0 1 0-.13l.37-.29a.07.07 0 0 1 .08-.01c3.93 1.8 8.18 1.8 12.06 0a.07.07 0 0 1 .08.01l.37.29a.08.08 0 0 1 0 .13c-.6.35-1.22.65-1.88.9a.08.08 0 0 0-.04.1c.36.7.78 1.37 1.23 2a.08.08 0 0 0 .08.03 19.8 19.8 0 0 0 6-3.03.08.08 0 0 0 .03-.05c.5-5.18-.84-9.68-3.55-13.66a.06.06 0 0 0-.03-.03zM8.02 15.33c-1.18 0-2.16-1.08-2.16-2.42s.96-2.42 2.16-2.42c1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.98 0c-1.18 0-2.16-1.08-2.16-2.42s.95-2.42 2.16-2.42c1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"/></svg>
@@ -120,6 +121,34 @@
         <li><b>XenonRecomp</b> (hedge-dev): the recompiler the game code is built with</li>
         <li>Everyone who tests builds and reports bugs</li>
       </ul>
+    </section>
+  </main>
+
+  <!-- UPDATES (Updater.cs): as FM2:ReGPU's launcher -->
+  <main class="page grid-updates" id="page-updates" hidden>
+    <section class="panel">
+      <div class="panel-head"><h2>Version</h2></div>
+      <div class="versions">
+        <div><div class="v-label">Installed</div><div class="v-num" id="v-installed">-</div></div>
+        <div class="arrow">→</div>
+        <div><div class="v-label">Latest</div><div class="v-num" id="v-latest">-</div></div>
+      </div>
+      <div class="update-state" id="update-state"></div>
+      <div class="buttons-col">
+        <button class="primary" id="update-apply" disabled data-tip="Downloads the update from GitHub and installs it over this install. Saves and settings are kept. Close the game first.">Download &amp; install</button>
+        <button class="ghost" id="update-check" data-tip="Asks GitHub for the newest release.">Check again</button>
+        <button class="ghost" id="update-page" data-tip="Opens the release page in your browser.">Release page</button>
+      </div>
+      <div class="progress" id="update-progress"><div class="bar"></div></div>
+      <div class="status" id="update-status"></div>
+      <div class="toggle-row" data-tip="At each start the launcher asks GitHub (api.github.com) whether a newer release exists. Nothing about you or your PC is sent. Off: only when you press Check again.">
+        <div><div class="toggle-title">Check for updates at start</div><div class="toggle-sub">Asks GitHub for the newest release</div></div>
+        <button class="switch" id="updateCheck" role="switch"></button>
+      </div>
+    </section>
+    <section class="panel notes-panel">
+      <div class="panel-head"><h2 id="notes-title">Release notes</h2></div>
+      <div class="notes" id="update-notes"><div class="empty">Checking GitHub…</div></div>
     </section>
   </main>
 
