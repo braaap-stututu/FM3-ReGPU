@@ -1,6 +1,28 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-19, end of session 45)
+## ▶ Current status / next step  (updated 2026-11-19, session 46)
+
+### ▶ Session 46 (2026-11-19): Fable's measurements and FM2's cuts, on the experimental branch
+- **Result: nothing new proved out; the experimental build is unchanged apart from trace counters.** Every number is
+  in EXPERIMENTAL.md X11-X17. In short (2-core frozen grid and 2-core benchmark races, as in session 45):
+  - floats on the replay thread (Fable's top idea): kill test, no gain (1.33 vs 1.32-1.35 us a draw);
+  - ring wait: the default sleep stays (spinning -4% on 2 cores);
+  - null pixel shader for depth-only draws: only 3-4% of race draws are depth-only;
+  - per-part repeats (`REGPU_EXP_TRACE_STATE`): pipeline part new in 13-17% of draws, fetch constants new in ~54%,
+    the rest ~95% repeated (most already memoized);
+  - FM2's binding revival, recent-pipeline table, plain frame counters: all within noise on this CPU (FM2 measured
+    on an FX-8350, where locked ops are slow);
+  - index buffers by write watch: +1.5% once, -1.1% in another boot: not proven, removed (ceiling with an inexact
+    sampled hash +1.3-2.9%).
+- **Kept:** ReGPU patch 89 `regpu-exp-trace-parts` (counters, trace only). Stack: 89 patches on experimental.
+- **Incident:** a kill-test level that left the constant blocks unwritten hung the GPU; the user saw two driver
+  timeouts. Removed. Rule (memory `no-gpu-hang-tests`): picture-wrong tests never leave GPU-addressed data garbage.
+- **Where the draw thread goes now** (line profile + call stacks, 2-core grid): no single cost above ~4-6%:
+  pipeline lookup ~5.7% in all, index hashing ~5%, LiveSwitch loads ~3.6%, WindowScissor/pass scales ~2.9%,
+  shader-load memcmp ~1.7%, BlitResolve's ContentHash 1.2%. The remaining CPU-side leads are each ~1-2%.
+- **Next (user to pick):** the small leads above (exact cheaper index hash, switches read once a frame, pipeline key
+  only on register change), or turn to the other open items: the renderer cache growth fix on main (plan below),
+  the paused AI tour, a drive on main with session 45's defaults.
 
 ### ▶ Start here (session 46): state at the end of session 45 (2026-11-19)
 - **Two branches now. The checkout is on `experimental`.** `main` = the normal build (`build\rel`, what `play.cmd` and

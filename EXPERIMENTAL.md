@@ -4,14 +4,15 @@ The deep ReXenon and ReGPU reworks from session 44's "big performance improvemen
 from the normal build, so a player can pick either one.
 
 ## Where to continue (end of session 46)
-Session 46 ran Fable's quick measurements and the FM2 cuts that applied (results X11-X17 below). **Kept:** X15, index
-buffers not rehashed while no page was written (2-core races +1.7%, on by default here; a candidate to move to main
-after a drive). **Ruled out by measurement:** floats on the replay thread (X11), the spinning ring wait (X12), a null
-pixel shader for depth-only draws (X13, only 3-4% of draws), and FM2's binding revival, recent-pipeline table and
-plain frame counters (X16, all within noise on this CPU). Next leads, from the session-46 line profile: the
-remaining hashing (`ContentHash` ~2.6% of the draw thread: find its caller), the LiveSwitch loads (~3.6%: Fable's
-"retail DrawImpl"), RingAlloc's compare-exchange (needs an audit of the other ring users), and the frame-wide
-state cache keyed per part (X14 numbers).
+Session 46 ran Fable's quick measurements and the FM2 cuts that applied (results X11-X17 below). **Nothing proved
+out:** floats on the replay thread (X11, kill test: no gain), the spinning ring wait (X12, -4%), a null pixel shader
+for depth-only draws (X13, only 3-4% of draws), FM2's binding revival, recent-pipeline table and plain frame counters
+(X16, noise on this CPU), and index buffers by write watch (X15, +1.5% once, -1.1% in another boot). Kept: the trace
+counters (patch `regpu-exp-trace-parts`). On this CPU the draw thread has no single cost left above ~4% (X17 line
+profile and call stacks): the pipeline lookup ~5.7% in all, index hashing ~5% (ceiling +1.3-2.9% with a sampled,
+inexact hash), LiveSwitch loads ~3.6%, WindowScissor/pass scales ~2.9%. Next leads, each small: an exact but
+cheaper index hash, Fable's "retail DrawImpl" (switches read once a frame), and a pipeline key built only when its
+registers changed (pipeline part new in only 13-17% of draws, X14).
 
 ## How to choose
 
@@ -54,7 +55,7 @@ each piece can still be A/B'd live in the experimental one.
 | X12 | **Ring wait** (Fable's idea 2): `FM3_RING_WAIT=0` (spin) vs the default sleep. | `src/hooks/ring_wait.cpp` | **Default kept:** spin 1.37-1.39 vs 1.33 us a draw on 2 cores (-4% fps); on 8 cores every mode hits the 360 cap. The draw thread's waits for the command processor (`exp waits`, trace on): 0.3% of the time |
 | X13 | **Null pixel shader for depth-only draws** (Fable's idea 3): counter `exp null ps`. | ReGPU patch `regpu-exp-trace-parts` | **Not worth building:** depth-only draws are 3-4% of race draws (96-98% of them would qualify), so at most ~1% |
 | X14 | **Repeats per state part** (Fable's idea 4): `exp state groups` lines. | ReGPU patch `regpu-exp-trace-parts` | Measured (race, 8 cores): surface/viewport same as the draw before 95-96%, earlier in the frame 1.5%; pipeline 51-55% / 29-34%, new 13-17%; fetch constants 20-25% / 21-28%, **new 49-56%**; bool/loop 99.8%; other registers 80-85% / 9-14%. Most parts already have memos (pass scales, last pipeline, the slot memo at 89% hits), which is why X16 found nothing |
-| X15 | **Index buffers by write watch:** an index buffer none of whose pages was written since its last hash keeps that hash (the vertex arena's `Host::watchArm/watchClean`). Session 31 built the same on 8 cores (+0.6%, removed). | ReGPU patch `regpu-exp-index-watch` (on; `REGPU_EXP_NO_INDEX_WATCH=1` old, `REGPU_EXP_INDEX_WATCH_VERIFY=1` checks) | **Kept:** ceiling (sampled hash) +2.9% on the 2-core grid, 8/8; the watch +1.5% (6/8), 0 pixels; 2-core races 3 rounds +1.7% (+1.0% at equal draws), p99 5.60 -> 5.45 ms; a verify race: 0 misses |
+| X15 | **Index buffers by write watch:** an index buffer none of whose pages was written since its last hash keeps that hash (the vertex arena's `Host::watchArm/watchClean`). Session 31 built the same on 8 cores (+0.6%, removed). | ReGPU (built, removed) | **Not proven, removed.** The ceiling is real: a sampled hash (`REGPU_INDEX_SAMPLED_HASH`, not exact) gave +2.9% (8/8) and +1.3% (6/6) on the 2-core grid. The watch: +1.5% (6/8), then -1.1% (10 rounds) in a later boot; 2-core races +1.7% (sd 5-9 fps); watching the index-list path too (hashed per draw) -0.2%. The watch's own check (`WriteWatchClean`, a lock and a page walk) costs most of what the hash did; a verify race found 0 misses. Leave it; an exact cheaper hash or a lock-free page check would be the way back |
 | X16 | **FM2's per-draw cuts** (`bee437d9c`, `0b2a10831`): texture bindings revived after a resolve (2% of slot lookups), a 64-entry recent-pipeline table, plain adds for the frame counters (the profile's 7.6% "closing brace" of DrawImpl). | ReGPU | **All within noise on the 2-core grid** (-0.3%, +0.1%, -0.7%; null A/B -0.1/+0.8%), pictures identical; removed. FM2 measured them on an FX-8350, whose locked ops and 256-bit stores are slow; this CPU doesn't pay that. Our code already had most of the rest (shader front cache, lazy bools/loops, shader-load repeat skip, edit lock) |
 | X17 | **Draw-thread line profile** (2-core grid, session 46). | `FM3_SAMPLE_LINES=1` | Flat: DrawImpl's end 7.6% (where the write-combine drain lands), index hashing ~5% (`FullHashAvx2` + `GetIndexBuffer`; X15), `ContentHash` 2.6%, atomic bool loads 3.6% (LiveSwitch checks), the float copy 2.6%, RingAlloc's compare-exchange 1.3%, D3D12 0.9-1.3% |
 | X6 | **More ReXenon:** condition-flag liveness, byte-swap elimination, cross-function inlining, better VMX128 mapping. The guest threads only limit weak CPUs (Steam Deck, 4 cores). | `thirdparty/ReXenon` (patches) | Later |
