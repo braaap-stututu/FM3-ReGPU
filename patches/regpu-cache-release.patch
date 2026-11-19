@@ -1,0 +1,394 @@
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 131edaf..5339910 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -670,6 +670,8 @@ struct ResolvedTexture
+     // into it (ResolveIntoEnclosing) write their rectangle of it too, so memory keeps every part of it.
+     bool writtenBack = false;
+     uint32_t writebackInfo = 0;
++    uint64_t usedFrame = 0; // renderer frame it was last looked up (ResolveCurrent) or resolved: the cache release sweep
++    uint64_t sweepChecked = 0; // renderer frame the sweep last hashed its memory and kept it
+     // The title resolves differently sized images (bloom chain) to one address within a
+     // frame: keep earlier sizes here and swap them in rather than recreating them.
+     std::vector<ResolvedTexture> spares;
+@@ -1237,7 +1239,12 @@ const bool g_dumpHlsl = getenv("REGPU_DUMP_HLSL") != nullptr;
+ // Texture memory: textures are placed in large heaps instead of each getting a committed
+ // resource (its own heap). Creating a committed resource costs the driver milliseconds,
+ // which showed as hitches whenever new textures streamed in on the road ahead. Blocks are
+-// 64 KB multiples, reused by size once the GPU is done with the texture that held them.
++// 64 KB multiples, given back once the GPU is done with the texture that held them.
++// FM3 port session 46 (renderer cache growth): blocks came back only for a texture of exactly the same size, and a
++// heap was never released, so a long session grew to 16 heaps (2 GB) while the textures in them stayed ~1 GB (the
++// texture budget). Now each heap keeps its free ranges (offset -> size, neighbours merged), a texture takes the
++// smallest range it fits across all heaps, and a heap with no texture left is released (one empty heap is kept;
++// REGPU_KEEP_TEXTURE_HEAPS=1, live: none released). REGPU_OLD_TEXTURE_POOL=1 (start-time): the old allocator.
+ struct TexturePool
+ {
+     static constexpr uint64_t kHeapBytes = 128ull << 20;
+@@ -1246,9 +1253,16 @@ struct TexturePool
+         ID3D12Heap* heap = nullptr;
+         uint64_t offset = 0, size = 0;
+     };
+-    std::vector<ComPtr<ID3D12Heap>> heaps;
+-    uint64_t used = kHeapBytes; // in heaps.back()
+-    std::unordered_map<uint64_t, std::vector<Block>> free; // by size
++    struct Heap
++    {
++        ComPtr<ID3D12Heap> heap;
++        std::map<uint64_t, uint64_t> free; // offset -> size (the new allocator)
++        uint64_t live = 0;                 // bytes of textures in it (the new allocator)
++    };
++    std::vector<Heap> heaps;
++    uint64_t freeBytes = 0, released = 0; // the new allocator: free bytes in all heaps, heaps released so far
++    uint64_t used = kHeapBytes; // in heaps.back() (the old allocator)
++    std::unordered_map<uint64_t, std::vector<Block>> free; // by size (the old allocator)
+     std::unordered_map<ID3D12Resource*, Block> live;
+     std::deque<std::pair<uint64_t, Block>> retired; // frame retired, block
+     // The next heap, made on another thread once the current one is three-quarters used: making a 128 MB heap on
+@@ -1257,6 +1271,52 @@ struct TexturePool
+     std::future<ComPtr<ID3D12Heap>> ahead;
+ } g_texturePool;
+ 
++// A block back to the pool (its texture gone and done on the GPU, or never placed).
++void FreeTextureBlock(const TexturePool::Block& block)
++{
++    TexturePool& pool = g_texturePool;
++    static const bool oldPool = getenv("REGPU_OLD_TEXTURE_POOL") != nullptr;
++    if (oldPool)
++    {
++        pool.free[block.size].push_back(block);
++        return;
++    }
++    auto h = std::find_if(pool.heaps.begin(), pool.heaps.end(), [&](const TexturePool::Heap& x) { return x.heap.Get() == block.heap; });
++    if (h == pool.heaps.end())
++        return;
++    // Merged with the free ranges next to it.
++    uint64_t offset = block.offset, size = block.size;
++    auto next = h->free.lower_bound(offset);
++    if (next != h->free.end() && next->first == offset + size)
++    {
++        size += next->second;
++        next = h->free.erase(next);
++    }
++    if (next != h->free.begin())
++        if (auto prev = std::prev(next); prev->first + prev->second == offset)
++        {
++            offset = prev->first;
++            size += prev->second;
++            h->free.erase(prev);
++        }
++    h->free.emplace(offset, size);
++    h->live -= block.size;
++    pool.freeBytes += block.size;
++    // A heap with no texture left goes, unless it is the only empty one (kept for the next textures). Its placed
++    // resources were all released once their frames were done (ReclaimTextureBlocks waits past kFrames).
++    static LiveSwitch keepHeaps("REGPU_KEEP_TEXTURE_HEAPS");
++    if (h->live == 0 && !keepHeaps)
++    {
++        const size_t empty = size_t(std::count_if(pool.heaps.begin(), pool.heaps.end(), [](const TexturePool::Heap& x) { return x.live == 0; }));
++        if (empty > 1)
++        {
++            pool.freeBytes -= TexturePool::kHeapBytes;
++            pool.released++;
++            pool.heaps.erase(h);
++        }
++    }
++}
++
+ // A texture in the pool (or committed, if it does not fit a heap). Starts in `state`.
+ bool LongFramesEnabled();
+ ComPtr<ID3D12Resource> CreateTexture(const D3D12_RESOURCE_DESC& desc, D3D12_RESOURCE_STATES state, const char* kind)
+@@ -1278,36 +1338,70 @@ ComPtr<ID3D12Resource> CreateTexture(const D3D12_RESOURCE_DESC& desc, D3D12_RESO
+     if (!committed && size <= TexturePool::kHeapBytes && info.Alignment <= 0x10000)
+     {
+         TexturePool::Block block;
+-        auto& list = pool.free[size];
+-        if (!list.empty())
++        static const bool oldPool = getenv("REGPU_OLD_TEXTURE_POOL") != nullptr;
++        auto makeHeap = [] {
++            D3D12_HEAP_DESC hd{};
++            hd.SizeInBytes = TexturePool::kHeapBytes;
++            hd.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
++            hd.Alignment = 0x10000;
++            hd.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
++            ComPtr<ID3D12Heap> heap;
++            Check(g_r.device->CreateHeap(&hd, IID_PPV_ARGS(&heap)), "CreateHeap(textures)");
++            return heap;
++        };
++        static LiveSwitch noAhead("REGPU_NO_HEAP_AHEAD");
++        if (!oldPool)
++        {
++            // The smallest free range it fits, in any heap.
++            TexturePool::Heap* best = nullptr;
++            std::map<uint64_t, uint64_t>::iterator bestRange;
++            for (TexturePool::Heap& h : pool.heaps)
++                for (auto it = h.free.begin(); it != h.free.end(); ++it)
++                    if (it->second >= size && (!best || it->second < bestRange->second))
++                    {
++                        best = &h;
++                        bestRange = it;
++                    }
++            if (!best)
++            {
++                ComPtr<ID3D12Heap> heap = pool.ahead.valid() ? pool.ahead.get() : nullptr;
++                if (!heap)
++                    heap = makeHeap();
++                CountCreate("texture heap");
++                pool.heaps.push_back({ heap, { { 0, TexturePool::kHeapBytes } }, 0 });
++                pool.freeBytes += TexturePool::kHeapBytes;
++                best = &pool.heaps.back();
++                bestRange = best->free.begin();
++            }
++            const uint64_t offset = bestRange->first, rangeSize = bestRange->second;
++            best->free.erase(bestRange);
++            if (rangeSize > size)
++                best->free.emplace(offset + size, rangeSize - size);
++            best->live += size;
++            pool.freeBytes -= size;
++            block = { best->heap.Get(), offset, size };
++            // The next heap made ahead, once less than a quarter of a heap is free.
++            if (!noAhead && !pool.ahead.valid() && pool.freeBytes < TexturePool::kHeapBytes / 4)
++                pool.ahead = std::async(std::launch::async, makeHeap);
++        }
++        else if (auto& list = pool.free[size]; !list.empty())
+         {
+             block = list.back();
+             list.pop_back();
+         }
+         else
+         {
+-            auto makeHeap = [] {
+-                D3D12_HEAP_DESC hd{};
+-                hd.SizeInBytes = TexturePool::kHeapBytes;
+-                hd.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+-                hd.Alignment = 0x10000;
+-                hd.Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
+-                ComPtr<ID3D12Heap> heap;
+-                Check(g_r.device->CreateHeap(&hd, IID_PPV_ARGS(&heap)), "CreateHeap(textures)");
+-                return heap;
+-            };
+             if (pool.used + size > TexturePool::kHeapBytes)
+             {
+                 ComPtr<ID3D12Heap> heap = pool.ahead.valid() ? pool.ahead.get() : nullptr;
+                 if (!heap)
+                     heap = makeHeap();
+                 CountCreate("texture heap");
+-                pool.heaps.push_back(heap);
++                pool.heaps.push_back({ heap, {}, 0 });
+                 pool.used = 0;
+             }
+-            block = { pool.heaps.back().Get(), pool.used, size };
++            block = { pool.heaps.back().heap.Get(), pool.used, size };
+             pool.used += size;
+-            static LiveSwitch noAhead("REGPU_NO_HEAP_AHEAD");
+             if (!noAhead && !pool.ahead.valid() && pool.used > TexturePool::kHeapBytes / 4 * 3)
+                 pool.ahead = std::async(std::launch::async, makeHeap);
+         }
+@@ -1316,7 +1410,7 @@ ComPtr<ID3D12Resource> CreateTexture(const D3D12_RESOURCE_DESC& desc, D3D12_RESO
+             pool.live[r.Get()] = block;
+             return r;
+         }
+-        pool.free[size].push_back(block);
++        FreeTextureBlock(block);
+     }
+     D3D12_HEAP_PROPERTIES hp{};
+     hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+@@ -1348,7 +1442,7 @@ void ReclaimTextureBlocks()
+     auto& retired = g_texturePool.retired;
+     while (!retired.empty() && retired.front().first + kFrames + 2 < g_r.frame)
+     {
+-        g_texturePool.free[retired.front().second.size].push_back(retired.front().second);
++        FreeTextureBlock(retired.front().second);
+         retired.pop_front();
+     }
+ }
+@@ -1356,6 +1450,13 @@ void ReclaimTextureBlocks()
+ // Bumped by every resolve: the per-slot texture bindings below are only reused while no
+ // resolve has changed what an address maps to.
+ uint64_t g_resolveEpoch = 0;
++// The cache release sweep (BeginFrameIfNeeded, session 46): (renderer frame, ms) every 64 frames, and what it released.
++std::deque<std::pair<uint64_t, uint64_t>> g_frameClock;
++uint64_t GuestImageHash(uint32_t base, uint32_t width, uint32_t height, uint32_t bpp);
++struct CacheRelease
++{
++    uint64_t resolved = 0, spares = 0, cubes = 0, mipChains = 0;
++} g_cacheRelease;
+ uint64_t g_resolveSerial = 0; // counts resolves: what a mip chain was assembled from
+ 
+ // The constants a texture fetch slot produced for the previous draw: draws usually bind
+@@ -3337,6 +3438,105 @@ void BeginFrameIfNeeded()
+             }
+         }
+     }
++    // Cache release (FM3 port session 46): resolved images, cubes and mip chains were kept for the whole session. A 2 h
++    // session on the iGPU (four tracks) grew resolved images 71 -> 571 MB (1,883 MB with their spares), cubes to
++    // 196 MB, mip chains to 110 MB. Every 64 frames, what has not been used for 60 s and 1,800 frames goes:
++    //  - a resolved image's spare sizes (not with REGPU_HYPER_RESOLVE_BY_SIZE, which reads them);
++    //  - a resolved image whose guest memory has changed since it was resolved (the title reused the memory: the image
++    //    is never returned again), or that was written back to memory and unused for 120 s (memory holds it). One
++    //    not written back whose memory is unchanged is kept: it is the only copy (the console's memory would hold it);
++    //  - cubes and mip chains (put together again from their faces or levels on the next use).
++    // At most 16 memory hashes a sweep. REGPU_NO_CACHE_RELEASE=1 (live): nothing released.
++    if (g_r.frame % 64 == 0)
++    {
++        const uint64_t nowMs = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
++        g_frameClock.push_back({ g_r.frame, nowMs });
++        if (g_frameClock.size() > 8192)
++            g_frameClock.pop_front();
++        // Seconds since a frame, at least (a frame before the oldest stamp kept: at least that stamp's age).
++        auto ageSeconds = [&](uint64_t frame) -> double {
++            if (frame == ~0ull)
++                return 1e9;
++            auto it = std::lower_bound(g_frameClock.begin(), g_frameClock.end(), frame, [](const auto& e, uint64_t f) { return e.first < f; });
++            if (it == g_frameClock.end())
++                return 0.0;
++            return double(nowMs - it->second) / 1000.0;
++        };
++        // REGPU_CACHE_RELEASE_SECONDS=<s> (debug, read every sweep, live through the debug server's "env"): the 60 s
++        // threshold (the 120 s one scales with it, and 1,800 frames to 30 a second), to stress the rules in a test.
++        double scale = 1.0;
++        if (const char* e = getenv("REGPU_CACHE_RELEASE_SECONDS"); e && *e)
++            scale = std::max(0.5, atof(e)) / 60.0;
++        const uint64_t minFrames = uint64_t(1800 * scale);
++        auto unused = [&](uint64_t frame, double seconds) {
++            return (frame == ~0ull || frame + minFrames < g_r.frame) && ageSeconds(frame) >= seconds * scale;
++        };
++        static LiveSwitch noRelease("REGPU_NO_CACHE_RELEASE");
++        if (!noRelease)
++        {
++            std::lock_guard<std::recursive_mutex> lock(g_textureMutex);
++            static const bool bySize = getenv("REGPU_HYPER_RESOLVE_BY_SIZE") && atoi(getenv("REGPU_HYPER_RESOLVE_BY_SIZE")) != 0;
++            // At most 8 images (spares count) and 8 cubes or mip chains a sweep: ~170 released in one frame (a track
++            // left 60 s ago) made a 94 ms frame, all of them destroyed at once when the frame came round again.
++            int hashes = 0, images = 0, others = 0;
++            for (auto it = g_r.resolved.begin(); it != g_r.resolved.end() && images < 8;)
++            {
++                ResolvedTexture& r = it->second;
++                if (!bySize)
++                    for (auto sp = r.spares.begin(); sp != r.spares.end() && images < 8;)
++                        if (unused(std::max(sp->frame == ~0ull ? 0 : sp->frame, sp->usedFrame), 60.0))
++                        {
++                            Frame().garbage.push_back(std::move(sp->resource));
++                            if (sp->packed)
++                                Frame().garbage.push_back(std::move(sp->packed));
++                            sp = r.spares.erase(sp);
++                            g_cacheRelease.spares++;
++                            images++;
++                        }
++                        else
++                            ++sp;
++                const uint64_t last = std::max(r.frame == ~0ull ? 0 : r.frame, r.usedFrame);
++                bool drop = false;
++                if (r.spares.empty() && images < 8 && unused(last, 60.0))
++                {
++                    if (!r.resource || r.stale)
++                        drop = true;
++                    else if (hashes < 16 && r.sweepChecked + 3600 < g_r.frame)
++                    {
++                        hashes++;
++                        r.sweepChecked = g_r.frame; // (kept ones are looked at again after 3,600 frames, not every sweep)
++                        if (GuestImageHash(it->first, r.width, r.height, r.guestBpp) != r.memHash)
++                            drop = true; // (ResolveCurrent would call it stale at its next look)
++                        else if (r.writtenBack && unused(last, 120.0))
++                            drop = true;
++                    }
++                }
++                if (drop)
++                {
++                    if (r.resource)
++                        Frame().garbage.push_back(std::move(r.resource));
++                    if (r.packed)
++                        Frame().garbage.push_back(std::move(r.packed));
++                    it = g_r.resolved.erase(it);
++                    g_cacheRelease.resolved++;
++                    images++;
++                }
++                else
++                    ++it;
++            }
++            for (auto* map : { &g_r.cubes, &g_r.mipChains })
++                for (auto it = map->begin(); it != map->end() && others < 8;)
++                    if (it->second.resource && unused(it->second.checkedFrame, 60.0))
++                    {
++                        others++;
++                        RetireTexture(std::move(it->second.resource));
++                        (map == &g_r.cubes ? g_cacheRelease.cubes : g_cacheRelease.mipChains)++;
++                        it = map->erase(it);
++                    }
++                    else
++                        ++it;
++        }
++    }
+     // FM3 port session 43 (less RAM for 8 GB PCs): every 30 s, what the renderer holds on the GPU (on an integrated GPU
+     // that is system RAM too), from each resource's description. REGPU_NO_MEMORY_REPORT=1: no line.
+     {
+@@ -3360,14 +3560,22 @@ void BeginFrameIfNeeded()
+             };
+             uint64_t nTex = 0, nCube = 0, nVol = 0, nMip = 0, nRes = 0, nSurf = 0, nOld = 0;
+             const uint64_t tex = sum(g_r.textures, nTex), cube = sum(g_r.cubes, nCube), vol = sum(g_r.volumes, nVol), mips = sum(g_r.mipChains, nMip);
+-            uint64_t res = 0, surf = 0, oldBytes = 0;
++            uint64_t res = 0, surf = 0, oldBytes = 0, spareBytes = 0, staleBytes = 0, nSpare = 0;
+             for (const auto& [k, r] : g_r.resolved)
+             {
+                 if (r.resource)
+-                    res += bytes(r.resource.Get()), nRes++;
++                {
++                    const uint64_t b = bytes(r.resource.Get());
++                    res += b, nRes++;
++                    if (r.stale)
++                        staleBytes += b;
++                }
+                 for (const ResolvedTexture& sp : r.spares)
+                     if (sp.resource)
+-                        res += bytes(sp.resource.Get()), nRes++;
++                    {
++                        const uint64_t b = bytes(sp.resource.Get());
++                        res += b, nRes++, spareBytes += b, nSpare++;
++                    }
+             }
+             for (auto* m : { &g_r.colorSurfaces, &g_r.depthSurfaces })
+                 for (const auto& [k, sf] : *m)
+@@ -3385,6 +3593,16 @@ void BeginFrameIfNeeded()
+                 tex / mb, (unsigned long long)nTex, oldBytes / mb, (unsigned long long)nOld, cube / mb, (unsigned long long)nCube, vol / mb,
+                 (unsigned long long)nVol, mips / mb, (unsigned long long)nMip, res / mb, (unsigned long long)nRes, surf / mb, (unsigned long long)nSurf,
+                 g_texturePool.heaps.size(), rings / mb);
++            {
++                uint64_t live = 0;
++                for (const TexturePool::Heap& h : g_texturePool.heaps)
++                    live += h.live;
++                Log("renderer memory: texture heaps %.0f MB used, %.0f MB free, %llu released; resolved images: spares %.0f MB (%llu), stale %.0f MB; "
++                    "released so far: %llu resolved images, %llu spares, %llu cubes, %llu mip chains",
++                    live / mb, g_texturePool.freeBytes / mb, (unsigned long long)g_texturePool.released, spareBytes / mb, (unsigned long long)nSpare,
++                    staleBytes / mb, (unsigned long long)g_cacheRelease.resolved, (unsigned long long)g_cacheRelease.spares,
++                    (unsigned long long)g_cacheRelease.cubes, (unsigned long long)g_cacheRelease.mipChains);
++            }
+             std::string expanded;
+             {
+                 std::lock_guard<std::recursive_mutex> lock(g_textureMutex);
+@@ -7264,7 +7482,10 @@ ID3D12Resource* ResolvedMipChain(const TextureFetch& fetch, const ResolvedTextur
+     for (const ResolvedTexture* level : levels)
+         sources = (sources ^ level->serial) * 0x100000001B3ull;
+     if (chain.resource && (perFrame ? chain.checkedFrame == g_r.frame : chain.contentHash == sources))
++    {
++        chain.checkedFrame = g_r.frame; // (last use, for the cache release sweep; per frame mode: already this frame)
+         return chain.resource.Get();
++    }
+     chain.checkedFrame = g_r.frame;
+     chain.contentHash = sources;
+     if (!chain.resource || chain.width != hw || chain.height != hh || chain.format != level0.format ||
+@@ -7364,6 +7585,7 @@ ResolvedTexture* ResolveCurrent(uint32_t base)
+         if (r.stale)
+             return nullptr;
+     }
++    r.usedFrame = g_r.frame;
+     return &r;
+ }
+ 
+@@ -8477,6 +8699,7 @@ void EnsureResolved(ResolvedTexture& dest, uint32_t width, uint32_t height, uint
+         std::swap(a.serial, b.serial);
+         std::swap(a.format, b.format);
+         std::swap(a.swapped, b.swapped);
++        std::swap(a.usedFrame, b.usedFrame);
+     };
+     if (!dest.resource || dest.width != width || dest.height != height || dest.hostWidth != hostWidth || dest.hostHeight != hostHeight ||
+         dest.format != format)

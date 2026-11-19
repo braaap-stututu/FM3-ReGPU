@@ -102,6 +102,7 @@ $regpuPatches = @(
     'regpu-less-ram'                 # Less RAM: memory report line, texture budget with eviction, upload ring's other place made only when used, pipeline library mapped from its file, k_8 kept as R8
     'regpu-resolve-dump-frame-env'   # REGPU_DUMP_EACH_RESOLVE read once a frame (FrameEnv), not by getenv per resolve (~1.5% of the draw thread, session 45)
     'regpu-exp-lazy-loops'           # REGPU_EXP_LAZY_LOOPS (on by default, src/gpu_host.cpp): loop constants only for shaders that read them, bools/loops byte-swapped 4 at a time (+1.0%); PassScales' check inlined (from the experimental branch, session 45)
+    'regpu-cache-release'            # Session 46: texture heaps with free ranges (best fit, merged, empty heaps released); resolved images, spares, cubes and mip chains unused for 60 s released (REGPU_NO_CACHE_RELEASE=1 off)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }
