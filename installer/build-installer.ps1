@@ -98,4 +98,40 @@ try {
     }
 } finally { $zip.Dispose() }
 
-Get-Item (Join-Path $out "FM3-ReGPU-Setup-$Version.exe"), $patch | Select-Object FullName, @{ n = "MB"; e = { [math]::Round($_.Length / 1MB, 1) } }
+# The portable build (session 46): the same files in one folder, plus portable.txt, which keeps saves, settings and the
+# shader cache in user\ beside fm3.exe instead of Documents\fm3 (src/user_dir.cpp, the launcher's Paths). Unzip and run
+# launcher\FM3Launcher.exe. Not listed in install-manifest.txt, so a later update never removes portable.txt.
+$portable = Join-Path $out "FM3-ReGPU-$Version-portable.zip"
+if (Test-Path $portable) { Remove-Item $portable }
+$top = "FM3-ReGPU-$Version"
+$zip = [System.IO.Compression.ZipFile]::Open($portable, "Create")
+try {
+    Get-ChildItem $stage -Recurse -File | Where-Object { $_.Name -ne "before-install.txt" } | ForEach-Object {
+        $name = "$top/" + $_.FullName.Substring($stage.Length + 1).Replace('\', '/')
+        [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $name, "Optimal")
+    }
+    $readme = @"
+Forza Motorsport 3 ReGPU $Version (portable)
+
+No installer: this folder is the whole PC build. It contains no game files.
+Saves, settings and the shader cache stay in the user folder here (portable.txt turns that on; delete it to use
+Documents\fm3 instead). Put the folder anywhere you can write to (not Program Files).
+
+1. Run launcher\FM3Launcher.exe.
+2. Play tab, Game tile: "From .iso..." and choose your Forza Motorsport 3 Ultimate Collection (USA) Disc 1 image
+   (Play Disc). It is checked, then extracted into game\ here (about 6.8 GB).
+3. Optional: Disc 2 content tile, "Install from .iso..." with the Content Install Disc image (about 3.4 GB).
+4. Graphics tab: resolution, frame cap, graphics card. Then Play.
+
+The first start compiles shaders for the graphics card, which takes a while. The game's log is out\run\fm3.log.
+Updates: the launcher's Updates tab installs new releases into this folder.
+"@
+    foreach ($extra in @(@("portable.txt", "Saves and settings stay in the user folder beside fm3.exe. Delete this file to use Documents\fm3 instead.`r`n"),
+                        @("README-portable.txt", ($readme -replace "`r?`n", "`r`n")))) {
+        $e = $zip.CreateEntry("$top/" + $extra[0], "Optimal")
+        $w = New-Object IO.StreamWriter($e.Open(), (New-Object Text.UTF8Encoding($false)))
+        try { $w.Write($extra[1]) } finally { $w.Dispose() }
+    }
+} finally { $zip.Dispose() }
+
+Get-Item (Join-Path $out "FM3-ReGPU-Setup-$Version.exe"), $patch, $portable | Select-Object FullName, @{ n = "MB"; e = { [math]::Round($_.Length / 1MB, 1) } }

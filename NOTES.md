@@ -2,6 +2,21 @@
 
 ## ▶ Current status / next step  (updated 2026-11-19, session 46)
 
+### ▶ Session 46 (2026-11-19): release v0.42.0-beta published (pre-release, user's request)
+- https://github.com/braaap-stututu/FM3-ReGPU/releases/tag/v0.42.0-beta, tag on main (`VERSION` 0.42.0-beta). Assets:
+  `FM3-ReGPU-Setup-0.42.0-beta.exe` (111.5 MB), **`FM3-ReGPU-0.42.0-beta-portable.zip`** (new, 188 MB),
+  `FM3-ReGPU-linux-0.42.0-beta.tar.gz`, `FM3-ReGPU-0.42.0-beta-patch.zip` (for the updater; GitHub's SHA-256 matches).
+  Release notes: `out/installer/dist/release-notes-0.42.0-beta.md`.
+- **Portable mode** (new): a `portable.txt` beside `fm3.exe` puts the user folder in `user\` there (`src/user_dir.cpp`,
+  launcher `Paths.FindUser`; `FM3_USER_DIR` still wins). `installer/build-installer.ps1` writes the portable zip (one
+  top folder `FM3-ReGPU-<version>\`, `portable.txt` + `README-portable.txt`, neither in `install-manifest.txt` so an
+  update never removes them). Tested from the unzipped zip: fm3.exe boots with everything under its `user\`, the
+  launcher shows that folder and version 0.42.0-beta.
+- **Release build:** `build\rel` rebuilt from main's 84-patch stack (grid 360 fps at the cap). The boot picture shipped is
+  the user's own `out\user\boot\background.png` (their earlier decision).
+- **Next releases:** bump `VERSION`, commit, `git tag v<VERSION>` (the installer script stamps a hash otherwise), run
+  `build-installer.ps1 -NoGameBuild` and `build-linux.ps1 -NoGameBuild`, attach all four files.
+
 ### ▶ Session 46 (2026-11-19), on main: the renderer cache growth fix
 - **Built and on by default: ReGPU patch 84 `regpu-cache-release`** (the plan below, all four parts; patches/README.md
   has the details):
