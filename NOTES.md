@@ -2,6 +2,40 @@
 
 ## ▶ Current status / next step  (updated 2026-11-19, session 46)
 
+### ▶ Session 46 (2026-11-19), on main: the renderer cache growth fix
+- **Built and on by default: ReGPU patch 84 `regpu-cache-release`** (the plan below, all four parts; patches/README.md
+  has the details):
+  - texture heaps keep free ranges (best fit across heaps, neighbours merged) and release a heap with no texture
+    left (one empty heap kept); `REGPU_OLD_TEXTURE_POOL=1` (start-time) is the old allocator;
+  - every 64 frames, what has not been used for 60 s and 1,800 frames is released: resolved images' spares, resolved
+    images whose memory the game reused or that were written back (120 s), cubes and mip chains; at most 8 images
+    and 8 cubes/mip chains a sweep (a 170-image batch in one frame made a 94 ms frame);
+  - the memory log adds heap MB used/free/released, spares, stale and the released counts;
+  - `REGPU_NO_CACHE_RELEASE=1` (live) turns the sweep off; `REGPU_CACHE_RELEASE_SECONDS=<s>` (debug) shortens it.
+- **Measured** (quick tour, tracks 0-5 in one boot, Tour profile, the user's 1440p settings on the XTX):
+
+  | | Old | New |
+  |---|---|---|
+  | Resolved images | 400 -> 1,238 MB, growing | ~200 MB, flat |
+  | Mip chains | 48 -> 287 MB | 5 MB |
+  | Cubes | 16 -> 61 MB | 10-23 MB |
+  | Texture heaps | 11 | 9 |
+  | GPU memory at the end | 6,352 MB | 4,688 MB |
+  | Private bytes | 12.5 GB | 10.7 GB |
+
+  Logs: `out/perf/tour/s46-cache-new`, `s46-cache-old`.
+- **Pictures:** frozen grid with a 2 s threshold, 0 pixels; fps at the cap either way. My Cars on a copy of Baseline
+  (`out/user/profiles/CacheTest`, the user's save untouched): car pictures released after 2 s and read back from
+  memory, identical (only the selection frame's pulse differs). **Not yet:** a long session on the iGPU and the
+  user's own drive; vinyls in the editor were not re-checked (their images stay in use while shown).
+- **Experimental branch, same session:** Fable's measurements and FM2's per-draw cuts, nothing proved out
+  (experimental's NOTES "Session 46", EXPERIMENTAL.md X11-X17); the experimental build is unchanged apart from
+  trace counters. One kill test there hung the GPU twice (driver timeouts the user saw); removed.
+- **Virtual pad note:** in the career menus the d-pad and B were ignored this session; the left stick
+  (`Fm3 "stick L 0 -1 250"`) moved the cursor, and A worked right after waking the menu with Y.
+- **Next:** the user's drive on main (session 45's defaults and this fix), the paused AI tour (`Start-AiTour -From 13
+  -FromLayout 3 -RebootEach`; with this fix one boot per environment may no longer be needed).
+
 ### ▶ Session 46 (2026-11-19): Fable's measurements and FM2's cuts, on the experimental branch
 - **Result: nothing new proved out; the experimental build is unchanged apart from trace counters.** Every number is
   in EXPERIMENTAL.md X11-X17. In short (2-core frozen grid and 2-core benchmark races, as in session 45):
@@ -86,7 +120,7 @@
   - two one-off events to watch: a crash in the shader-compiler threads (corrupted locale table, sampler on), and a
     benchmark race closed by a WM_CLOSE from outside the game.
 
-### Renderer cache growth: plan (session 44 AI tour on the iGPU; to build, the game closed)
+### Renderer cache growth: plan (session 44 AI tour on the iGPU; built in session 46 as ReGPU patch 84 `regpu-cache-release`)
 - **Measured** (fm3.log of the first tour boot, 2 h: Amalfi, Benchmark x20, Camino Viejo, Catalunya):
   - private bytes 5.3 -> 11.6 GB, GPU local 2.2 -> 6.3 GB;
   - textures flat at ~1 GB (the budget works);

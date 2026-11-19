@@ -108,6 +108,7 @@ $regpuPatches = @(
     'regpu-exp-gpu-constants-staging' # Experimental system (session 45): REGPU_EXP_GPU_CONSTANTS=2, the draw data staged in system memory (correct; CPU even, GPU +0.8 ms: off)
     'regpu-exp-repeat-trace'         # Experimental system (session 45): REGPU_EXP_TRACE_STATE also counts draws whose whole state repeats an earlier draw's in the frame (~40% in a race)
     'regpu-exp-trace-parts'          # Experimental system (session 46): REGPU_EXP_TRACE_STATE also counts repeats per state part, null-PS candidate draws and the draw thread's waits
+    'regpu-cache-release'            # Session 46: texture heaps with free ranges (best fit, merged, empty heaps released); resolved images, spares, cubes and mip chains unused for 60 s released (REGPU_NO_CACHE_RELEASE=1 off)
 )
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }
