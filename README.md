@@ -46,16 +46,29 @@ Each fix can be switched off for comparison; the switches and details are in [NO
 [patches/README.md](patches/README.md).
 
 ## Requirements
-- VS 2022 Build Tools (MSVC 14.44, CMake, Ninja), Windows SDK 10.0.26100
-- LLVM/clang-cl ≥ 18 at `C:\Program Files\LLVM`, Python ≥ 3.11, Git
-- AMD FidelityFX SDK v2.x in `thirdparty/fidelityfx` (its `Kits/FidelityFX` folder)
-- An FFmpeg win64 **LGPL shared** build in `thirdparty/ffmpeg` (`include/`, `lib/`, `bin/`), e.g.
-  `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases)
+- Git, PowerShell (Windows' own 5.1 is enough), and about 6 GB of disk for the build toolchain
+- The build toolchain, either way:
+  - **Portable (nothing installed, no admin rights):** `powershell -ExecutionPolicy Bypass -File tools\get-toolchain.ps1`
+    downloads everything into `toolchain\` (gitignored): the MSVC 14.44 x64 libraries and headers and the Windows SDK
+    10.0.26100 from Microsoft's own Visual Studio 2022 package feed (you're asked to accept Microsoft's Build Tools
+    licence; `-AcceptMicrosoftLicense` skips the question), LLVM 23.1.5, CMake 3.31.10, Ninja 1.13.2 and Python 3.14 (python.org's embeddable package), plus AMD's
+    FidelityFX SDK 2.1.0 and FFmpeg 8.1 LGPL into `thirdparty\`. Each download is checked against a SHA-256 (from
+    GitHub, Microsoft's feed, or pinned in the script). About 2.2 GB of downloads, kept in `toolchain\downloads` so a
+    rerun only fetches what's missing (delete that folder afterwards to save space). `-Launcher` adds the .NET 9 SDK
+    for the launcher. `tools\vcenv.cmd`, which every build command below goes through, then uses `toolchain\env.cmd`
+    (`FM3_SYSTEM_TOOLCHAIN=1` uses installed tools instead).
+  - **Installed:** VS 2022 Build Tools (MSVC 14.44, Windows SDK 10.0.26100, CMake, Ninja) at their default folder,
+    LLVM/clang-cl ≥ 18 at `C:\Program Files\LLVM`, AMD FidelityFX SDK v2.x in `thirdparty/fidelityfx` (its
+    `Kits/FidelityFX` folder) and an FFmpeg win64 **LGPL shared** build in `thirdparty/ffmpeg` (`include/`, `lib/`,
+    `bin/`), e.g. `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases)
+- With installed tools also Python ≥ 3.11 with the `py` launcher (the build runs `py -3` for ReGPU's shader headers; the
+  portable toolchain brings its own)
 - The Disc 1 files of your own copy (the folder with `default.xex` and `Media`)
 - Optional: your Disc 2 image (`.iso`) for the extra cars and tracks (about 3.4 GB once installed)
 
 ## Build
 ```powershell
+& .\tools\get-toolchain.ps1                    # once, for the portable toolchain (skip with installed tools)
 & .\tools\setup.ps1                            # submodules, ReXenon/XenonRecomp/ReGPU patches, build\tools\*, build\tools-rexenon
 & .\tools\recomp.ps1 -Xex <your default.xex>    # recompile with ReXenon -> out\ppc-rexenon (-Recompiler xenonrecomp -> out\ppc)
 tools\vcenv.cmd cmake -S . -B build/rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_LINKER=lld-link

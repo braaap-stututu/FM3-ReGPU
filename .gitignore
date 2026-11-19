@@ -32,3 +32,5 @@ __pycache__/
 config/fm3_rexenon.toml
 config/fm3_rexenon_exp.toml
 /thirdparty/xess/
+# tools/get-toolchain.ps1: the portable build toolchain (GitHub issue #2)
+/toolchain/

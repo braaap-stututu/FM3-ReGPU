@@ -44,6 +44,19 @@
   escaping zip entry refused), the Updates tab live against the 0.41.0-beta release at 1100 and 1600 px. Not tested:
   a real download (no release has a patch zip yet: attach `FM3-ReGPU-<version>-patch.zip` from now on) and the
   restart after a launcher update.
+- **GitHub issue #2 (portable build toolchain):** `tools/get-toolchain.ps1` downloads everything the build needs into
+  `toolchain\` (gitignored), no installs: MSVC 14.44 + Windows SDK 10.0.26100 from Microsoft's VS 2022 package feed
+  (the payloads the Build Tools installer uses: VSIX unzipped, SDK MSIs by `msiexec /a`, licence prompt or
+  `-AcceptMicrosoftLicense`), LLVM 23.1.5 (.tar.xz; the .tar.zst uses a window Windows' tar refuses), CMake 3.31.10,
+  Ninja 1.13.2, Python 3.14 embeddable + `py.cmd` (ReGPU's `embed_hlsl.py` runs at build time), FidelityFX 2.1.0
+  (sparse checkout, signed DLL hashes pinned), FFmpeg 8.1 LGPL (pinned BtbN build, rolling fallback); `-Launcher`
+  adds the .NET 9 SDK. All SHA-256-checked; ~2.2 GB of downloads, ~6 GB unpacked. `tools/vcenv.cmd` uses
+  `toolchain\env.cmd` when present (`FM3_SYSTEM_TOOLCHAIN=1` = installed tools); CMakeLists takes `d3dcompiler_47.dll`
+  from the environment's SDK (Redist, else `bin\<version>d`). Not used: the SDK's Redistributables MSI (1603 on
+  `msiexec /a`). **Tested:** a fresh `build/portable` configured and built from an environment with only Windows and
+  Git on PATH (every tool from the test toolchain), the exe reached the frozen grid. Test files: `out/toolchain-test`
+  (~6 GB), `build/portable`. The feed's SDK is a newer revision (26100.9457, d3dcompiler 10.0.26100.9457, DXC 1.9)
+  than the installed one (26100.7705, DXC 1.8).
 - **Next:** the user's drive on main (session 45's defaults and this fix), the paused AI tour (`Start-AiTour -From 13
   -FromLayout 3 -RebootEach`; with this fix one boot per environment may no longer be needed).
 
