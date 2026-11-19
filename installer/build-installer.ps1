@@ -75,6 +75,13 @@ The first start compiles shaders for the graphics card, which takes a while.
 Saves and settings go to Documents\fm3. The game's log is out\run\fm3.log in the install folder.
 "@ | Set-Content -Encoding utf8 "$stage\before-install.txt"
 
+# The install's file list (launcher\FM3Launcher\Updater.cs Manifest): installed with the setup exe and in every patch, so an
+# update removes files the previous release had and this one doesn't.
+$manifest = Join-Path $stage "install-manifest.txt"
+if (Test-Path $manifest) { Remove-Item $manifest }
+$names = Get-ChildItem $stage -Recurse -File | Where-Object { $_.Name -ne "before-install.txt" } |
+    ForEach-Object { $_.FullName.Substring($stage.Length + 1).Replace('\', '/') }
+@($names) + "install-manifest.txt" | Set-Content -Encoding ascii $manifest
 $out = Join-Path $root "out\installer\dist"
 & $iscc "/DAppVersion=$Version" "/DStageDir=$stage" "/DOutDir=$out" "installer\fm3.iss"
 if ($LASTEXITCODE) { throw "Inno Setup failed." }

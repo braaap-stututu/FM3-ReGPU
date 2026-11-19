@@ -396,21 +396,11 @@ input[type=range] { padding: 0; accent-color: var(--accent); background: transpa
 #gp-hint b { color: var(--text); font-weight: 600; white-space: nowrap; }
 #gp-hint span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* updates tab (Updater.cs), as FM2:ReGPU's */
+/* nine tabs: the longest names shortened on narrow windows (the 1100 px minimum overflowed by ~85 px) */
+@media (max-width: 1360px) { .tabs .tab-long { display: none; } }
+/* updates tab (Updater.cs), as FM2:ReGPU's (the version box and notes use the rules under "updates" above) */
 .grid-updates { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr); align-items: start; }
-.versions { display: flex; align-items: center; gap: 16px; background: var(--panel-2); border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
-.v-label { color: var(--muted); font-size: 12px; }
-.v-num { font-size: 24px; font-weight: 800; letter-spacing: .5px; }
-.versions .arrow { color: var(--muted); font-size: 20px; }
-.update-state { font-size: 13px; margin-bottom: 14px; min-height: 20px; }
-.update-state.ok { color: var(--ok); }
-.update-state.new { color: var(--accent-2); font-weight: 600; }
 .notes-panel { max-height: 100%; overflow-y: auto; }
-.notes h3 { font-size: 13px; margin: 14px 0 6px; color: var(--text); }
-.notes code { background: var(--panel-2); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
-.notes b { color: var(--text); }
-.notes p { margin: 6px 0; }
-.notes li { margin: 3px 0; }
 @media (max-width: 1180px) {
   .v-num { font-size: 18px; }
   .versions { gap: 10px; padding: 12px; }

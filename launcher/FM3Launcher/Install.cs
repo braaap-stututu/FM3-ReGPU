@@ -104,6 +104,7 @@ public sealed class GameSettings
     public int Sharpening { get; set; } = 50; // percent; settings.ini holds 0-1
     public int Language { get; set; } = 1;
     public bool SkipIntro { get; set; }            // skip_intro: straight to the title screen (src/hooks/boot_options.cpp)
+    public bool UpdateCheck { get; set; } = true;  // update_check: the launcher asks GitHub for a newer release at start (Updater.cs; the launcher's own key)
     public bool QuickRace { get; set; }            // quick_race: Free Play > Quick Race by itself after boot (implies skip_intro)
     public bool GridTest { get; set; }             // grid_test: the reference career race's start grid by itself, world frozen there (src/hooks/grid_test.cpp)
     // perf_preset: ReGPU's Hyper presets (session 43): off, mild, low, extreme, potato, auto (src/gpu_host.cpp ApplyPerfPreset;
@@ -148,7 +149,7 @@ public sealed class GameSettings
     static double Num(string v, double fallback, double min, double max) =>
         double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? Math.Clamp(d, min, max) : fallback;
 
-    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_mode", "vr_resolution", "triple_resolution", "triple_fullscreen", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "triple_mode", "triple_diag", "triple_dist", "triple_bezel_mm", "triple_gap_mm", "triple_angle_left", "triple_angle_right", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder", "hyper_shader_cuts", "hyper_cull", "igpu_rootsig11", "igpu_spec_constants", "igpu_half_regs", "igpu_uma_no_arena", "igpu_uma_textures", "igpu_compile_threads", "igpu_texture_budget"];
+    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "update_check", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_mode", "vr_resolution", "triple_resolution", "triple_fullscreen", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "triple_mode", "triple_diag", "triple_dist", "triple_bezel_mm", "triple_gap_mm", "triple_angle_left", "triple_angle_right", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "game_folder", "hyper_shader_cuts", "hyper_cull", "igpu_rootsig11", "igpu_spec_constants", "igpu_half_regs", "igpu_uma_no_arena", "igpu_uma_textures", "igpu_compile_threads", "igpu_texture_budget"];
 
     public static GameSettings Load()
     {
@@ -180,6 +181,7 @@ public sealed class GameSettings
                     break;
                 case "language": s.Language = int.TryParse(v, out var l) && l > 0 ? l : 1; break;
                 case "skip_intro": s.SkipIntro = v == "1"; break;
+                case "update_check": s.UpdateCheck = v != "0"; break;
                 case "quick_race": s.QuickRace = v == "1"; break;
                 case "grid_test": s.GridTest = v == "1"; break;
                 case "perf_preset": s.PerfPreset = PerfPresets.Contains(v) ? v : "off"; break;
@@ -245,7 +247,8 @@ public sealed class GameSettings
         sb.Append($"triple_mode={(TripleMode == "physical" ? "physical" : "auto")}\ntriple_diag={N(TripleDiag)}\ntriple_dist={N(TripleDist)}\ntriple_bezel_mm={N(TripleBezelMm)}\ntriple_gap_mm={N(TripleGapMm)}\ntriple_angle_left={N(TripleAngleLeft)}\ntriple_angle_right={N(TripleAngleRight)}\n");
         sb.Append($"upscaler={(Options.Upscalers.Any(u => u.Value == Upscaler) ? Upscaler : "off")}\nupscale_quality={Math.Clamp(Upscale, 0, 4)}\nsharpness={sharp}\n");
         sb.Append($"language={Language}\n");
-        sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n"); // (session 23: these three were read but never saved)
+        sb.Append($"skip_intro={B(SkipIntro)}\nquick_race={B(QuickRace)}\ngrid_test={B(GridTest)}\n");
+        sb.Append($"update_check={B(UpdateCheck)}\n"); // (session 23: these three were read but never saved)
         sb.Append($"perf_preset={(PerfPresets.Contains(PerfPreset) ? PerfPreset : "off")}\n");
         if (HyperShaderCuts) sb.Append("hyper_shader_cuts=1\n"); // (the iGPU tab: written only when set, so the preset decides otherwise)
         if (HyperCull is 0 or 64 or 256) sb.Append($"hyper_cull={HyperCull}\n");

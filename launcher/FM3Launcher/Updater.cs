@@ -13,7 +13,11 @@ namespace FM3Launcher;
 public static class Updater
 {
     public const string Repo = "braaap-stututu/FM3-ReGPU";
-    public sealed record Release(string Version, string Name, string Notes, string Page, string? PatchUrl, long PatchBytes, DateTime Published);
+    public sealed record Release(string Version, string Name, string Notes, string Page, string? PatchUrl, long PatchBytes, DateTime Published,
+        string? PatchSha256 = null);
+    /// <summary>The install's file list (installer\build-installer.ps1 writes it into the install and each patch zip): files the
+    /// previous release had and the new one doesn't are removed after an update.</summary>
+    public const string Manifest = "install-manifest.txt";
 
     static readonly HttpClient Http = MakeClient();
 
@@ -38,7 +42,7 @@ public static class Updater
         {
             if (r.GetProperty("draft").GetBoolean()) continue;
             string tag = r.GetProperty("tag_name").GetString() ?? "";
-            string? url = null;
+            string? url = null, sha = null;
             long bytes = 0;
             foreach (var a in r.GetProperty("assets").EnumerateArray())
             {
@@ -47,13 +51,17 @@ public static class Updater
                 {
                     url = a.GetProperty("browser_download_url").GetString();
                     bytes = a.GetProperty("size").GetInt64();
+                    // GitHub's own SHA-256 of the asset ("sha256:<hex>"), checked after the download
+                    if (a.TryGetProperty("digest", out var d) && d.ValueKind == JsonValueKind.String && d.GetString() is { } ds &&
+                        ds.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+                        sha = ds[7..].ToLowerInvariant();
                 }
             }
             if (Platform.Linux) url = null; // the patch is the Windows build: Linux takes the release's tarball
             return new Release(tag.TrimStart('v', 'V'), r.GetProperty("name").GetString() is { Length: > 0 } n ? n : tag,
                 r.GetProperty("body").GetString() ?? "",
                 r.GetProperty("html_url").GetString() ?? $"https://github.com/{Repo}/releases", url, bytes,
-                r.TryGetProperty("published_at", out var p) && p.ValueKind == JsonValueKind.String ? p.GetDateTime() : DateTime.MinValue);
+                r.TryGetProperty("published_at", out var p) && p.ValueKind == JsonValueKind.String ? p.GetDateTime() : DateTime.MinValue, sha);
         }
         throw new InvalidOperationException("There are no releases yet.");
     }
@@ -105,6 +113,20 @@ public static class Updater
                 if (total > 0) progress(Math.Min(1, (double)done / total), $"Downloading {done / 1048576.0:0.0} of {total / 1048576.0:0.0} MB");
             }
         }
+        // The download checked against GitHub's SHA-256 of the asset before anything is unpacked (a cut or corrupted
+        // download would otherwise be written over the install).
+        if (release.PatchSha256 is { } want)
+        {
+            progress(1, "Checking the download");
+            string got;
+            using (var f = File.OpenRead(zipPath))
+                got = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(f)).ToLowerInvariant();
+            if (got != want)
+            {
+                try { File.Delete(zipPath); } catch { }
+                throw new InvalidDataException("The download is damaged (its checksum doesn't match GitHub's). Try again.");
+            }
+        }
         progress(1, "Installing");
         return Apply(zipPath);
     }
@@ -115,6 +137,8 @@ public static class Updater
         var self = Path.GetFullPath(AppContext.BaseDirectory);
         int files = 0;
         bool launcher = false;
+        var oldManifest = ReadManifest(Path.Combine(root, Manifest));
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using (var zip = ZipFile.OpenRead(zipPath))
         {
             // every entry checked before anything is touched: names must stay inside the install
@@ -127,6 +151,7 @@ public static class Updater
                 var target = Path.GetFullPath(Path.Combine(root, name));
                 if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException($"The patch writes outside the install ({name}).");
                 entries.Add((e, target));
+                names.Add(name);
             }
             foreach (var (e, target) in entries)
             {
@@ -148,8 +173,30 @@ public static class Updater
                 files++;
             }
         }
+        // Files the previous release installed and this one no longer has (a renamed or dropped DLL): removed, or renamed
+        // aside when in use. Only names from the old manifest, and only inside the install; none when either side has no list.
+        if (oldManifest.Count > 0 && names.Contains(Manifest))
+            foreach (var name in oldManifest)
+            {
+                if (names.Contains(name)) continue;
+                var target = Path.GetFullPath(Path.Combine(root, name));
+                if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !File.Exists(target)) continue;
+                try { File.Delete(target); }
+                catch (Exception x) when (x is UnauthorizedAccessException or IOException) { try { RenameAside(target); } catch { } }
+                files++;
+            }
         if (deleteZip) try { File.Delete(zipPath); } catch { }
         return new Applied(files, launcher);
+    }
+
+    static List<string> ReadManifest(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return [];
+            return File.ReadAllLines(path).Select(l => l.Trim().Replace('\\', '/')).Where(l => l.Length > 0 && !l.Any(char.IsControl)).ToList();
+        }
+        catch { return []; }
     }
 
     static void RenameAside(string target)
@@ -172,6 +219,7 @@ public static class Updater
     /// <summary>Leftovers of an update: files renamed while in use, and writes that failed half way.</summary>
     public static void CleanUp()
     {
+        if (!Installed) return; // (never in a development checkout, where Paths.Root is the repository)
         try
         {
             // the launcher's folder, and the install's top folder (fm3.exe and its DLLs; not the game's files)

@@ -19,9 +19,9 @@
       <button data-tab="profiles">Profiles</button>
       <button data-tab="graphics">Graphics</button>
       <button data-tab="vr">VR</button>
-      <button data-tab="triple">Triple screens</button>
-      <button data-tab="igpu">iGPU (testing)</button>
-      <button data-tab="wheel">Wheel stuff</button>
+      <button data-tab="triple">Triple<span class="tab-long"> screens</span></button>
+      <button data-tab="igpu">iGPU<span class="tab-long"> (testing)</span></button>
+      <button data-tab="wheel">Wheel<span class="tab-long"> stuff</span></button>
       <button data-tab="settings">Settings</button>
       <button data-tab="updates">Updates <span class="dot-badge" id="update-badge" hidden></span></button>
     </nav>
@@ -141,6 +141,10 @@
       </div>
       <div class="progress" id="update-progress"><div class="bar"></div></div>
       <div class="status" id="update-status"></div>
+      <div class="toggle-row" data-tip="At each start the launcher asks GitHub (api.github.com) whether a newer release exists. Nothing about you or your PC is sent. Off: only when you press Check again.">
+        <div><div class="toggle-title">Check for updates at start</div><div class="toggle-sub">Asks GitHub for the newest release</div></div>
+        <button class="switch" id="updateCheck" role="switch"></button>
+      </div>
     </section>
     <section class="panel notes-panel">
       <div class="panel-head"><h2 id="notes-title">Release notes</h2></div>

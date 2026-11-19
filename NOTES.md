@@ -33,6 +33,17 @@
   trace counters. One kill test there hung the GPU twice (driver timeouts the user saw); removed.
 - **Virtual pad note:** in the career menus the d-pad and B were ignored this session; the left stick
   (`Fm3 "stick L 0 -1 250"`) moved the cursor, and A worked right after waking the menu with Y.
+- **PR #3 (zer0ducksgiven, launcher GitHub auto-updater) merged** by me at the user's request (tab-list conflict with the
+  iGPU tab resolved), then fixed after my review on the PR: the download is checked against GitHub's SHA-256 of the
+  asset; the launcher waits for the old instance only after an update restart (`--after-update`; a second start used
+  to wait 5 s); `Updater.CleanUp` only in a real install (it deleted *.old/*.new at the repo root in a checkout); an
+  `install-manifest.txt` (written by `build-installer.ps1` into the install and each patch zip) so an update removes
+  files the new release dropped; launcher Updates tab switch "Check for updates at start" (settings.ini
+  `update_check`); duplicate CSS removed; nine tabs fit the 1100 px minimum (Triple/iGPU/Wheel names shortened below
+  1360 px). Tested: `--apply-update` on a fake install (replace, add, drop by manifest, unchanged skipped, an
+  escaping zip entry refused), the Updates tab live against the 0.41.0-beta release at 1100 and 1600 px. Not tested:
+  a real download (no release has a patch zip yet: attach `FM3-ReGPU-<version>-patch.zip` from now on) and the
+  restart after a launcher update.
 - **Next:** the user's drive on main (session 45's defaults and this fix), the paused AI tour (`Start-AiTour -From 13
   -FromLayout 3 -RebootEach`; with this fix one boot per environment may no longer be needed).
 

@@ -104,8 +104,9 @@ internal static class Program
         }
         // one window: starting the launcher again brings the open one forward
         using var single = new Mutex(true, "FM3ReGPU.Launcher", out bool first);
-        // After an update the old launcher starts this one and only then closes: wait for it a moment.
-        if (!first)
+        // After an update the old launcher starts this one (with --after-update) and only then closes: wait for it a
+        // moment. An ordinary second start brings the open window forward at once.
+        if (!first && args.Contains("--after-update"))
             try { first = single.WaitOne(TimeSpan.FromSeconds(5)); }
             catch (AbandonedMutexException) { first = true; }
         if (!first && (args.Contains("--browser") || BrowserShell.UnderWine()))

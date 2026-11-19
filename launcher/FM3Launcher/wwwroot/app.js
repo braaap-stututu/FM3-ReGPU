@@ -23,7 +23,7 @@ const COMPILE_CHOICES = [{ value: "auto", name: "Automatic" }, { value: "0", nam
 // Mild and up turn these on by themselves (src/gpu_host.cpp ApplyPerfPreset): shown on and locked there; Off and
 // Turbo leave them to their own switches.
 const PRESET_OPTIONS = ["oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "carLodFar"]
-const SWITCHES = ["vsync", "vrCameraMotion", "vrPace", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "dxcShaders", "eqaa", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "quickRace", "gridTest", "hyperShaderCuts", "igpuRootSig11", "igpuSpecConstants", "igpuHalfRegs", "igpuUmaNoArena", "igpuUmaTextures"]
+const SWITCHES = ["vsync", "vrCameraMotion", "vrPace", "anisotropy", "anisoFromGame", "carLodFar", "hideShaderOverlay", "fpsPanel", "timer", "debugServer", "perfLog", "perfLogLight", "drawWorkers", "asyncPresent", "vramUploadRing", "dxcShaders", "eqaa", "oneTile", "halfRateMirror", "halfRateShadows", "halfRateReflections", "engineCrossfade", "skipIntro", "updateCheck", "quickRace", "gridTest", "hyperShaderCuts", "igpuRootSig11", "igpuSpecConstants", "igpuHalfRegs", "igpuUmaNoArena", "igpuUmaTextures"]
 
 // ---- host calls
 
@@ -811,7 +811,7 @@ $("update-apply").onclick = () => guarded(async () => {
   }
 })
 
-refresh().then(() => guarded(askShare)).then(() => checkUpdates(true)).then(() => {
+refresh().then(() => guarded(askShare)).then(() => state && state.settings.updateCheck === false ? null : checkUpdates(true)).then(() => {
   if (update && update.available) toast(`FM3:ReGPU ${update.latest} is available: install it from the Updates tab.`, true)
 })
 setInterval(() => { if (!document.hidden && $("confirm").hidden && !["SELECT", "INPUT"].includes(document.activeElement.tagName)) refresh() }, 5000)

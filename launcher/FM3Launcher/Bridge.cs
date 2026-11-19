@@ -234,7 +234,6 @@ public sealed class Bridge
                 if (Game.Running) throw new InvalidOperationException("Close the game first: it holds the wheel's force feedback while it runs.");
                 Wheel.TestForceFeedback();
                 return null;
-            // The ReGPU Discord server: the same invite as FM2:ReGPU's launcher.
             // Updates from GitHub releases (Updater.cs), as in FM2's and PGR4's launchers.
             case "update.check":
                 _latest = await Updater.LatestAsync();
@@ -249,11 +248,13 @@ public sealed class Bridge
                 {
                     // the new launcher waits for this one to let go of the single-instance mutex (Program.cs)
                     var psi = new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false };
-                    foreach (var arg in Environment.GetCommandLineArgs().Skip(1)) psi.ArgumentList.Add(arg);
+                    foreach (var arg in Environment.GetCommandLineArgs().Skip(1).Where(x => x != "--after-update")) psi.ArgumentList.Add(arg);
+                    psi.ArgumentList.Add("--after-update");
                     System.Diagnostics.Process.Start(psi);
                     _ = Task.Delay(300).ContinueWith(_ => Environment.Exit(0));
                     return null;
                 }
+            // The ReGPU Discord server: the same invite as FM2:ReGPU's launcher.
             case "discord":
                 Platform.OpenUrl("https://discord.gg/pVEpmSk2G3");
                 return null;
