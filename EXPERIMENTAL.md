@@ -3,15 +3,15 @@
 The deep ReXenon and ReGPU reworks from session 44's "big performance improvements" question live here, apart
 from the normal build, so a player can pick either one.
 
-## Where to continue (end of session 45)
-Proven and moved to main: X1 (ReXenon register options), X9 (lazy loop constants), and the resolve getenv fix. Ruled
-out: X3, X4 (both modes), X8 (exact version), X10. The next candidates are in RESEARCH.md "More ways to optimise
-(session 45)", including Fable's review. The user hasn't picked yet between:
-- **(a)** Fable's quick measurements: the ring-wait A/B, a null-PS depth-only draw counter, per-state-group repeat
-  counters, and the kill test for floats and ring writes on the replay thread;
-- **(b)** porting FM2's per-draw cuts of 15 Nov.
-
-The NOTES.md "Start here (session 46)" has the measurement method.
+## Where to continue (end of session 46)
+Session 46 ran Fable's quick measurements and the FM2 cuts that applied (results X11-X17 below). **Kept:** X15, index
+buffers not rehashed while no page was written (2-core races +1.7%, on by default here; a candidate to move to main
+after a drive). **Ruled out by measurement:** floats on the replay thread (X11), the spinning ring wait (X12), a null
+pixel shader for depth-only draws (X13, only 3-4% of draws), and FM2's binding revival, recent-pipeline table and
+plain frame counters (X16, all within noise on this CPU). Next leads, from the session-46 line profile: the
+remaining hashing (`ContentHash` ~2.6% of the draw thread: find its caller), the LiveSwitch loads (~3.6%: Fable's
+"retail DrawImpl"), RingAlloc's compare-exchange (needs an audit of the other ring users), and the frame-wide
+state cache keyed per part (X14 numbers).
 
 ## How to choose
 
@@ -50,6 +50,13 @@ each piece can still be A/B'd live in the experimental one.
 | X8 | **Small vertex uploads without hashing on repeat use.** ReGPU's own `REGPU_UPLOAD_STABLE_REUSE` (sampled check): frozen grid on 2 cores +0.9%, 4/5 rounds, 0 pixels. It is not exact, though: a never-changed buffer first rewritten between two draws of a frame can be missed once. Made exact with the vertex arena's page write watch (`REGPU_EXP_UPLOAD_WATCH`, built and measured, then removed): -0.7%, 0/6 rounds, because the game's writes to armed pages fault | ReGPU | Exact version dropped; sampled version left opt-in (picture risk) |
 | X9 | **Loop constants only for shaders that read them** (`REGPU_EXP_LAZY_LOOPS`, from a line profile: 1.7% of the draw thread), bools/loops byte-swapped 4 at a time, and PassScales' check inlined. | ReGPU patch `regpu-exp-lazy-loops` | Done: +1.0%, 6/6 rounds, 0 pixels; on by default in the experimental build |
 | X10 | **PGO of the recompiled game code** (CMake `FM3_PGO_PPC=gen/use`, profile `pgo/ppc.profdata` from one AI benchmark race). Session 37 had tried it before ReXenon (+0.4%). | CMakeLists.txt | **No gain, dropped:** 3 rounds on 2 cores, -0.24% at equal draws (plain -5.0% from different draw counts). The option stays, without a profile |
+| X11 | **Floats and ring writes on the replay thread** (Fable's idea 1). Kill test `REGPU_EXP_SKIP_CONSTANTS=1` (draw thread copies no float constants; picture wrong). | ReGPU | **Ruled out:** 2-core races 1.33 us a draw (base) vs 1.32-1.35 (no floats), under Fable's 0.15 us bar. A second level that also skipped the rest of the blocks hung the GPU (garbage fetch layouts: two driver timeouts during the matrix); removed with the switch |
+| X12 | **Ring wait** (Fable's idea 2): `FM3_RING_WAIT=0` (spin) vs the default sleep. | `src/hooks/ring_wait.cpp` | **Default kept:** spin 1.37-1.39 vs 1.33 us a draw on 2 cores (-4% fps); on 8 cores every mode hits the 360 cap. The draw thread's waits for the command processor (`exp waits`, trace on): 0.3% of the time |
+| X13 | **Null pixel shader for depth-only draws** (Fable's idea 3): counter `exp null ps`. | ReGPU patch `regpu-exp-trace-parts` | **Not worth building:** depth-only draws are 3-4% of race draws (96-98% of them would qualify), so at most ~1% |
+| X14 | **Repeats per state part** (Fable's idea 4): `exp state groups` lines. | ReGPU patch `regpu-exp-trace-parts` | Measured (race, 8 cores): surface/viewport same as the draw before 95-96%, earlier in the frame 1.5%; pipeline 51-55% / 29-34%, new 13-17%; fetch constants 20-25% / 21-28%, **new 49-56%**; bool/loop 99.8%; other registers 80-85% / 9-14%. Most parts already have memos (pass scales, last pipeline, the slot memo at 89% hits), which is why X16 found nothing |
+| X15 | **Index buffers by write watch:** an index buffer none of whose pages was written since its last hash keeps that hash (the vertex arena's `Host::watchArm/watchClean`). Session 31 built the same on 8 cores (+0.6%, removed). | ReGPU patch `regpu-exp-index-watch` (on; `REGPU_EXP_NO_INDEX_WATCH=1` old, `REGPU_EXP_INDEX_WATCH_VERIFY=1` checks) | **Kept:** ceiling (sampled hash) +2.9% on the 2-core grid, 8/8; the watch +1.5% (6/8), 0 pixels; 2-core races 3 rounds +1.7% (+1.0% at equal draws), p99 5.60 -> 5.45 ms; a verify race: 0 misses |
+| X16 | **FM2's per-draw cuts** (`bee437d9c`, `0b2a10831`): texture bindings revived after a resolve (2% of slot lookups), a 64-entry recent-pipeline table, plain adds for the frame counters (the profile's 7.6% "closing brace" of DrawImpl). | ReGPU | **All within noise on the 2-core grid** (-0.3%, +0.1%, -0.7%; null A/B -0.1/+0.8%), pictures identical; removed. FM2 measured them on an FX-8350, whose locked ops and 256-bit stores are slow; this CPU doesn't pay that. Our code already had most of the rest (shader front cache, lazy bools/loops, shader-load repeat skip, edit lock) |
+| X17 | **Draw-thread line profile** (2-core grid, session 46). | `FM3_SAMPLE_LINES=1` | Flat: DrawImpl's end 7.6% (where the write-combine drain lands), index hashing ~5% (`FullHashAvx2` + `GetIndexBuffer`; X15), `ContentHash` 2.6%, atomic bool loads 3.6% (LiveSwitch checks), the float copy 2.6%, RingAlloc's compare-exchange 1.3%, D3D12 0.9-1.3% |
 | X6 | **More ReXenon:** condition-flag liveness, byte-swap elimination, cross-function inlining, better VMX128 mapping. The guest threads only limit weak CPUs (Steam Deck, 4 cores). | `thirdparty/ReXenon` (patches) | Later |
 
 ## Results
