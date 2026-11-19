@@ -1,8 +1,101 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-18, session 45)
+## ▶ Current status / next step  (updated 2026-11-19, end of session 45)
 
-### ▶ Start here (session 46): state at the end of session 45 (2026-11-18)
+### ▶ Start here (session 46): state at the end of session 45 (2026-11-19)
+- **Two branches now. The checkout is on `experimental`.** `main` = the normal build (`build\rel`, what `play.cmd` and
+  the launcher run). `experimental` = the deep-rework branch (`build\exp`, launcher Settings > Testing "Experimental
+  build" = `experimental=1`, or `play.cmd` with `FM3_BUILD=exp`). The branches list different ReGPU patches: **after
+  switching branches run `tools\setup.ps1 -NoBuild` and rebuild** (or restore the stack with the scratch-index method
+  in CLAUDE.md). Main is merged into experimental (last merge 0d26d16); never merge experimental into main wholesale:
+  move proven pieces over one by one, as in session 45.
+- **What the user's normal build has from session 45 (main, pushed):**
+  - **ReXenon register options as the default recompile** (`tools/recomp.ps1` writes `non_volatile_as_local`,
+    `inline_register_thunks`, `elide_return_lr`, `elide_empty_functions`, context functions `sub_821F6AF8` and
+    `sub_821F5DE8` into `config/fm3_rexenon.toml`).
+  - **ReGPU patch 82 `regpu-resolve-dump-frame-env`:** a getenv on every resolve, ~1.5% of the draw thread.
+  - **Patch 83 `regpu-exp-lazy-loops`:** loop constants only for shaders that read them, +1.0%, on by default.
+  - **The AI tour's seed:** 3,647 pipelines.
+  - **Evidence:** benchmark races on 2 cores, 3 rounds, +1.9% fps, +5.1% at equal draws, p99 6.03 -> 5.84 ms, long
+    frames 143 -> 99.
+  - `build\rel` was rebuilt and its grid boot is normal. **Not driven by the user on main yet** (one clean Crown Jewel
+    drive on the experimental build).
+- **Experimental branch, what was ruled out** (EXPERIMENTAL.md has every number):
+  - GPU-built constants, both modes (patches 84 and 87, correct but no faster, off);
+  - a previous-draw state cache (ceiling 10-15%);
+  - an exact write-watch upload reuse (slower);
+  - PGO of the game code (`FM3_PGO_PPC`, no gain);
+  - further ReXenon options (inside the 3-10% code-placement noise).
+
+  Still on that branch only: env generation (patch 83 there, on; its +0.9% was probably noise) and the traces
+  (`REGPU_EXP_TRACE_STATE`, patches `regpu-exp-state-trace`, `regpu-exp-repeat-trace`).
+- **Where to continue (user's choice pending): RESEARCH.md "More ways to optimise (session 45)", including Fable's
+  review.** Two candidate starts, the user hasn't picked:
+  - **(a) Fable's quick measurements first:**
+    1. Race A/B `FM3_RING_WAIT=0` vs the default, plus a histogram of the draw thread's waits: is the pipeline
+       starving itself?
+    2. A counter of depth-only draws whose pixel shader has no effect (null-PS idea).
+    3. Per-state-group "changed / seen earlier in the frame" counters (cache keys per part).
+    4. The kill test for **floats and ring writes on the replay thread**: a picture-wrong switch skipping the float
+       copies and ring writes; build it only if us/draw falls by 0.15 or more. Fable's estimate is 10-18% of the
+       draw thread on 6+ cores.
+  - **(b) FM2's per-draw cuts of 15 Nov** (FM2 commits `bee437d9c` and `0b2a10831` in
+    zer0ducksgiven/Forza-Motorsport-2-ReGPU): texture bindings surviving resolves, front caches for shader and
+    pipeline lookups, shader-load compares, plain adds on the serial draw thread, sticky small vertex buffers.
+    Estimate +3-8%.
+
+  Then a frame-wide state cache (~40% of race draws repeat an earlier draw's whole state; better keyed per state
+  part), FM2-style thread pinning for 4-core CPUs, the 4-entry sampler table (GPU).
+- **How to measure on this branch:**
+  - `tools\perf\affinity_watch.ps1 -Mask 0x0F` beside `tools\bench_matrix.ps1 -Variants "rel:FM3_BUILD=rel|exp:FM3_BUILD=exp"`
+    (2 cores, 3 rounds; sd ~20 fps, so read "at equal draws" and p99 too);
+  - the 2-core frozen grid with `Test-Live` for live switches;
+  - draw-thread profiles with `FM3_SAMPLE_THREAD=name:gpu draw worker` and `FM3_SAMPLE_LINES=1` or
+    `FM3_SAMPLE_CALLERS=2`, **never with `REGPU_PERF` on** (it is ~30% of the samples);
+  - `REGPU_PERF_LITE=1` gives draw-thread busy % and GPU ms;
+  - us a draw = busy / fps / draws.
+- **Still open from earlier sessions:**
+  - **The renderer cache growth fix** (the user asked for it "after the tour"; the plan is in "Renderer cache growth:
+    plan" below);
+  - the paused AI tour (environments 0-13 done; `Start-AiTour -From 13 -FromLayout 3 -RebootEach` resumes);
+  - the Baseline save's car-purchase crash (asked in session 44, no answer);
+  - the engine-sound listen test (session 44);
+  - triple-screen per-screen cull (research only);
+  - two one-off events to watch: a crash in the shader-compiler threads (corrupted locale table, sampler on), and a
+    benchmark race closed by a WM_CLOSE from outside the game.
+
+### Renderer cache growth: plan (session 44 AI tour on the iGPU; to build, the game closed)
+- **Measured** (fm3.log of the first tour boot, 2 h: Amalfi, Benchmark x20, Camino Viejo, Catalunya):
+  - private bytes 5.3 -> 11.6 GB, GPU local 2.2 -> 6.3 GB;
+  - textures flat at ~1 GB (the budget works);
+  - texture heaps 1 -> 16 x 128 MB;
+  - resolved images 71 -> 571 MB (45 -> 1,883 including spares);
+  - cubes 0 -> 196 MB, mip chains 0 -> 110 MB.
+- **All in thirdparty/ReGPU/src/gpu/renderer.cpp; new ReGPU patch `regpu-cache-release`:**
+  1. **TexturePool** (~line 1231): free blocks are reused only for an exact size, and heaps are never released. Use
+     per-heap free ranges (a map from offset to size), best fit across heaps, coalescing in ReclaimTextureBlocks, and
+     release a heap whose live bytes reach 0 (keep one empty spare). Keep heap-ahead. `REGPU_OLD_TEXTURE_POOL=1`
+     (start-time) = the old allocator.
+  2. **Resolved images** (`g_r.resolved`, never evicted): sweep in BeginFrameIfNeeded next to the texture budget,
+     every 64 frames, a bounded number of entries.
+     - A main image not resolved for 60 s or more whose guest memory changed (GuestImageHash != memHash, the test
+       ResolveCurrent uses) is never returned again: retire its resources and spares, erase the entry.
+     - Spares not resolved for 60 s or more: retire them, unless REGPU_HYPER_RESOLVE_BY_SIZE reads them.
+     - Unchanged memory and written back: the memory holds it too, so it may go after 120 s unused (needs a last-use
+       stamp set in ResolveCurrent).
+     - Not written back with unchanged memory: keep it (a later sample would read garbage).
+     - Nobody keeps a ResolvedTexture* across frames (checked: all locals; deferred write-backs look up by base).
+  3. **Cubes and mip chains** (built from resolved faces/levels, rebuilt on a miss): release when unused for 60 s or
+     more and 1,800 frames or more. Cubes set checkedFrame per use; mip chains only on rebuild, so add a usedFrame.
+  4. **Memory log:** pool live/free MB, the resolved split (main/spares/stale), released counts.
+- **Switch:** `REGPU_NO_CACHE_RELEASE=1` (live) turns the sweeps off.
+- **Test:**
+  - several tour environments in one boot on the iGPU (3-4 tracks), comparing the memory lines;
+  - the user's 1440p XTX grid fps unchanged (Start-Grid A/B);
+  - vinyl and menu pictures intact (resolved eviction is the risky part).
+- **Branch:** this is a fix for the normal build: do it on main.
+
+### Session 45 (2026-11-18/19): experimental branch, the details
 - **In short:** the user paused the AI tour and asked for the deep ReXenon/ReGPU reworks (session 44's "big
   improvements" answer) as a **separate experimental system, selectable in the launcher.** It lives on **branch
   `experimental`** (main untouched since the tour commit 211a4fa). **[EXPERIMENTAL.md](EXPERIMENTAL.md)** is its plan,
@@ -36,7 +129,7 @@
   `REGPU_EXP_GPU_CONSTANTS`, off): correct (0 differences in 25 M checked draws, picture right) but **slower** (2-core grid
   -4%, draw thread 1.40 vs 1.33 us a draw, GPU +0.4 ms). Kept off; a stage 2 is the user's call (EXPERIMENTAL.md).
   **Found on the way: `REGPU_DUMP_EACH_RESOLVE` (my session-42 patch 76) called getenv on every resolve (~1.5% of the draw
-  thread, normal build too)**; fixed in patch 85 `regpu-resolve-dump-frame-env`; **also on main** (patch 82 there, commit 38d9dbc, `buildel` rebuilt, grid normal; main and this branch list it in different places, so run `tools\setup.ps1 -NoBuild` after switching branches).
+  thread, normal build too)**; fixed in patch 85 `regpu-resolve-dump-frame-env`; **also on main** (patch 82 there, commit 38d9dbc, `build\rel` rebuilt, grid normal; main and this branch list it in different places, so run `tools\setup.ps1 -NoBuild` after switching branches).
   The earlier env-generation +0.9% was probably noise. One unexplained crash (shader-compiler threads, corrupted locale table,
   sampler on; not repeated in 2 boots).
 - **Session 45 continued (2026-11-19):** line profile -> ReGPU patch 86 `regpu-exp-lazy-loops` (+1.0%, on in the experimental

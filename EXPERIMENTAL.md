@@ -3,6 +3,16 @@
 The deep ReXenon and ReGPU reworks from session 44's "big performance improvements" question live here, apart
 from the normal build, so a player can pick either one.
 
+## Where to continue (end of session 45)
+Proven and moved to main: X1 (ReXenon register options), X9 (lazy loop constants), and the resolve getenv fix. Ruled
+out: X3, X4 (both modes), X8 (exact version), X10. The next candidates are in RESEARCH.md "More ways to optimise
+(session 45)", including Fable's review. The user hasn't picked yet between:
+- **(a)** Fable's quick measurements: the ring-wait A/B, a null-PS depth-only draw counter, per-state-group repeat
+  counters, and the kill test for floats and ring writes on the replay thread;
+- **(b)** porting FM2's per-draw cuts of 15 Nov.
+
+The NOTES.md "Start here (session 46)" has the measurement method.
+
 ## How to choose
 
 - **Launcher:** Settings > Testing > **Experimental build** (`experimental=1` in `settings.ini`). The launcher then
