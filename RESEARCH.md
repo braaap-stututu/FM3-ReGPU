@@ -30,7 +30,7 @@ live in [OPEN-ISSUES.md](OPEN-ISSUES.md), vinyl/livery work in [VINYLISSUES.md](
 | [In-game options menu, quit tab and restart prompt](#in-game-options-menu-quit-tab-and-restart-prompt-cloud-2026-11-16) (cloud, 2026-11-16/17) | A **host overlay menu** (Dear ImGui on ReGPU's present, one new ReGPU host callback), not a tab in FM3's own menus (unknown UI system, fonts lack glyphs). Opened by F1 / BACK+START; while open the game gets a neutral pad (`ReadPad`) and the world is held (`FM3_FREEZE_TIME` hook). Quit = the existing `WM_CLOSE` save-and-exit. Restart prompt: every setting tagged live / restart in one shared schema; on closing the menu, restart keys that differ from the values this process **started** with list in a dialog (Restart now / Later / Undo). Restart = exit code 3 to a supervisor `fm3.exe` that relaunches (Steam keeps tracking it) |
 | [Steam Deck optimisations](#steam-deck-optimisations-session-44-2026-11-18) (session 44) | Measure on the Deck first (GPU busy vs CPU; nobody knows which limits its 70-90 fps grid). Wine-specific costs never checked: high-resolution waitable timers (maybe unsupported or a wineserver round trip each wait), the vertex arena's write faults (SIGSEGV per fault under Wine), our pipeline library being a dummy under vkd3d-proton's own cache. Then a "Steam Deck" launcher preset of existing parts and opt-in 4-core thread pinning |
 | [Triple screen speed](#triple-screen-speed-session-44-2026-11-18) (session 44) | Triple is draw-thread bound (~130 vs ~300 fps centre only): each side screen replays every main-view draw of FM3's 166-degree frustum, though roughly half lie off that screen. Per-screen draw threads: no (shared per-frame state, serial GPU queue, s37: workers ~2x the cost per draw). Do instead: per-screen cull from last frame's GPU answers (Hyper cull keyed by screen), then FM3's own object cull per screen, view instancing as the long shot |
-| [More ways to optimise](#more-ways-to-optimise-session-45-2026-11-19) (session 45) | After the experimental branch: FM2's draw-path cuts of 15 Nov (FX +12%, +6.6%) mostly not here yet; **40% of race draws repeat an earlier draw's whole state in the frame** (a frame-wide translated-state cache); FM2's thread pinning for 4-core CPUs; the 4-entry sampler table (FM2 +5.3% GPU); Vulkan; frame generation |
+| [More ways to optimise](#more-ways-to-optimise-session-45-2026-11-19) (session 45) | After the experimental branch: FM2's draw-path cuts of 15 Nov (FX +12%, +6.6%) mostly not here yet; **40% of race draws repeat an earlier draw's whole state in the frame** (a frame-wide translated-state cache); FM2's thread pinning for 4-core CPUs; the 4-entry sampler table (FM2 +5.3% GPU); Vulkan; frame generation; **Fable's review:** floats/ring writes moved to the replay thread (10-18%), no pixel shader for depth-only draws, cache keys per state part, ring-wait timer check |
 | [ReXenon instead of XenonRecomp](#rexenon-instead-of-xenonrecomp-cloud-2026-11-16) (cloud, 2026-11-16/17) | Feasible and fairly cheap: ReXenon (MIT, by ReGPU's author, built for the FM2 port) already carries 4 of our 5 XenonRecomp patches (divides, MSR[EE] hook, switch on u32, VMX128/`vcmpbfp`/`vsldoi128`); the per-image name prefix is unused in FM3. Gains: fails loudly on what it can't translate, `PPC_MFTB()` replaces `patch_mftb.py`, fixed `vpkd3d128`/`dcbz`/memset-class bugs, relaxed-atomic guest accesses (FM2: main thread -10..17% CPU on Zen 3, ~0 on an FX). Risk: days old, no human playtests yet. Try it side by side (`out/ppc-rx`), not as a swap. **Done in session 41:** added beside XenonRecomp, then made the default (NOTES session 41) |
 | [Intel iGPUs (Iris Xe, UHD): causes and fixes](#intel-igpus-iris-xe-uhd-causes-and-fixes-cloud-2026-11-17) (cloud, 2026-11-16/17) | A tester's i5-1135G7 (Iris Xe, 32 GB DDR4) ran far below the user's Steam Deck. On paper the GPUs are equal (~1.6 TFLOPS); the Deck has ~1.7x the memory bandwidth, RADV/ACO under Proton and a GPU we tuned for. Check first: settings, single-channel RAM (Iris Xe then runs as "UHD Graphics"), power mode, driver. Code leads (none tested on Intel): constants-driven branches specialised away (Intel's own top rule), root-signature hints, UMA paths (no vertex-arena copy, textures written in place), MSAA off + post AA, resolve shader trick, XeSS, DXC/FP16 |
 
@@ -2459,3 +2459,54 @@ The ideas left, by what they help:
 
 **Suggested order:** 1 (small, lossless, likely a few percent), then 2 behind a switch with a check mode (the
 biggest measured ceiling), then 3 as a toggle; 4 for GPU-bound setups.
+
+### Fable's review (session 45, a read-only consult with Claude Fable 5.2)
+Fable read DrawImpl, RingAlloc, the upload and index paths, WorkerLoop, the CP loop, recorded_list.h, the HLSL
+preamble and the generated ppc code, plus the docs. Nothing was edited or run, and the gains are its estimates. My
+note on each follows in parentheses.
+
+1. **Floats and ring writes on the replay thread.** The replay thread (recorded_list.h) keeps its own shadow register
+   file from the same `kRegs` records, so the draw thread no longer gathers floats or writes the ring at all. Its
+   per-draw record carries the log position, ring offsets, masks and the small non-float tail. Hooked, motion and
+   stereo-replay draws stay on the old path. Estimate **10-18% of the draw thread on 6+ cores**; gate it by core
+   count. Kill test: a picture-wrong switch that skips the float copies and ring writes; build only if us/draw falls
+   by 0.15 or more. (Credible: the replay thread was ~23% busy at 2c/4t, so it has room on 8 cores. Unlike the
+   GPU-constants tries, no PCIe crossing is added.)
+2. **The pipeline may starve itself.**
+   - `src/hooks/ring_wait.cpp` mode 2 (default) asks for 100 us waits on a high-resolution timer, which may give
+     ~0.5 ms. It was judged neutral on a GPU-bound grid, never in a draw-thread-bound race.
+   - `work::WaitHead` sleeps with no spin.
+   - Test: a race A/B with `FM3_RING_WAIT=0`, and a histogram of the draw thread's waits.
+   - Estimate 0-8%. (Free to test; do it first.)
+3. **No pixel shader for depth-only draws whose pixel shader has no effect.** Mode 5, alpha test off, no
+   alpha-to-mask, no depth export, no kill or memexport. A null-PS pipeline, with the PS block, texture slots, second
+   ring allocation and second root CBV all skipped. ~35-40% of such a draw's cost; 5-7% of the draw thread if shadow
+   and depth draws are ~20%. Lossless. Counter first. (Session 23 put the shadow map at ~16% of the draw thread, so
+   plausible. Alpha-tested shadow casters such as foliage must stay excluded.)
+4. **The frame-wide cache keyed per derived part**, not one whole-state key: surface/viewport/scissor,
+   blend/depth/raster (pipeline key), fetch per used slot, bool/loop. The XOR deltas are computed in
+   `work::LogRegs`, which already reads old and new values, and travel with the `kRegs` record. Hit rates per part
+   should be far above 40%; estimate 8-15%. Test: per-group "changed / seen earlier in the frame" counters. (A better
+   version of item 2 above.)
+5. **A dense per-shader block layout:** the rank renumbering of patch 38 extended to vf/tinfo/tbias, the fixed tail
+   first, VS+PS in one allocation. Each draw now reserves ~11.8 KB and writes 966 B over ~22-24 partial WC lines;
+   dense would be ~16 full lines. Needs a preamble change (all shaders recompile). 2-5%. Test: write the same ~1 KB
+   contiguously as an extra; if that adds under 1.5% while the scattered writes cost ~8%, build it.
+6. **A "retail" DrawImpl** (`template <bool Debug>`): ~35 function-local `static LiveSwitch` guards and the
+   debug/A-B blocks compiled out of the common copy, picked per frame. 2-4%, speculative.
+7. **One fused recorded command per draw** (4-7 `Put` calls today), and look up the fetch-variant pipeline first
+   instead of throwing away a GetPipeline result. 1-3%.
+8. **iGPU:** `LoadGuest` in hlsl.cpp uses a ternary over two buffers (`gphys`/`gmem`), which may run both loads.
+   Use an explicit `[branch]`, or pre-swap 8-in-32 data at copy time. Possibly 3-5% on the iGPU (vertex work was 5.3
+   of 21.6 ms there). Check with RGA disassembly.
+9. **CP cuts for 2-4 core CPUs:**
+   - shader interning by address and verified content (shader loads copied twice, then memcmp'd);
+   - no `ringMutex` and RPTR publish per packet;
+   - a host-endian shadow register file (no bswap in `gpureg::Get` or the float copy).
+
+   2-3% of the draw thread, 5-8% of the CP. Partly overlaps FM2's cuts.
+
+Not pursued by Fable: hooking the guest's buffer locks (the write-watch trials set its ceiling), large pages (need a
+privilege), `-march` (null), bundles/instancing for the AI cars (the cost is translation, not submission),
+`non_argument_as_local` (noise). **Its order: 2 (free), counters for 3 and 4, kill tests for 1 and 5, then build 1
+if its ceiling holds.**
