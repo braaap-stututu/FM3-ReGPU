@@ -157,6 +157,29 @@ elseif(FM3_PGO STREQUAL "use")
     target_compile_options(regpu PRIVATE "-fprofile-instr-use=${FM3_PGO_PROFILE}" -Wno-profile-instr-out-of-date -Wno-profile-instr-unprofiled
         -Wno-backend-plugin)
 endif()
+# Session 45 (experimental branch, EXPERIMENTAL.md X10): the same for the recompiled game code (fm3_ppc, ~30 MB of code,
+# where code placement alone moves fps 3-10% between relinks per ReXenon's README): FM3_PGO_PPC=gen instruments it,
+# use builds it with FM3_PGO_PPC_PROFILE (pgo/ppc.profdata). Recorded like ReGPU's (pgo/README.md).
+set(FM3_PGO_PPC "off" CACHE STRING "Recompiled game code profile-guided optimisation: off, gen or use")
+set_property(CACHE FM3_PGO_PPC PROPERTY STRINGS off gen use)
+set(FM3_PGO_PPC_PROFILE "${CMAKE_SOURCE_DIR}/pgo/ppc.profdata" CACHE FILEPATH "fm3_ppc PGO profile (llvm-profdata merge output)")
+if(FM3_PGO_PPC STREQUAL "gen")
+    target_compile_options(fm3_ppc PRIVATE -fprofile-instr-generate)
+    get_filename_component(FM3_LLVM_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    file(GLOB FM3_PROFILE_RT "${FM3_LLVM_BIN}/../lib/clang/*/lib/windows/clang_rt.profile-x86_64.lib")
+    if(NOT FM3_PROFILE_RT)
+        message(FATAL_ERROR "FM3_PGO_PPC=gen: clang_rt.profile-x86_64.lib not found next to ${CMAKE_CXX_COMPILER}")
+    endif()
+    list(GET FM3_PROFILE_RT 0 FM3_PROFILE_RT)
+    target_link_libraries(fm3 PRIVATE "${FM3_PROFILE_RT}")
+    target_compile_definitions(fm3 PRIVATE FM3_PGO_GEN=1)
+elseif(FM3_PGO_PPC STREQUAL "use")
+    if(NOT EXISTS "${FM3_PGO_PPC_PROFILE}")
+        message(FATAL_ERROR "FM3_PGO_PPC=use: no profile at ${FM3_PGO_PPC_PROFILE}")
+    endif()
+    target_compile_options(fm3_ppc PRIVATE "-fprofile-instr-use=${FM3_PGO_PPC_PROFILE}" -Wno-profile-instr-out-of-date
+        -Wno-profile-instr-unprofiled -Wno-backend-plugin)
+endif()
 if(REGPU_FSR3)
     add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${FM3_FFX}/signedbin/amd_fidelityfx_loader_dx12.dll" "${FM3_FFX}/signedbin/amd_fidelityfx_upscaler_dx12.dll" $<TARGET_FILE_DIR:fm3>)
