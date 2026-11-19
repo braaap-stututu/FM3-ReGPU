@@ -31,3 +31,5 @@ __pycache__/
 # Written by tools/recomp.ps1 -Recompiler rexenon from config/fm3.toml
 config/fm3_rexenon.toml
 /thirdparty/xess/
+# tools/get-toolchain.ps1: the portable build toolchain (GitHub issue #2)
+/toolchain/

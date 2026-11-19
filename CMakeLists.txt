@@ -78,6 +78,18 @@ list(APPEND FM3_SOURCES "${FM3_GENERATED}/stubs.cpp")
 
 # The GPU: ReGPU (thirdparty/ReGPU, MIT), a static library providing the Vd* imports. It builds
 # against XenonRecomp and the game's ppc_config.h, and needs the AMD FidelityFX SDK (MIT) for FSR 1.
+# The redistributable d3dcompiler_47.dll (ReGPU REGPU_D3DCOMPILER, which defaults to the installed SDK under Program Files):
+# from the SDK the build environment names (vcvars64 or the portable toolchain\env.cmd, GitHub issue #2).
+# (The portable SDK has no Redist folder: the same DLLs are in its bin\<version>\x64, which DXC's copy below follows.)
+if(DEFINED ENV{WindowsSdkDir})
+    foreach(FM3_D3D_DIR "$ENV{WindowsSdkDir}Redist/D3D/x64" "$ENV{WindowsSdkDir}bin/$ENV{WindowsSDKVersion}x64")
+        if(EXISTS "${FM3_D3D_DIR}/d3dcompiler_47.dll")
+            file(TO_CMAKE_PATH "${FM3_D3D_DIR}/d3dcompiler_47.dll" FM3_SDK_D3DCOMPILER)
+            set(REGPU_D3DCOMPILER "${FM3_SDK_D3DCOMPILER}" CACHE FILEPATH "Redistributable d3dcompiler_47.dll, to ship beside the game executable")
+            break()
+        endif()
+    endforeach()
+endif()
 set(FM3_FFX "${CMAKE_SOURCE_DIR}/thirdparty/fidelityfx/Kits/FidelityFX")
 if(NOT EXISTS "${FM3_FFX}/upscalers/fsr3/include/gpu/fsr1/ffx_fsr1.h")
     message(FATAL_ERROR "thirdparty/fidelityfx is missing: put FidelityFX-SDK v2.x there (README.md)")
