@@ -1,6 +1,42 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-19, session 46)
+## ▶ Current status / next step  (updated 2026-11-19, end of session 46)
+
+### ▶ Start here (session 47): state at the end of session 46 (2026-11-19)
+- **Branches:** `main` = the normal build (`build\rel`, what `play.cmd`, the launcher and releases use; ReGPU stack 84
+  patches), `experimental` = deep reworks (`build\exp`, launcher Testing "Experimental build"; 90 patches). **The checkout
+  is on `experimental`** with its stack applied. After switching branches restore the stack (scratch index, CLAUDE.md;
+  `tools\setup.ps1 -NoBuild` refuses a foreign stack and says so) and rebuild. Main is merged into experimental (last
+  merge 064623f); move proven pieces to main one by one, never the other way wholesale.
+- **Released: v0.42.0-beta** (pre-release, https://github.com/braaap-stututu/FM3-ReGPU/releases/tag/v0.42.0-beta):
+  installer, **portable zip** (new), Linux tar.gz, updater patch zip. Release steps: entry below. `build\rel` is the
+  release build. Nobody has installed it from GitHub yet; the updater can only be exercised against a newer release.
+- **Done in session 46** (entries below have every number):
+  - **Main:** renderer cache growth fix (ReGPU 84 `regpu-cache-release`; six tracks in one boot: GPU memory 6.4 ->
+    4.7 GB); launcher auto-updater (zer0ducksgiven's PR #3, merged by me at the user's request, then fixed: SHA-256
+    check, restart wait only after an update, cleanup only in an install, install manifest, update-check switch, nine
+    tabs fit 1100 px); portable build toolchain `tools/get-toolchain.ps1` (issue #2, reply posted; tested by a build with
+    only Windows and Git on PATH); portable mode (`portable.txt` beside fm3.exe = user folder `user\` there).
+  - **Experimental:** Fable's measurements and FM2's per-draw cuts: nothing proved out (EXPERIMENTAL.md X11-X17); only
+    trace counters kept (ReGPU `regpu-exp-trace-parts`). On this CPU the draw thread has no single cost above ~4-6%.
+  - **Incident:** a kill-test that left constant blocks unwritten hung the GPU twice (user saw driver timeouts). Memory
+    `no-gpu-hang-tests`: picture-wrong tests never leave GPU-addressed data garbage.
+  - **GitHub:** PR #3 merged; review comment posted on it; issue #2 reply posted (issue left open for the reporter).
+- **Open / next (ask the user):**
+  - the user's own drive on main (session 45's defaults, the cache fix; neither driven yet);
+  - the paused AI tour (`Start-AiTour -From 13 -FromLayout 3 -RebootEach`; with the cache fix one boot for several
+    environments may now work);
+  - experimental's remaining small CPU leads (each ~1-2%: an exact cheaper index hash, LiveSwitch reads once a frame,
+    pipeline key only on register change): low value on this CPU, measure on 2 cores;
+  - still unanswered from session 44: the Baseline save's car-purchase crash (in the release's known issues), the
+    engine-sound listen test; Intel Iris Xe tester's poor performance (known issue);
+  - test leftovers the user hasn't decided on: `out\toolchain-test` (~6 GB), `out\portable-test`, `build\portable`
+    (asked whether to delete them; no answer yet), `out/user/profiles/CacheTest` (my copy of Baseline).
+- **Measuring CPU work:** 2 cores (`tools\perf\affinity_watch.ps1 -Mask 0x0F`, start it as its own background job and
+  check the game's affinity is 0xF), frozen-grid live A/B (`Test-Live`, ±0.3% within a boot, but boots differ by up
+  to ±1.5%: repeat in a second boot before believing a 1-2% result), benchmark races 3 rounds (sd 5-20 fps).
+- **Menu navigation note:** in the career menus the virtual d-pad and B were ignored; `Fm3 "stick L 0 -1 250"` moves
+  the cursor, and A works right after waking the menu with Y.
 
 ### ▶ Session 46 (2026-11-19): release v0.42.0-beta published (pre-release, user's request)
 - https://github.com/braaap-stututu/FM3-ReGPU/releases/tag/v0.42.0-beta, tag on main (`VERSION` 0.42.0-beta). Assets:
