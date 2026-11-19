@@ -6,7 +6,7 @@ let state = null
 let customFps = false // "Custom…" picked in the Max FPS list
 let nextId = 1
 const pending = new Map()
-const PAGES = ["play", "profiles", "graphics", "vr", "triple", "igpu", "wheel", "settings", "about"]
+const PAGES = ["play", "profiles", "graphics", "vr", "triple", "igpu", "wheel", "settings", "updates", "about"]
 // The speed presets: ReGPU's Hyper presets (session 43; settings.ini perf_preset; src/gpu_host.cpp ApplyPerfPreset), sharpest first.
 const DRAW_CUTS = " Also turns on the draw-cutting options: one tile, half-rate shadows, mirror and reflections, lower detail for distant cars."
 const PRESETS = [
@@ -33,6 +33,7 @@ if (host) host.addEventListener("message", (e) => {
   if (m.event === "disc2") return disc2Progress(m.data)
   if (m.event === "disc1") return disc1Progress(m.data)
   if (m.event === "benchmark") return benchProgress(m.data)
+  if (m.event === "update") return updateProgress(m.data)
   const p = pending.get(m.id)
   if (!p) return
   pending.delete(m.id)
@@ -725,5 +726,92 @@ async function refresh() {
   await guarded(async () => { state = await call("state"); render() })
 }
 
-refresh().then(() => guarded(askShare))
+// ---- updates from GitHub releases (Updater.cs), as FM2's and PGR4's launchers
+
+let update = null
+function renderUpdate() {
+  const u = update
+  $("v-installed").textContent = (u && u.installed) || (state && state.version) || "-"
+  $("v-latest").textContent = (u && u.latest) || "-"
+  $("update-badge").hidden = !(u && u.available)
+  const us = $("update-state")
+  if (!u || !u.latest) { us.textContent = ""; us.className = "update-state" }
+  else if (u.available) { us.textContent = `Version ${u.latest} is available.` + (u.hasPatch ? "" : " Get it from the release page."); us.className = "update-state new" }
+  else { us.textContent = "You're on the latest version."; us.className = "update-state ok" }
+  $("update-apply").disabled = !(u && u.available && u.hasPatch) || !!(state && state.checks.running)
+  $("update-apply").textContent = u && u.available && u.patchBytes ? `Download & install (${size(u.patchBytes)})` : "Download & install"
+  $("notes-title").textContent = u && u.name ? u.name : "Release notes"
+  const n = $("update-notes")
+  n.replaceChildren()
+  if (u && u.notes) n.append(...markdown(u.notes))
+  else if (u) n.append(el("div", "empty", "No notes for this release."))
+}
+
+// A small Markdown subset (what the release notes use): headings, bullet lists, **bold**, `code`, paragraphs.
+function markdown(text) {
+  const out = []
+  let list = null
+  const inline = (s, into) => {
+    for (const part of s.split(/(\*\*[^*]+\*\*|`[^`]+`)/)) {
+      if (part.startsWith("**") && part.endsWith("**")) into.append(el("b", "", part.slice(2, -2)))
+      else if (part.startsWith("`") && part.endsWith("`")) into.append(el("code", "", part.slice(1, -1)))
+      else if (part) into.append(part.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"))
+    }
+    return into
+  }
+  for (const raw of text.replace(/\r/g, "").split("\n")) {
+    const line = raw.trim()
+    if (/^[-*] /.test(line)) {
+      if (!list) { list = el("ul"); out.push(list) }
+      list.append(inline(line.slice(2), el("li")))
+      continue
+    }
+    list = null
+    if (!line || line.startsWith("🤖")) continue
+    const h = line.match(/^#+\s*(.*)$/)
+    out.push(h ? inline(h[1], el("h3")) : inline(line, el("p")))
+  }
+  return out
+}
+async function checkUpdates(quiet) {
+  try {
+    update = await call("update.check")
+    renderUpdate()
+  } catch (e) {
+    if (!quiet) toast("Couldn't reach GitHub: " + e.message)
+    $("update-notes").replaceChildren(el("div", "empty", "Couldn't reach GitHub. Check your connection and try again."))
+  }
+}
+function updateProgress(d) {
+  $("update-progress").querySelector(".bar").style.width = Math.round(d.p * 100) + "%"
+  $("update-status").textContent = d.text
+}
+$("update-check").onclick = () => checkUpdates(false)
+$("update-page").onclick = () => guarded(() => call("url", update && update.page || "https://github.com/braaap-stututu/FM3-ReGPU/releases"))
+$("update-apply").onclick = () => guarded(async () => {
+  if (!await confirmBox(`Install ${update.latest}?`, "The update is downloaded from GitHub and installed over this install. Saves and settings are kept. The first start afterwards may rebuild the shader cache.", "Install")) return
+  $("update-apply").disabled = true
+  $("update-check").disabled = true
+  $("update-progress").classList.add("on")
+  $("update-status").className = "status"
+  try {
+    const r = await call("update.apply")
+    update = r.update
+    renderUpdate()
+    $("update-status").className = "status done"
+    $("update-status").textContent = `Installed ${r.files} file${r.files === 1 ? "" : "s"}.`
+    if (r.launcherChanged && await confirmBox("Restart the launcher?", "The update includes a new launcher. Restart it now to use the new version.", "Restart")) await call("restart")
+  } catch (e) {
+    $("update-status").className = "status error"
+    $("update-status").textContent = e.message
+    renderUpdate()
+  } finally {
+    $("update-check").disabled = false
+    $("update-progress").classList.remove("on")
+  }
+})
+
+refresh().then(() => guarded(askShare)).then(() => checkUpdates(true)).then(() => {
+  if (update && update.available) toast(`FM3:ReGPU ${update.latest} is available: install it from the Updates tab.`, true)
+})
 setInterval(() => { if (!document.hidden && $("confirm").hidden && !["SELECT", "INPUT"].includes(document.activeElement.tagName)) refresh() }, 5000)

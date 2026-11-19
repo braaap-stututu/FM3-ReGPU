@@ -9,6 +9,21 @@ internal static class Program
     [STAThread]
     static int Main(string[] args)
     {
+        // --apply-update <patch.zip>: unpacks a release's patch over this install, as the updater does (Updater.cs),
+        // without the window: testing a patch before it's uploaded. The result goes to the console.
+        var upd = Array.IndexOf(args, "--apply-update");
+        if (upd >= 0 && upd + 1 < args.Length)
+        {
+            if (OperatingSystem.IsWindows() && GetStdHandle(-11) == IntPtr.Zero) AttachConsole(-1);
+            try
+            {
+                if (Game.Running) throw new InvalidOperationException("Close the game first.");
+                var r = Updater.Apply(Path.GetFullPath(args[upd + 1]), deleteZip: false);
+                Console.WriteLine($"Installed {r.Files} files into {Paths.Root} (launcher changed: {r.LauncherChanged}).");
+                return 0;
+            }
+            catch (Exception ex) { Console.WriteLine("Error: " + ex.Message); return 1; }
+        }
         // --play: start the game with the saved settings, without the window (shortcuts, tests)
         if (args.Contains("--play"))
         {
@@ -89,6 +104,10 @@ internal static class Program
         }
         // one window: starting the launcher again brings the open one forward
         using var single = new Mutex(true, "FM3ReGPU.Launcher", out bool first);
+        // After an update the old launcher starts this one and only then closes: wait for it a moment.
+        if (!first)
+            try { first = single.WaitOne(TimeSpan.FromSeconds(5)); }
+            catch (AbandonedMutexException) { first = true; }
         if (!first && (args.Contains("--browser") || BrowserShell.UnderWine()))
         {
             // The launcher already runs in a browser page (no window to bring forward): open that page again.
@@ -108,6 +127,7 @@ internal static class Program
                     if (p.Id != Environment.ProcessId && p.MainWindowHandle != IntPtr.Zero) SetForegroundWindow(p.MainWindowHandle);
             return 0;
         }
+        Updater.CleanUp();
         // Under Proton or Wine there is no WebView2: the page opens in the system's browser instead, served by the launcher
         // (Shell.cs BrowserShell); also with --browser, and where the window fails to open on Windows.
         if (args.Contains("--browser") || BrowserShell.UnderWine())
@@ -115,7 +135,7 @@ internal static class Program
         Photino.NET.PhotinoWindow window;
         if (Platform.Linux) Platform.DesktopEntry(); // (the window's app id and icon on Wayland)
         var (w, h) = DefaultSize(1600, 960);
-        try { window = Web.Create(Title, "index.html", w, h, 1000, 680); }
+        try { window = Web.Create(Title, "index.html", w, h, 1100, 680); }
         catch (Exception ex)
         {
             if (!Platform.Linux) return RunInBrowser("no WebView2: " + ex.Message);

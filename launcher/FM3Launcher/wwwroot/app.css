@@ -46,7 +46,11 @@ button:disabled { opacity: .45; cursor: default; }
 @media (max-width: 1180px) {
   .discord span { display: none; }
   .top { padding-left: 20px; padding-right: 20px; gap: 12px; }
-  .tabs button { padding: 9px 11px; }
+  .tabs button { padding: 8px 9px; font-size: 13px; }
+  .tabs { gap: 2px; }
+  .top { padding-left: 16px; padding-right: 16px; column-gap: 10px; }
+  .logo { font-size: 15px; }
+  .tag { font-size: 11px; }
 }
 .discord:hover:not(:disabled) { background: #5865f2; border-color: #5865f2; color: #fff; }
 .mark { width: 40px; height: 40px; border-radius: 8px; display: block; }
@@ -173,7 +177,7 @@ textarea { resize: vertical; min-height: 120px; }
 /* updates */
 .versions { display: flex; align-items: center; gap: 16px; background: var(--panel-2); border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
 .v-label { color: var(--muted); font-size: 12px; }
-.v-num { font-size: 24px; font-weight: 800; letter-spacing: .5px; }
+.v-num { font-size: 24px; font-weight: 800; letter-spacing: .5px; white-space: nowrap; }
 .arrow { color: var(--muted); font-size: 20px; }
 .update-state { font-size: 13px; margin-bottom: 14px; min-height: 20px; }
 .update-state.ok { color: var(--ok); }
@@ -391,3 +395,23 @@ input[type=range] { padding: 0; accent-color: var(--accent); background: transpa
   background: rgba(12, 14, 18, .94); border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
 #gp-hint b { color: var(--text); font-weight: 600; white-space: nowrap; }
 #gp-hint span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* updates tab (Updater.cs), as FM2:ReGPU's */
+.grid-updates { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr); align-items: start; }
+.versions { display: flex; align-items: center; gap: 16px; background: var(--panel-2); border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; }
+.v-label { color: var(--muted); font-size: 12px; }
+.v-num { font-size: 24px; font-weight: 800; letter-spacing: .5px; }
+.versions .arrow { color: var(--muted); font-size: 20px; }
+.update-state { font-size: 13px; margin-bottom: 14px; min-height: 20px; }
+.update-state.ok { color: var(--ok); }
+.update-state.new { color: var(--accent-2); font-weight: 600; }
+.notes-panel { max-height: 100%; overflow-y: auto; }
+.notes h3 { font-size: 13px; margin: 14px 0 6px; color: var(--text); }
+.notes code { background: var(--panel-2); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+.notes b { color: var(--text); }
+.notes p { margin: 6px 0; }
+.notes li { margin: 3px 0; }
+@media (max-width: 1180px) {
+  .v-num { font-size: 18px; }
+  .versions { gap: 10px; padding: 12px; }
+}
