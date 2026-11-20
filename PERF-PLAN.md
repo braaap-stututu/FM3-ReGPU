@@ -17,6 +17,18 @@ adopted or dropped.
 - Current race-grid baseline: ~213 fps (CrownJewel, 8th, paused, 1440p 4x, after `regpu-split-alpha-test`).
   Run-to-run spread is ±3%: use interleaved rounds (`tools/fm3_ab.ps1`) for anything small.
 
+## Next up (from session 47): low-end plan after Cobalt Shift (NOTES "Session 47" has the numbers)
+1. **Done:** today's build measured on the Radeon iGPU at 8 threads (off 63.5, potato 94.1, potato + 67% scene 110.5,
+   low 112.0 fps; 1.3-1.6 cores in races; cold first boot 73 s).
+2. Potato with a smaller scene (~63-67%, bilinear, HUD full size), set in `src/gpu_host.cpp` ApplyPerfPreset so ReGPU's
+   shared presets don't change; `hyper_scene` still overrides; Auto on an iGPU gets it. Measured: +17% over Potato.
+3. Opt-in cut: skip FM3's terrain detail layer (Cobalt's `8FEC358DC5728647`: grass flowers, rock shading, flag cloth;
+   drawn with alpha to coverage). Find our hash by per-shader GPU time on the iGPU, check other tracks, keep the flags;
+   compare `REGPU_A2M_AS_TEST` first.
+4. The render thread at the 60 cap: 8-78% of a core depending on the boot (real cycles, same fps and draws). Find what
+   it repeats in bad boots.
+5. First boot on weak CPUs: 73 s here at 8 threads; consider compiling only the menus and the first track up front.
+
 ## Session 23 results (2026-11-11): see [PERF-RESULTS.md](PERF-RESULTS.md)
 Measured hands-off on the frozen test grid (`grid_test=1`). Settled: L1 keep (+10.5%), L2 keep (+4.1%), L3 loss (-6%),
 L4 closed (car shaders not overdrawn: no pre-pass), L5 = I2 (already in ReGPU), L9 loss (-5.7%), L11 built
