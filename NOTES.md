@@ -1,6 +1,30 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-20, session 47)
+## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
+
+### ▶ Start here (session 48): state at the end of session 47 (2026-11-20)
+- **Branches:** as in "Start here (session 47)" below: `main` (build\rel, 84 ReGPU patches), `experimental` (build\exp,
+  90). **The checkout is on `experimental`** with its stack applied; both builds are current (rel rebuilt this session
+  on main's stack, then the checkout switched back). The user is running **experimental Vulkan work in another
+  session**: check `git status`/`git log` before touching shared files, and never overwrite that session's changes.
+- **Done in session 47** (details in the entry below):
+  - Cobalt Shift (another FM3 port, Vulkan, "better on low-end") researched read-only: its lead comes from a heavier
+    low-end preset (800x450 scene, one foliage shader skipped), no FXC compile stalls, and a comparison against our old
+    v0.41. A six-step low-end plan was agreed (PERF-PLAN "Next up (from session 47)").
+  - Step 1 measured on the Radeon iGPU at 8 threads: off 63.5, potato 94.1, potato + 67% scene 110.5, low 112.0 fps;
+    cold first boot 73 s.
+  - **Fixed and default (main db14e06, both builds):** FM3's main thread polled its empty app tick ~1.1 M times a second
+    between frames (8-98% of a core at the 60 cap, by boot). `FM3_TICK_WAIT` (default 20 us, 0 = off, live) sleeps after
+    an empty tick: race at 60 fps 1.57 -> 0.86 cores, same fps and p99; 1440p 4x unchanged. The user hasn't played on it.
+- **Open / next (ask the user):** low-end plan step 2 (Potato renders the scene at ~63-67% with bilinear upscale; +17%
+  measured), step 3 (opt-in skip of FM3's terrain detail layer, alpha to coverage; find our hash first), step 5 (first
+  boot on weak CPUs), step 6 (docs/tooltips); the items in "Start here (session 47)" (user's drive, AI tour, car-purchase
+  crash, engine-sound test, Intel Iris Xe, test leftovers). New leftovers: `out\bench\matrix-lowend-*` (keep).
+- **Tools this session:** scratch `cycles.ps1` (CPU time + `QueryThreadCycleTime` per thread: tells real work from slow
+  clocks; worth adding to `tools/perf/`), `FM3_DUMP_THREADS` live stack dumps (safe, unlike the 1 kHz sampler with
+  callers, which stalled 3 of 5 boots), `FM3_TICK_LOG`, `FM3_MAINLOOP_LOG`. Thread "guest 7" is FM3's main thread
+  (entry 822BDE68), which also presents.
+- **Untracked `FM3 DLC/` and `Project Forza Plus 3/`** in the project root are the user's, for later: leave them.
 
 ### ▶ Session 47 (2026-11-20): Cobalt Shift's low-end lead researched; low-end plan step 1 measured
 - **Cobalt Shift** (github.com/arcanite24/cobalt-shift, BSD-3, ShiftGlue = their ReXGlue fork with a Vulkan PM4 executor;
