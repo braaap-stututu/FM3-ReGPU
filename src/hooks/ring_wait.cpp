@@ -18,6 +18,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 
 #include "kernel/imports.h"
 #include "log.h"
@@ -55,6 +56,83 @@ void ShortSleep()
         WaitForSingleObject(timer, 1);
 }
 } // namespace
+
+// The app tick (session 47, low-end plan): the main thread (entry 822BDE68 -> sub_821E5380) runs
+// `while (running) sub_82210098(app);` with no wait of its own: it renders and presents when the game loop has a new
+// frame and otherwise calls the tick again at once. So between frames it polls, unless ReGPU's frame limiter (VdSwap)
+// happens to hold it until the next frame is ready: at the 60 cap 8-78% of a core depending on the boot, 98% with the
+// limiter out of the way (vblank-paced), same 60 fps and draws. Those polls were ~1.1 million empty ticks a second,
+// each under 1 us (a frame's tick takes 1-5 ms).
+// FM3_TICK_WAIT=<us> (live; default 20, 0 = off): after a tick shorter than that, sleep ~100 us (a poll that found
+// nothing to do). Measured (iGPU, 8 threads, 60 fps unchanged): main thread 85% -> 9% of a core (process 1.5 -> 0.8
+// cores) in a bad 60-cap boot, 98% -> 10% vblank-paced; RX 7900 XTX 1440p 4x frozen grid 348.1 vs 348.0 fps (4 ABBA).
+// FM3_TICK_LOG=1 (live): ticks per second and how long they take, every 5 s.
+namespace
+{
+int64_t QpcNow()
+{
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    return t.QuadPart;
+}
+double QpcFreq()
+{
+    static const double f = [] { LARGE_INTEGER q; QueryPerformanceFrequency(&q); return double(q.QuadPart); }();
+    return f;
+}
+int TickWaitUs()
+{
+    static std::atomic<int64_t> next{ 0 };
+    static std::atomic<int> us{ -1 }; // (-1: not read yet, so the first read logs)
+    const int64_t now = QpcNow();
+    if (now >= next.load(std::memory_order_relaxed))
+    {
+        next.store(now + int64_t(QpcFreq() / 4), std::memory_order_relaxed);
+        char v[16] = {};
+        const int n = GetEnvironmentVariableA("FM3_TICK_WAIT", v, sizeof(v)) && v[0] ? atoi(v) : 20;
+        if (n != us.exchange(n, std::memory_order_relaxed))
+            Log("tick wait: %d us", n);
+    }
+    return us.load(std::memory_order_relaxed);
+}
+} // namespace
+
+PPC_FUNC_IMPL(__imp__sub_82210098);
+PPC_FUNC(sub_82210098)
+{
+    const int64_t t0 = QpcNow();
+    __imp__sub_82210098(ctx, base);
+    const int64_t t1 = QpcNow();
+    const double us = double(t1 - t0) * 1e6 / QpcFreq();
+    static uint64_t ticks = 0, slept = 0, buckets[5] = {};
+    static double sumUs = 0;
+    static int64_t since = 0;
+    char v[4] = {};
+    const bool log = GetEnvironmentVariableA("FM3_TICK_LOG", v, sizeof(v)) && v[0] == '1';
+    const int waitUs = TickWaitUs();
+    const bool sleep = waitUs > 0 && us < waitUs;
+    if (sleep)
+        ShortSleep();
+    if (!log)
+    {
+        since = 0;
+        return;
+    }
+    if (!since)
+    {
+        since = t1, ticks = slept = 0, sumUs = 0;
+        memset(buckets, 0, sizeof(buckets));
+    }
+    ticks++, slept += sleep, sumUs += us;
+    buckets[us < 20 ? 0 : us < 100 ? 1 : us < 1000 ? 2 : us < 5000 ? 3 : 4]++;
+    if (const double s = double(t1 - since) / QpcFreq(); s >= 5.0)
+    {
+        Log("tick: %.0f ticks/s, mean %.1f us; <20 us %llu, <100 %llu, <1000 %llu, <5000 %llu, more %llu; slept after %llu",
+            double(ticks) / s, sumUs / double(ticks), (unsigned long long)buckets[0], (unsigned long long)buckets[1],
+            (unsigned long long)buckets[2], (unsigned long long)buckets[3], (unsigned long long)buckets[4], (unsigned long long)slept);
+        since = 0;
+    }
+}
 
 PPC_FUNC_IMPL(__imp__sub_824AAA68);
 PPC_FUNC(sub_824AAA68)
