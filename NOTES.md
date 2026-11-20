@@ -57,9 +57,10 @@
     `FM3_TICK_WAIT` us (default 20, live, 0 = off) it sleeps ~100 us on a high-resolution timer. iGPU at 8 threads,
     60 fps unchanged: main thread 85% -> 9% / 98% -> 10% / 38% -> 9% of a core in three boots; benchmark race at the
     60 cap: process **1.57 -> 0.86 cores**, p99 18.3 -> 17.9 ms, worst 19.4 -> 18.8, no long frames either way. RX 7900
-    XTX 1440p 4x frozen grid at cap 360: 348.1 vs 348.0 fps (4 ABBA rounds). build\exp rebuilt with it;
-    **build\rel not rebuilt yet** (the checkout holds experimental's ReGPU stack): switch to main, restore the stack,
-    rebuild before the next release or before the user plays on the normal build.
+    XTX 1440p 4x frozen grid at cap 360: 348.1 vs 348.0 fps (4 ABBA rounds). build\exp and build\rel both rebuilt
+    with it (rel on main's 84-patch stack, user's request; checked: `tick wait: 20 us`, 60 fps at 1440p 4x, main
+    thread 9%); the checkout is back on `experimental` with its 90 patches.
+  - Untracked `FM3 DLC/` and `Project Forza Plus 3/` in the project root are the user's, "for later": leave them.
 - **Cold first boot** (empty user folder, FXC, Potato, iGPU, 8 threads): 829 shaders in 41.8 s, then 2,513 seed
   pipelines in 30.1 s: playable at 73 s, ~4.4 cores average. A 15 W i5 is maybe 3-5x slower per thread: several minutes.
   Warm boots after a settings change that alters shaders (Off, Potato's shader cuts) rebuilt 3,645 pipelines for 45-51 s.
