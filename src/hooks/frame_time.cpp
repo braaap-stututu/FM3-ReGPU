@@ -195,6 +195,21 @@ void Override(PPCContext& ctx)
     static LiveSwitch freeze("FM3_FREEZE_TIME");
     static LiveSwitch fixed("FM3_FIXED_DT");
     const uint64_t frame = g_mainFrames.fetch_add(1, std::memory_order_relaxed) + 1;
+    // FM3_MAINLOOP_LOG=1 (live, session 47: the main thread's CPU at the 60 cap): main-loop frames per second, every 5 s.
+    static LiveSwitch loopLog("FM3_MAINLOOP_LOG");
+    if (loopLog)
+    {
+        static int64_t since = 0;
+        static uint64_t sinceFrame = 0;
+        const int64_t now = Now();
+        if (!since)
+            since = now, sinceFrame = frame;
+        else if (double(now - since) / Freq() >= 5.0)
+        {
+            Log("main loop: %.1f frames/s", double(frame - sinceFrame) * Freq() / double(now - since));
+            since = now, sinceFrame = frame;
+        }
+    }
     // r30 = the game's millisecond count (16 after a load of more than 4 s; the long frame itself is logged)
     if (ctx.r30.u32 >= 250)
     {
