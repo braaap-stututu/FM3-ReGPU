@@ -90,6 +90,10 @@ void Write(const char* prefix, const char* fmt, va_list args)
 }
 }
 
+// ReGPU calls LogStart once Config::userDir is final (its own regpu.log); FM3 keeps its own log (out/run/fm3.log), open
+// from the start, so there is nothing to do.
+void LogStart() {}
+
 void LogFlush()
 {
     std::unique_lock lock(g_logMutex);

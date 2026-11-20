@@ -25,7 +25,7 @@ else()
     set(FM3_PPC_DEFAULT "${CMAKE_SOURCE_DIR}/out/ppc")
 endif()
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/${FM3_XENON_DIR}/XenonUtils/ppc_context.h"
-   OR NOT EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/ReGPU/include/regpu/regpu.h")
+   OR (NOT FM3_REGPU_DIR AND NOT EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/ReGPU/include/regpu/regpu.h"))
     message(FATAL_ERROR "submodules missing: run tools/setup.ps1 (or git submodule update --init --recursive)")
 endif()
 add_subdirectory(${FM3_XENON_DIR} EXCLUDE_FROM_ALL)
@@ -88,18 +88,11 @@ list(APPEND FM3_SOURCES "${FM3_GENERATED}/stubs.cpp")
 
 # The GPU: ReGPU (thirdparty/ReGPU, MIT), a static library providing the Vd* imports. It builds
 # against XenonRecomp and the game's ppc_config.h, and needs the AMD FidelityFX SDK (MIT) for FSR 1.
-# The redistributable d3dcompiler_47.dll (ReGPU REGPU_D3DCOMPILER, which defaults to the installed SDK under Program Files):
-# from the SDK the build environment names (vcvars64 or the portable toolchain\env.cmd, GitHub issue #2).
-# (The portable SDK has no Redist folder: the same DLLs are in its bin\<version>\x64, which DXC's copy below follows.)
-if(DEFINED ENV{WindowsSdkDir})
-    foreach(FM3_D3D_DIR "$ENV{WindowsSdkDir}Redist/D3D/x64" "$ENV{WindowsSdkDir}bin/$ENV{WindowsSDKVersion}x64")
-        if(EXISTS "${FM3_D3D_DIR}/d3dcompiler_47.dll")
-            file(TO_CMAKE_PATH "${FM3_D3D_DIR}/d3dcompiler_47.dll" FM3_SDK_D3DCOMPILER)
-            set(REGPU_D3DCOMPILER "${FM3_SDK_D3DCOMPILER}" CACHE FILEPATH "Redistributable d3dcompiler_47.dll, to ship beside the game executable")
-            break()
-        endif()
-    endforeach()
-endif()
+# Branch regpu-vulkan: ReGPU renders with Vulkan and compiles the translated shaders to SPIR-V with DXC at run time:
+# dxcompiler.dll (+ dxil.dll) beside fm3.exe, a DirectXShaderCompiler release or the Vulkan SDK's (FM3_DXC_DIR; the
+# Windows SDK's copy has no SPIR-V output). The build's own compute shaders need dxc.exe (ReGPU REGPU_DXC_EXE, found in
+# the Vulkan SDK).
+set(FM3_DXC_DIR "$ENV{VULKAN_SDK}/Bin" CACHE PATH "Folder with dxcompiler.dll (and dxil.dll) with SPIR-V output")
 set(FM3_FFX "${CMAKE_SOURCE_DIR}/thirdparty/fidelityfx/Kits/FidelityFX")
 if(NOT EXISTS "${FM3_FFX}/upscalers/fsr3/include/gpu/fsr1/ffx_fsr1.h")
     message(FATAL_ERROR "thirdparty/fidelityfx is missing: put FidelityFX-SDK v2.x there (README.md)")
@@ -107,7 +100,7 @@ endif()
 set(REGPU_XENONRECOMP "${CMAKE_SOURCE_DIR}/${FM3_XENON_DIR}")
 set(REGPU_PPC_DIR "${FM3_PPC_DIR}")
 set(REGPU_FFX "${FM3_FFX}")
-if(EXISTS "${FM3_FFX}/signedbin/amd_fidelityfx_upscaler_dx12.dll")
+if(EXISTS "${FM3_FFX}/signedbin/amd_fidelityfx_upscaler_vk.dll")
     set(REGPU_FSR3 ON)
 endif()
 # FM3_REGPU_DIR: which ReGPU to build. Default: our submodule (upstream). For A/B tests it can point
@@ -131,7 +124,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/meshoptimizer/src/meshoptimizer.h")
 endif()
 # Session 43: Intel's XeSS SDK (thirdparty/xess, gitignored; github.com/intel/xess release zip): headers for ReGPU,
 # libxess.dll (redistributable unmodified, Intel Simplified Software License) and its licence copied beside fm3.exe.
-if(EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/xess/inc/xess/xess_d3d12.h")
+if(EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/xess/inc/xess/xess_vk.h")
     set(REGPU_XESS_DIR "${CMAKE_SOURCE_DIR}/thirdparty/xess" CACHE PATH "" FORCE)
 endif()
 add_subdirectory("${FM3_REGPU_DIR}" regpu)
@@ -194,22 +187,15 @@ elseif(FM3_PGO_PPC STREQUAL "use")
 endif()
 if(REGPU_FSR3)
     add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${FM3_FFX}/signedbin/amd_fidelityfx_loader_dx12.dll" "${FM3_FFX}/signedbin/amd_fidelityfx_upscaler_dx12.dll" $<TARGET_FILE_DIR:fm3>)
+        "${FM3_FFX}/signedbin/amd_fidelityfx_loader_vk.dll" "${FM3_FFX}/signedbin/amd_fidelityfx_upscaler_vk.dll" $<TARGET_FILE_DIR:fm3>)
 endif()
-# ReGPU compiles the translated shaders with the redistributable d3dcompiler_47.dll beside the exe.
-if(EXISTS "${REGPU_D3DCOMPILER}")
-    add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${REGPU_D3DCOMPILER}" $<TARGET_FILE_DIR:fm3>)
-endif()
-# Session 34: DXC (REGPU_DXC=1, ReGPU src/gpu/dxc.cpp) loads dxcompiler.dll + dxil.dll beside the exe; the SDK's
-# redistributables, next to d3dcompiler_47.dll.
-get_filename_component(FM3_D3D_REDIST "${REGPU_D3DCOMPILER}" DIRECTORY)
+foreach(FM3_DXC_DLL dxcompiler.dll dxil.dll)
+    if(EXISTS "${FM3_DXC_DIR}/${FM3_DXC_DLL}")
+        add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${FM3_DXC_DIR}/${FM3_DXC_DLL}" $<TARGET_FILE_DIR:fm3>)
+    endif()
+endforeach()
 if(EXISTS "${FM3_OPENXR}/bin/openxr_loader.dll")
     add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different "${FM3_OPENXR}/bin/openxr_loader.dll" $<TARGET_FILE_DIR:fm3>)
-endif()
-if(EXISTS "${FM3_D3D_REDIST}/dxcompiler.dll" AND EXISTS "${FM3_D3D_REDIST}/dxil.dll")
-    add_custom_command(TARGET fm3 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${FM3_D3D_REDIST}/dxcompiler.dll" "${FM3_D3D_REDIST}/dxil.dll" $<TARGET_FILE_DIR:fm3>)
 endif()
 
 # XMA audio through FFmpeg's xma2 decoder (LGPL, linked dynamically): a win64 LGPL shared build
