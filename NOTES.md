@@ -43,13 +43,27 @@
   0.4 in a good one, same 60 fps and ~2,100 draws. Sampled without callers in a bad boot: 51% NtWaitForSingleObject,
   the rest spread over FM3/D3D render code (`sub_824AE8E8` = D3D texture-fetch setup 5.7%, `sub_824B3820` 5.6%, ...),
   so real work, as if the thread built far more than one frame per swap. In a good boot 92% sits in ReGPU's PaceSwap
-  sleep. Next: count the render thread's frames (D3D Present/VdSwap calls, the main loop) per swap in a bad boot.
-  About 0.7 of a core at the default cap in ~half the boots: worth fixing for laptops. (The FM3_SAMPLE_THREAD sampler
-  with `FM3_SAMPLE_CALLERS=6` stalled 2 boots of 4 at ~13 s; without callers 1 of 2: use it sparingly.)
+  sleep. (The FM3_SAMPLE_THREAD sampler with callers stalled 3 of 5 boots at ~12 s; `FM3_DUMP_THREADS` live dumps
+  are the safe way to see a thread's stacks.)
+  - **Solved (user picked this lead):** guest 7 is FM3's main thread (entry `822BDE68` -> `sub_821E5380`), which runs
+    `while (running) sub_82210098(app);` (the app tick) with no wait of its own. The vblank wait is in the game loop
+    `sub_821F5DE8` (`loc_821F5F3C`: waits on the vblank event `0x82C21C34` only if options `unlockframerate` (+2359)
+    is 0 and `framesperrender` (+1088) is 1; both are, peeked live). Between frames the main thread just called the
+    tick again: `FM3_TICK_LOG=1` counted **~1.1 million empty ticks a second** (< 1 us each; a frame's tick 1-5 ms).
+    ReGPU's frame limiter in VdSwap hid it only when its slot happened to release the thread just as the next frame
+    was ready (good boots); vblank-paced (`FM3_VBLANK_HZ=60`, limiter at 360) it spun 98% in most boots. Not a
+    frozen-grid artefact (racing: same). Main-loop frames were exactly 60/s throughout (`FM3_MAINLOOP_LOG=1`).
+  - **Fix (main db14e06, default):** `src/hooks/ring_wait.cpp` wraps `sub_82210098`; after a tick shorter than
+    `FM3_TICK_WAIT` us (default 20, live, 0 = off) it sleeps ~100 us on a high-resolution timer. iGPU at 8 threads,
+    60 fps unchanged: main thread 85% -> 9% / 98% -> 10% / 38% -> 9% of a core in three boots; benchmark race at the
+    60 cap: process **1.57 -> 0.86 cores**, p99 18.3 -> 17.9 ms, worst 19.4 -> 18.8, no long frames either way. RX 7900
+    XTX 1440p 4x frozen grid at cap 360: 348.1 vs 348.0 fps (4 ABBA rounds). build\exp rebuilt with it;
+    **build\rel not rebuilt yet** (the checkout holds experimental's ReGPU stack): switch to main, restore the stack,
+    rebuild before the next release or before the user plays on the normal build.
 - **Cold first boot** (empty user folder, FXC, Potato, iGPU, 8 threads): 829 shaders in 41.8 s, then 2,513 seed
   pipelines in 30.1 s: playable at 73 s, ~4.4 cores average. A 15 W i5 is maybe 3-5x slower per thread: several minutes.
   Warm boots after a settings change that alters shaders (Off, Potato's shader cuts) rebuilt 3,645 pipelines for 45-51 s.
-- Next: step 2 (Potato's scene size) and the render-thread lead; ask the user.
+- Next: step 2 (Potato's scene size), step 3 (foliage layer), step 5 (first boot); ask the user.
 
 ### ▶ Start here (session 47): state at the end of session 46 (2026-11-19)
 - **Branches:** `main` = the normal build (`build\rel`, what `play.cmd`, the launcher and releases use; ReGPU stack 84

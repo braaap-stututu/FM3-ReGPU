@@ -25,8 +25,9 @@ adopted or dropped.
 3. Opt-in cut: skip FM3's terrain detail layer (Cobalt's `8FEC358DC5728647`: grass flowers, rock shading, flag cloth;
    drawn with alpha to coverage). Find our hash by per-shader GPU time on the iGPU, check other tracks, keep the flags;
    compare `REGPU_A2M_AS_TEST` first.
-4. The render thread at the 60 cap: 8-78% of a core depending on the boot (real cycles, same fps and draws). Find what
-   it repeats in bad boots.
+4. **Done:** the main thread polled FM3's app tick ~1.1 M times a second between frames (8-98% of a core at the 60 cap,
+   by boot). `FM3_TICK_WAIT` (default 20 us) sleeps after an empty tick: race at 60 fps 1.57 -> 0.86 cores, same fps
+   and p99; 1440p 4x grid unchanged.
 5. First boot on weak CPUs: 73 s here at 8 threads; consider compiling only the menus and the first track up front.
 
 ## Session 23 results (2026-11-11): see [PERF-RESULTS.md](PERF-RESULTS.md)
