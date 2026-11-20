@@ -1,6 +1,55 @@
 # NOTES.md — FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-19, end of session 46)
+## ▶ Current status / next step  (updated 2026-11-20, session 47)
+
+### ▶ Session 47 (2026-11-20): Cobalt Shift's low-end lead researched; low-end plan step 1 measured
+- **Cobalt Shift** (github.com/arcanite24/cobalt-shift, BSD-3, ShiftGlue = their ReXGlue fork with a Vulkan PM4 executor;
+  ports our ring wait, half-rate passes, far-car LOD, AI player, frozen grid, front-end limit, Disc 2 patches, LZX)
+  claims better low-end performance. Read only (never built or run here). Its docs/BASELINE.md: on an i5-8250U + UHD 620
+  its `cobalt_low_end` preset races Ladera at 46-48 fps (60 cap, ~2.2 cores). Their comparison with us (docs/RESEARCH.md
+  "Decision CB-0.3") used **our v0.41 (a6e1c43), before session 43** (Hyper, iGPU leads, compile throttle): full
+  quality 6-7 fps still compiling after 6 min plus one 887A0006 hang at the title; our old potato 27.5 fps, 5.1 cores,
+  400-500 ms compile hitches. On their 5800X + RTX 4080 both builds were within noise (CPU-bound).
+  - Where their low end comes from: (1) the preset lowers the picture more than our Potato: race scene at **800x450**
+    (FM3's tiling bands shrunk, HUD full size; +21-36%) and **one alpha-to-coverage pixel shader skipped** (terrain detail
+    layer: grass flowers, rock shading, also the flag cloth, which turns black; a third of the UHD 620's frame,
+    17.9 -> 30.5 fps; both renderers emulate A2C with a dithered discard, so every overdraw layer is shaded); (2) SPIR-V
+    straight from the microcode, pipelines built during track loads, no FXC; (3) a 60 fps default cap and low CPU
+    (laptop iGPUs share the power budget); (4) texture signs as specialization constants (+20%; ours: fetch
+    specialisation) and implicit LOD (ours already samples with hardware LOD).
+- **Plan (user said "plan it", then "start step 1"):** 1 measure today's build on the Radeon iGPU at 4 cores / 8 threads;
+  2 Potato with a smaller scene (~63-67%, bilinear, HUD full size; Auto on an iGPU too); 3 an opt-in "skip the foliage
+  detail layer" cut (find our hash by per-shader GPU time; check other tracks; keep the flags; compare
+  `REGPU_A2M_AS_TEST`); 4 CPU use on small CPUs; 5 first boot on weak CPUs; 6 docs and launcher tooltips.
+- **Step 1 results** (build\rel = v0.42.0-beta code, 9800X3D's Radeon iGPU 2 CUs via `REGPU_ADAPTER`, 1280x720 1x, FXC,
+  no edge AA, the game held to 8 logical CPUs by `affinity_watch.ps1 -Mask 0xFF`, `REGPU_PIPELINE_THREADS=6`; one
+  benchmark race each, `out\bench\matrix-lowend-s1-20261120-120406`):
+
+  | variant | fps | p99 ms | GPU ms | process cores (race) |
+  |---|---|---|---|---|
+  | off | 63.5 | 18.2 | 15.2 | 1.31 |
+  | potato (native) | 94.1 | 12.8 | 10.0 | 1.39 |
+  | potato + scene 67% + bilinear (`REGPU_HYPER_SCENE=67`, `REGPU_HYPER_UPSCALE=1`) | 110.5 | 10.7 | 8.6 | 1.44 |
+  | low (35%) | 112.0 | 10.6 | 8.4 | 1.48 |
+  | potato 67% at the 60 cap | 60.0 | 18.4 | 11.5 | 1.61 |
+
+  Potato +48% over off; a 67% scene adds +17% (+74% over off) and was the only run with no frame over 100 ms. One
+  ~120 ms frame in off/potato/low races: draw thread idle, the game itself late (not compiles). The race uses
+  1.3-1.6 cores, far from Cobalt's 5.1 for our old build. Not comparable with the UHD 620 (our iGPU is roughly 1.5x
+  its FP32); an Intel tester is still the only real comparison.
+- **New lead: the render thread's work at the 60 cap varies by boot.** Frozen grid, potato 67%, 60 cap, per-thread CPU
+  over 7 boots: guest 7 (the game's render thread) at 75, 10, 58, 64, 24, 8 and 78% of a core; uncapped 12-14%. Not a
+  clock artefact: `QueryThreadCycleTime` (scratch cycles.ps1) shows 3.7 G cycles/s at ~4.75 GHz in a bad boot against
+  0.4 in a good one, same 60 fps and ~2,100 draws. Sampled without callers in a bad boot: 51% NtWaitForSingleObject,
+  the rest spread over FM3/D3D render code (`sub_824AE8E8` = D3D texture-fetch setup 5.7%, `sub_824B3820` 5.6%, ...),
+  so real work, as if the thread built far more than one frame per swap. In a good boot 92% sits in ReGPU's PaceSwap
+  sleep. Next: count the render thread's frames (D3D Present/VdSwap calls, the main loop) per swap in a bad boot.
+  About 0.7 of a core at the default cap in ~half the boots: worth fixing for laptops. (The FM3_SAMPLE_THREAD sampler
+  with `FM3_SAMPLE_CALLERS=6` stalled 2 boots of 4 at ~13 s; without callers 1 of 2: use it sparingly.)
+- **Cold first boot** (empty user folder, FXC, Potato, iGPU, 8 threads): 829 shaders in 41.8 s, then 2,513 seed
+  pipelines in 30.1 s: playable at 73 s, ~4.4 cores average. A 15 W i5 is maybe 3-5x slower per thread: several minutes.
+  Warm boots after a settings change that alters shaders (Off, Potato's shader cuts) rebuilt 3,645 pipelines for 45-51 s.
+- Next: step 2 (Potato's scene size) and the render-thread lead; ask the user.
 
 ### ▶ Start here (session 47): state at the end of session 46 (2026-11-19)
 - **Branches:** `main` = the normal build (`build\rel`, what `play.cmd`, the launcher and releases use; ReGPU stack 84
