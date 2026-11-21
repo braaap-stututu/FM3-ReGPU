@@ -2,6 +2,34 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ Start here (2026-11-21 midday): frame-time lows, measured per frame
+- **How it was measured:** an AI benchmark race (`FM3_BENCHMARK=60`, `FM3_GRID_TEST=1`, Benchmark profile copy) with
+  the user's settings (1440p, FSR 3 native AA, cap 360). `REGPU_FRAME_TIMES=<file>` (ReGPU 6d5f3ee) logs every present;
+  ReGPU `tools/frametimes.py <file> <from> <to>` gives the average, p99/p99.9, and the 1% and 0.1% lows. The window
+  must be visible (`FM3_MINIMIZED=0`): minimized, every other present fails (suboptimal swap chain) and the present
+  rate halves (180 of 360). The user's own fullscreen runs are fine.
+- **Results** (60 s each; run-to-run noise ~1-2%; 0.1% lows are noisier):
+
+  | | fps | p99 ms | 1% low | 0.1% low |
+  |---|---|---|---|---|
+  | before (morning) | 332 | 3.82 | 249 | 217 |
+  | long-frame stacks armed (0330877) | 345 | 3.69 | 257 | 226 |
+  | + index buffers write-watched (7153a65) | 348 | 3.62 | 258 | 210 |
+
+- **Long-frame stacks** (`long_frame_stacks=1`, on in the user's settings) stopped the draw thread every millisecond:
+  ~4%. A frame is now sampled only once it has run half the reported length (7.5 ms; `FM3_LONG_STACKS_ARM=<ms>`,
+  0 = always). Long frames are still reported with their samples.
+- **Where the lows come from:** the ~2,900-draw stretches of the race, where the draw thread is 100% busy (~1.1 us a
+  draw); the GPU is 2.1 ms there natively, 2.75 ms with FSR 3. With the upscaler off the 1% low is the same (~260):
+  CPU-bound. ReGPU 1a7075a write-watches index buffers instead of hashing them each frame. Uncapped, native: 351 fps,
+  1% low 241, against 349 / 232 (`REGPU_INDEX_NO_WATCH=1`). `REGPU_INDEX_VERIFY=1` found no unseen change.
+- **Draw-thread profile** (`FM3_SAMPLE_THREAD=name:gpu draw worker`, `FM3_SAMPLE_LINES=1`): flat. DrawImpl 18%,
+  GetPipeline 5%, UploadGuest's hashing 4%, shader-load compares 3%, the index cache 3%; fence waits ~2%. The
+  replay thread spends ~60% in the driver's present throttle, which is GPU pacing. An Overwolf hook (owclient.dll) sits
+  in the present path on the user's PC.
+- **Tried, not kept:** `REGPU_UPLOAD_STABLE_REUSE=1` (p99 6.0 ms, 1% low 148).
+- **FSR 3 native AA** costs ~0.6 ms of GPU in the upscale step (AMD's dispatch). Native without it reaches the cap.
+
 ### ▶ Start here (end of 2026-11-21): Vulkan main, Legacy DX12, upscaler fix
 - **State:**
   - `main` renders with Vulkan (ReGPU braaap-stututu/ReGPU `vulkan` 9eecd70).
