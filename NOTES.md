@@ -2,6 +2,38 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ Start here (end of 2026-11-21): Vulkan main, Legacy DX12, upscaler fix
+- **State:**
+  - `main` renders with Vulkan (ReGPU braaap-stututu/ReGPU `vulkan` 9eecd70).
+  - `LegacyDX12` is the D3D12 build, built into `build\legacy` from a worktree (the user's PC:
+    `ReGPU-V\work\fm3-legacy`).
+  - The launcher's Settings > Testing "Legacy DX12 renderer" switches between them and greys out what the chosen
+    renderer lacks (EQAA, DXC, iGPU root signature 1.1 and UMA textures on Vulkan; FSR 3/4 and XeSS without their
+    DLLs; MSAA under TAA).
+  - The Experimental build option is gone.
+- **Build:**
+  - The portable toolchain fetches DXC v1.9.2609 (`thirdparty\dxc`, SPIR-V output, preferred over the Vulkan SDK) and
+    FidelityFX SDK **2.4.0**. 2.1.0 has no Vulkan FSR DLLs, and FSR 3/4 then fall back to FSR 1; CMake warns.
+  - `FM3_FIDELITYFX_DIR` picks another SDK folder.
+- **fm3.exe:**
+  - The GPU choice and VR are set before the speed preset (Hyper's auto created the Vulkan device before them).
+  - `shader_compiler=dxc` no longer sets `REGPU_DXC` (on Vulkan it names `dxc.exe`).
+- **Stutters, now the defaults in ReGPU:**
+  - deferred pipeline builds, a zero pipeline budget, and off-screen draws that skip once the game has settled
+    (the user's preset G);
+  - the direct SPIR-V translator;
+  - the seed builds the stored pipelines the warm-up skipped;
+  - retired images freed on a deleter thread (the cockpit-camera hitch).
+  - What remains in races: loads, and post passes waiting in the 4 s after a load.
+- **Upscalers** (user: "FSR 3 worse than native 4x MSAA"): measured on the grid at 1440p.
+  - Motion-vector shaders were made from the base shader, so TAA/FSR draws lost the alpha-test-free and fetch
+    variants. ReGPU now makes them in the direct translator from the variant: TAA 2.72 -> 2.27 ms GPU, FSR 3 Quality
+    2.79 -> 2.40, native 4x MSAA 2.21.
+  - The main pass is ~1.5 ms of mostly fixed cost: 4x MSAA +0.04 ms, 4x the pixels +0.6 ms. Upscaling saves little,
+    while FSR 3's pass is 0.45 ms and FSR 4's ~2 ms on RDNA 3.
+  - The next lever is an RGP capture of that pass.
+- **Next:** the user's race test of TAA/FSR on this build, then the user picks.
+
 ### ▶ Start here: main is Vulkan (2026-11-21)
 - **`main` renders with Vulkan** (ReGPU's Vulkan conversion, done in the user's ReGPU-V workspace and checked against
   D3D12 frame by frame and in races). `thirdparty/ReGPU` is now **braaap-stututu/ReGPU, branch `vulkan`**. That fork
