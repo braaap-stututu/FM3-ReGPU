@@ -8,13 +8,12 @@
   ReGPU `tools/frametimes.py <file> <from> <to>` gives the average, p99/p99.9, and the 1% and 0.1% lows. The window
   must be visible (`FM3_MINIMIZED=0`): minimized, every other present fails (suboptimal swap chain) and the present
   rate halves (180 of 360). The user's own fullscreen runs are fine.
-- **Results** (60 s each; run-to-run noise ~1-2%; 0.1% lows are noisier):
+- **Results** (60 s runs; run-to-run noise about +-1.5% on the average and +-3% on the 1% low; 0.1% lows are noisier):
 
   | | fps | p99 ms | 1% low | 0.1% low |
   |---|---|---|---|---|
-  | before (morning) | 332 | 3.82 | 249 | 217 |
-  | long-frame stacks armed (0330877) | 345 | 3.69 | 257 | 226 |
-  | + index buffers write-watched (7153a65) | 348 | 3.62 | 258 | 210 |
+  | before (morning; 3 runs) | 331 | 3.87 | 245 | ~210 |
+  | after: 0330877 + 7153a65 (6 runs, dev and the user's buildel) | 345 | 3.71 | 252 | ~207 |
 
 - **Long-frame stacks** (`long_frame_stacks=1`, on in the user's settings) stopped the draw thread every millisecond:
   ~4%. A frame is now sampled only once it has run half the reported length (7.5 ms; `FM3_LONG_STACKS_ARM=<ms>`,
@@ -27,7 +26,11 @@
   GetPipeline 5%, UploadGuest's hashing 4%, shader-load compares 3%, the index cache 3%; fence waits ~2%. The
   replay thread spends ~60% in the driver's present throttle, which is GPU pacing. An Overwolf hook (owclient.dll) sits
   in the present path on the user's PC.
-- **Tried, not kept:** `REGPU_UPLOAD_STABLE_REUSE=1` (p99 6.0 ms, 1% low 148).
+- **Tried, not kept** (same race):
+  - `REGPU_UPLOAD_STABLE_REUSE=1`: p99 6.0 ms, 1% low 148.
+  - Draw workers (`FM3_DRAW_THREAD_PIECES=1`): 338 fps, 1% low 241.
+  - `REGPU_PRESENT_PACE=1`: 334 fps, 1% low 243.
+  - Write-watching UploadGuest's repeated small ranges (not committed): no change. FM3's ranges change every frame.
 - **FSR 3 native AA** costs ~0.6 ms of GPU in the upscale step (AMD's dispatch). Native without it reaches the cap.
 
 ### ▶ Start here (end of 2026-11-21): Vulkan main, Legacy DX12, upscaler fix
