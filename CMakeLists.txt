@@ -54,7 +54,10 @@ if(FM3_RECOMPILER STREQUAL "rexenon")
     target_compile_definitions(fm3_ppc PRIVATE FM3_REXENON=1)
 endif()
 target_compile_options(fm3_ppc PRIVATE -Wno-everything -gline-tables-only "/FI${CMAKE_SOURCE_DIR}/src/ppc_hooks.h")
-target_compile_options(fm3_ppc PUBLIC -msse4.1 -fno-strict-aliasing)
+# -mcx16 (2026-11-21): MSVC's <atomic> marks its functions target("cx16"), and clang-cl doesn't inline a function with
+# a target feature its caller lacks, so every std::atomic access and std::atomic_thread_fence (the recompiled code's
+# sync/lwsync/eieio) was a call. cmpxchg16b is on every x64 CPU that 64-bit Windows 8.1 and later run on.
+target_compile_options(fm3_ppc PUBLIC -msse4.1 -mcx16 -fno-strict-aliasing)
 
 # mftb reads the host's raw timestamp counter; give it the console's 49.875 MHz timebase
 # (tools/patch_mftb.py, GuestTimebase in src/kernel/runtime.cpp). Idempotent.
