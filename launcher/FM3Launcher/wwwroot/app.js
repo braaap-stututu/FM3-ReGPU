@@ -183,6 +183,44 @@ function fill(select, items, value) {
   if (select.selectedIndex < 0 && select.options.length) select.selectedIndex = select.options.length - 1
 }
 
+// Options the renderer of the next start doesn't have are greyed out with the reason (Vulkan is the default since
+// 21 Nov 2026; the Legacy DX12 renderer is the toggle in Settings > Testing). The settings keep their values, so they
+// come back when the other renderer is picked.
+const VULKAN_LACKS = {
+  eqaa: "Not on Vulkan: EQAA needs AMD's mixed-sample extension, which the Vulkan renderer doesn't use yet. Works with the Legacy DX12 renderer.",
+  dxcShaders: "Vulkan always compiles with DXC (or ReGPU's own SPIR-V translator): this choice is for the Legacy DX12 renderer.",
+  igpuRootSig11: "Direct3D 12 root signatures: only for the Legacy DX12 renderer.",
+  igpuUmaTextures: "Not on Vulkan yet (its texture uploads differ): only for the Legacy DX12 renderer.",
+}
+function applyBuild(s) {
+  const legacy = s.build.legacy
+  for (const [id, why] of Object.entries(VULKAN_LACKS)) {
+    const b = $(id)
+    const row = b.closest(".toggle-row")
+    if (row && !row.dataset.tip0) row.dataset.tip0 = row.dataset.tip || ""
+    const lacks = !legacy
+    b.disabled = lacks
+    if (row) {
+      row.classList.toggle("na", lacks)
+      row.dataset.tip = lacks ? why : row.dataset.tip0
+    }
+  }
+  if (!legacy) $("igpuHalfRegs").title = "On Vulkan only a precision hint to the driver: its effect hasn't been measured"
+  // FSR 3/4 and XeSS need their DLLs beside the exe that will run.
+  for (const opt of $("upscaler").options) {
+    const missing = (opt.value === "fsr3" || opt.value === "fsr4") ? !s.build.fsr : opt.value === "xess" ? !s.build.xess : false
+    opt.disabled = missing
+    if (missing && !opt.text.endsWith(" (not in this build)")) opt.text += " (not in this build)"
+  }
+  const lb = $("legacyDx12"), lr = lb.closest(".toggle-row")
+  if (lr && !lr.dataset.tip0) lr.dataset.tip0 = lr.dataset.tip || ""
+  lb.disabled = !s.build.legacyAvailable && !s.settings.legacyDx12
+  if (lr) {
+    lr.classList.toggle("na", lb.disabled)
+    lr.dataset.tip = lb.disabled ? "The Legacy DX12 build isn't installed (build\\legacy\\fm3.exe, or legacy-dx12\\fm3.exe in an install)." : lr.dataset.tip0
+  }
+}
+
 function render() {
   const s = state, set = s.settings, o = s.options
   $("version").textContent = "Version " + s.version + " · native PC port"
@@ -236,11 +274,13 @@ function render() {
   fill($("upscaler"), o.upscalers, set.upscaler)
   // FSR 3 does its own anti-aliasing: fm3.exe turns MSAA off under it (src/settings.cpp), so it's greyed out here.
   const fsrAa = set.upscaler === "fsr3" || set.upscaler === "fsr4" || set.upscaler === "xess"
+  const taaAa = !fsrAa && set.aa === "taa" // (TAA's temporal path is single-sampled: fm3.exe sets MSAA to 1x)
   const mf = $("msaaField")
   if (!mf.dataset.tip0) mf.dataset.tip0 = mf.dataset.tip
-  $("msaa").disabled = fsrAa
-  mf.classList.toggle("off", fsrAa)
-  mf.dataset.tip = fsrAa ? "Off while FSR 3, FSR 4 or XeSS is on: it handles anti-aliasing itself." : mf.dataset.tip0
+  $("msaa").disabled = fsrAa || taaAa
+  mf.classList.toggle("off", fsrAa || taaAa)
+  mf.dataset.tip = fsrAa ? "Off while FSR 3, FSR 4 or XeSS is on: it handles anti-aliasing itself."
+    : taaAa ? "Off with the TAA edge filter: TAA works on a single-sampled picture." : mf.dataset.tip0
   fill($("upscale"), o.upscale, set.upscale)
   fill($("sharpening"), o.sharpening, set.sharpening)
   $("upscaleField").hidden = set.upscaler === "off"
@@ -263,6 +303,7 @@ function render() {
     b.disabled = presetOptions
     b.title = presetOptions ? `On in the ${PRESETS[preset].name} speed preset` : ""
   }
+  applyBuild(s)
 
   // play page
   fill($("language"), o.languages.map((l) => ({ value: l.id, name: l.name })), set.language)
@@ -275,6 +316,7 @@ function render() {
   $("summary").replaceChildren()
   const line = (label, value) => { const d = el("div"); d.append(label + ": "); d.append(el("b", "", value)); $("summary").append(d) }
   line("Profile", set.profile || "Player")
+  line("Renderer", s.build.legacy ? "Legacy DX12 (Direct3D 12)" : "Vulkan")
   line("Display", `${set.resolution.replace("x", " × ")}, ${set.fullscreen ? "fullscreen" : "windowed"}${aspect && set.aspect !== "auto" ? ", " + aspect.name : ""}`)
   if (set.gpu) line("Graphics card", set.gpu)
   line("Frame rate", `${set.maxFps} fps cap, VSync ${set.vsync ? "on" : "off"}`)

@@ -92,8 +92,23 @@ list(APPEND FM3_SOURCES "${FM3_GENERATED}/stubs.cpp")
 # dxcompiler.dll (+ dxil.dll) beside fm3.exe, a DirectXShaderCompiler release or the Vulkan SDK's (FM3_DXC_DIR; the
 # Windows SDK's copy has no SPIR-V output). The build's own compute shaders need dxc.exe (ReGPU REGPU_DXC_EXE, found in
 # the Vulkan SDK).
-set(FM3_DXC_DIR "$ENV{VULKAN_SDK}/Bin" CACHE PATH "Folder with dxcompiler.dll (and dxil.dll) with SPIR-V output")
-set(FM3_FFX "${CMAKE_SOURCE_DIR}/thirdparty/fidelityfx/Kits/FidelityFX")
+# The portable toolchain's DXC release (tools/get-toolchain.ps1 -> thirdparty/dxc) first, else the Vulkan SDK's.
+if(EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/dxc/bin/x64/dxcompiler.dll")
+    set(FM3_DXC_DEFAULT "${CMAKE_SOURCE_DIR}/thirdparty/dxc/bin/x64")
+else()
+    set(FM3_DXC_DEFAULT "$ENV{VULKAN_SDK}/Bin")
+endif()
+set(FM3_DXC_DIR "${FM3_DXC_DEFAULT}" CACHE PATH "Folder with dxcompiler.dll (and dxil.dll) with SPIR-V output")
+if(EXISTS "${FM3_DXC_DIR}/dxc.exe")
+    set(REGPU_DXC_EXE "${FM3_DXC_DIR}/dxc.exe" CACHE FILEPATH "DXC with SPIR-V output (for ReGPU's embedded compute shaders)")
+endif()
+# FM3_FIDELITYFX_DIR: the FidelityFX SDK (default thirdparty/fidelityfx). The Vulkan renderer's FSR 3/4 need SDK 2.4.0 or
+# newer (amd_fidelityfx_upscaler_vk.dll in signedbin; 2.1.0 had Direct3D 12 DLLs only, and FSR 3/4 then fall back to FSR 1).
+set(FM3_FIDELITYFX_DIR "${CMAKE_SOURCE_DIR}/thirdparty/fidelityfx" CACHE PATH "FidelityFX SDK folder (with Kits/FidelityFX)")
+set(FM3_FFX "${FM3_FIDELITYFX_DIR}/Kits/FidelityFX")
+if(NOT EXISTS "${FM3_FFX}/signedbin/amd_fidelityfx_upscaler_vk.dll")
+    message(WARNING "FidelityFX SDK without Vulkan DLLs (${FM3_FFX}/signedbin): FSR 3/4 fall back to FSR 1. Use SDK 2.4.0+ (tools/get-toolchain.ps1 -Parts fidelityfx).")
+endif()
 if(NOT EXISTS "${FM3_FFX}/upscalers/fsr3/include/gpu/fsr1/ffx_fsr1.h")
     message(FATAL_ERROR "thirdparty/fidelityfx is missing: put FidelityFX-SDK v2.x there (README.md)")
 endif()

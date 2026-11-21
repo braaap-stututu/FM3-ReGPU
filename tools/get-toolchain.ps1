@@ -7,8 +7,12 @@
 #               into toolchain\msvc and toolchain\sdk. Needs the Microsoft licence accepted (asked, or -AcceptMicrosoftLicense).
 #   llvm        LLVM 23.1.5 (clang-cl, lld-link) from the LLVM project's GitHub release (901 MB) -> toolchain\llvm
 #   cmake       CMake 3.31.10 -> toolchain\cmake        ninja   Ninja 1.13.2 -> toolchain\ninja
-#   fidelityfx  AMD FidelityFX SDK 2.1.0 (Kits\FidelityFX only, a sparse git checkout of the tag) -> thirdparty\fidelityfx
+#   fidelityfx  AMD FidelityFX SDK 2.4.0 (Kits\FidelityFX only, a sparse git checkout of the tag) -> thirdparty\fidelityfx
+#               (2.4.0 for the Vulkan renderer: its FSR 3/4 DLLs; 2.1.0 had Direct3D 12 ones only)
 #   ffmpeg      FFmpeg 8.1 LGPL shared (BtbN's Windows build) -> thirdparty\ffmpeg
+#   dxc         Microsoft's DirectX Shader Compiler v1.9.2609 (its GitHub release; dxc.exe, dxcompiler.dll, dxil.dll with
+#               SPIR-V output) -> thirdparty\dxc: ReGPU's Vulkan renderer compiles its shaders with it, and dxcompiler.dll
+#               ships beside fm3.exe. With it the Vulkan SDK isn't needed to build.
 #   python      Python 3.14 (python.org's embeddable package) -> toolchain\python, with a py.cmd for the build's
 #               "py -3" calls (ReGPU embeds its anti-aliasing shaders with tools\embed_hlsl.py)
 # -Launcher also gets the .NET 9 SDK (toolchain\dotnet) for the launcher.
@@ -20,7 +24,7 @@
 param(
     [string]$Dir = '',
     [switch]$AcceptMicrosoftLicense,
-    [string[]]$Parts = @('msvc', 'llvm', 'cmake', 'ninja', 'python', 'fidelityfx', 'ffmpeg'),
+    [string[]]$Parts = @('msvc', 'llvm', 'cmake', 'ninja', 'python', 'fidelityfx', 'ffmpeg', 'dxc'),
     [switch]$Launcher,
     [string]$ThirdParty = ''   # where fidelityfx\ and ffmpeg\ go (default: the repository's thirdparty\)
 )
@@ -53,9 +57,13 @@ $Python = @{ Url = 'https://www.python.org/ftp/python/3.14.10/python-3.14.10-emb
 # BtbN deletes daily builds after a while: when this one is gone, the rolling n8.1 build is taken (its SHA-256 from GitHub).
 $FFmpeg = @{ Url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-18-12-39/ffmpeg-n8.1.3-36-ge22a4510c9-win64-lgpl-shared-8.1.zip'
     Sha256 = '13a795e5620236ca4c304b580f0155130bdcecd87bf5e9f66f84b59d98783668'; Size = '82 MB' }
-$FidelityFx = @{ Repo = 'https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK.git'; Tag = 'v2.1.0'
-    Dlls = @{ 'amd_fidelityfx_loader_dx12.dll' = '2F36843C3BB8C059621C10574E586A883EF337F2A549C67ECF3A82B3959AC238'
-              'amd_fidelityfx_upscaler_dx12.dll' = '3EAB9A448DB1CA09D5ABA17D11DF5B789649C11D60F1281F4BE97BD007AC7D6D' } }
+$Dxc = @{ Url = 'https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip'
+    Sha256 = 'ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1'; Size = '31 MB' }
+$FidelityFx = @{ Repo = 'https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK.git'; Tag = 'v2.4.0'
+    Dlls = @{ 'amd_fidelityfx_loader_vk.dll' = '38A56A01FB3565C0757D9F5C1E4E69DE4B65E5F2E5769B323B200DC1F142BAB9'
+              'amd_fidelityfx_upscaler_vk.dll' = '4A7E895AF6E0B615D40A84D59EB8C2B1054AD91CDD0C739567940270D51BDAB7'
+              'amd_fidelityfx_loader_dx12.dll' = 'E2191D3C0828BE45EB8AFFD4E3EC0378F2293ADC345B772A7170EDCF3B021ECB'
+              'amd_fidelityfx_upscaler_dx12.dll' = 'AAD4FCCCCB29084A655F9A4F9F613BD22C8C03FB4A0F8840148CC6543B4CCACE' } }
 
 function Say([string]$t) { Write-Host "toolchain: $t" }
 
@@ -224,6 +232,15 @@ function Get-FFmpeg {
     Remove-Item -Recurse -Force $tmp
 }
 
+function Get-Dxc {
+    Say "DirectX Shader Compiler (SPIR-V) $($Dxc.Size)"
+    $f = Get-Download $Dxc.Url ([IO.Path]::GetFileName($Dxc.Url)) $Dxc.Sha256
+    $out = Join-Path $ThirdParty 'dxc'
+    if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+    Expand-Zip $f $out
+    if (-not (Test-Path (Join-Path $out 'bin\x64\dxcompiler.dll'))) { throw 'the DXC release has no bin\x64\dxcompiler.dll' }
+}
+
 function Get-FidelityFx {
     $out = Join-Path $ThirdParty 'fidelityfx'
     $item = Get-Item $out -ErrorAction SilentlyContinue
@@ -298,6 +315,7 @@ foreach ($p in $Parts) {
         'python' { Get-Python }
         'fidelityfx' { Get-FidelityFx }
         'ffmpeg' { Get-FFmpeg }
+        'dxc' { Get-Dxc }
         default { throw "unknown part: $p" }
     }
 }

@@ -293,6 +293,14 @@ public sealed class Bridge
             // The release name from VERSION (e.g. 0.41.0-beta); AssemblyVersion drops the -beta part.
             version = System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(Bridge).Assembly)?.InformationalVersion.Split('+')[0]
                 ?? typeof(Bridge).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
+            // Which renderer the next start uses, and what that exe has beside it (FSR 3/4 and XeSS DLLs).
+            build = new
+            {
+                legacy = Paths.RunsLegacy,
+                legacyAvailable = Paths.LegacyExe is not null,
+                fsr = File.Exists(Path.Combine(Path.GetDirectoryName(Paths.Exe) ?? "", Paths.RunsLegacy ? "amd_fidelityfx_upscaler_dx12.dll" : "amd_fidelityfx_upscaler_vk.dll")),
+                xess = File.Exists(Path.Combine(Path.GetDirectoryName(Paths.Exe) ?? "", "libxess.dll")),
+            },
             paths = new { root = Paths.Root, user = Paths.User, exe = Paths.Exe, gameDefault = Paths.GameDirDefault, gameDir = Paths.GameDir, gameFromEnv = Paths.GameDirFromEnv, log = Paths.Log },
             checks = new
             {

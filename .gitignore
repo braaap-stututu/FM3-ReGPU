@@ -15,6 +15,7 @@
 
 # Dependencies supplied locally (see README)
 /thirdparty/ffmpeg/
+/thirdparty/dxc/
 /thirdparty/fidelityfx/
 /thirdparty/dlss/
 /thirdparty/sdl3/

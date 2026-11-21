@@ -56,18 +56,20 @@ Each fix can be switched off for comparison; the switches and details are in [NO
     downloads everything into `toolchain\` (gitignored): the MSVC 14.44 x64 libraries and headers and the Windows SDK
     10.0.26100 from Microsoft's own Visual Studio 2022 package feed (you're asked to accept Microsoft's Build Tools
     licence; `-AcceptMicrosoftLicense` skips the question), LLVM 23.1.5, CMake 3.31.10, Ninja 1.13.2 and Python 3.14 (python.org's embeddable package), plus AMD's
-    FidelityFX SDK 2.1.0 and FFmpeg 8.1 LGPL into `thirdparty\`. Each download is checked against a SHA-256 (from
+    FidelityFX SDK 2.4.0 (its Vulkan FSR 3/4 DLLs), FFmpeg 8.1 LGPL and Microsoft's DirectX Shader Compiler (with SPIR-V output, for the Vulkan
+    renderer) into `thirdparty\`. Each download is checked against a SHA-256 (from
     GitHub, Microsoft's feed, or pinned in the script). About 2.2 GB of downloads, kept in `toolchain\downloads` so a
     rerun only fetches what's missing (delete that folder afterwards to save space). `-Launcher` adds the .NET 9 SDK
     for the launcher. `tools\vcenv.cmd`, which every build command below goes through, then uses `toolchain\env.cmd`
     (`FM3_SYSTEM_TOOLCHAIN=1` uses installed tools instead).
   - **Installed:** VS 2022 Build Tools (MSVC 14.44, Windows SDK 10.0.26100, CMake, Ninja) at their default folder,
-    LLVM/clang-cl ≥ 18 at `C:\Program Files\LLVM`, AMD FidelityFX SDK v2.x in `thirdparty/fidelityfx` (its
+    LLVM/clang-cl ≥ 18 at `C:\Program Files\LLVM`, AMD FidelityFX SDK v2.4.0 or newer (Vulkan FSR 3/4) in `thirdparty/fidelityfx` (its
     `Kits/FidelityFX` folder) and an FFmpeg win64 **LGPL shared** build in `thirdparty/ffmpeg` (`include/`, `lib/`,
     `bin/`), e.g. `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases)
 - The **Vulkan SDK** (LunarG, 1.3 or newer; its installer sets `VULKAN_SDK`): ReGPU's shaders are compiled to SPIR-V with
-  its `dxc.exe`, and its `dxcompiler.dll` is copied beside `fm3.exe` (`FM3_DXC_DIR` picks another one). The portable
-  toolchain doesn't fetch it yet. A Vulkan 1.3 GPU and driver to play.
+  its `dxc.exe`, and its `dxcompiler.dll` is copied beside `fm3.exe` (`FM3_DXC_DIR` picks another one). Not needed with
+  the portable toolchain: it fetches that compiler into `thirdparty\dxc`, which the build prefers. A Vulkan 1.3 GPU and
+  driver to play.
 - With installed tools also Python ≥ 3.11 with the `py` launcher (the build runs `py -3` for ReGPU's shader headers; the
   portable toolchain brings its own)
 - The Disc 1 files of your own copy (the folder with `default.xex` and `Media`)

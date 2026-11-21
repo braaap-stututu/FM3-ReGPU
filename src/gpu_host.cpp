@@ -251,6 +251,23 @@ void GpuStart()
 {
     regpu::Config& config = regpu::GetConfig();
     ApplySettings(config);
+    // The GPU choice and VR before the speed preset: Hyper's "auto" asks which GPU this is, which on Vulkan makes the
+    // device there and then, reading REGPU_ADAPTER and REGPU_VR (VR's device extensions). Set after it, they came too late.
+    // settings.ini gpu=<part of a name | index | high | low> (launcher Display "Graphics card", session 33): the GPU
+    // ReGPU renders on (REGPU_ADAPTER, read when its device is made). Empty = Windows' default.
+    if (const std::string gpu = GetSettings().Extra("gpu"); !gpu.empty())
+        DefaultEnv("REGPU_ADAPTER", gpu.c_str());
+    // VR (session 37, ReGPU src/render/xr.cpp): settings.ini vr=screen|cockpit (or FM3_VR / REGPU_VR) puts the game on a virtual
+    // screen in an OpenXR headset (the active runtime: Virtual Desktop, SteamVR, Oculus, ...); cockpit also head-tracks
+    // the in-car view (src/hooks/vr_camera.cpp); the window stays.
+    // (The launcher passes FM3_VR on every run since session 39: its VR tab's mode, or off from the other Play buttons.)
+    if (const char* v = getenv("FM3_VR"); v && *v)
+    {
+        if (strcmp(v, "off") != 0 && strcmp(v, "0") != 0)
+            DefaultEnv("REGPU_VR", v);
+    }
+    else if (const std::string vr = GetSettings().Extra("vr"); !vr.empty() && vr != "off" && vr != "0")
+        DefaultEnv("REGPU_VR", vr.c_str());
     ApplyPerfPreset(config);
     config.userDir = UserDir(); // shader and pipeline caches
     config.windowTitle = L"Forza Motorsport 3";
@@ -471,24 +488,6 @@ void GpuStart()
     // (The VRAM ring wins where the GPU is the limit, system memory where ReGPU's draw thread is: session 36, 1440p 1x
     // grid +5.5% with vram_upload_ring=0, 4x MSAA -1.6%, 4K far worse. The launcher's tooltip says so; the user's choice
     // (session 36) is that toggle, not an automatic pick. REGPU_UPLOAD_RING_AUTO=1, ReGPU patch 57, stays for tests.)
-    // DXC shader compiler (session 35, ReGPU patches regpu-dxc, regpu-vs-corners, regpu-pso-lock): translated shaders
-    // compiled by DXC to DXIL instead of by FXC to DXBC. Races: iGPU 720p +4% over FXC, RX 7900 XTX 4K 4x +2.5% at
-    // equal draws, same picture; its own shader and pipeline caches (the first boot after switching compiles everything).
-    // Off by default; settings.ini shader_compiler=dxc (launcher Settings > Testing "DXC shader compiler"); REGPU_DXC=1
-    // directly. Needs dxcompiler.dll + dxil.dll beside fm3.exe (else FXC, with a log line).
-    if (GetSettings().Extra("shader_compiler") == "dxc")
-        DefaultEnv("REGPU_DXC", "1");
-    // VR (session 37, ReGPU src/render/xr.cpp): settings.ini vr=screen|cockpit (or FM3_VR / REGPU_VR) puts the game on a virtual
-    // screen in an OpenXR headset (the active runtime: Virtual Desktop, SteamVR, Oculus, ...); cockpit also head-tracks
-    // the in-car view (src/hooks/vr_camera.cpp); the window stays.
-    // (The launcher passes FM3_VR on every run since session 39: its VR tab's mode, or off from the other Play buttons.)
-    if (const char* v = getenv("FM3_VR"); v && *v)
-    {
-        if (strcmp(v, "off") != 0 && strcmp(v, "0") != 0)
-            DefaultEnv("REGPU_VR", v);
-    }
-    else if (const std::string vr = GetSettings().Extra("vr"); !vr.empty() && vr != "off" && vr != "0")
-        DefaultEnv("REGPU_VR", vr.c_str());
     // vr=stereo (session 38): ReGPU draws the main view a second time for the other eye. FM3 draws its scene turned
     // 180 degrees (the resolved scene image is upside down and mirrored; the final composite turns it back), so camera
     // +x lands at clip -x: the eye offsets are swapped (measured on the grid: unswapped, near objects moved right from
@@ -537,7 +536,9 @@ void GpuStart()
     // waits a moment for a frame that is nearly done. vr_pace=0 in settings.ini (launcher: off) leaves the cap as set.
     if (GetSettings().Extra("vr_pace") != "0")
         DefaultEnv("REGPU_VR_PACE", "1");
-    Log("gpu: shader compiler %s", getenv("REGPU_DXC") && *getenv("REGPU_DXC") && strcmp(getenv("REGPU_DXC"), "0") ? "DXC (if its DLLs load)" : "FXC");
+    // (Vulkan: shaders are always compiled by DXC to SPIR-V, or by ReGPU's direct translator. settings.ini shader_compiler
+    // was the D3D12 build's FXC/DXC choice: ignored here. It must not set REGPU_DXC=1: on Vulkan that variable names the
+    // dxc.exe of the fallback compile path.)
     Log("gpu: upload ring in VRAM %s", getenv("REGPU_GPU_UPLOAD_RING") && strcmp(getenv("REGPU_GPU_UPLOAD_RING"), "0") ? "on (if resizable BAR)" : "off");
     // Sun glare size (session 14): FM3 sizes the glare from the occlusion query's raw sample count (not
     // the visible share): none below ~0.55x our count of a fully visible sun, largest at ~1.5-2x. At 1x
@@ -550,10 +551,6 @@ void GpuStart()
     // surfaces instead of 3840x3072: -1.2 GB VRAM and +3.8% fps on the frozen grid, picture within cross-boot noise.
     // REGPU_SURFACE_ROWS=1024 = as before (start-time).
     DefaultEnv("REGPU_SURFACE_ROWS", "720");
-    // settings.ini gpu=<part of a name | index | high | low> (launcher Display "Graphics card", session 33): the GPU
-    // ReGPU renders on (REGPU_ADAPTER, read when its device is made). Empty = Windows' default.
-    if (const std::string gpu = GetSettings().Extra("gpu"); !gpu.empty())
-        DefaultEnv("REGPU_ADAPTER", gpu.c_str());
     Log("gpu: draw workers on by default (occlusion queries counted on the command processor)");
 
     // Q18, the road surface: the road shader samples a 512x512 detail image the game composes at run time
