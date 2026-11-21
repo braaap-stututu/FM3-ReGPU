@@ -2,6 +2,20 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ Released v0.43.0-beta (2026-11-21 evening, user's request; pre-release)
+- https://github.com/braaap-stututu/FM3-ReGPU/releases/tag/v0.43.0-beta, tag on main 8d3d10f (Vulkan main, ReGPU
+  604dd2b). Assets:
+  - setup exe (200 MB);
+  - Windows portable zip and updater patch zip (353 MB each: `legacy-dx12\` is shipped now);
+  - Linux tar.gz and, new, a **Linux portable tar.gz** (`build-linux.ps1` writes both; portable.txt, saves in `user/`).
+  - GitHub's SHA-256 of the patch zip matches the local file.
+  - Notes: `out/installer/dist/release-notes-0.43.0-beta.md`.
+- **Not booted for the release** (user: no boots, another session works on FM4). `build\rel` was current with main
+  (ninja: no work); `build\legacy` is from LegacyDX12 99a6d05.
+- **Next (user):** they install it on the Steam Deck, then I make an optimised Deck default there. On the Deck, the native
+  Linux launcher lacks WebKitGTK; the Windows launcher run through Proton works (Cloud research note below).
+- **Not tested yet:** the 0.42 -> 0.43 update through the launcher (the first real updater download).
+
 ### ▶ Start here (2026-11-21 afternoon): CPU-side work, measured on 2 cores
 - **Read the 2-core numbers as a contention test, not as a weak CPU** (the user's correction). Holding the game to 2
   cores of a 9800X3D keeps each core very fast; a Steam Deck or an older PC is slower per core. What carries over is
