@@ -4,7 +4,11 @@
 // (driver::SetLongFrameCallback, from its long-frame log), the samples inside that frame are logged as
 // "long stacks:" lines: the top functions, then the most frequent call chains. Each sample stops the thread for a
 // few microseconds. Symbols come from crash.cpp's SymInitialize.
+// Armed sampling (2026-11-21): a frame is sampled only once it has run half the reported length (FM3_LONG_STACKS_ARM=<ms>
+// overrides; 0 = every millisecond as before). Stopping the draw thread every millisecond cost ~4% of the frame rate
+// in a 1440p race (346 fps vs 332, 1% low 260 vs 249); a long frame still gets its slow part sampled.
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -21,6 +25,7 @@
 #include <tlhelp32.h>
 
 #include "regpu/driver.h"
+#include "regpu/regpu.h"
 #include "log.h"
 
 namespace
@@ -33,20 +38,27 @@ struct LongSample
 };
 std::mutex g_longMutex;
 std::deque<std::pair<int64_t, double>> g_longPending; // (frame end in ns, frame ms)
+std::atomic<int64_t> g_frameStartNs{ 0 };              // the draw thread's last frame end (Host::onSwap)
 
 int64_t NowNs()
 {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-// On ReGPU's draw thread, at the end of a long frame: only queue it.
-void OnLongFrame(uint64_t, double ms, double)
+double LongMinMs()
 {
     static const double minMs = [] {
         const char* e = getenv("FM3_LONG_STACKS");
         const int v = e ? atoi(e) : 0;
         return v > 1 ? double(v) : 15.0;
     }();
+    return minMs;
+}
+
+// On ReGPU's draw thread, at the end of a long frame: only queue it.
+void OnLongFrame(uint64_t, double ms, double)
+{
+    const double minMs = LongMinMs();
     if (ms < minMs)
         return;
     std::lock_guard lock(g_longMutex);
@@ -186,7 +198,12 @@ void StartLongFrameSampler()
     if (!env || !*env || !strcmp(env, "0"))
         return;
     regpu::driver::SetLongFrameCallback(OnLongFrame);
-    std::thread([] {
+    if (!regpu::GetHost().onSwap)
+        regpu::GetHost().onSwap = [](uint64_t) { g_frameStartNs.store(NowNs(), std::memory_order_relaxed); };
+    const char* armEnv = getenv("FM3_LONG_STACKS_ARM");
+    const int64_t armNs = int64_t((armEnv ? atof(armEnv) : LongMinMs() / 2) * 1e6);
+    Log("long stacks: frames sampled once they have run %.1f ms", double(armNs) / 1e6);
+    std::thread([armNs] {
         HANDLE thread = nullptr;
         while (!(thread = FindDrawThread()))
             Sleep(500);
@@ -215,11 +232,16 @@ void StartLongFrameSampler()
                 }
                 continue;
             }
+            // Armed: only a frame that has already run armNs (the draw thread's frame ends come from Host::onSwap).
+            if (armNs > 0)
+                if (const int64_t start = g_frameStartNs.load(std::memory_order_relaxed); start && NowNs() - start < armNs)
+                    continue;
             // One sample: the registers and a copy of the stack while it is stopped; unwound after it runs again
             // (unwinding a stopped thread can deadlock on a lock it holds).
             if (SuspendThread(thread) == DWORD(-1))
                 continue;
             const int64_t ns = NowNs();
+            static uintptr_t stackEnd = 0; // the stack region's end (its top), found once
             CONTEXT c{};
             c.ContextFlags = CONTEXT_FULL;
             const bool ok = GetThreadContext(thread, &c);
@@ -227,9 +249,11 @@ void StartLongFrameSampler()
             if (ok)
             {
                 MEMORY_BASIC_INFORMATION mbi{};
-                if (VirtualQuery(reinterpret_cast<void*>(c.Rsp), &mbi, sizeof(mbi)))
+                if (c.Rsp < stackEnd || VirtualQuery(reinterpret_cast<void*>(c.Rsp), &mbi, sizeof(mbi)))
                 {
-                    const uintptr_t end = uintptr_t(mbi.BaseAddress) + mbi.RegionSize;
+                    if (c.Rsp >= stackEnd)
+                        stackEnd = uintptr_t(mbi.BaseAddress) + mbi.RegionSize;
+                    const uintptr_t end = stackEnd;
                     copied = std::min<size_t>(32 * 1024, end - c.Rsp);
                     memcpy(stackCopy.data(), reinterpret_cast<const void*>(c.Rsp), copied);
                 }
