@@ -3,6 +3,10 @@
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
 ### ▶ Start here (2026-11-21 afternoon): CPU-side work, measured on 2 cores
+- **Read the 2-core numbers as a contention test, not as a weak CPU** (the user's correction). Holding the game to 2
+  cores of a 9800X3D keeps each core very fast; a Steam Deck or an older PC is slower per core. What carries over is
+  the work removed per frame (calls, syscalls, wake-ups, faults), not the percentages; changes tuned to the core
+  count (the hand-off spin) need checking on the real target.
 - **Method:**
   - Frozen grid at 1440p native, the game held to 2 cores / 4 threads.
   - Scripts: `ReGPU-V\work\bench\grid.ps1` (Start-DevGrid, affinity job) and `ab.ps1` (alternating boots of saved exe
