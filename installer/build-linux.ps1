@@ -64,7 +64,8 @@ The game is the Windows build; it runs through Proton (tested) or Wine. The laun
 
 Needs:
   - WebKitGTK 4.1 for the launcher window (Ubuntu/Debian: libwebkit2gtk-4.1-0, Arch: webkit2gtk-4.1, Fedora: webkit2gtk4.1)
-  - one of: umu-launcher (umu-run; Proton outside Steam), a Proton in Steam (Proton 9+, GE-Proton), or Wine with vkd3d
+  - one of: umu-launcher (umu-run; Proton outside Steam), a Proton in Steam (Proton 9+, GE-Proton), or Wine
+    (the game renders with Vulkan itself; the Legacy DX12 renderer is not in the Linux package)
   - a Vulkan driver (Mesa RADV for AMD, the NVIDIA driver)
 
 Start:  ./fm3-launcher.sh   (or: sh fm3-launcher.sh)
@@ -81,4 +82,14 @@ New-Item -ItemType Directory -Force $out | Out-Null
 $tgz = Join-Path $out "FM3-ReGPU-linux-$Version.tar.gz"
 python -I installer\pack_linux.py $stage $tgz
 if ($LASTEXITCODE) { throw "Packing failed." }
-Get-Item $tgz | Select-Object FullName, @{ n = "MB"; e = { [math]::Round($_.Length / 1MB, 1) } }
+
+# The portable package (0.43): the same files plus portable.txt, so saves, settings and the shader cache stay in user/
+# beside fm3.exe (one folder, e.g. on a Steam Deck's SD card). The launcher passes that folder to the game as
+# FM3_USER_DIR, so Proton's prefix doesn't matter.
+[System.IO.File]::WriteAllBytes("$stage\portable.txt", [System.Text.Encoding]::UTF8.GetBytes("Saves and settings stay in the user folder beside fm3.exe. Delete this file to use ~/Documents/fm3 instead.`n"))
+$portableReadme = ($readme -replace "Saves and settings: ~/Documents/fm3\.", "Saves and settings: user/ in this folder (portable.txt; delete it to use ~/Documents/fm3).")
+[System.IO.File]::WriteAllBytes("$stage\README-LINUX.txt", [System.Text.Encoding]::UTF8.GetBytes(($portableReadme -replace "`r`n", "`n")))
+$ptgz = Join-Path $out "FM3-ReGPU-linux-$Version-portable.tar.gz"
+python -I installer\pack_linux.py $stage $ptgz
+if ($LASTEXITCODE) { throw "Packing failed." }
+Get-Item $tgz, $ptgz | Select-Object FullName, @{ n = "MB"; e = { [math]::Round($_.Length / 1MB, 1) } }
