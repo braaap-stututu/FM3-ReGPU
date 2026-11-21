@@ -4,7 +4,11 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 `default.xex` v0.0.0.8, SHA-256 `aa15372c13bc4c899b5ef90a1cfb5634d389b0a3620cc9715f6023d61a9b8742`)
 for Windows x64, on [ReXenon](https://github.com/zer0ducksgiven/ReXenon) (a fork of hedge-dev's
 [XenonRecomp](https://github.com/hedge-dev/XenonRecomp), the default recompiler; XenonRecomp stays selectable) +
-[ReGPU](https://github.com/zer0ducksgiven/ReGPU) (Direct3D 12). Layout and build follow the FM2 and FM4 ReGPU ports.
+[ReGPU](https://github.com/braaap-stututu/ReGPU) (**Vulkan** since November 2026: our ReGPU fork's `vulkan` branch, which
+carries every FM3 fix from the old patch stack). The Direct3D 12 renderer this replaced lives on as branch
+[`LegacyDX12`](https://github.com/braaap-stututu/FM3-ReGPU/tree/LegacyDX12) (upstream ReGPU 57143cb plus `patches/`); the
+launcher's Settings > Testing "Legacy DX12 renderer" runs it when it is built (`build\legacy\fm3.exe`, or `legacy-dx12\fm3.exe`
+in an install). Layout and build follow the FM2 and FM4 ReGPU ports.
 
 (i tried to make this a fork of the FM2 ReGPU project but github wouldn't let me)
 
@@ -61,6 +65,9 @@ Each fix can be switched off for comparison; the switches and details are in [NO
     LLVM/clang-cl ≥ 18 at `C:\Program Files\LLVM`, AMD FidelityFX SDK v2.x in `thirdparty/fidelityfx` (its
     `Kits/FidelityFX` folder) and an FFmpeg win64 **LGPL shared** build in `thirdparty/ffmpeg` (`include/`, `lib/`,
     `bin/`), e.g. `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases)
+- The **Vulkan SDK** (LunarG, 1.3 or newer; its installer sets `VULKAN_SDK`): ReGPU's shaders are compiled to SPIR-V with
+  its `dxc.exe`, and its `dxcompiler.dll` is copied beside `fm3.exe` (`FM3_DXC_DIR` picks another one). The portable
+  toolchain doesn't fetch it yet. A Vulkan 1.3 GPU and driver to play.
 - With installed tools also Python ≥ 3.11 with the `py` launcher (the build runs `py -3` for ReGPU's shader headers; the
   portable toolchain brings its own)
 - The Disc 1 files of your own copy (the folder with `default.xex` and `Media`)

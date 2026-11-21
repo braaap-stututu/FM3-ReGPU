@@ -660,9 +660,9 @@
         <div><div class="toggle-title">Light performance log</div><div class="toggle-sub">fps, frame times, GPU and draw-thread load; near-free</div></div>
         <button class="switch" id="perfLogLight" role="switch"></button>
       </div>
-      <div class="toggle-row" data-tip="Runs the experimental system instead of the normal one: the game code recompiled by ReXenon with more aggressive register optimisations, plus experimental renderer changes as they are built (session 45 onwards). It is a separate program (build\exp\fm3.exe, or experimental\fm3.exe in an install), so turning this off goes straight back to the normal build. Same saves and settings. It can crash or draw things wrong: turn it off if anything looks odd and tell us. Needs the experimental build to be present; without it the normal build runs.">
-        <div><div class="toggle-title">Experimental build</div><div class="toggle-sub">Deep ReXenon/ReGPU reworks in progress, off by default</div></div>
-        <button class="switch" id="experimental" role="switch"></button>
+      <div class="toggle-row" data-tip="The game renders with Vulkan by default (ReGPU's Vulkan renderer, since November 2026: the same picture, faster shader compiles, fewer stutters). This runs the older Direct3D 12 renderer instead, kept as the legacy option. It is a separate program (build\legacy\fm3.exe, or legacy-dx12\fm3.exe in an install), so turning this off goes straight back to Vulkan. Same saves and settings; the two keep separate shader caches, so the first start of either after switching compiles its shaders. Needs the legacy build to be present; without it the Vulkan build runs.">
+        <div><div class="toggle-title">Legacy DX12 renderer</div><div class="toggle-sub">The old Direct3D 12 renderer instead of Vulkan, off by default</div></div>
+        <button class="switch" id="legacyDx12" role="switch"></button>
       </div>
       <div class="toggle-row" data-tip="Splits draw translation across ReGPU's draw workers on the draw thread. For comparisons: at 720p it was slower than off (195 vs 216 fps on a paused grid). Read when the game starts.">
         <div><div class="toggle-title">Draw workers</div><div class="toggle-sub">Performance A/B, off by default</div></div>

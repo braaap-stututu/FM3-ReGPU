@@ -110,6 +110,10 @@ $regpuPatches = @(
     'regpu-exp-trace-parts'          # Experimental system (session 46): REGPU_EXP_TRACE_STATE also counts repeats per state part, null-PS candidate draws and the draw thread's waits
     'regpu-cache-release'            # Session 46: texture heaps with free ranges (best fit, merged, empty heaps released); resolved images, spares, cubes and mip chains unused for 60 s released (REGPU_NO_CACHE_RELEASE=1 off)
 )
+# Since 21 Nov 2026 (main, Vulkan): thirdparty/ReGPU is braaap-stututu/ReGPU's vulkan branch, which carries this whole stack
+# already (merged, then converted to Vulkan; the D3D12-only parts are gone). Nothing is applied to it. The list stays as
+# the record of what came from here; branch LegacyDX12 still applies it to upstream ReGPU 57143cb.
+$regpuPatches = @()
 
 function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed ($LASTEXITCODE)" } }
 

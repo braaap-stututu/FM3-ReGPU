@@ -4,7 +4,8 @@
 	ignore = dirty
 [submodule "thirdparty/ReGPU"]
 	path = thirdparty/ReGPU
-	url = https://github.com/zer0ducksgiven/ReGPU
+	url = https://github.com/braaap-stututu/ReGPU
+	branch = vulkan
 	ignore = dirty
 [submodule "thirdparty/ReXenon"]
 	path = thirdparty/ReXenon

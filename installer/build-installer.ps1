@@ -36,6 +36,12 @@ New-Item -ItemType Directory -Force "$stage\launcher", "$stage\licenses" | Out-N
 $rel = Join-Path $root "build\rel"
 Copy-Item "$rel\fm3.exe", "$rel\fm3.pdb" $stage
 Get-ChildItem $rel -Filter *.dll | Copy-Item -Destination $stage
+# The launcher's "Legacy DX12 renderer" (branch LegacyDX12, built into build\legacy): shipped when it is built.
+if (Test-Path build\legacy\fm3.exe) {
+    New-Item -ItemType Directory -Force "$stage\legacy-dx12" | Out-Null
+    Copy-Item build\legacy\fm3.exe "$stage\legacy-dx12"
+    Get-ChildItem build\legacy -Filter *.dll | Copy-Item -Destination "$stage\legacy-dx12"
+}
 
 # The boot screen's picture and its layout (src/boot_screen.cpp: boot\ beside fm3.exe, used when the player's user
 # folder has none), from this PC's user folder: kept out of the repository, shipped in the installer (user's decision).

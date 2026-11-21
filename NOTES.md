@@ -2,6 +2,28 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ Start here: main is Vulkan (2026-11-21)
+- **`main` renders with Vulkan** (ReGPU's Vulkan conversion, done in the user's ReGPU-V workspace and checked against
+  D3D12 frame by frame and in races). `thirdparty/ReGPU` is now **braaap-stututu/ReGPU, branch `vulkan`**. That fork
+  carries this repo's whole ReGPU patch stack (merged, then converted; the D3D12-only parts are gone), so
+  `tools/setup.ps1` applies no ReGPU patches any more. `patches/regpu-*.patch` stay as the record.
+- **`LegacyDX12`** is the old `main` (D3D12, upstream ReGPU 57143cb plus the 84 patches). Build it from its own checkout
+  or worktree into this checkout's `build\legacy`. The launcher's Settings > Testing **"Legacy DX12 renderer"**
+  (`legacy_dx12=1`) runs `build\legacy\fm3.exe` (or `legacy-dx12\fm3.exe` in an install; the installer ships it when
+  built). It replaced the "Experimental build" toggle. `experimental` is unchanged and was merged into main with the
+  Vulkan work.
+- **Building:** needs the Vulkan SDK (`VULKAN_SDK`: `dxc.exe` with SPIR-V output, `dxcompiler.dll` beside fm3.exe).
+  After switching between main and LegacyDX12, run `tools\setup.ps1 -NoBuild`: they pin different ReGPU commits, and
+  LegacyDX12 applies the patch stack.
+- **Where the Vulkan work is documented:** ReGPU's `docs/vulkan.md` and `docs/vulkan-conversion-plan.md`. New defaults
+  since 21 Nov:
+  - the direct SPIR-V translator;
+  - deferred pipeline builds, a zero pipeline budget, and off-screen draws that skip once the game has settled (in
+    races, new pipelines show as a frame of pop-in, not stutters);
+  - retired images destroyed on a background thread.
+- **Not ported to Vulkan:** the launcher options that only meant something on D3D12. The "DXC shader compiler" switch
+  and the iGPU root signature 1.1 switch do nothing on Vulkan; Vulkan always uses DXC or the direct translator.
+
 ### ▶ Start here (session 48): state at the end of session 47 (2026-11-20)
 - **Branches:** as in "Start here (session 47)" below: `main` (build\rel, 84 ReGPU patches), `experimental` (build\exp,
   90). **The checkout is on `experimental`** with its stack applied; both builds are current (rel rebuilt this session

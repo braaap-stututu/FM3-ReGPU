@@ -11,12 +11,16 @@ public static class Paths
     /// <summary>The install folder: FM3_ROOT, else the first folder up from the launcher that holds build\rel\fm3.exe
     /// (a source checkout) or fm3.exe itself (an install).</summary>
     public static readonly string Root = Env("FM3_ROOT") ?? FindRoot();
-    public static string Exe => Env("FM3_EXE") ?? (GameSettings.Load().Experimental && ExperimentalExe is { } x ? x : NormalExe);
+    public static string Exe => Env("FM3_EXE") ?? (GameSettings.Load().LegacyDx12 && LegacyExe is { } x ? x : NormalExe);
     public static string NormalExe => File.Exists(Path.Combine(Root, "fm3.exe")) ? Path.Combine(Root, "fm3.exe") : Path.Combine(Root, "build", "rel", "fm3.exe");
     /// <summary>Session 45: the experimental system (branch experimental, CMake FM3_EXPERIMENTAL: ReXenon with register
     /// optimisations and the experimental renderer paths): experimental\fm3.exe in an install, build\exp\fm3.exe in a
     /// source checkout; null when it isn't built. Settings > Testing "Experimental build" (experimental=1) picks it.</summary>
     public static string? ExperimentalExe => new[] { Path.Combine(Root, "experimental", "fm3.exe"), Path.Combine(Root, "build", "exp", "fm3.exe") }.FirstOrDefault(File.Exists);
+    /// <summary>Since 21 Nov 2026 the normal build renders with Vulkan (ReGPU's vulkan branch). The Direct3D 12 renderer it
+    /// replaced is branch LegacyDX12, built as legacy-dx12\fm3.exe in an install or build\legacy\fm3.exe in a source
+    /// checkout; null when it isn't there. Settings > Testing "Legacy DX12 renderer" (legacy_dx12=1) picks it.</summary>
+    public static string? LegacyExe => new[] { Path.Combine(Root, "legacy-dx12", "fm3.exe"), Path.Combine(Root, "build", "legacy", "fm3.exe") }.FirstOrDefault(File.Exists);
     public static string GameDirDefault => Path.Combine(Root, "game");
     /// <summary>The disc's files (Disc 1, the play disc): FM3_GAME_DIR, else the Game folder chosen in the launcher,
     /// else game next to the exe.</summary>
@@ -146,7 +150,8 @@ public sealed class GameSettings
     public bool OneTile { get; set; } = true; // one_tile (on by default since session 40, user): L36, the race scene drawn as one guest tile (src/hooks/one_tile.cpp; read by the game, so play.cmd too)
     public bool DxcShaders { get; set; } // shader_compiler=dxc: ReGPU compiles shaders with DXC (REGPU_DXC, src/gpu_host.cpp; read by the game, so play.cmd too)
     public bool VramUploadRing { get; set; } = true; // vram_upload_ring: L47, ReGPU's upload ring in VRAM via resizable BAR (src/gpu_host.cpp; read by the game, so play.cmd too)
-    public bool Experimental { get; set; } // experimental=1: run the experimental build (Paths.ExperimentalExe) instead of the normal one (session 45)
+    public bool LegacyDx12 { get; set; } // legacy_dx12=1: run the Direct3D 12 build (Paths.LegacyExe) instead of the Vulkan one
+    public bool Experimental { get; set; } // (no longer picks an exe: the Vulkan build took its place) experimental=1: run the experimental build (Paths.ExperimentalExe) instead of the normal one (session 45)
     public bool AsyncPresent { get; set; } = true; // async_present: L12, the frame ends on ReGPU's replay thread (src/gpu_host.cpp; read by the game, so play.cmd too)
     public bool EngineCrossfade { get; set; }      // engine_crossfade: engine sound loops crossfaded at the restart (src/audio/xma.cpp; read by the game, so play.cmd too)
     public bool DebugServer { get; set; } = true;  // REGPU_DEBUG: tools\fm3ctl.ps1 can attach (127.0.0.1 only)
@@ -157,7 +162,7 @@ public sealed class GameSettings
     static double Num(string v, double fallback, double min, double max) =>
         double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? Math.Clamp(d, min, max) : fallback;
 
-    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "update_check", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_mode", "vr_resolution", "triple_resolution", "triple_fullscreen", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "triple_mode", "triple_diag", "triple_dist", "triple_bezel_mm", "triple_gap_mm", "triple_angle_left", "triple_angle_right", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "experimental", "game_folder", "hyper_shader_cuts", "hyper_cull", "igpu_rootsig11", "igpu_spec_constants", "igpu_half_regs", "igpu_uma_no_arena", "igpu_uma_textures", "igpu_compile_threads", "igpu_texture_budget"];
+    static readonly string[] Known = ["profile", "gpu", "resolution", "aspect", "fullscreen", "vsync", "max_fps", "msaa", "aa", "ssaa", "eqaa", "smaa" /* old FM2/FM4 key: dropped on save */, "upscaler", "upscale_quality", "sharpness", "language", "skip_intro", "update_check", "quick_race", "grid_test", "perf_preset", "accurate_sun" /* old option (session 13): dropped on save */, "anisotropy", "aniso_from_game", "car_lod_far", "hide_shader_overlay", "fps_panel", "timer", "perf_log", "perf_log_light", "draw_workers", "async_present", "vram_upload_ring", "upload_ring_auto" /* session 36 experiment: dropped on save */, "shader_compiler", "vr", "vr_mode", "vr_resolution", "triple_resolution", "triple_fullscreen", "vr_camera_motion", "vr_pace", "vr_eye_limit", "linux_runner", "linux_proton", "linux_prefix", "triple", "triple_fov", "triple_mode", "triple_diag", "triple_dist", "triple_bezel_mm", "triple_gap_mm", "triple_angle_left", "triple_angle_right", "one_tile", "mirror_rate", "shadow_rate", "reflect_rate", "engine_crossfade", "debug_server", "experimental", "legacy_dx12", "game_folder", "hyper_shader_cuts", "hyper_cull", "igpu_rootsig11", "igpu_spec_constants", "igpu_half_regs", "igpu_uma_no_arena", "igpu_uma_textures", "igpu_compile_threads", "igpu_texture_budget"];
 
     public static GameSettings Load()
     {
@@ -213,6 +218,7 @@ public sealed class GameSettings
                 case "draw_workers": s.DrawWorkers = v == "1"; break;
                 case "async_present": s.AsyncPresent = v != "0"; break;
                 case "experimental": s.Experimental = v == "1"; break;
+                case "legacy_dx12": s.LegacyDx12 = v == "1"; break;
                 case "vram_upload_ring": s.VramUploadRing = v == "1"; break;
                 case "shader_compiler": s.DxcShaders = v == "dxc"; break;
                 case "one_tile": s.OneTile = v != "0"; break;
@@ -264,7 +270,7 @@ public sealed class GameSettings
         sb.Append($"igpu_rootsig11={B(IgpuRootSig11)}\nigpu_spec_constants={B(IgpuSpecConstants)}\nigpu_half_regs={B(IgpuHalfRegs)}\nigpu_uma_no_arena={B(IgpuUmaNoArena)}\nigpu_uma_textures={B(IgpuUmaTextures)}\n");
         sb.Append($"igpu_compile_threads={(IgpuCompileChoices.Contains(IgpuCompileThreads) ? IgpuCompileThreads : "auto")}\n");
         sb.Append($"igpu_texture_budget={(IgpuTextureBudgets.Contains(IgpuTextureBudget) ? IgpuTextureBudget : "1024")}\n");
-        sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\nvr_camera_motion={B(VrCameraMotion)}\nvr_pace={B(VrPace)}\nlinux_runner={LinuxRunner}\nlinux_proton={LinuxProton}\nlinux_prefix={LinuxPrefix}\nvr_eye_limit={(Options.VrEyeLimit.Any(x => x.Value == VrEyeLimit) ? VrEyeLimit : "0")}\ntriple=0\ntriple_fov={(Options.TripleFov.Any(x => x.Value == TripleFov) ? TripleFov : "0")}\ndebug_server={B(DebugServer)}\nexperimental={B(Experimental)}\n");
+        sb.Append($"anisotropy={B(Anisotropy)}\naniso_from_game={B(AnisoFromGame)}\ncar_lod_far={B(CarLodFar)}\nhide_shader_overlay={B(HideShaderOverlay)}\ntimer={B(Timer)}\nfps_panel={B(FpsPanel)}\nperf_log={B(PerfLog)}\nperf_log_light={B(PerfLogLight)}\ndraw_workers={B(DrawWorkers)}\nasync_present={B(AsyncPresent)}\nvram_upload_ring={B(VramUploadRing)}\none_tile={B(OneTile)}\nmirror_rate={(HalfRateMirror ? 2 : 1)}\nshadow_rate={(HalfRateShadows ? 2 : 1)}\nreflect_rate={(HalfRateReflections ? 2 : 1)}\nengine_crossfade={B(EngineCrossfade)}\nvr_camera_motion={B(VrCameraMotion)}\nvr_pace={B(VrPace)}\nlinux_runner={LinuxRunner}\nlinux_proton={LinuxProton}\nlinux_prefix={LinuxPrefix}\nvr_eye_limit={(Options.VrEyeLimit.Any(x => x.Value == VrEyeLimit) ? VrEyeLimit : "0")}\ntriple=0\ntriple_fov={(Options.TripleFov.Any(x => x.Value == TripleFov) ? TripleFov : "0")}\ndebug_server={B(DebugServer)}\nexperimental={B(Experimental)}\nlegacy_dx12={B(LegacyDx12)}\n");
         sb.Append(DxcShaders ? "shader_compiler=dxc\n" : "shader_compiler=fxc\n");
         sb.Append($"game_folder={Clean(GameFolder)}\n");
         foreach (var (k, v) in keep) sb.Append($"{k}={v}\n");
