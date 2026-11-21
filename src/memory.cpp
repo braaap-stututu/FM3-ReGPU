@@ -312,6 +312,15 @@ LONG CALLBACK OnWatchedWrite(EXCEPTION_POINTERS* info)
     const bool armed = Armed(page);
     ReleaseSRWLockShared(&g_watchLock);
     g_watchFaults++;
+    // FM3_WATCH_LOG=1: the write faults and disarms, every 5 seconds (how much the watch costs the game's threads).
+    if (static const bool watchLog = getenv("FM3_WATCH_LOG") != nullptr; watchLog)
+    {
+        static std::atomic<uint64_t> faults{ 0 }, since{ GetTickCount64() };
+        faults++;
+        uint64_t t = since.load();
+        if (const uint64_t now = GetTickCount64(); now - t > 5000 && since.compare_exchange_strong(t, now))
+            Log("watch: %llu write faults in %.1f s (%s armed)", (unsigned long long)faults.exchange(0), double(now - t) / 1000.0, armed ? "page" : "page not");
+    }
     // The whole 64 KB block around it: a write rarely stops at one page.
     if (armed)
         Disarm(page & ~15u, 16);
