@@ -2,6 +2,55 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ Start here (2026-11-21 afternoon): CPU-side work, measured on 2 cores
+- **Method:**
+  - Frozen grid at 1440p native, the game held to 2 cores / 4 threads.
+  - Scripts: `ReGPU-V\work\bench\grid.ps1` (Start-DevGrid, affinity job) and `ab.ps1` (alternating boots of saved exe
+    folders `work\bench\exe-*`).
+  - Noise: ~0.5-1% between boots (two identical builds: 299.7 vs 298.4).
+  - Races: `work\bench\bench.ps1` (an affinity job beside it for 2 cores).
+  - On 2 cores the game uses ~3.2 of 4 threads: ReGPU draw thread 93%, command processor 74%, game render thread
+    43% (mostly its frame-pacing timer), replay 32%.
+- **Results:**
+  - Grid, 2 cores: 259 -> ~307 fps (+18%).
+  - AI race, 2 cores:
+
+    | | fps | p99 ms | 1% low | 0.1% low |
+    |---|---|---|---|---|
+    | morning build | 253.6 | 5.95 | 142 | 93 |
+    | now (FM3 677fab7) | 301.5 | 5.06 | 166 | 111 |
+
+  - The user's settings at full CPU (GPU-bound): 344 fps, p99 3.57 ms, 1% low 264, 0.1% low 237.
+- **What did it** (2-core grid steps):
+  1. **`-mcx16`**, in both ReGPU and FM3 (+10.5% with 2). MSVC's `<atomic>` marks every function `target("cx16")` under
+     clang, and clang-cl won't inline those into code without it. So every `std::atomic` load/store and
+     `std::atomic_thread_fence` (the recompiled code's sync/lwsync/eieio) was a call. Ports that build with clang-cl
+     (PGR3, FM4, the LegacyDX12 branch) want the same flag.
+  2. The index watch state lives in the arena entry; the deferred-token check at each bind is memoized (in 1).
+  3. Write-watched shader loads: the command processor flags `IM_LOAD`s whose guest pages weren't written, and the
+     draw thread skips the `memcmp`. ~+2%. A `std::unordered_map` there cost the CP 7%; it's a direct-mapped table now.
+  4. Direct-mapped GetPipeline memos (draw state by full key, pipeline by lookup key): +1.9%.
+  5. The hand-off spin only with 6 or more logical CPUs (the process's affinity): +1.4% on 2 cores.
+  6. The draw thread wakes the command processor only at the tail it waits for (`g_tailWant`): +3.2%.
+  7. Index-watch backoff for buffers in 64 KB blocks the title rewrites: write faults ~300/s -> ~62/s.
+- **Tried, not kept:**
+  - `WriteWatchClean` without its lock: -7%, reproduced twice. Unexplained; the lock stays.
+  - A lock-free index fast path keyed on the watch's global sequence: -0.8%, the sequence moves every frame.
+  - Write-watching UploadGuest's repeats: FM3's ranges change every frame.
+- **Open:**
+  - One hang in ~11 grid boots (the round-1 boot of the backoff build). The draw thread waited on a frame fence, the
+    replay thread was idle, the CP was in Drain, and there was no driver reset (event log clean). Not reproduced in 4
+    more boots. The log is not kept; if it recurs, check a GPU wait on a swap-chain semaphore and the targeted
+    wake-up (`REGPU_TAIL_NOTIFY_ALL=1` turns that off).
+  - What's left on the draw thread is spread thin: UploadGuest's hashing 3-4%, DrawImpl's own code, WindowScissor
+    1.8%, the microcode copy 1.1%.
+- **New switches:**
+  - `REGPU_NO_SHADER_WATCH`, `REGPU_SHADER_WATCH_VERIFY`;
+  - `REGPU_HANDOFF_SPIN` (still forces a count);
+  - `REGPU_TAIL_NOTIFY_ALL`;
+  - `FM3_WATCH_LOG=1` (write faults every 5 s);
+  - `LiveSwitch::Generation()`.
+
 ### ▶ Start here (2026-11-21 midday): frame-time lows, measured per frame
 - **How it was measured:** an AI benchmark race (`FM3_BENCHMARK=60`, `FM3_GRID_TEST=1`, Benchmark profile copy) with
   the user's settings (1440p, FSR 3 native AA, cap 360). `REGPU_FRAME_TIMES=<file>` (ReGPU 6d5f3ee) logs every present;
