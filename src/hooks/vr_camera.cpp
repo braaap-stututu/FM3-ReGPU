@@ -29,6 +29,7 @@
 #include <cstring>
 #include <filesystem>
 
+#include "hooks/live_camera.h"
 #include "hooks/triple_screen.h"
 #include "hooks/vr_camera.h"
 #include "kernel/runtime.h"
@@ -246,6 +247,7 @@ void VrCameraMainFrame()
 PPC_FUNC_IMPL(__imp__sub_821E9B50);
 PPC_FUNC(sub_821E9B50)
 {
+    LiveCameraHandOff(base, ctx.r3.u32); // (FM3_LIVE: the game's own camera, before any VR pose, src/hooks/live_camera.cpp)
     if (!Enabled())
     {
         if (TripleOn())

@@ -156,7 +156,7 @@ set(FM3_PGO_PROFILE "${CMAKE_SOURCE_DIR}/pgo/regpu.profdata" CACHE FILEPATH "ReG
 
 add_executable(fm3 ${FM3_SOURCES} "${CMAKE_SOURCE_DIR}/src/fm3.rc")
 target_include_directories(fm3 PRIVATE src "${FM3_PPC_DIR}" ${FM3_XENON_DIR}/thirdparty/simde)
-target_link_libraries(fm3 PRIVATE regpu fm3_ppc XenonUtils synchronization winmm onecore dbghelp xaudio2 bcrypt)
+target_link_libraries(fm3 PRIVATE regpu fm3_ppc XenonUtils synchronization winmm onecore dbghelp xaudio2 bcrypt ws2_32)
 # Racing wheels, pedals, shifters and handbrakes (src/input/wheel, DirectInput).
 target_link_libraries(fm3 PRIVATE dinput8 dxguid)
 target_compile_definitions(fm3 PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS FM3_REGPU_FM4=$<BOOL:${FM3_REGPU_FM4}>)

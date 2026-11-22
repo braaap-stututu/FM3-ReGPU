@@ -8,6 +8,16 @@
   own folder (`$PSScriptRoot`, `__file__`) instead of `G:\...`. `build\rel` is still configured for `G:`: the prebuilt
   `fm3.exe` runs, but a rebuild there needs a fresh CMake configure; `G:/claude code projects/tools` (RGA, Radeon
   Developer Tools) was not copied.
+- **Live camera stream (2026-11-23, second PC):** `src/hooks/live_camera.cpp` (+ one call at the top of the
+  `sub_821E9B50` hook in `vr_camera.cpp`, `ws2_32` linked): with `FM3_LIVE=1` (live switch) every camera hand-off
+  sends the director's view matrix, FOV and active camera as a 96-byte UDP datagram to 127.0.0.1:7342 for frame-ir's
+  Godot viewer (`..\Godot\frame-ir\LIVE.md`); off by default, changes nothing drawn. Checked on the frozen grid: the
+  camera matches the captured one exactly, Godot's picture beside the game's matches as the offline render does.
+  Rebuilt here from scratch: ReXenon tools (`build\tools-rexenon`), `tools\recomp.ps1` -> `out\ppc-rexenon`, a fresh
+  `build\rel` (the first PC's prebuilt build kept as `build\rel-g`; `FM3_BUILD=rel-g` runs it). `setup.ps1` was not
+  run: with `main`'s empty ReGPU patch list it refuses the uncommitted fir tap in `thirdparty\ReGPU`.
+  Vulkan's `vkGetPhysicalDeviceSurfaceCapabilitiesKHR` fails with -13 for every program (Godot too) while the monitor
+  sleeps (DisplayPort drops it): wake it before booting.
 - **What it is** (separate project, user's request): replace FM3's rendering through ReGPU with a scene-level modern
   renderer. ReGPU emits a frame stream (Frame IR), a core rebuilds the scene (assets by hash, material types, baked
   lighting, interpolation), a renderer draws it (Godot 4.7.2 first; a custom Vulkan backend only if measurements demand
