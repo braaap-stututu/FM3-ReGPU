@@ -32,7 +32,7 @@
   - **`build\rel` rebuilt with them** (2026-11-22 02:30, ninja OK, strings checked in fm3.exe). **Not booted yet**:
     the first check is a triple grid boot with `REGPU_NO_GPU_WORK=1` (perf log keeps counting, window frozen).
   - **Committed on ReGPU's `vulkan` branch** as **478adb8**, on top of origin/vulkan a8abaa9 (13 commits newer than the
-    604dd2b this checkout pins), in this submodule's repo; **not pushed**. Checked before the commit: both files compile
+    604dd2b this checkout pins); **pushed to origin/vulkan** (2026-11-22). Checked before the commit: both files compile
     on a8abaa9 with build\rel's exact flags, and regpu_vkprobe/vkrecord/vkresources/vkdraw/vkpasses pass with
     `REGPU_VK_VALIDATION=2` and no messages. The submodule itself still sits at 604dd2b with the same change uncommitted
     (that is what build\rel has). Moving FM3 to the vulkan tip (a8abaa9 + 478adb8) means bumping the submodule and
