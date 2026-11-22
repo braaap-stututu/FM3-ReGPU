@@ -13,6 +13,9 @@
   sends the director's view matrix, FOV and active camera as a 96-byte UDP datagram to 127.0.0.1:7342 for frame-ir's
   Godot viewer (`..\Godot\frame-ir\LIVE.md`); off by default, changes nothing drawn. Checked on the frozen grid: the
   camera matches the captured one exactly, Godot's picture beside the game's matches as the offline render does.
+  Cars too: the main view's per-car draw `sub_828329C8` (from 0x82837F0C, r4 = car object) sends each car body's
+  world matrix (car object **+0x10**; +0x90.. the wheels; found with `FM3_LIVE_CAR_SCAN=1`) as an "FM3K" datagram;
+  in an AI-driven race (`FM3_AI_PLAYER=1`) Godot's cars follow the game's.
   Rebuilt here from scratch: ReXenon tools (`build\tools-rexenon`), `tools\recomp.ps1` -> `out\ppc-rexenon`, a fresh
   `build\rel` (the first PC's prebuilt build kept as `build\rel-g`; `FM3_BUILD=rel-g` runs it). `setup.ps1` was not
   run: with `main`'s empty ReGPU patch list it refuses the uncommitted fir tap in `thirdparty\ReGPU`.
