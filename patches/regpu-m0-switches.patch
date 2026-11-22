@@ -1,0 +1,150 @@
+diff --git a/src/gpu/gpu.cpp b/src/gpu/gpu.cpp
+index e6ded1d..013ff25 100644
+--- a/src/gpu/gpu.cpp
++++ b/src/gpu/gpu.cpp
+@@ -26,6 +26,7 @@
+ #include "regpu/driver.h"
+ 
+ using Clock = std::chrono::steady_clock;
++bool RegpuPerfLiteOn(); // (gpu/renderer.cpp)
+ #include "gpu/regs.h"
+ #include "render/presenter.h"
+ #include "gpu/renderer.h"
+@@ -898,6 +899,31 @@ void Append(const uint32_t* record, uint32_t words)
+     g_log.insert(g_log.end(), record, record + words);
+ }
+ 
++// Draws per screen in triple mode (FM3 port M0; logged once a second with REGPU_PERF_LITE): the guest draws the draw
++// thread handled in the game's own pass ([1]: the centre screen plus the shared passes before its first main-view draw:
++// shadows, reflections, the mirror) and in each side screen's replay ([0] left, [2] right). Counted where the draws
++// arrive on the draw thread (before any draw workers), so the counts are the guest's draws, not host draw calls.
++int g_countScreen = 1;
++uint64_t g_screenDraws[3] = {};
++uint64_t g_screenFrames = 0;
++Clock::time_point g_screenLogged{};
++void LogScreenDraws()
++{
++    g_screenFrames++;
++    const auto now = Clock::now();
++    if (g_screenLogged == Clock::time_point{})
++        g_screenLogged = now;
++    if (now - g_screenLogged < std::chrono::seconds(1))
++        return;
++    const double n = double(g_screenFrames);
++    Log("triple: draws/frame: %.0f centre and shared passes, %.0f left, %.0f right (%.0f in all, %llu frames)", double(g_screenDraws[1]) / n,
++        double(g_screenDraws[0]) / n, double(g_screenDraws[2]) / n, double(g_screenDraws[0] + g_screenDraws[1] + g_screenDraws[2]) / n,
++        (unsigned long long)g_screenFrames);
++    g_screenDraws[0] = g_screenDraws[1] = g_screenDraws[2] = 0;
++    g_screenFrames = 0;
++    g_screenLogged = now;
++}
++
+ // The recorded frame drawn again from its first main-view draw's state (fences, ordered stores and occlusion queries
+ // with their draws are skipped: the guest saw them once).
+ void Replay()
+@@ -923,7 +949,10 @@ void Replay()
+             break;
+         case work::kDraw:
+             if (!inQuery)
++            {
++                g_screenDraws[g_countScreen]++;
+                 FrameOnDraw(a[0], a[1], a[2]);
++            }
+             break;
+         case work::kQuery:
+             inQuery = a[0] == 0;
+@@ -947,10 +976,14 @@ void TripleAtSwap(uint32_t frontBuffer)
+         for (int side : { 0, 2 })
+         {
+             RendererSetTripleView(g_tripleViews[side], true);
++            g_countScreen = side;
+             Replay();
++            g_countScreen = 1;
+             RendererTripleCapture(side, frontBuffer);
+         }
+     RendererSetTripleView(nullptr, false);
++    if (RegpuPerfLiteOn())
++        LogScreenDraws();
+     memcpy(work::g_file.data(), g_endFile.data(), g_endFile.size());
+     g_frames++;
+     g_words += g_log.size();
+@@ -1049,6 +1082,7 @@ void WorkerLoop()
+                 SegShaderLoad(ShaderType(a[0] & 0xFF), a + 3, a[2], a[1], (a[0] >> 8) & 1);
+                 break;
+             case work::kDraw:
++                stereo::g_screenDraws[1]++;
+                 stereo::BeforeDraw();
+                 if (stereo::g_armed && stereo::g_log.empty())
+                     stereo::Append(p, words + 1); // (the draw that started the recording)
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 88481b0..c0efd03 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -2714,6 +2714,26 @@ void SignalFence(uint64_t value)
+     const vk::SemaphoreUse s{ g_r.vkFence, value, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT };
+     vk::Submit(*g_r.vkd, nullptr, 0, nullptr, 0, &s, 1);
+ }
++
++// REGPU_NO_GPU_WORK=1 (start-time; a measuring switch, never for play): every frame is recorded as usual, but nothing
++// recorded reaches the GPU and nothing is presented. Queued lists are submitted empty (the queue's timeline and the
++// frame fences still advance in order, so nothing waits forever), the frame's end acquires no swap chain image and
++// presents nothing (the window keeps its last picture). The frame rate the light performance log reports
++// (REGPU_PERF_LITE, counted at the swap) is then what the command processor, draw thread and replay thread reach
++// without the GPU: the FM3 port's run R6, against the same settings without it. Hyper culling is off with it (its
++// sample counts would be stale), occlusion answers and read-back pixels are stale, and the boot and loading screens'
++// own presents may show garbage.
++bool NoGpuWork()
++{
++    static const bool on = [] {
++        const char* v = getenv("REGPU_NO_GPU_WORK");
++        const bool b = v && *v && strcmp(v, "0") != 0;
++        if (b)
++            Log("renderer: REGPU_NO_GPU_WORK: nothing is sent to the GPU or presented (measuring only)");
++        return b;
++    }();
++    return on;
++}
+ void ReleaseWithFrame(vk::Image& image); // (below)
+ bool g_asyncFrameEnded = false; // the last frame's end was queued on the replay thread (REGPU_ASYNC_PRESENT)
+ 
+@@ -12750,7 +12770,12 @@ void SubmitVkLists(uint32_t n, const VkCommandBuffer* lists)
+     std::lock_guard lock(g_pendingMutex);
+     g_vkPendingLists.insert(g_vkPendingLists.end(), lists, lists + n);
+     if (!g_vkPendingLists.empty())
+-        vk::Submit(*g_r.vkd, g_vkPendingLists.data(), uint32_t(g_vkPendingLists.size()));
++    {
++        if (NoGpuWork())
++            vk::Submit(*g_r.vkd, nullptr, 0); // (REGPU_NO_GPU_WORK: the same step on the timeline, no work)
++        else
++            vk::Submit(*g_r.vkd, g_vkPendingLists.data(), uint32_t(g_vkPendingLists.size()));
++    }
+     g_vkPendingLists.clear();
+ }
+ void QueueVkLists(uint32_t n, const VkCommandBuffer* lists)
+@@ -15031,7 +15056,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+         // Only draws that depth-test with a real compare and write depth (3D meshes, also blended ones that write depth
+         // with CULL_ALL): a HUD's glyphs and menus redraw shared buffers with other contents every frame, and culling
+         // them dropped FM3's HUD text (session 43).
+-        if (!noHyperCull && (cullPasses ? (edramMode == 4 || edramMode == 5) : (edramMode == 4 && WidePass())) && (dc & 2) && (dc & 4) &&
++        if (!noHyperCull && !NoGpuWork() && (cullPasses ? (edramMode == 4 || edramMode == 5) : (edramMode == 4 && WidePass())) && (dc & 2) && (dc & 4) &&
+             ((dc >> 4) & 7) != 7 && !(dc & 1) && (cullAll || opaque))
+         {
+             uint64_t key = 0xCBF29CE484222325ull;
+@@ -18441,6 +18466,17 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         [](VkCommandBuffer cb, void* ctx) {
+             AsyncEnd& e = *static_cast<AsyncEnd*>(ctx);
+             regpu::xr::SetCaptureTag(e.vrTag);
++            if (NoGpuWork())
++            {
++                // (REGPU_NO_GPU_WORK: no copy into the swap chain, so no image acquired and nothing presented; the
++                // buffer is ended but not submitted, the queued lists go empty, the frame's fence still follows them.)
++                vk::Check(vkEndCommandBuffer(cb), "vkEndCommandBuffer(frame)");
++                SubmitVkLists(0, nullptr);
++                e.shownOk = false;
++                if (e.present)
++                    SignalFence(e.fence);
++                return;
++            }
+             e.shownOk = e.copy && PresenterRecordCopy(cb, e.shown, e.overlay, kOverlayW, kOverlayH, e.timer, kTimerW, kTimerH, e.fps, kFpsW, kFpsH,
+                 e.grade ? GradeIntoBackBuffer : nullptr, e.grade);
+             // The front buffer rests sampled between frames (HoldPresent reads it so).

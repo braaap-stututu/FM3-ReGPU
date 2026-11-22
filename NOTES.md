@@ -2,6 +2,42 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ Start here (2026-11-22 night): the renderer replacement project (Godot) and its M0 in this checkout
+- **What it is** (separate project, user's request): replace FM3's rendering through ReGPU with a scene-level modern
+  renderer. ReGPU emits a frame stream (Frame IR), a core rebuilds the scene (assets by hash, material types, baked
+  lighting, interpolation), a renderer draws it (Godot 4.7.2 first; a custom Vulkan backend only if measurements demand
+  it), and ReGPU keeps drawing whatever isn't taken over yet (the HUD at the end). Same system later for PC D3D9
+  (NFS ProStreet), PS3 (GT6 with the ReGPU team), Xbox, PS2, PS1.
+  - Docs: `G:\claude code projects\Godot\frame-ir`: `ARCHITECTURE.md` (roadmap M0-M10, decisions), `SPEC.md` (Frame
+    IR v0.2), `PROFILES.md`, `SCENE_API.md`, `ASSETS.md`, `CORE.md`, C headers.
+  - FM3 plan and M0 plan (a Claude doc, two tabs): https://claude.ai/artifact/9YwNKSa4gNsB9i8P5xme9Q
+  - Nothing of it runs in FM3 yet; it is planning plus the M0 measurements below.
+- **Triple screen is shared with it.** The core reuses this port's triple-screen math, ported to
+  `frame-ir/core/triple_view.h` from `src/hooks/triple_screen.cpp` (layouts, widened frustum, `ViewOf`) and ReGPU's
+  `regpu::triple::View` shader formula; tested identical on seven layouts. Godot cameras built from it:
+  `frame-ir/godot/triple_camera.h`, `triple_cameras.gd`. **If you change the triple layout math or its `FM3_TRIPLE_*`
+  settings here, update that port and rerun `frame-ir/core/triple_view_test.c`**, or the two renderers' screens stop
+  lining up.
+- **M0 = where the triple-screen frame goes** (single 1440p hits the 360 cap; triple 1440p ~127 fps). Runs R1-R8 on
+  FM3 plus G1 (a Godot benchmark), decision rules and an empty results table: the M0 tab of the plan doc.
+  - **G1 done** (2026-11-22, this PC): Godot draws three 2560x1440 views, 4x MSAA, sun shadows, 10,000 instances at
+    ~427 fps (Vulkan) / ~337 (D3D12). Results: `frame-ir/godot/bench/g1/results/2026-11-22/`.
+  - **ReGPU switches for R6/R7, applied in `thirdparty/ReGPU` (uncommitted on top of 604dd2b)**, record in
+    `patches/regpu-m0-switches.patch` (same as `frame-ir/regpu/regpu-m0-switches.patch`, README there):
+    - `REGPU_NO_GPU_WORK=1` (start-time, R6): frames recorded as usual, lists submitted empty (fences still advance),
+      no copy into the swap chain and no present (window freezes); Hyper cull off with it. Measuring only.
+    - R7 uses the existing `REGPU_NO_RENDER=1` (live).
+    - With `REGPU_PERF_LITE=1` in triple mode: a once-a-second line
+      `triple: draws/frame: N centre and shared passes, N left, N right`.
+  - **`build\rel` rebuilt with them** (2026-11-22 02:30, ninja OK, strings checked in fm3.exe). **Not booted yet**:
+    the first check is a triple grid boot with `REGPU_NO_GPU_WORK=1` (perf log keeps counting, window frozen).
+  - **Keep or drop:** to keep, commit them on braaap-stututu/ReGPU `vulkan` and bump the submodule (not done: the
+    user decides). To drop: `git -C thirdparty/ReGPU apply -R patches/regpu-m0-switches.patch`, rebuild.
+  - The 360 cap still applies in R6/R7: use the 2-core setup if a run sits at it.
+- **GPU driver timeouts on this PC:** G1's Godot runs ended in device lost / hangs several times; Windows logged them as
+  GPU timeouts (LiveKernelEvent 141/117) and the user confirmed the driver has timeouts on this PC in general. If an FM3
+  run here dies with device lost, check for the same LiveKernelEvents first.
+
 ### ▶ Released v0.43.0-beta (2026-11-21 evening, user's request; pre-release)
 - https://github.com/braaap-stututu/FM3-ReGPU/releases/tag/v0.43.0-beta, tag on main 8d3d10f (Vulkan main, ReGPU
   604dd2b). Assets:
