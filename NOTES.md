@@ -63,8 +63,8 @@
     the vertex shaders run per draw (numpy) give 94.5 % of a single-screen grid frame's draws their clip positions,
     matching a screenshot; camera recovered (53.00 deg vertical FOV, 16:9, near 0.3); the frame exports as glTF and
     renders in Godot from that camera. FM3 draws its scene into a target that a later pass copies to the screen
-    rotated 180 deg. Open: the silver car in the left lane is missing (details `frame-ir\M1.md`). Capture with screenshot:
-    `frame-ir\m0\results-2026-11-22\fircap.ps1 -Mode single -Shot <png>`; `skipshot.ps1` there boots the grid and shows
+    rotated 180 deg; all 8 grid cars match (details `frame-ir\M1.md`). Capture with screenshot:
+    `frame-ir\m0\results-2026-11-22\fircap.ps1 -Mode single -Shot <png> [-ShotAfter <png>]`; `skipshot.ps1` there boots the grid and shows
     what one shader draws (`REGPU_SKIP_SHADERS`, live).
   - **Game-logic CPU** (AI race, `REGPU_NO_RENDER=1`): guest 7 ~1.3 ms/frame, guest 3 ~1.05, guest 14 ~0.3 on 2 cores at
     358 fps; flat profiles (no function above ~1 %). Not the limit on this PC. Notes, tools, Pinyon Shift's findings:
@@ -151,7 +151,8 @@
   | | fps | p99 ms | 1% low | 0.1% low |
   |---|---|---|---|---|
   | before (morning; 3 runs) | 331 | 3.87 | 245 | ~210 |
-  | after: 0330877 + 7153a65 (6 runs, dev and the user's buildel) | 345 | 3.71 | 252 | ~207 |
+  | after: 0330877 + 7153a65 (6 runs, dev and the user's build
+el) | 345 | 3.71 | 252 | ~207 |
 
 - **Long-frame stacks** (`long_frame_stacks=1`, on in the user's settings) stopped the draw thread every millisecond:
   ~4%. A frame is now sampled only once it has run half the reported length (7.5 ms; `FM3_LONG_STACKS_ARM=<ms>`,
