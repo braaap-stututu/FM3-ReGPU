@@ -39,6 +39,25 @@
     rebuilding: the 13 newer commits come with it. To drop the change here instead:
     `git -C thirdparty/ReGPU apply -R patches/regpu-m0-switches.patch`, rebuild.
   - The 360 cap still applies in R6/R7: use the 2-core setup if a run sits at it.
+  - **M0 run 2026-11-22 (26 grid boots, all clean): go.** build\rel (604dd2b + switches), `FM3_MSAA=4`, upscaler off,
+    auto triple layout, frozen grid, 2 boots each (within ~1%). Full CPU: R1 single 2560x1440 360 (cap; 2 cores 319);
+    R2 triple 7680x1440 **146 fps**, 9,046 draws (3,016 / 3,015 / 3,015: the side replays redraw everything), draw
+    thread 99%, GPU 6.5 ms; R3 centre only 358 (2 cores 274); R4 triple 3840x720 145 (not pixel bound); R5 Hyper cull
+    `REGPU_HYPER_CULL_PIXELS=0` **93 fps** (skipped 16.8%, its queries raised GPU to 10.5 ms: the cheap route loses);
+    R6 `REGPU_NO_GPU_WORK` 146 (the GPU is not the limit); R7 `REGPU_NO_RENDER` 360 (cap; 2 cores 347); R8 AI race
+    triple ~161, centre only 357. ~0.75 us of draw thread per draw. Scripts and raw JSON:
+    `G:\claude code projects\Godot\frame-ir\m0\results-2026-11-22\`; per-run logs and results.csv in `out\perf\m0\`.
+  - **M1 capture tap, stage 1, applied uncommitted in `thirdparty/ReGPU`** (on top of the M0 switches; new files
+    `src/gpu/fir_tap.cpp/.h`, `src/gpu/frame_ir.h`, hooks in `renderer.cpp`), **built into build\rel** (2026-11-22).
+    `REGPU_FIR_CAPTURE=<file>` + live `REGPU_FIR_ARM` (or `REGPU_FIR_AT`), `REGPU_FIR_FRAMES` (3): the game's frames as
+    `.fir` (full register snapshot + per-draw deltas, draws, resolves, shaders, index/vertex/texture data incl. RGBA8
+    decodes; triple replays skipped). First capture on the triple grid: 3 frames, ~2,980 draws a frame, 525 MB, valid;
+    98.6-100 % of draws stable across frames by content, **draw order not stable** (24 % by position). Off: no cost
+    (R2 145.8 fps). Reader `frame-ir\tools\fir_read.py`; **committed on ReGPU `vulkan` as d828ed8** (on 478adb8,
+    not pushed; same content as `frame-ir\regpu\regpu-fir-tap-stage1.patch`); details `frame-ir\M1.md`.
+  - **Game-logic CPU** (AI race, `REGPU_NO_RENDER=1`): guest 7 ~1.3 ms/frame, guest 3 ~1.05, guest 14 ~0.3 on 2 cores at
+    358 fps; flat profiles (no function above ~1 %). Not the limit on this PC. Notes, tools, Pinyon Shift's findings:
+    `frame-ir\GAME-LOGIC.md`.
 - **GPU driver timeouts on this PC:** G1's Godot runs ended in device lost / hangs several times; Windows logged them as
   GPU timeouts (LiveKernelEvent 141/117) and the user confirmed the driver has timeouts on this PC in general. If an FM3
   run here dies with device lost, check for the same LiveKernelEvents first.
