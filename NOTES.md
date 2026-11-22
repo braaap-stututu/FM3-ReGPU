@@ -59,6 +59,13 @@
     fetches from the microcode; index data read through GpuPhysToGuest. build\rel has both (uncommitted here).
   - **M1 stage 2, geometry** (`frame-ir\tools\fir_geometry.py`, offline): 95.2 % of a triple-grid frame's draws decode
     to triangle meshes (all but 144 point lists), 1,432 distinct geometries, wireframes right.
+  - **M1 stage 2, transforms** (2026-11-22, offline, `frame-ir\tools\fir_vs.py` / `fir_frame.py` / `fir_world.py`):
+    the vertex shaders run per draw (numpy) give 94.5 % of a single-screen grid frame's draws their clip positions,
+    matching a screenshot; camera recovered (53.00 deg vertical FOV, 16:9, near 0.3); the frame exports as glTF and
+    renders in Godot from that camera. FM3 draws its scene upside down into a target a later pass flips. Open: some
+    stand/crowd instances land where the game shows none (details `frame-ir\M1.md`). Capture with screenshot:
+    `frame-ir\m0\results-2026-11-22\fircap.ps1 -Mode single -Shot <png>`; `skipshot.ps1` there boots the grid and shows
+    what one shader draws (`REGPU_SKIP_SHADERS`, live).
   - **Game-logic CPU** (AI race, `REGPU_NO_RENDER=1`): guest 7 ~1.3 ms/frame, guest 3 ~1.05, guest 14 ~0.3 on 2 cores at
     358 fps; flat profiles (no function above ~1 %). Not the limit on this PC. Notes, tools, Pinyon Shift's findings:
     `frame-ir\GAME-LOGIC.md`.
