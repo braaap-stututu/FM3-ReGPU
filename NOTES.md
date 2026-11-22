@@ -64,7 +64,7 @@
     matching a screenshot; camera recovered (53.00 deg vertical FOV, 16:9, near 0.3); the frame exports as glTF and
     renders in Godot from that camera. FM3 draws its scene into a target that a later pass copies to the screen
     rotated 180 deg; all 8 grid cars match (details `frame-ir\M1.md`). Later the same day: materials from the pixel
-    shaders plus first FM3 material rules (`frame-ir\profilesm3\materials.json`: paint = PS c118 under the livery,
+    shaders plus first FM3 material rules (`frame-ir\profiles\fm3\materials.json`: paint = PS c118 under the livery,
     track paint = c2), a lit Godot render that looks like the game, and **triple screen from a triple capture: Godot
     draws the grid frame on three 1440p screens at ~289 fps with 4x MSAA and shadows (merged meshes) vs 146 through
     ReGPU** - a static frame, no game logic or post; see the table in `frame-ir\M1.md`. Capture with screenshot:
