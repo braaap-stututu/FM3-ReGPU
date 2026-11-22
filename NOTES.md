@@ -62,8 +62,8 @@
   - **M1 stage 2, transforms** (2026-11-22, offline, `frame-ir\tools\fir_vs.py` / `fir_frame.py` / `fir_world.py`):
     the vertex shaders run per draw (numpy) give 94.5 % of a single-screen grid frame's draws their clip positions,
     matching a screenshot; camera recovered (53.00 deg vertical FOV, 16:9, near 0.3); the frame exports as glTF and
-    renders in Godot from that camera. FM3 draws its scene upside down into a target a later pass flips. Open: some
-    stand/crowd instances land where the game shows none (details `frame-ir\M1.md`). Capture with screenshot:
+    renders in Godot from that camera. FM3 draws its scene into a target that a later pass copies to the screen
+    rotated 180 deg. Open: the silver car in the left lane is missing (details `frame-ir\M1.md`). Capture with screenshot:
     `frame-ir\m0\results-2026-11-22\fircap.ps1 -Mode single -Shot <png>`; `skipshot.ps1` there boots the grid and shows
     what one shader draws (`REGPU_SKIP_SHADERS`, live).
   - **Game-logic CPU** (AI race, `REGPU_NO_RENDER=1`): guest 7 ~1.3 ms/frame, guest 3 ~1.05, guest 14 ~0.3 on 2 cores at
