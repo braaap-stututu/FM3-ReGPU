@@ -53,8 +53,12 @@
     `.fir` (full register snapshot + per-draw deltas, draws, resolves, shaders, index/vertex/texture data incl. RGBA8
     decodes; triple replays skipped). First capture on the triple grid: 3 frames, ~2,980 draws a frame, 525 MB, valid;
     98.6-100 % of draws stable across frames by content, **draw order not stable** (24 % by position). Off: no cost
-    (R2 145.8 fps). Reader `frame-ir\tools\fir_read.py`; **committed on ReGPU `vulkan` as d828ed8** (on 478adb8,
-    not pushed; same content as `frame-ir\regpu\regpu-fir-tap-stage1.patch`); details `frame-ir\M1.md`.
+    (R2 145.8 fps). Reader `frame-ir\tools\fir_read.py`; **committed on ReGPU `vulkan` as d828ed8 + d540cb0** (on
+    478adb8, not pushed; same content as `frame-ir\regpu\regpu-fir-tap-stage1.patch`); details `frame-ir\M1.md`.
+    d540cb0: with baked vertex fetch (ReGPU's default) the translated fetch layout is empty, so the tap decodes vertex
+    fetches from the microcode; index data read through GpuPhysToGuest. build\rel has both (uncommitted here).
+  - **M1 stage 2, geometry** (`frame-ir\tools\fir_geometry.py`, offline): 95.2 % of a triple-grid frame's draws decode
+    to triangle meshes (all but 144 point lists), 1,432 distinct geometries, wireframes right.
   - **Game-logic CPU** (AI race, `REGPU_NO_RENDER=1`): guest 7 ~1.3 ms/frame, guest 3 ~1.05, guest 14 ~0.3 on 2 cores at
     358 fps; flat profiles (no function above ~1 %). Not the limit on this PC. Notes, tools, Pinyon Shift's findings:
     `frame-ir\GAME-LOGIC.md`.
