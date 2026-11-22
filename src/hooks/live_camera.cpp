@@ -18,10 +18,21 @@
 //  80  f32      vertical field of view, radians, whole angle (+0x110)
 //  84  u32      the active camera's vtable (director +0x0C; e.g. 0x8200206C = the in-car view CCamDriver)
 //  88  f64      host time, seconds (QueryPerformanceCounter)
+//
+// Cars (2026-11-23): one datagram per car the main view draws, per drawn frame (src/hooks/mirror.cpp's sub_828329C8
+// hook calls LiveCarDrawn), 96 bytes, little-endian, version 1:
+//   0  char[4]  "FM3K"
+//   4  u32      version (1)
+//   8  u32      sequence number
+//  12  u32      car object (guest address; one per car for the race)
+//  16  f32[16]  the car body's world matrix (car object +0x10): rows = the car's axes in the world, row 3 = position
+//  80  u32[2]   (0)
+//  88  f64      host time, seconds
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -54,6 +65,25 @@ struct Packet
 };
 #pragma pack(pop)
 static_assert(sizeof(Packet) == 96, "live camera packet layout");
+
+// The car object (sub_828329C8's r4 from the main view's car loop, call site 0x82837F0C) keeps its body's world
+// matrix at +0x10 (found 2026-11-23 with FM3_LIVE_CAR_SCAN on the frozen grid): 4x4 floats, rows = the car's axes in
+// the world, row 3 = its position (p_world = p_car * M, row vectors). +0x50 holds the same (the previous step's), and
+// +0x90.. the four wheels (placed, then spun/steered copies).
+constexpr uint32_t kCarBody = 0x10;
+#pragma pack(push, 1)
+struct CarPacket
+{
+    char magic[4]; // "FM3K"
+    uint32_t version; // 1
+    uint32_t seq;
+    uint32_t car; // the car object's guest address (stable for the race)
+    float body[16];
+    uint32_t reserved[2];
+    double time;
+};
+#pragma pack(pop)
+static_assert(sizeof(CarPacket) == 96, "live car packet layout");
 
 struct Target
 {
@@ -137,6 +167,114 @@ double Seconds()
     return double(t.QuadPart) / double(freq.QuadPart);
 }
 } // namespace
+
+// Diagnostic (FM3_LIVE_CAR_SCAN=1): candidate world matrices in a car object and one level of the objects it points to:
+// three orthonormal rows of 4 floats (16-byte stride) followed by a translation row within the track's range.
+static void ScanForMatrices(const uint8_t* base, uint32_t obj, uint32_t span, const char* what, uint32_t car, int depth)
+{
+    auto f = [&](uint32_t a) {
+        const uint32_t b = Load32(base, a);
+        float v;
+        memcpy(&v, &b, 4);
+        return v;
+    };
+    for (uint32_t o = 0; o + 64 <= span; o += 4)
+    {
+        const uint32_t a = obj + o;
+        float r[3][3], t[3];
+        bool ok = true;
+        for (int i = 0; i < 3 && ok; i++)
+        {
+            for (int j = 0; j < 3; j++)
+                r[i][j] = f(a + i * 16 + j * 4);
+            const float n = r[i][0] * r[i][0] + r[i][1] * r[i][1] + r[i][2] * r[i][2];
+            ok = std::isfinite(n) && fabsf(n - 1.0f) < 0.01f;
+        }
+        if (!ok)
+            continue;
+        const float d01 = r[0][0] * r[1][0] + r[0][1] * r[1][1] + r[0][2] * r[1][2];
+        const float d02 = r[0][0] * r[2][0] + r[0][1] * r[2][1] + r[0][2] * r[2][2];
+        const float d12 = r[1][0] * r[2][0] + r[1][1] * r[2][1] + r[1][2] * r[2][2];
+        if (fabsf(d01) > 0.01f || fabsf(d02) > 0.01f || fabsf(d12) > 0.01f)
+            continue;
+        for (int j = 0; j < 3; j++)
+            t[j] = f(a + 48 + j * 4);
+        if (!(std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])) || fabsf(t[0]) + fabsf(t[2]) < 1.0f ||
+            fabsf(t[0]) > 5000 || fabsf(t[1]) > 5000 || fabsf(t[2]) > 5000)
+            continue;
+        Log("live: car %08X %s+0x%X: rows (%.3f %.3f %.3f) (%.3f %.3f %.3f) (%.3f %.3f %.3f) translation (%.3f %.3f %.3f)", car,
+            what, o, r[0][0], r[0][1], r[0][2], r[1][0], r[1][1], r[1][2], r[2][0], r[2][1], r[2][2], t[0], t[1], t[2]);
+    }
+    if (depth == 0)
+        return;
+    // One level down: pointers into guest heap memory.
+    for (uint32_t o = 0; o + 4 <= span; o += 4)
+    {
+        const uint32_t p = Load32(base, obj + o);
+        if (p >= 0x40000000 && p < 0x50000000 && p != obj)
+        {
+            char name[48];
+            snprintf(name, sizeof(name), "[+0x%X]", o);
+            ScanForMatrices(base, p, 0x400, name, car, 0);
+        }
+    }
+}
+
+void LiveCarDrawn(uint8_t* base, uint32_t car)
+{
+    const Target& target = CurrentTarget();
+    if (!target.on || !car)
+        return;
+    static const bool scan = [] {
+        const char* v = getenv("FM3_LIVE_CAR_SCAN");
+        return v && *v && strcmp(v, "0") != 0;
+    }();
+    if (scan)
+    {
+        static uint32_t scanned[16] = {};
+        for (uint32_t& c : scanned)
+        {
+            if (c == car)
+                break;
+            if (c == 0)
+            {
+                c = car;
+                Log("live: car %08X (vtable %08X): scanning for world matrices", car, Load32(base, car));
+                ScanForMatrices(base, car, 0x1000, "", car, 1);
+                break;
+            }
+        }
+    }
+    const SOCKET s = Socket();
+    if (s == INVALID_SOCKET)
+        return;
+    static uint32_t seq = 0;
+    CarPacket p = {};
+    memcpy(p.magic, "FM3K", 4);
+    p.version = 1;
+    p.seq = ++seq;
+    p.car = car;
+    for (int i = 0; i < 16; i++)
+    {
+        const uint32_t bits = Load32(base, car + kCarBody + i * 4);
+        memcpy(&p.body[i], &bits, 4);
+    }
+    p.time = Seconds();
+    sendto(s, reinterpret_cast<const char*>(&p), int(sizeof(p)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
+           int(sizeof(target.addr)));
+    static uint32_t seen[16] = {};
+    for (uint32_t& c : seen)
+    {
+        if (c == car)
+            break;
+        if (c == 0)
+        {
+            c = car;
+            Log("live: car %08X at (%.3f %.3f %.3f)", car, p.body[12], p.body[13], p.body[14]);
+            break;
+        }
+    }
+}
 
 void LiveCameraHandOff(uint8_t* base, uint32_t view)
 {

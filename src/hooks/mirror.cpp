@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <string>
 
+#include "hooks/live_camera.h"
 #include "kernel/imports.h"
 #include "log.h"
 #include "settings.h"
@@ -219,6 +220,8 @@ PPC_FUNC(sub_828329C8)
             }
         }
     }
+    if (uint32_t(ctx.lr) == 0x82837F0C)
+        LiveCarDrawn(base, ctx.r4.u32); // (FM3_LIVE: each car the main view draws, src/hooks/live_camera.cpp)
     if (farLod > 0 && uint32_t(ctx.lr) == 0x82837F0C)
     {
         const uint32_t field = ctx.r10.u32 + 596;
