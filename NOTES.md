@@ -31,8 +31,13 @@
       `triple: draws/frame: N centre and shared passes, N left, N right`.
   - **`build\rel` rebuilt with them** (2026-11-22 02:30, ninja OK, strings checked in fm3.exe). **Not booted yet**:
     the first check is a triple grid boot with `REGPU_NO_GPU_WORK=1` (perf log keeps counting, window frozen).
-  - **Keep or drop:** to keep, commit them on braaap-stututu/ReGPU `vulkan` and bump the submodule (not done: the
-    user decides). To drop: `git -C thirdparty/ReGPU apply -R patches/regpu-m0-switches.patch`, rebuild.
+  - **Committed on ReGPU's `vulkan` branch** as **478adb8**, on top of origin/vulkan a8abaa9 (13 commits newer than the
+    604dd2b this checkout pins), in this submodule's repo; **not pushed**. Checked before the commit: both files compile
+    on a8abaa9 with build\rel's exact flags, and regpu_vkprobe/vkrecord/vkresources/vkdraw/vkpasses pass with
+    `REGPU_VK_VALIDATION=2` and no messages. The submodule itself still sits at 604dd2b with the same change uncommitted
+    (that is what build\rel has). Moving FM3 to the vulkan tip (a8abaa9 + 478adb8) means bumping the submodule and
+    rebuilding: the 13 newer commits come with it. To drop the change here instead:
+    `git -C thirdparty/ReGPU apply -R patches/regpu-m0-switches.patch`, rebuild.
   - The 360 cap still applies in R6/R7: use the 2-core setup if a run sits at it.
 - **GPU driver timeouts on this PC:** G1's Godot runs ended in device lost / hangs several times; Windows logged them as
   GPU timeouts (LiveKernelEvent 141/117) and the user confirmed the driver has timeouts on this PC in general. If an FM3
