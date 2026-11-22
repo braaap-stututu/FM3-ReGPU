@@ -1,5 +1,5 @@
 # Session 23, phase 1: live switches on the frozen test grid, one boot (PERF-PLAN step 1).
-. "G:\claude code projects\FM3-ReGPU recomp\tools\perf_suite.ps1" -Run s23
+. "$PSScriptRoot\..\..\..\tools\perf_suite.ps1" -Run s23
 Write-Note '=== phase 1: live switches'
 if (-not (Start-Grid)) { Write-Note 'phase 1: boot failed'; exit 1 }
 $m = Get-Fps 15; $s = Save-Shot 'P1-base'

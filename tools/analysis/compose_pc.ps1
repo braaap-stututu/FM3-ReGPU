@@ -1,6 +1,6 @@
 param([string]$Label = "a")
-. "G:\claude code projects\FM3-ReGPU recomp\tools\fm3ctl.ps1"
-$log = "G:\claude code projects\FM3-ReGPU recomp\out\run\fm3.log"
+. "$PSScriptRoot\..\fm3ctl.ps1"
+$log = "$PSScriptRoot\..\..\out\run\fm3.log"
 for ($try = 1; $try -le 6; $try++) {
     $before = (Get-Content $log).Count
     Fm3 "capture" | Out-Null

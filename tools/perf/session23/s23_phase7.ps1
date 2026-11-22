@@ -1,5 +1,5 @@
 # Session 23, phase 7: rebuild with the presets' helper-pass pieces out, then each preset once more (picture + fps).
-$root = "G:\claude code projects\FM3-ReGPU recomp"
+$root = (Resolve-Path "$PSScriptRoot\..\..\..").Path
 . "$root\tools\perf_suite.ps1" -Run s23
 $o = $Suite.Out
 Stop-Game

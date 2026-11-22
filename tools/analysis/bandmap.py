@@ -6,7 +6,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pngstat import read_png
 
-D = r"G:\claude code projects\FM3-ReGPU recomp\out\shots" + "\\"
+D = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "out", "shots") + os.sep
 B = 16
 X0, X1, Y0, Y1 = 330, 1264, 480, 640       # road below the horizon, right of the grass
 CAR = (470, 400, 810, 650)                 # skip the car

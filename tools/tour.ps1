@@ -20,7 +20,7 @@
 #>
 param([string]$Run = (Get-Date -Format 'yyyyMMdd-HHmm'))
 
-$TourRoot = 'G:\claude code projects\FM3-ReGPU recomp'
+$TourRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $TourRoot 'tools\fm3ctl.ps1')
 $TourOut = Join-Path $TourRoot "out\perf\tour\$Run"
 $TourLog = Join-Path $TourRoot 'out\run\fm3.log'

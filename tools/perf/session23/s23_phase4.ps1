@@ -1,6 +1,6 @@
 # Session 23, phase 4: CPU-side leads where the CPU is the limit: 1280x720, MSAA 1x (settings.ini edited for the
 # run, then restored). Live: L11 ring wait modes (with CPU use), I4a, I4b, I5, I1. Start-time: L9, L13, DT-off.
-$root = "G:\claude code projects\FM3-ReGPU recomp"
+$root = (Resolve-Path "$PSScriptRoot\..\..\..").Path
 . "$root\tools\perf_suite.ps1" -Run s23
 $ini = "$root\out\user\settings.ini"
 Copy-Item $ini "$ini.phase4-saved" -Force

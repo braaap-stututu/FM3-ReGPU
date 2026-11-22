@@ -2,7 +2,7 @@
 # shader variants; the second is the clean measurement), a defaults boot between every two variants (drift).
 # Shots of each boot; pixel diff vs the nearest defaults boot, masked by the crowd areas (boot check pair).
 param([string[]]$Only = @())
-. "G:\claude code projects\FM3-ReGPU recomp\tools\perf_suite.ps1" -Run s23
+. "$PSScriptRoot\..\..\..\tools\perf_suite.ps1" -Run s23
 $o = $Suite.Out
 $variants = [ordered]@{
     'L3-optimize'   = @{ REGPU_OPTIMIZE_SHADERS = '1' }

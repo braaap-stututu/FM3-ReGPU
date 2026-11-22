@@ -12,7 +12,7 @@
 
   Buttons: UP DOWN LEFT RIGHT START BACK LS RS LB RB A B X Y (join with +).
 #>
-$Fm3Root  = "G:\claude code projects\FM3-ReGPU recomp"
+$Fm3Root  = Split-Path -Parent $PSScriptRoot
 $Fm3DevExe  = Join-Path $Fm3Root "build\rel\fm3.exe"
 $Fm3DevGame = Join-Path $Fm3Root "reference\rexglue recomp reference\hl360-forza3\game\disc1"
 $Fm3DevRun  = Join-Path $Fm3Root "out\run"

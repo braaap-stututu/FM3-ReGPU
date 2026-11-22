@@ -1,6 +1,6 @@
 # Session 23, phase 3: measurements before code (PERF-PLAN step 3): GPU time per pass/resolve (L26, first form),
 # then per shader (the AI-car material price list), each on the frozen grid; the log blocks are saved.
-. "G:\claude code projects\FM3-ReGPU recomp\tools\perf_suite.ps1" -Run s23
+. "$PSScriptRoot\..\..\..\tools\perf_suite.ps1" -Run s23
 $o = $Suite.Out
 Write-Note '=== phase 3: GPU time by pass and by shader'
 foreach ($v in @(@('passes', @{ REGPU_GPU_PASSES = '1' }), @('shaders', @{ REGPU_GPU_SHADERS = '1' }),

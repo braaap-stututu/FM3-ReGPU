@@ -4,7 +4,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pngstat import read_png
 
-D = r"G:\claude code projects\FM3-ReGPU recomp\out\shots" + "\\"
+D = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "out", "shots") + os.sep
 BOXES = {"smooth": (868, 628, 884, 644), "grainy": (982, 612, 998, 628)}
 
 def stats(name, box):

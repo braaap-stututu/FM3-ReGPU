@@ -1,5 +1,5 @@
 # Session 23, phase 6: which preset piece breaks the race picture (white rectangles in Mild/Potato/Low/Extreme).
-$root = "G:\claude code projects\FM3-ReGPU recomp"
+$root = (Resolve-Path "$PSScriptRoot\..\..\..").Path
 . "$root\tools\perf_suite.ps1" -Run s23
 $o = $Suite.Out
 $sets = [ordered]@{

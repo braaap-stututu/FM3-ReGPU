@@ -1,7 +1,7 @@
 # Session 23, L11: ring wait modes (FM3_RING_WAIT 0 spin, 1 yield, 2 sleep 100 us), live on the frozen grid:
 # fps and the game's CPU use (process CPU time over the sample window, in cores), interleaved 3 rounds.
 param([switch]$Boot)
-. "G:\claude code projects\FM3-ReGPU recomp\tools\perf_suite.ps1" -Run s23
+. "$PSScriptRoot\..\..\..\tools\perf_suite.ps1" -Run s23
 Write-Note '=== L11 ring wait modes'
 if ($Boot -or -not (Get-Process fm3 -ErrorAction SilentlyContinue)) { if (-not (Start-Grid)) { Write-Note 'L11: boot failed'; exit 1 } }
 $res = @{}

@@ -1,6 +1,6 @@
 # Session 23, phase 8: L11 frame pacing. FM3_RING_WAIT 0 (spin) vs 2 (sleep), 4 interleaved rounds of 8 s on the frozen
 # grid, frame-time spread from the debug server (`frametimes`: avg, p50, p99, p99.9, max, frames over 20/33 ms).
-$root = "G:\claude code projects\FM3-ReGPU recomp"
+$root = (Resolve-Path "$PSScriptRoot\..\..\..").Path
 . "$root\tools\perf_suite.ps1" -Run s23
 Write-Note '=== phase 8: L11 frame pacing'
 if (-not (Start-Grid)) { Write-Note 'phase 8: boot failed'; exit 1 }

@@ -3,6 +3,11 @@
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
 ### ▶ Start here (2026-11-22 night): the renderer replacement project (Godot) and its M0 in this checkout
+- **Second PC (2026-11-22, about a week):** this checkout is at `C:\claude code projects\handoff-2026-11-22\FM3-ReGPU
+  recomp` there (G: is another partition), beside `..\Godot`. Every script under `tools\` now finds the repo from its
+  own folder (`$PSScriptRoot`, `__file__`) instead of `G:\...`. `build\rel` is still configured for `G:`: the prebuilt
+  `fm3.exe` runs, but a rebuild there needs a fresh CMake configure; `G:/claude code projects/tools` (RGA, Radeon
+  Developer Tools) was not copied.
 - **What it is** (separate project, user's request): replace FM3's rendering through ReGPU with a scene-level modern
   renderer. ReGPU emits a frame stream (Frame IR), a core rebuilds the scene (assets by hash, material types, baked
   lighting, interpolation), a renderer draws it (Godot 4.7.2 first; a custom Vulkan backend only if measurements demand

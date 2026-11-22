@@ -2,7 +2,7 @@ import glob, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import dumpdecode as dd
 
-d = r"G:\claude code projects\FM3-ReGPU recomp\out\strips"
+d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "out", "strips")
 meta = {"fmt": 18, "w": 32, "h": 512, "pitch": 4, "tiled": 1, "endian": 1}
 rows = []
 for f in sorted(glob.glob(os.path.join(d, "strip_*.bin"))):

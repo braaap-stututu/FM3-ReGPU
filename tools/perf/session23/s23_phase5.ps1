@@ -1,6 +1,6 @@
 # Session 23, phase 5: the promising start-time pieces alone and stacked, 3 boots each, rotated with defaults
 # (A B C D A B C D ...), so drift spreads over all of them. 1440p 4x (the user's settings).
-$root = "G:\claude code projects\FM3-ReGPU recomp"
+$root = (Resolve-Path "$PSScriptRoot\..\..\..").Path
 . "$root\tools\perf_suite.ps1" -Run s23
 $o = $Suite.Out
 $sets = [ordered]@{

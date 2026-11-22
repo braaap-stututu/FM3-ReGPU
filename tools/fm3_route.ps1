@@ -21,7 +21,7 @@
   Start=Return  Back=Tab  D-pad=Shift+Arrows  LStick=WASD  RT(throttle)=E  LT=Q
 #>
 
-$Fm3Root      = "G:\claude code projects\FM3-ReGPU recomp"
+$Fm3Root      = Split-Path -Parent $PSScriptRoot
 $Fm3Exe       = Join-Path $Fm3Root "reference\rexglue recomp reference\hl360-forza3\out\build\win-amd64-release\fm3.exe"
 $Fm3UserRoot  = Join-Path $Fm3Root "reference\rexglue recomp reference\hl360-forza3\user"
 $Fm3DumpRoot  = Join-Path $Fm3Root "dumps\hl360"

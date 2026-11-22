@@ -6,7 +6,7 @@ Static recompilation of **Forza Motorsport 3 Ultimate Collection (USA)** (Xbox 3
 
 **Renderer replacement project (2026-11-22):** a separate project plans moving FM3's rendering from ReGPU's Xenos
 emulation to a native scene-level renderer (Godot 4.7.2 first), fed by a frame stream from ReGPU. Its docs live in
-`G:\claude code projects\Godot\frame-ir` (start with `ARCHITECTURE.md`). This checkout is touched by it: **ReGPU has the
+`..\Godot\frame-ir` (the Godot folder beside this repo; start with `ARCHITECTURE.md`). This checkout is touched by it: **ReGPU has the
 M0 measuring switches applied, uncommitted** (`REGPU_NO_GPU_WORK`, per-screen triple draw counts), and **the core copies
 FM3's triple-screen math**. Read NOTES' "Start here (2026-11-22 night)" before changing triple screen or ReGPU's
 frame end.
@@ -122,7 +122,7 @@ frame end.
   `cmd /c scripts\build_sdk.cmd` then `cmd /c scripts\build.cmd release` (SDK incremental ≈ 1 min, game ≈ 1.5 min).
 - Scripted capture (PowerShell; state doesn't persist between tool calls, so do it in one call):
   ```powershell
-  . "G:\claude code projects\FM3-ReGPU recomp\tools\fm3_route.ps1"; Invoke-Fm3Route -RunLabel myrun
+  . ".\tools\fm3_route.ps1"; Invoke-Fm3Route -RunLabel myrun
   ```
   Manual capture: create `dumps\hl360\TRIGGER` while the game runs.
 - Inspect: `python -I tools/dumpdecode.py list|decode|diff …`

@@ -1,6 +1,6 @@
 # Session 23: after phase 1, build the new code (L15 exports, L11 ring wait, L4 pipeline statistics) and run the
 # rest unattended: phase 3, L11, fixed-dt check, phase 2.
-$root = "G:\claude code projects\FM3-ReGPU recomp"
+$root = (Resolve-Path "$PSScriptRoot\..\..\..").Path
 . "$root\tools\perf_suite.ps1" -Run s23
 Stop-Game
 Write-Note '=== chain: building'

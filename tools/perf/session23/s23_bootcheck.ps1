@@ -1,5 +1,5 @@
 # Session 23: is the frozen test grid the same on every boot? 3 boots: shots, fps, AI roster from the log.
-. "G:\claude code projects\FM3-ReGPU recomp\tools\perf_suite.ps1" -Run s23
+. "$PSScriptRoot\..\..\..\tools\perf_suite.ps1" -Run s23
 Write-Note '=== boot check: 3 boots of the test grid'
 for ($b = 1; $b -le 3; $b++) {
     if (-not (Start-Grid @{ FM3_AI_POOL_LOG = '1' })) { Write-Note "boot $b failed"; continue }
