@@ -31,6 +31,9 @@
 // Right after each car datagram, its wheels ("FM3W", 280 bytes): magic, version 1, seq (the car datagram's), car,
 // f32[4][16] the four wheels' world matrices as drawn (car object +0x190 + 0x40 k: spin and steering included), f64 time.
 //
+// The player's engine ("FM3E", 32 bytes, from the car loop at most every 4 ms): magic, version 1, u32 the player's
+// car-physics object, f32 engine speed (rpm), f32 redline (rpm), u32 0, f64 time (2026-11-24, the cockpit tach).
+//
 // The drawn camera ("FM3V", the camera datagram's layout; director = the render object): the view matrix the frame
 // with those cars is drawn with (render object +0x0), sent from the car loop whenever it changes. A viewer should take
 // its camera from these when they come: "FM3C" (the hand-off) runs ahead of the drawn frame and so of the cars.
@@ -244,6 +247,34 @@ static void ScanForMatrices(const uint8_t* base, uint32_t obj, uint32_t span, co
 
 static std::atomic<uint32_t> g_lastDirector{ 0 };
 
+// The player's engine (2026-11-24, for the cockpit tach): the car-physics object's engine speed at +324 and redline at
+// +452, both rad/s (FH1R's ICarDynamics has the same two offsets). Found through the getters that turn them into rpm
+// (x 60/2pi, the constant at 0x82000BEC): sub_821ED218 = redline (+452), called virtually; the call returning to
+// 0x821F2044 is made for the player's car (the HUD), so its r3 is the player's physics object. Checked on the CR-X:
+// idle 848 rpm, ~5,665 at half throttle with the clutch in (HUD tach ~5,700), redline 9,500. Sent as "FM3E".
+static std::atomic<uint32_t> g_playerPhysics{ 0 };
+constexpr uint32_t kEngineSpeed = 324, kEngineRedline = 452;
+
+void LivePlayerPhysics(uint32_t physics)
+{
+    if (physics && g_playerPhysics.exchange(physics) != physics)
+        Log("live: player car physics %08X", physics);
+}
+
+#pragma pack(push, 1)
+struct EnginePacket
+{
+    char magic[4]; // "FM3E"
+    uint32_t version; // 1
+    uint32_t physics; // the player's car-physics object (guest address)
+    float rpm; // engine speed, rpm
+    float redline; // rpm
+    uint32_t reserved;
+    double time;
+};
+#pragma pack(pop)
+static_assert(sizeof(EnginePacket) == 32, "live engine packet layout");
+
 // Diagnostic (FM3_LIVE_CAM_SCAN=1): where the car loop's arguments hold a copy of the camera: any 3x3 (16-byte stride)
 // within 0.02 of the director's current view rotation, plus the translation row next to it, every 2 s.
 static void ScanForCamera(const uint8_t* base, const uint32_t args[7])
@@ -366,6 +397,31 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
             }
             v.time = p.time;
             sendto(s, reinterpret_cast<const char*>(&v), int(sizeof(v)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
+                   int(sizeof(target.addr)));
+        }
+    }
+    // The player's engine ("FM3E"), at most every 4 ms (the car loop runs once per car per frame).
+    if (const uint32_t phys = g_playerPhysics.load(); phys >= 0x40000000 && phys < 0x80000000)
+    {
+        static double lastSent = 0;
+        if (p.time - lastSent >= 0.004)
+        {
+            lastSent = p.time;
+            EnginePacket e = {};
+            memcpy(e.magic, "FM3E", 4);
+            e.version = 1;
+            e.physics = phys;
+            auto f = [&](uint32_t a) {
+                const uint32_t b = Load32(base, a);
+                float v;
+                memcpy(&v, &b, 4);
+                return v;
+            };
+            constexpr float kRpm = 9.5492966f; // 60 / 2pi
+            e.rpm = f(phys + kEngineSpeed) * kRpm;
+            e.redline = f(phys + kEngineRedline) * kRpm;
+            e.time = p.time;
+            sendto(s, reinterpret_cast<const char*>(&e), int(sizeof(e)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
                    int(sizeof(target.addr)));
         }
     }

@@ -250,6 +250,16 @@ PPC_FUNC(sub_828329C8)
     __imp__sub_828329C8(ctx, base);
 }
 
+// FM3_LIVE (2026-11-24): the car-physics redline getter (x 60/2pi; called virtually); the call returning to 0x821F2044
+// is the HUD's, for the player's car: its object is where the live stream reads the engine speed (live_camera.cpp).
+PPC_FUNC_IMPL(__imp__sub_821ED218);
+PPC_FUNC(sub_821ED218)
+{
+    if (uint32_t(ctx.lr) == 0x821F2044)
+        LivePlayerPhysics(ctx.r3.u32);
+    __imp__sub_821ED218(ctx, base);
+}
+
 PPC_FUNC_IMPL(__imp__sub_827FDB88);
 PPC_FUNC(sub_827FDB88)
 {

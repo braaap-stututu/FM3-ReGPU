@@ -13,3 +13,7 @@ void LiveCameraHandOff(uint8_t* base, uint32_t view);
 // logs, once per car, every place its object holds a world matrix (how +0x10 was found).
 // args: r3, r5, r6, r7, r8, r9, r10 of that call (FM3_LIVE_CAM_SCAN=1 looks there for the frame's camera).
 void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7]);
+
+// The player's car-physics object (src/hooks/mirror.cpp's sub_821ED218 hook, the redline getter the HUD calls): its
+// engine speed and redline are sent as "FM3E" from the car loop.
+void LivePlayerPhysics(uint32_t physics);
