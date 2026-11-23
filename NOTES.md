@@ -15,7 +15,12 @@
   camera matches the captured one exactly, Godot's picture beside the game's matches as the offline render does.
   Cars too: the main view's per-car draw `sub_828329C8` (from 0x82837F0C, r4 = car object) sends each car body's
   world matrix (car object **+0x10**; +0x90.. the wheels; found with `FM3_LIVE_CAR_SCAN=1`) as an "FM3K" datagram;
-  in an AI-driven race (`FM3_AI_PLAYER=1`) Godot's cars follow the game's.
+  in an AI-driven race (`FM3_AI_PLAYER=1`) Godot's cars follow the game's. Stutter fixed the same day: the hand-off
+  camera runs on the logic thread at 360 Hz, ahead of the drawn frame's cars, so the car loop now also sends the
+  camera the frame is drawn with (its render object, `r10` of the `sub_828329C8` call, holds the view matrix at
+  **+0x0**; found with `FM3_LIVE_CAM_SCAN=1`) as "FM3V" before that frame's cars; the viewer interpolates the drawn
+  frames. A minute-long AI race: 0.4% frozen viewer frames, speed jitter median 7.7%. Where to continue:
+  `..\Godot\frame-ir\LIVE.md` "Next for stage A" (the user was asked whether to chase the remaining uneven steps).
   Rebuilt here from scratch: ReXenon tools (`build\tools-rexenon`), `tools\recomp.ps1` -> `out\ppc-rexenon`, a fresh
   `build\rel` (the first PC's prebuilt build kept as `build\rel-g`; `FM3_BUILD=rel-g` runs it). `setup.ps1` was not
   run: with `main`'s empty ReGPU patch list it refuses the uncommitted fir tap in `thirdparty\ReGPU`.
