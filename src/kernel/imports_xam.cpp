@@ -3,6 +3,8 @@
 // answered with its default.
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -446,9 +448,25 @@ bool Key(int vk)
     return GetAsyncKeyState(vk) & 0x8000;
 }
 
-// Keyboard input only counts while one of this process's windows is in front.
+// FM3_INPUT_BACKGROUND=1 (2026-11-23, for the live mirror: the player watches the Godot viewer's window, not the
+// game's): keyboard and wheel input count whichever window is in front. Off by default.
+bool InputInBackground()
+{
+    static const bool on = [] {
+        const char* v = getenv("FM3_INPUT_BACKGROUND");
+        const bool b = v && *v && strcmp(v, "0") != 0;
+        if (b)
+            Log("input: keyboard and wheel read whichever window is in front (FM3_INPUT_BACKGROUND)");
+        return b;
+    }();
+    return on;
+}
+
+// Keyboard input only counts while one of this process's windows is in front (unless FM3_INPUT_BACKGROUND).
 bool GameWindowHasFocus()
 {
+    if (InputInBackground())
+        return true;
     DWORD pid = 0;
     GetWindowThreadProcessId(GetForegroundWindow(), &pid);
     return pid == GetCurrentProcessId();
@@ -461,7 +479,7 @@ wheel::System& WheelInput()
         wheel::SetLog([](const char* line) { Log("%s", line); });
         wheel::System& s = wheel::System::Get();
         s.Start(wheel::Config::From([](const char* key) { return GetSettings().Extra(key); }));
-        s.SetFocusCheck(true);
+        s.SetFocusCheck(!InputInBackground());
         return s;
     }();
     return sys;
