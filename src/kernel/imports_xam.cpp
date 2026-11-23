@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "hooks/grid_test.h"
+#include "hooks/live_camera.h"
 #include "input/wheel/wheel_system.h"
 #include "kernel/imports.h"
 #include "kernel/runtime.h"
@@ -790,6 +791,9 @@ bool ReadPad(uint32_t user, PadState& s, bool gameRead = true)
         else
             heldSince[user] = {}, done[user] = false;
     }
+    // (FM3_LIVE: player 1's steering for the Godot viewer's cockpit wheel, src/hooks/live_camera.cpp)
+    if (user == 0 && gameRead)
+        LiveSteerInput(float(s.lx) / 32767.0f, isWheel ? uint32_t(WheelInput().GetConfig().lock) : 0);
     return connected;
 }
 }

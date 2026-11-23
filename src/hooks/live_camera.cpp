@@ -31,8 +31,9 @@
 // Right after each car datagram, its wheels ("FM3W", 280 bytes): magic, version 1, seq (the car datagram's), car,
 // f32[4][16] the four wheels' world matrices as drawn (car object +0x190 + 0x40 k: spin and steering included), f64 time.
 //
-// The player's engine ("FM3E", 32 bytes, from the car loop at most every 4 ms): magic, version 1, u32 the player's
-// car-physics object, f32 engine speed (rpm), f32 redline (rpm), u32 0, f64 time (2026-11-24, the cockpit tach).
+// The player's engine and steering ("FM3E", 40 bytes, from the car loop at most every 4 ms): magic, version 2, u32 the
+// player's car-physics object, f32 engine speed (rpm), f32 redline (rpm), f32 player 1's steering input (-1..1), u32
+// the racing wheel's lock in degrees (0 = no wheel), u32 0, f64 time (2026-11-24: the cockpit tach and steering wheel).
 //
 // The drawn camera ("FM3V", the camera datagram's layout; director = the render object): the view matrix the frame
 // with those cars is drawn with (render object +0x0), sent from the car loop whenever it changes. A viewer should take
@@ -253,6 +254,16 @@ static std::atomic<uint32_t> g_lastDirector{ 0 };
 // 0x821F2044 is made for the player's car (the HUD), so its r3 is the player's physics object. Checked on the CR-X:
 // idle 848 rpm, ~5,665 at half throttle with the clutch in (HUD tach ~5,700), redline 9,500. Sent as "FM3E".
 static std::atomic<uint32_t> g_playerPhysics{ 0 };
+// Player 1's steering input as the game reads it (-1..1, src/kernel/imports_xam.cpp ReadPad) and, on a wheel, the
+// configured lock (wheel_lock, degrees of wheel travel for full steering; 0 = no wheel): the viewer's steering wheel.
+static std::atomic<float> g_steer{ 0.0f };
+static std::atomic<uint32_t> g_steerLock{ 0 };
+
+void LiveSteerInput(float steer, uint32_t lockDegrees)
+{
+    g_steer.store(steer, std::memory_order_relaxed);
+    g_steerLock.store(lockDegrees, std::memory_order_relaxed);
+}
 constexpr uint32_t kEngineSpeed = 324, kEngineRedline = 452;
 
 void LivePlayerPhysics(uint32_t physics)
@@ -265,15 +276,17 @@ void LivePlayerPhysics(uint32_t physics)
 struct EnginePacket
 {
     char magic[4]; // "FM3E"
-    uint32_t version; // 1
+    uint32_t version; // 2
     uint32_t physics; // the player's car-physics object (guest address)
     float rpm; // engine speed, rpm
     float redline; // rpm
+    float steer; // player 1's steering input, -1 (full left) .. 1
+    uint32_t lock; // degrees of wheel travel for full steering on a racing wheel (wheel_lock); 0 = no wheel
     uint32_t reserved;
     double time;
 };
 #pragma pack(pop)
-static_assert(sizeof(EnginePacket) == 32, "live engine packet layout");
+static_assert(sizeof(EnginePacket) == 40, "live engine packet layout");
 
 // Diagnostic (FM3_LIVE_CAM_SCAN=1): where the car loop's arguments hold a copy of the camera: any 3x3 (16-byte stride)
 // within 0.02 of the director's current view rotation, plus the translation row next to it, every 2 s.
@@ -409,8 +422,10 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
             lastSent = p.time;
             EnginePacket e = {};
             memcpy(e.magic, "FM3E", 4);
-            e.version = 1;
+            e.version = 2;
             e.physics = phys;
+            e.steer = g_steer.load(std::memory_order_relaxed);
+            e.lock = g_steerLock.load(std::memory_order_relaxed);
             auto f = [&](uint32_t a) {
                 const uint32_t b = Load32(base, a);
                 float v;
