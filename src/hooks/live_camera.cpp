@@ -28,10 +28,15 @@
 //  16  f32[16]  the car body's world matrix (car object +0x10): rows = the car's axes in the world, row 3 = position
 //  80  u32[2]   (0)
 //  88  f64      host time, seconds
+//
+// The drawn camera ("FM3V", the camera datagram's layout; director = the render object): the view matrix the frame
+// with those cars is drawn with (render object +0x0), sent from the car loop whenever it changes. A viewer should take
+// its camera from these when they come: "FM3C" (the hand-off) runs ahead of the drawn frame and so of the cars.
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
 
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -220,11 +225,64 @@ static void ScanForMatrices(const uint8_t* base, uint32_t obj, uint32_t span, co
     }
 }
 
-void LiveCarDrawn(uint8_t* base, uint32_t car)
+static std::atomic<uint32_t> g_lastDirector{ 0 };
+
+// Diagnostic (FM3_LIVE_CAM_SCAN=1): where the car loop's arguments hold a copy of the camera: any 3x3 (16-byte stride)
+// within 0.02 of the director's current view rotation, plus the translation row next to it, every 2 s.
+static void ScanForCamera(const uint8_t* base, const uint32_t args[7])
+{
+    static ULONGLONG next = 0;
+    if (GetTickCount64() < next)
+        return;
+    next = GetTickCount64() + 2000;
+    const uint32_t director = g_lastDirector.load();
+    if (!director)
+        return;
+    auto f = [&](uint32_t a) {
+        const uint32_t b = Load32(base, a);
+        float v;
+        memcpy(&v, &b, 4);
+        return v;
+    };
+    float dv[16];
+    for (int i = 0; i < 16; i++)
+        dv[i] = f(director + kDirectorView + i * 4);
+    Log("live: camscan director view row 3 (%.3f %.3f %.3f) rot (%.3f %.3f %.3f)", dv[12], dv[13], dv[14], dv[0], dv[1], dv[2]);
+    static const char* names[7] = { "r3", "r5", "r6", "r7", "r8", "r9", "r10" };
+    for (int k = 0; k < 7; k++)
+    {
+        const uint32_t obj = args[k];
+        if (obj < 0x40000000 || obj >= 0x80000000)
+            continue;
+        for (uint32_t o = 0; o + 64 <= 0x1000; o += 4)
+        {
+            float m[12];
+            for (int i = 0; i < 3; i++)
+                for (int j = 0; j < 3; j++)
+                    m[i * 3 + j] = f(obj + o + i * 16 + j * 4);
+            float err = 0;
+            for (int i = 0; i < 3; i++)
+                for (int j = 0; j < 3; j++)
+                    err = std::fmax(err, fabsf(m[i * 3 + j] - dv[i * 4 + j]));
+            if (!(err < 0.02f))
+                continue;
+            Log("live: camscan %s(%08X)+0x%X: rot err %.4f, row 3 (%.3f %.3f %.3f)", names[k], obj, o, err, f(obj + o + 48),
+                f(obj + o + 52), f(obj + o + 56));
+        }
+    }
+}
+
+void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
 {
     const Target& target = CurrentTarget();
     if (!target.on || !car)
         return;
+    static const bool camScan = [] {
+        const char* v = getenv("FM3_LIVE_CAM_SCAN");
+        return v && *v && strcmp(v, "0") != 0;
+    }();
+    if (camScan)
+        ScanForCamera(base, args);
     static const bool scan = [] {
         const char* v = getenv("FM3_LIVE_CAR_SCAN");
         return v && *v && strcmp(v, "0") != 0;
@@ -260,6 +318,41 @@ void LiveCarDrawn(uint8_t* base, uint32_t car)
         memcpy(&p.body[i], &bits, 4);
     }
     p.time = Seconds();
+    // The camera this frame is drawn with (FM3_LIVE_CAM_SCAN, 2026-11-23): the car loop's render object (r10) holds the
+    // frame's view matrix at +0x0, the director's (+0xD0) as it was when this frame was built, one logic step or more
+    // behind the director by the time the render thread draws. Sent as "FM3V" (the camera packet's layout) whenever it
+    // changes, so a viewer gets cars and camera from the same frame; the camera hand-off's "FM3C" runs ahead of both (on
+    // the logic thread at 360 Hz), which shook the cars against the camera.
+    if (const uint32_t view = args[6]; view >= 0x40000000 && view < 0x80000000)
+    {
+        static float last[16] = {};
+        Packet v = {};
+        memcpy(v.magic, "FM3V", 4);
+        v.version = 1;
+        for (int i = 0; i < 16; i++)
+        {
+            const uint32_t bits = Load32(base, view + i * 4);
+            memcpy(&v.view[i], &bits, 4);
+        }
+        if (memcmp(v.view, last, sizeof(last)) != 0)
+        {
+            memcpy(last, v.view, sizeof(last));
+            static uint32_t vseq = 0;
+            v.seq = ++vseq;
+            v.director = view;
+            if (const uint32_t director = g_lastDirector.load())
+            {
+                const uint32_t fovBits = Load32(base, director + kDirectorFov);
+                memcpy(&v.fov, &fovBits, 4);
+                const uint32_t camera = Load32(base, director + kDirectorActive);
+                v.cameraVtable = camera ? Load32(base, camera) : 0;
+            }
+            v.time = p.time;
+            sendto(s, reinterpret_cast<const char*>(&v), int(sizeof(v)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
+                   int(sizeof(target.addr)));
+        }
+    }
+    // (After the frame's camera: a viewer groups the car datagrams that follow an "FM3V" into that frame.)
     sendto(s, reinterpret_cast<const char*>(&p), int(sizeof(p)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
            int(sizeof(target.addr)));
     static uint32_t seen[16] = {};
@@ -284,6 +377,7 @@ void LiveCameraHandOff(uint8_t* base, uint32_t view)
     const uint32_t director = Load32(base, view + 4);
     if (!director)
         return;
+    g_lastDirector.store(director);
     const SOCKET s = Socket();
     if (s == INVALID_SOCKET)
         return;

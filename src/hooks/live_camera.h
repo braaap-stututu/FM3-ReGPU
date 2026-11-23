@@ -11,4 +11,5 @@ void LiveCameraHandOff(uint8_t* base, uint32_t view);
 // Called for each car the main view draws (sub_828329C8 from 0x82837F0C, src/hooks/mirror.cpp; car = r4, the car
 // object). With FM3_LIVE set it sends the car body's world matrix (one "FM3K" datagram); FM3_LIVE_CAR_SCAN=1 also
 // logs, once per car, every place its object holds a world matrix (how +0x10 was found).
-void LiveCarDrawn(uint8_t* base, uint32_t car);
+// args: r3, r5, r6, r7, r8, r9, r10 of that call (FM3_LIVE_CAM_SCAN=1 looks there for the frame's camera).
+void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7]);
