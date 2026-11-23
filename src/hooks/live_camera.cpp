@@ -28,6 +28,8 @@
 //  16  f32[16]  the car body's world matrix (car object +0x10): rows = the car's axes in the world, row 3 = position
 //  80  u32[2]   (0)
 //  88  f64      host time, seconds
+// Right after each car datagram, its wheels ("FM3W", 280 bytes): magic, version 1, seq (the car datagram's), car,
+// f32[4][16] the four wheels' world matrices as drawn (car object +0x190 + 0x40 k: spin and steering included), f64 time.
 //
 // The drawn camera ("FM3V", the camera datagram's layout; director = the render object): the view matrix the frame
 // with those cars is drawn with (render object +0x0), sent from the car loop whenever it changes. A viewer should take
@@ -76,6 +78,21 @@ static_assert(sizeof(Packet) == 96, "live camera packet layout");
 // the world, row 3 = its position (p_world = p_car * M, row vectors). +0x50 holds the same (the previous step's), and
 // +0x90.. the four wheels (placed, then spun/steered copies).
 constexpr uint32_t kCarBody = 0x10;
+// The four wheels as drawn, spin and steering included (same scan): +0x190, +0x1D0, +0x210, +0x250 (+0x90.. hold them
+// placed without the spin, +0x290.. again without it).
+constexpr uint32_t kCarWheels = 0x190;
+#pragma pack(push, 1)
+struct WheelPacket
+{
+    char magic[4]; // "FM3W"
+    uint32_t version; // 1
+    uint32_t seq;
+    uint32_t car;
+    float wheel[4][16];
+    double time;
+};
+#pragma pack(pop)
+static_assert(sizeof(WheelPacket) == 280, "live wheel packet layout");
 #pragma pack(push, 1)
 struct CarPacket
 {
@@ -355,6 +372,22 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
     // (After the frame's camera: a viewer groups the car datagrams that follow an "FM3V" into that frame.)
     sendto(s, reinterpret_cast<const char*>(&p), int(sizeof(p)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
            int(sizeof(target.addr)));
+    {
+        WheelPacket w = {};
+        memcpy(w.magic, "FM3W", 4);
+        w.version = 1;
+        w.seq = p.seq;
+        w.car = car;
+        for (int k = 0; k < 4; k++)
+            for (int i = 0; i < 16; i++)
+            {
+                const uint32_t bits = Load32(base, car + kCarWheels + k * 0x40 + i * 4);
+                memcpy(&w.wheel[k][i], &bits, 4);
+            }
+        w.time = p.time;
+        sendto(s, reinterpret_cast<const char*>(&w), int(sizeof(w)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
+               int(sizeof(target.addr)));
+    }
     static uint32_t seen[16] = {};
     for (uint32_t& c : seen)
     {
