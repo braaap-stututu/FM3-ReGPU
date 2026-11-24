@@ -43,6 +43,7 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
@@ -291,6 +292,24 @@ struct EnginePacket
 #pragma pack(pop)
 static_assert(sizeof(EnginePacket) == 40, "live engine packet layout");
 
+// The car object's shader settings list (a pointer to "Game:\Media\Cars\ShaderSettings\Normal.xml;...;
+// Game:\Media\Cars\<CAR>\ColorShaderSettings<n>.xml"; found 2026-11-24 by searching the car objects for pointers to
+// the cars' names): the car's identity and colour for "FM3N".
+constexpr uint32_t kCarSettingsList = 0xC44;
+#pragma pack(push, 1)
+struct NamePacket
+{
+    char magic[4]; // "FM3N"
+    uint32_t version; // 1
+    uint32_t car; // the car object
+    uint32_t color; // Combo_Colors Sequence (1-based) of the car's colour
+    uint32_t metallic; // 1: Metallic.xml paint settings
+    char name[44]; // media name, e.g. HON_CRXsi_91
+    double time;
+};
+#pragma pack(pop)
+static_assert(sizeof(NamePacket) == 72, "live name packet layout");
+
 // Diagnostic (FM3_LIVE_CAM_SCAN=1): where the car loop's arguments hold a copy of the camera: any 3x3 (16-byte stride)
 // within 0.02 of the director's current view rotation, plus the translation row next to it, every 2 s.
 static void ScanForCamera(const uint8_t* base, const uint32_t args[7])
@@ -414,6 +433,58 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
             v.time = p.time;
             sendto(s, reinterpret_cast<const char*>(&v), int(sizeof(v)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
                    int(sizeof(target.addr)));
+        }
+    }
+    // Which car this is ("FM3N", about once a second per car; 2026-11-24): the car object's +0xC44 points at its shader
+    // settings list, "Game:\Media\Cars\ShaderSettings\<Normal|Metallic>.xml;Game:\Media\Cars\<CAR>\ShaderSettings.xml;
+    // Game:\Media\Cars\<CAR>\ColorShaderSettings<n>.xml": the car's media name, its paint type and its colour, n = the
+    // Sequence of its row in the database's Combo_Colors (WHERE Ordinal = Data_Car.Id; a player's custom paint is not
+    // there). A viewer builds and dresses the car from these, without a capture.
+    {
+        static uint32_t named[16] = {};
+        static double namedAt[16] = {};
+        int slot = -1;
+        for (int k = 0; k < 16; k++)
+            if (named[k] == car || (named[k] == 0 && slot < 0))
+            {
+                slot = k;
+                if (named[k] == car)
+                    break;
+            }
+        if (slot >= 0 && (named[slot] != car || p.time - namedAt[slot] > 1.0))
+        {
+            named[slot] = car;
+            namedAt[slot] = p.time;
+            const uint32_t list = Load32(base, car + kCarSettingsList);
+            if (list >= 0x40000000 && list < 0x80000000)
+            {
+                char text[256] = {};
+                for (int i = 0; i < 255; i++)
+                {
+                    text[i] = char(base[list + i]);
+                    if (!text[i])
+                        break;
+                }
+                NamePacket n = {};
+                memcpy(n.magic, "FM3N", 4);
+                n.version = 1;
+                n.car = car;
+                n.metallic = strstr(text, "\\Metallic.xml") ? 1 : 0;
+                if (const char* c = strstr(text, "\\ColorShaderSettings"))
+                {
+                    n.color = uint32_t(atoi(c + 20));
+                    // the media name: the folder before \ColorShaderSettings
+                    const char* end = c;
+                    const char* start = end;
+                    while (start > text && start[-1] != '\\')
+                        start--;
+                    const size_t len = std::min<size_t>(size_t(end - start), sizeof(n.name) - 1);
+                    memcpy(n.name, start, len);
+                }
+                n.time = p.time;
+                sendto(s, reinterpret_cast<const char*>(&n), int(sizeof(n)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
+                       int(sizeof(target.addr)));
+            }
         }
     }
     // The player's engine ("FM3E"), at most every 4 ms (the car loop runs once per car per frame).
