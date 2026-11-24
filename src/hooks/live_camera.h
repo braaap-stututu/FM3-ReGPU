@@ -18,6 +18,6 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7]);
 // engine speed and redline are sent as "FM3E" from the car loop.
 void LivePlayerPhysics(uint32_t physics);
 
-// Player 1's steering input as the game reads it (-1..1) and the racing wheel's lock in degrees (0 = no wheel), from
-// src/kernel/imports_xam.cpp ReadPad; sent in "FM3E" for the viewer's steering wheel.
-void LiveSteerInput(float steer, uint32_t lockDegrees);
+// Player 1's steering input as the game reads it (-1..1), the racing wheel's lock in degrees (0 = no wheel) and the
+// brake input (0..1), from src/kernel/imports_xam.cpp ReadPad; sent in "FM3E" (the viewer's steering wheel, brake lights).
+void LiveSteerInput(float steer, uint32_t lockDegrees, float brake);

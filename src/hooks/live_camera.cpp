@@ -31,9 +31,10 @@
 // Right after each car datagram, its wheels ("FM3W", 280 bytes): magic, version 1, seq (the car datagram's), car,
 // f32[4][16] the four wheels' world matrices as drawn (car object +0x190 + 0x40 k: spin and steering included), f64 time.
 //
-// The player's engine and steering ("FM3E", 40 bytes, from the car loop at most every 4 ms): magic, version 2, u32 the
+// The player's engine and controls ("FM3E", 40 bytes, from the car loop at most every 4 ms): magic, version 3, u32 the
 // player's car-physics object, f32 engine speed (rpm), f32 redline (rpm), f32 player 1's steering input (-1..1), u32
-// the racing wheel's lock in degrees (0 = no wheel), u32 0, f64 time (2026-11-24: the cockpit tach and steering wheel).
+// the racing wheel's lock in degrees (0 = no wheel), f32 player 1's brake input (0..1), f64 time (2026-11-24: the
+// cockpit tach and steering wheel, the player's brake lights).
 //
 // The drawn camera ("FM3V", the camera datagram's layout; director = the render object): the view matrix the frame
 // with those cars is drawn with (render object +0x0), sent from the car loop whenever it changes. A viewer should take
@@ -258,11 +259,13 @@ static std::atomic<uint32_t> g_playerPhysics{ 0 };
 // configured lock (wheel_lock, degrees of wheel travel for full steering; 0 = no wheel): the viewer's steering wheel.
 static std::atomic<float> g_steer{ 0.0f };
 static std::atomic<uint32_t> g_steerLock{ 0 };
+static std::atomic<float> g_brake{ 0.0f };
 
-void LiveSteerInput(float steer, uint32_t lockDegrees)
+void LiveSteerInput(float steer, uint32_t lockDegrees, float brake)
 {
     g_steer.store(steer, std::memory_order_relaxed);
     g_steerLock.store(lockDegrees, std::memory_order_relaxed);
+    g_brake.store(brake, std::memory_order_relaxed);
 }
 constexpr uint32_t kEngineSpeed = 324, kEngineRedline = 452;
 
@@ -282,7 +285,7 @@ struct EnginePacket
     float redline; // rpm
     float steer; // player 1's steering input, -1 (full left) .. 1
     uint32_t lock; // degrees of wheel travel for full steering on a racing wheel (wheel_lock); 0 = no wheel
-    uint32_t reserved;
+    float brake; // player 1's brake input, 0..1 (v3; the player's brake lights)
     double time;
 };
 #pragma pack(pop)
@@ -422,10 +425,11 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
             lastSent = p.time;
             EnginePacket e = {};
             memcpy(e.magic, "FM3E", 4);
-            e.version = 2;
+            e.version = 3;
             e.physics = phys;
             e.steer = g_steer.load(std::memory_order_relaxed);
             e.lock = g_steerLock.load(std::memory_order_relaxed);
+            e.brake = g_brake.load(std::memory_order_relaxed);
             auto f = [&](uint32_t a) {
                 const uint32_t b = Load32(base, a);
                 float v;
