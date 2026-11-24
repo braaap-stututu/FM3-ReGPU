@@ -451,6 +451,27 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
                 if (named[k] == car)
                     break;
             }
+        if (slot >= 0 && named[slot] != car)
+        {
+            // Diagnostic (FM3_LIVE_DUMP_CARS=1): the car object's first 16 KB to live_car_<addr>.bin in the working
+            // folder, once per car, to find where the game keeps a car's paint colour (a player's custom paint is not
+            // in the database).
+            static const bool dump = [] {
+                const char* v = getenv("FM3_LIVE_DUMP_CARS");
+                return v && *v && *v != '0';
+            }();
+            if (dump)
+            {
+                char path[64];
+                snprintf(path, sizeof(path), "live_car_%08X.bin", car);
+                if (FILE* f = fopen(path, "wb"))
+                {
+                    fwrite(base + car, 1, 0x4000, f);
+                    fclose(f);
+                    Log("live: car %08X dumped to %s", car, path);
+                }
+            }
+        }
         if (slot >= 0 && (named[slot] != car || p.time - namedAt[slot] > 1.0))
         {
             named[slot] = car;
