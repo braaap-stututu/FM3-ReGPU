@@ -502,6 +502,22 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
                     const size_t len = std::min<size_t>(size_t(end - start), sizeof(n.name) - 1);
                     memcpy(n.name, start, len);
                 }
+                else if (const char* c2 = strstr(text, "\\ShaderSettings.xml"))
+                {
+                    // (no colour file in the list, 1 of 8 cars on AmalfiGP's Free Play grid: the car's own folder
+                    // before \ShaderSettings.xml; colour 0, the viewer's default)
+                    const char* start = c2;
+                    while (start > text && start[-1] != '\\')
+                        start--;
+                    const size_t len = std::min<size_t>(size_t(c2 - start), sizeof(n.name) - 1);
+                    memcpy(n.name, start, len);
+                }
+                static uint32_t logged[16] = {};
+                if (logged[slot] != car)
+                {
+                    logged[slot] = car;
+                    Log("live: car %08X settings \"%s\" -> FM3N \"%s\" colour %u", car, text, n.name, n.color);
+                }
                 n.time = p.time;
                 sendto(s, reinterpret_cast<const char*>(&n), int(sizeof(n)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
                        int(sizeof(target.addr)));
