@@ -13,6 +13,9 @@
   - v6 (7cfe63a): tyre temperatures, deg C = the mean of three zones in deg F at +3492 + 1040 x i (the page's values
     to 0.05 C);
   - v7: suspension position, m, at +3440 + 1040 x i (the page's travel in cm = (value - rest) x 100).
+  - v8 (5b5535c): the car-frame acceleration, m/s2 (x right, y up, z forward: +2512 in the car body's axes; the
+    viewer's game cameras use it for their G layers). The car body's x axis points right and its z axis rearwards
+    (checked against the viewer's G from positions); Data Out's lateral sign was fixed with it.
   Engine speed +324 and redline +452 are FH1's ICarDynamics offsets. Pushed to origin/main (580ecb6..f4cb614, the
   user's go-ahead, 2026-11-25). Details: frame-ir `LIVE.md` "Telemetry from the car-physics object" (the SimHub idea in
   RESEARCH.md can use these).
