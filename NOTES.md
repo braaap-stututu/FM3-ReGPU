@@ -2,6 +2,19 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ 2026-11-24/25 night (second PC), for the Godot live mirror on the other tracks
+- `src/hooks/live_camera.cpp` (commit 9a645e7, local): FM3N names a car whose settings list has no
+  `ColorShaderSettings<n>.xml` (the player's custom paint) from its own `ShaderSettings.xml` folder (colour 0); each
+  car's settings list is logged once (`live: car ... settings ...`). Before, those cars got no name and the viewer drew
+  nothing for them (Motegi's player RSX).
+- Found while decoding FM3's post-processing for the mirror (frame-ir LIVE.md "Other tracks"): the final pass
+  (vs 2a342f670b5bb28a, ps 5b7efac9b0c87a00) is the auto-exposure / tone curve (desat(scene + bloom) / W, W from
+  TrackSettings' ToneMappingLevels by an adapted luminance from the bloom chain, TrackLumLimits); the display gamma
+  table (`REGPU_NO_GAMMA`) is a fixed toe curve, the same on MapleValley and LagunaSeca. Debug recipes that worked:
+  boot with `REGPU_NO_PACKED_CONSTANTS=1` (+ `REGPU_TRACE_VC=1`) for game-numbered constants in a `capture`;
+  `out/user/static_shaders.bin` holds every scanned pixel shader by ReGPU's hash (FNV-1a-64 ^ pixel).
+- Tests booted the game through `tools/tour.ps1` many times (minimized); `fm3.exe` rebuilt in `build/rel`.
+
 ### ▶ Start here (2026-11-22 night): the renderer replacement project (Godot) and its M0 in this checkout
 - **Second PC (2026-11-22, about a week):** this checkout is at `C:\claude code projects\handoff-2026-11-22\FM3-ReGPU
   recomp` there (G: is another partition), beside `..\Godot`. Every script under `tools\` now finds the repo from its
