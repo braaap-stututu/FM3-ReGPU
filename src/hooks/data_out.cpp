@@ -217,10 +217,23 @@ void DataOutSteerInput(float steer)
     g_steer.store(steer, std::memory_order_relaxed);
 }
 
+std::atomic<bool> g_wantAccel{ false };
+float g_accel[3] = {}; // (the car loop's thread only writes; readers take a copy)
+std::atomic<uint32_t> g_accelSeq{ 0 };
+
+bool DataOutPlayerAccel(float out[3])
+{
+    g_wantAccel.store(true, std::memory_order_relaxed);
+    if (!g_accelSeq.load(std::memory_order_acquire))
+        return false;
+    memcpy(out, g_accel, sizeof(g_accel));
+    return true;
+}
+
 void DataOutCarDrawn(uint8_t* base, uint32_t car)
 {
     const Target& target = CurrentTarget();
-    if (!target.on || !car)
+    if ((!target.on && !g_wantAccel.load(std::memory_order_relaxed)) || !car)
         return;
     const uint32_t phys = g_physics.load(std::memory_order_relaxed);
     if (phys < 0x40000000 || phys >= 0x80000000)
@@ -237,6 +250,19 @@ void DataOutCarDrawn(uint8_t* base, uint32_t car)
         st.matchedOnce = true;
         Log("data out: the player's car is %08X (physics %08X)", car, phys);
     }
+    {
+        // the car-frame acceleration for the live stream (FM3E v8, live_camera.cpp): x right, y up, z forward, m/s2
+        Vec ax[3];
+        for (int i = 0; i < 3; i++)
+            ax[i] = LoadVec(base, car + kCarBody + 16 * i);
+        const Vec a = LoadVec(base, phys + kAccel);
+        g_accel[0] = Dot(a, ax[0]);
+        g_accel[1] = Dot(a, ax[1]);
+        g_accel[2] = -Dot(a, ax[2]);
+        g_accelSeq.fetch_add(1, std::memory_order_release);
+    }
+    if (!target.on)
+        return;
     const double now = Seconds();
     if (now - st.lastSent < 1.0 / 60.0)
         return;
@@ -249,9 +275,10 @@ void DataOutCarDrawn(uint8_t* base, uint32_t car)
     Vec axes[3];
     for (int i = 0; i < 3; i++)
         axes[i] = LoadVec(base, car + kCarBody + 16 * i);
-    // (the body matrix's z axis points to the car's rear: a race showed the forward speed as -z; Data Out's car frame is
-    // x right, y up, z forward, so x and z turn round)
-    auto local = [&](Vec w) { return Vec{ -Dot(w, axes[0]), Dot(w, axes[1]), -Dot(w, axes[2]) }; };
+    // (the body matrix's z axis points to the car's rear (a race showed the forward speed as -z) and its x axis to the
+    // right (the Godot viewer's lateral G from the car's positions = this x, slope 0.96, r 0.91): Data Out's car frame is
+    // x right, y up, z forward, so z turns round. The angular velocity's signs are not checked against a Forza game.)
+    auto local = [&](Vec w) { return Vec{ Dot(w, axes[0]), Dot(w, axes[1]), -Dot(w, axes[2]) }; };
     // angular velocity from the axes' change: w = 1/2 sum(a_i x da_i/dt)
     if (st.haveAxes && dt > 0.0 && dt < 0.25)
     {
@@ -307,7 +334,7 @@ void DataOutCarDrawn(uint8_t* base, uint32_t car)
         p.F32(dash::kAngularVelocityX, st.angular.x);
         p.F32(dash::kAngularVelocityX + 4, st.angular.y);
         p.F32(dash::kAngularVelocityX + 8, st.angular.z);
-        const Vec f = { -axes[2].x, -axes[2].y, -axes[2].z }, r = { -axes[0].x, -axes[0].y, -axes[0].z };
+        const Vec f = { -axes[2].x, -axes[2].y, -axes[2].z }, r = axes[0];
         p.F32(dash::kYaw, std::atan2(f.x, f.z));
         p.F32(dash::kPitch, std::asin(std::clamp(f.y, -1.0f, 1.0f)));
         p.F32(dash::kRoll, std::asin(std::clamp(r.y, -1.0f, 1.0f)));

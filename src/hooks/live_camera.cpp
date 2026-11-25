@@ -50,6 +50,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "hooks/data_out.h"
 #include "hooks/live_camera.h"
 #include "log.h"
 
@@ -312,9 +313,12 @@ struct EnginePacket
     // telemetry page ("SUSPENSION") shows its travel from rest in cm, (value - rest) x 100 (8 samples per wheel: slope
     // 0.0095-0.0103 m per cm, correlation 0.85-0.99 with the shot ~0.2 s from the read).
     float suspension[4];
+    // v8 (2026-11-25): the car's acceleration in its own frame, m/s2: x right, y up, z forward (the physics object's world
+    // acceleration +2512 turned into the car body's axes; src/hooks/data_out.cpp). 0 until the player's car is drawn.
+    float accel[3];
 };
 #pragma pack(pop)
-static_assert(sizeof(EnginePacket) == 108, "live engine packet layout");
+static_assert(sizeof(EnginePacket) == 120, "live engine packet layout");
 constexpr uint32_t kThrottle = 3408, kCarBrake = 3412, kGear = 1937, kClutch = 2672;
 constexpr uint32_t kSpeed = 2792, kWheelSpeed = 4164, kWheelStride = 1040, kTyreTemp = 3492, kSuspension = 3440;
 
@@ -586,7 +590,7 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
             lastSent = p.time;
             EnginePacket e = {};
             memcpy(e.magic, "FM3E", 4);
-            e.version = 7;
+            e.version = 8;
             e.physics = phys;
             e.steer = g_steer.load(std::memory_order_relaxed);
             e.lock = g_steerLock.load(std::memory_order_relaxed);
@@ -612,6 +616,7 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
                 e.tyreTemp[i] = ((f(t) + f(t + 4) + f(t + 8)) / 3.0f - 32.0f) / 1.8f;
                 e.suspension[i] = f(phys + kSuspension + kWheelStride * i);
             }
+            DataOutPlayerAccel(e.accel);
             e.time = p.time;
             sendto(s, reinterpret_cast<const char*>(&e), int(sizeof(e)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
                    int(sizeof(target.addr)));

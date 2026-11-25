@@ -11,3 +11,6 @@ void DataOutPlayerPhysics(uint32_t physics);
 void DataOutSteerInput(float steer);
 // Each car the main view draws (src/hooks/mirror.cpp, the car loop): sends a packet when it is the player's.
 void DataOutCarDrawn(uint8_t* base, uint32_t car);
+// The player car's acceleration in its own frame (x right, y up, z forward, m/s2) from the last car loop: false until
+// the player's car was seen (the first call starts the reading, Data Out on or not; for the live stream "FM3E" v8).
+bool DataOutPlayerAccel(float out[3]);
