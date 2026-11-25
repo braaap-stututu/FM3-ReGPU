@@ -2,6 +2,19 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ 2026-11-25 evening (second PC): the live stream's car telemetry (`src/hooks/live_camera.cpp`, FM3_LIVE only)
+- The "FM3E" engine packet now carries the player car's own state, read from its car-physics object (address logged as
+  `live: player car physics XXXXXXXX`), found by dumping it while the race AI drove the player's car and checked
+  against the game's own telemetry screen (d-pad UP in a race, RIGHT cycles the pages; frame-ir
+  `tools/research/telepage.ps1`):
+  - v4 (b213457): throttle +3408, brake +3412 (+3416 steering), gear byte +1937, clutch +2672;
+  - v5 (838763d): speed m/s +2792 (= the page's km/h), wheel speeds +4164 + 1040 x i (wheel order FL FR RR RL;
+    each wheel block also has its position in the car at +284 and radius at +108);
+  - v6 (7cfe63a): tyre temperatures, deg C = the mean of three zones in deg F at +3492 + 1040 x i (the page's values
+    to 0.05 C).
+  Engine speed +324 and redline +452 are FH1's ICarDynamics offsets. Local commits, not pushed. Details: frame-ir
+  `LIVE.md` "Telemetry from the car-physics object" (the SimHub idea in RESEARCH.md can use these).
+
 ### ▶ 2026-11-25 afternoon (second PC): LZX decoder fix (`src/lzx.cpp`)
 - An odd-length uncompressed LZX block that spans several 32 KB chunks has **no pad byte** after it. Our decoder
   skipped one anyway, so 2 of the game's 193,042 zip members failed to decode: `Tracks\Autopark\bin.zip`
