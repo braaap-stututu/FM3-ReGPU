@@ -296,10 +296,18 @@ struct EnginePacket
     float carBrake;
     uint32_t gear;
     float clutch;
+    // v5 (2026-11-25): the car's speed, m/s (+2792: matches the speed from its positions within 3%), and the four
+    // wheels' speeds, m/s (+4164 + 1040 * i: four blocks of 1040 bytes that track the car's speed. In each block, 284 bytes
+    // after the speed: the wheel's position in the car (x, y, z): on the CR-X wheels 0, 1 at z +0.874 (front: the
+    // front-heavy car's centre of mass is nearer them), 2, 3 at -1.426 (wheelbase 2.30 m = the CR-X's), x -0.731 /
+    // +0.731 / +0.725 / -0.725 (0 and 3 on one side); +108 radius 0.295).
+    float speed;
+    float wheelSpeed[4];
 };
 #pragma pack(pop)
-static_assert(sizeof(EnginePacket) == 56, "live engine packet layout");
+static_assert(sizeof(EnginePacket) == 76, "live engine packet layout");
 constexpr uint32_t kThrottle = 3408, kCarBrake = 3412, kGear = 1937, kClutch = 2672;
+constexpr uint32_t kSpeed = 2792, kWheelSpeed = 4164, kWheelStride = 1040;
 
 // The car object's shader settings list (a pointer to "Game:\Media\Cars\ShaderSettings\Normal.xml;...;
 // Game:\Media\Cars\<CAR>\ColorShaderSettings<n>.xml"; found 2026-11-24 by searching the car objects for pointers to
@@ -569,7 +577,7 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
             lastSent = p.time;
             EnginePacket e = {};
             memcpy(e.magic, "FM3E", 4);
-            e.version = 4;
+            e.version = 5;
             e.physics = phys;
             e.steer = g_steer.load(std::memory_order_relaxed);
             e.lock = g_steerLock.load(std::memory_order_relaxed);
@@ -587,6 +595,9 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
             e.carBrake = f(phys + kCarBrake);
             e.gear = base[phys + kGear];
             e.clutch = f(phys + kClutch);
+            e.speed = f(phys + kSpeed);
+            for (int i = 0; i < 4; i++)
+                e.wheelSpeed[i] = f(phys + kWheelSpeed + kWheelStride * i);
             e.time = p.time;
             sendto(s, reinterpret_cast<const char*>(&e), int(sizeof(e)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
                    int(sizeof(target.addr)));
