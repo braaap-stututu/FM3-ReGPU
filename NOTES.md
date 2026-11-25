@@ -13,8 +13,16 @@
   - v6 (7cfe63a): tyre temperatures, deg C = the mean of three zones in deg F at +3492 + 1040 x i (the page's values
     to 0.05 C);
   - v7: suspension position, m, at +3440 + 1040 x i (the page's travel in cm = (value - rest) x 100).
-  Engine speed +324 and redline +452 are FH1's ICarDynamics offsets. Local commits, not pushed. Details: frame-ir
-  `LIVE.md` "Telemetry from the car-physics object" (the SimHub idea in RESEARCH.md can use these).
+  Engine speed +324 and redline +452 are FH1's ICarDynamics offsets. Pushed to origin/main (580ecb6..f4cb614, the
+  user's go-ahead, 2026-11-25). Details: frame-ir `LIVE.md` "Telemetry from the car-physics object" (the SimHub idea in
+  RESEARCH.md can use these).
+  - **arcanite24's pinyon-shift (FH1)** already sends Forza "Data Out" telemetry (FM7 Dash / FH4-5 layouts, UDP, for
+    SimHub) from the same object, with its field map in `site/findings/objects.toml` "Car dynamics": FH1 controls
+    block +3904 (gas, brake, steer, clutch, handbrake) = our +3408 block (+3420 / +3424 = clutch / handbrake
+    candidates: 0 while the AI drives); FH1 wheel blocks (1024 bytes, ours 1040) hold slip ratio / peak (+496),
+    slip angle / peak (+520), contact (+796), surface (+337), spring rest (+860). **+2672 is not a clutch** (0.12 in
+    2nd, 0.5-1.0 under wheelspin in 1st): a slip / traction value; rename it before a Data Out packet uses it.
+    cobalt-shift (arcanite24's FM3 port) has no telemetry. frame-ir `LIVE.md` "arcanite24's Forza ports".
 
 ### ▶ 2026-11-25 afternoon (second PC): LZX decoder fix (`src/lzx.cpp`)
 - An odd-length uncompressed LZX block that spans several 32 KB chunks has **no pad byte** after it. Our decoder
