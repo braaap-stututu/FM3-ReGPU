@@ -1,8 +1,8 @@
-# NOTES.md — FM3 ReGPU recomp running log
+# NOTES.md â€” FM3 ReGPU recomp running log
 
-## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
+## â–¶ Current status / next step  (updated 2026-11-20, end of session 47)
 
-### ▶ 2026-11-25 evening (second PC): the live stream's car telemetry (`src/hooks/live_camera.cpp`, FM3_LIVE only)
+### â–¶ 2026-11-25 evening (second PC): the live stream's car telemetry (`src/hooks/live_camera.cpp`, FM3_LIVE only)
 - The "FM3E" engine packet now carries the player car's own state, read from its car-physics object (address logged as
   `live: player car physics XXXXXXXX`), found by dumping it while the race AI drove the player's car and checked
   against the game's own telemetry screen (d-pad UP in a race, RIGHT cycles the pages; frame-ir
@@ -34,9 +34,13 @@
     body position (car +0x10 matrix, row 3) is the physics object's; its axes give the car frame (z points to the rear:
     turned round). Still 0: slip ratio / angle, surface rumble, power / torque, lap data, car ordinal / class / PI.
     Check: `python -I tools/analysis/dataout_listen.py [--csv f]` (decodes and prints a line a second); an AI race on
-    the test grid (live_compare.ps1 -AiPlayer) gave ~25 packets a second (one per drawn frame, at most 60).
+    the test grid (live_compare.ps1 -AiPlayer) gave ~25 packets a second (one per drawn frame, at most 60). Launcher:
+    Settings "Telemetry out (SimHub)" (data_out=1; a hand-written target in settings.ini is kept). Candidate, not confirmed:
+    +4140 / +4152 + 1040 x i behave like each tyre's load (front 29 / rear 17 on the front-heavy CR-X, fronts up under
+    braking, outside wheels in corners; the four sum to ~92 on a 9.8 kN car); slip ratio / angle not found yet (check
+    against the telemetry screen's FRICTION page).
 
-### ▶ 2026-11-25 afternoon (second PC): LZX decoder fix (`src/lzx.cpp`)
+### â–¶ 2026-11-25 afternoon (second PC): LZX decoder fix (`src/lzx.cpp`)
 - An odd-length uncompressed LZX block that spans several 32 KB chunks has **no pad byte** after it. Our decoder
   skipped one anyway, so 2 of the game's 193,042 zip members failed to decode: `Tracks\Autopark\bin.zip`
   `_0x00000F03.bix` (a 66,625-byte block over three chunks) and Disc 2 pack 0045's `PhysicsTrack_pri_65.zip`
@@ -50,7 +54,7 @@
   scan). The game decodes its zips with its own recompiled code, so play was never affected.
 - The scan found the failures while unpacking every game file into `..\FM3-files` (catalogue: `FM3-files\CATALOGUE.md`).
 
-### ▶ 2026-11-24/25 night (second PC), for the Godot live mirror on the other tracks
+### â–¶ 2026-11-24/25 night (second PC), for the Godot live mirror on the other tracks
 - `src/hooks/live_camera.cpp` (commit 9a645e7, local): FM3N names a car whose settings list has no
   `ColorShaderSettings<n>.xml` (the player's custom paint) from its own `ShaderSettings.xml` folder (colour 0); each
   car's settings list is logged once (`live: car ... settings ...`). Before, those cars got no name and the viewer drew
@@ -63,7 +67,7 @@
   `out/user/static_shaders.bin` holds every scanned pixel shader by ReGPU's hash (FNV-1a-64 ^ pixel).
 - Tests booted the game through `tools/tour.ps1` many times (minimized); `fm3.exe` rebuilt in `build/rel`.
 
-### ▶ Start here (2026-11-22 night): the renderer replacement project (Godot) and its M0 in this checkout
+### â–¶ Start here (2026-11-22 night): the renderer replacement project (Godot) and its M0 in this checkout
 - **Second PC (2026-11-22, about a week):** this checkout is at `C:\claude code projects\handoff-2026-11-22\FM3-ReGPU
   recomp` there (G: is another partition), beside `..\Godot`. Every script under `tools\` now finds the repo from its
   own folder (`$PSScriptRoot`, `__file__`) instead of `G:\...`. `build\rel` is still configured for `G:`: the prebuilt
@@ -161,7 +165,7 @@
   GPU timeouts (LiveKernelEvent 141/117) and the user confirmed the driver has timeouts on this PC in general. If an FM3
   run here dies with device lost, check for the same LiveKernelEvents first.
 
-### ▶ Released v0.43.0-beta (2026-11-21 evening, user's request; pre-release)
+### â–¶ Released v0.43.0-beta (2026-11-21 evening, user's request; pre-release)
 - https://github.com/braaap-stututu/FM3-ReGPU/releases/tag/v0.43.0-beta, tag on main 8d3d10f (Vulkan main, ReGPU
   604dd2b). Assets:
   - setup exe (200 MB);
@@ -175,7 +179,7 @@
   Linux launcher lacks WebKitGTK; the Windows launcher run through Proton works (Cloud research note below).
 - **Not tested yet:** the 0.42 -> 0.43 update through the launcher (the first real updater download).
 
-### ▶ Start here (2026-11-21 afternoon): CPU-side work, measured on 2 cores
+### â–¶ Start here (2026-11-21 afternoon): CPU-side work, measured on 2 cores
 - **Read the 2-core numbers as a contention test, not as a weak CPU** (the user's correction). Holding the game to 2
   cores of a 9800X3D keeps each core very fast; a Steam Deck or an older PC is slower per core. What carries over is
   the work removed per frame (calls, syscalls, wake-ups, faults), not the percentages; changes tuned to the core
@@ -228,7 +232,7 @@
   - `FM3_WATCH_LOG=1` (write faults every 5 s);
   - `LiveSwitch::Generation()`.
 
-### ▶ Start here (2026-11-21 midday): frame-time lows, measured per frame
+### â–¶ Start here (2026-11-21 midday): frame-time lows, measured per frame
 - **How it was measured:** an AI benchmark race (`FM3_BENCHMARK=60`, `FM3_GRID_TEST=1`, Benchmark profile copy) with
   the user's settings (1440p, FSR 3 native AA, cap 360). `REGPU_FRAME_TIMES=<file>` (ReGPU 6d5f3ee) logs every present;
   ReGPU `tools/frametimes.py <file> <from> <to>` gives the average, p99/p99.9, and the 1% and 0.1% lows. The window
@@ -260,7 +264,7 @@ el) | 345 | 3.71 | 252 | ~207 |
   - Write-watching UploadGuest's repeated small ranges (not committed): no change. FM3's ranges change every frame.
 - **FSR 3 native AA** costs ~0.6 ms of GPU in the upscale step (AMD's dispatch). Native without it reaches the cap.
 
-### ▶ Start here (end of 2026-11-21): Vulkan main, Legacy DX12, upscaler fix
+### â–¶ Start here (end of 2026-11-21): Vulkan main, Legacy DX12, upscaler fix
 - **State:**
   - `main` renders with Vulkan (ReGPU braaap-stututu/ReGPU `vulkan` 9eecd70).
   - `LegacyDX12` is the D3D12 build, built into `build\legacy` from a worktree (the user's PC:
@@ -292,7 +296,7 @@ el) | 345 | 3.71 | 252 | ~207 |
   - The next lever is an RGP capture of that pass.
 - **Next:** the user's race test of TAA/FSR on this build, then the user picks.
 
-### ▶ Start here: main is Vulkan (2026-11-21)
+### â–¶ Start here: main is Vulkan (2026-11-21)
 - **`main` renders with Vulkan** (ReGPU's Vulkan conversion, done in the user's ReGPU-V workspace and checked against
   D3D12 frame by frame and in races). `thirdparty/ReGPU` is now **braaap-stututu/ReGPU, branch `vulkan`**. That fork
   carries this repo's whole ReGPU patch stack (merged, then converted; the D3D12-only parts are gone), so
@@ -314,7 +318,7 @@ el) | 345 | 3.71 | 252 | ~207 |
 - **Not ported to Vulkan:** the launcher options that only meant something on D3D12. The "DXC shader compiler" switch
   and the iGPU root signature 1.1 switch do nothing on Vulkan; Vulkan always uses DXC or the direct translator.
 
-### ▶ Start here (session 48): state at the end of session 47 (2026-11-20)
+### â–¶ Start here (session 48): state at the end of session 47 (2026-11-20)
 - **Branches:** as in "Start here (session 47)" below: `main` (build\rel, 84 ReGPU patches), `experimental` (build\exp,
   90). **The checkout is on `experimental`** with its stack applied; both builds are current (rel rebuilt this session
   on main's stack, then the checkout switched back). The user is running **experimental Vulkan work in another
@@ -338,7 +342,7 @@ el) | 345 | 3.71 | 252 | ~207 |
   (entry 822BDE68), which also presents.
 - **Untracked `FM3 DLC/` and `Project Forza Plus 3/`** in the project root are the user's, for later: leave them.
 
-### ▶ Session 47 (2026-11-20): Cobalt Shift's low-end lead researched; low-end plan step 1 measured
+### â–¶ Session 47 (2026-11-20): Cobalt Shift's low-end lead researched; low-end plan step 1 measured
 - **Cobalt Shift** (github.com/arcanite24/cobalt-shift, BSD-3, ShiftGlue = their ReXGlue fork with a Vulkan PM4 executor;
   ports our ring wait, half-rate passes, far-car LOD, AI player, frozen grid, front-end limit, Disc 2 patches, LZX)
   claims better low-end performance. Read only (never built or run here). Its docs/BASELINE.md: on an i5-8250U + UHD 620
@@ -402,7 +406,7 @@ el) | 345 | 3.71 | 252 | ~207 |
   Warm boots after a settings change that alters shaders (Off, Potato's shader cuts) rebuilt 3,645 pipelines for 45-51 s.
 - Next: step 2 (Potato's scene size), step 3 (foliage layer), step 5 (first boot); ask the user.
 
-### ▶ Start here (session 47): state at the end of session 46 (2026-11-19)
+### â–¶ Start here (session 47): state at the end of session 46 (2026-11-19)
 - **Branches:** `main` = the normal build (`build\rel`, what `play.cmd`, the launcher and releases use; ReGPU stack 84
   patches), `experimental` = deep reworks (`build\exp`, launcher Testing "Experimental build"; 90 patches). **The checkout
   is on `experimental`** with its stack applied. After switching branches restore the stack (scratch index, CLAUDE.md;
@@ -433,12 +437,12 @@ el) | 345 | 3.71 | 252 | ~207 |
   - test leftovers the user hasn't decided on: `out\toolchain-test` (~6 GB), `out\portable-test`, `build\portable`
     (asked whether to delete them; no answer yet), `out/user/profiles/CacheTest` (my copy of Baseline).
 - **Measuring CPU work:** 2 cores (`tools\perf\affinity_watch.ps1 -Mask 0x0F`, start it as its own background job and
-  check the game's affinity is 0xF), frozen-grid live A/B (`Test-Live`, ±0.3% within a boot, but boots differ by up
-  to ±1.5%: repeat in a second boot before believing a 1-2% result), benchmark races 3 rounds (sd 5-20 fps).
+  check the game's affinity is 0xF), frozen-grid live A/B (`Test-Live`, Â±0.3% within a boot, but boots differ by up
+  to Â±1.5%: repeat in a second boot before believing a 1-2% result), benchmark races 3 rounds (sd 5-20 fps).
 - **Menu navigation note:** in the career menus the virtual d-pad and B were ignored; `Fm3 "stick L 0 -1 250"` moves
   the cursor, and A works right after waking the menu with Y.
 
-### ▶ Session 46 (2026-11-19): release v0.42.0-beta published (pre-release, user's request)
+### â–¶ Session 46 (2026-11-19): release v0.42.0-beta published (pre-release, user's request)
 - https://github.com/braaap-stututu/FM3-ReGPU/releases/tag/v0.42.0-beta, tag on main (`VERSION` 0.42.0-beta). Assets:
   `FM3-ReGPU-Setup-0.42.0-beta.exe` (111.5 MB), **`FM3-ReGPU-0.42.0-beta-portable.zip`** (new, 188 MB),
   `FM3-ReGPU-linux-0.42.0-beta.tar.gz`, `FM3-ReGPU-0.42.0-beta-patch.zip` (for the updater; GitHub's SHA-256 matches).
@@ -453,7 +457,7 @@ el) | 345 | 3.71 | 252 | ~207 |
 - **Next releases:** bump `VERSION`, commit, `git tag v<VERSION>` (the installer script stamps a hash otherwise), run
   `build-installer.ps1 -NoGameBuild` and `build-linux.ps1 -NoGameBuild`, attach all four files.
 
-### ▶ Session 46 (2026-11-19), on main: the renderer cache growth fix
+### â–¶ Session 46 (2026-11-19), on main: the renderer cache growth fix
 - **Built and on by default: ReGPU patch 84 `regpu-cache-release`** (the plan below, all four parts; patches/README.md
   has the details):
   - texture heaps keep free ranges (best fit across heaps, neighbours merged) and release a heap with no texture
@@ -511,7 +515,7 @@ el) | 345 | 3.71 | 252 | ~207 |
 - **Next:** the user's drive on main (session 45's defaults and this fix), the paused AI tour (`Start-AiTour -From 13
   -FromLayout 3 -RebootEach`; with this fix one boot per environment may no longer be needed).
 
-### ▶ Session 46 (2026-11-19): Fable's measurements and FM2's cuts, on the experimental branch
+### â–¶ Session 46 (2026-11-19): Fable's measurements and FM2's cuts, on the experimental branch
 - **Result: nothing new proved out; the experimental build is unchanged apart from trace counters.** Every number is
   in EXPERIMENTAL.md X11-X17. In short (2-core frozen grid and 2-core benchmark races, as in session 45):
   - floats on the replay thread (Fable's top idea): kill test, no gain (1.33 vs 1.32-1.35 us a draw);
@@ -533,7 +537,7 @@ el) | 345 | 3.71 | 252 | ~207 |
   only on register change), or turn to the other open items: the renderer cache growth fix on main (plan below),
   the paused AI tour, a drive on main with session 45's defaults.
 
-### ▶ Start here (session 46): state at the end of session 45 (2026-11-19)
+### â–¶ Start here (session 46): state at the end of session 45 (2026-11-19)
 - **Two branches now. The checkout is on `experimental`.** `main` = the normal build (`build\rel`, what `play.cmd` and
   the launcher run). `experimental` = the deep-rework branch (`build\exp`, launcher Settings > Testing "Experimental
   build" = `experimental=1`, or `play.cmd` with `FM3_BUILD=exp`). The branches list different ReGPU patches: **after
@@ -698,7 +702,7 @@ el) | 345 | 3.71 | 252 | ~207 |
   readers add up on the draw thread. Lesson: draw-thread profiles with `REGPU_PERF` on are dominated by its own
   timing (QPC + atomics ~30%).
 
-### ▶ Start here (session 45): state at the end of session 44 (2026-11-18)
+### â–¶ Start here (session 45): state at the end of session 44 (2026-11-18)
 - **In short:** two things the user asked for.
   - **Engine sound at high frame rates:** a port of the FM2 port's fix `a7aea015b` in `src/hooks/audio_cadence.cpp`,
     on by default.
@@ -715,7 +719,7 @@ el) | 345 | 3.71 | 252 | ~207 |
   - The launcher (or a hand-written file) puts `credits=N` or `add_credits=N` in `<user>\profiles\<name>\profile-edit.ini`.
   - The game applies it through FM3's own SetCredits the first time it reads the credits, logs `profile edit: credits A -> B`,
     and renames the file `profile-edit.applied.ini`.
-  - **Tested on a copy of the session 41 save:** +50,000 applied, the RSX Type-S bought (−10,000), and 63,591 CR after
+  - **Tested on a copy of the session 41 save:** +50,000 applied, the RSX Type-S bought (âˆ’10,000), and 63,591 CR after
     a restart.
   - The game saves the change only at its next save (a race, a purchase). Quitting from the menus keeps the old amount.
 - **Found while testing: the current Baseline save crashes on buying a car.** The crash is `indirect call to 00000000`
@@ -734,7 +738,7 @@ el) | 345 | 3.71 | 252 | ~207 |
   scratch folder), but the panel hasn't been seen live (single-instance lock, the user's launcher was open).
 - **Build state:** `build/rel` = ReXenon + 81 ReGPU patches + the two new hooks (built, booted).
 
-### ▶ Start here (session 44): state at the end of session 43 (2026-11-18)
+### â–¶ Start here (session 44): state at the end of session 43 (2026-11-18)
 - **In short:** the speed presets are now **ReGPU's Hyper**, ported from the FM2 port's `hyper-prototype` branch (it is
   meant to go upstream into ReGPU): ReGPU patch 77 `regpu-hyper`. The Intel iGPU leads N2-N10 (RESEARCH "Intel iGPUs")
   and lighter background shader compiles are ReGPU patch 78 `regpu-igpu-intel`. The launcher has a new **iGPU
@@ -777,7 +781,7 @@ el) | 345 | 3.71 | 252 | ~207 |
 - **Next:** an Intel tester's runs of Potato, the iGPU tab and XeSS (N1/N5: a GPA capture); the user hasn't driven
   Potato or XeSS yet.
 
-### ▶ Start here (session 43): state at the end of session 42 (2026-11-18)
+### â–¶ Start here (session 43): state at the end of session 42 (2026-11-18)
 - **In short:** the Fiat 500's rear-wing vinyl is fixed (ReGPU patch 76 `regpu-depth-reset-color`); the Civic's "uncovered"
   hood/fender bands were the user's layer being too short (not a bug); the wing's green rear face is the same in hl360
   (paint, no decal coverage); ReXenon's decode fix went upstream as PR zer0ducksgiven/ReXenon#1; hl360 can now run with a
@@ -850,8 +854,8 @@ el) | 345 | 3.71 | 252 | ~207 |
     `Profiles.RequestCredits`, `profiles.credits` / `profiles.cancelEdit`).
   - **Tests (copies of the user's save in a `CreditsTest` profile, deleted afterwards; the real Baseline untouched,
     backup `out/profile-backups/s44-before-credits`):**
-    - the edit applies at profile load (3,591 → 1,003,591, shown by the game's own UI);
-    - on a copy of the session 41 save, 23,591 → 73,591, the RSX Type-S bought, game saved, restart: 63,591 CR and the
+    - the edit applies at profile load (3,591 â†’ 1,003,591, shown by the game's own UI);
+    - on a copy of the session 41 save, 23,591 â†’ 73,591, the RSX Type-S bought, game saved, restart: 63,591 CR and the
       RSX in My Cars.
 - **Buying crashes on today's Baseline save:** `indirect call to 00000000` from `sub_827C5FD8`, the same as issue H
   (VINYLISSUES). The session 41 copy is fine. Open; see "Start here (session 45)".
@@ -859,7 +863,7 @@ el) | 345 | 3.71 | 252 | ~207 |
   - The **virtual pad in menus**: `hold` + `release` with ~120 ms between and ~2 s after each press works. 300 ms
     holds auto-repeat (moved 1.5 rows) and plain `press` sometimes drops.
   - Menus hide after ~5 s idle: `press RB` wakes them without moving.
-  - Guest address = host address − the low block's AllocationBase (`src/memory.cpp`: [0, 7F000000) is one committed
+  - Guest address = host address âˆ’ the low block's AllocationBase (`src/memory.cpp`: [0, 7F000000) is one committed
     allocation starting at the 4 GB placeholder's base).
 
 ### Session 43 (2026-11-18): Hyper presets (ReGPU 77), Intel iGPU leads + compile throttle (ReGPU 78), launcher iGPU tab
@@ -954,7 +958,7 @@ el) | 345 | 3.71 | 252 | ~207 |
 - **Commits:** e925902 (ReXenon PR notes), 5fabea2 (wing trace), e2701e2 (patch 76), 2bee9ca/eb50047 (hl360 launcher),
   825a2f8 (green face).
 
-### ▶ Start here (session 42): state at the end of session 41 (2026-11-17)
+### â–¶ Start here (session 42): state at the end of session 41 (2026-11-17)
 - **In short:** vinyls now go through one general rule instead of per-car guesses (ReGPU 73-75), the first GitHub
   release exists (v0.41.0-beta, Windows + Linux/Proton, pre-release), the community PR #1 is merged (VERSION file, icon,
   launcher theme, Discord button, shader sharing off until a server exists), and **ReXenon is the default recompiler**
@@ -1105,7 +1109,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   installer 0.39.4 (old seed): **rebuild the installer** before the user tries again. Not confirmed by the user yet.
 - **Next:** the session 40 list below. Only the band with one tile **off** is unconfirmed in game (still there on our shot).
 
-### ▶ Start here (session 40): state at the end of session 39 (2026-11-16)
+### â–¶ Start here (session 40): state at the end of session 39 (2026-11-16)
 - **In short:** a long session of user requests, all committed (last commit after 9c07e64; 70 ReGPU patches):
   TAAU research; Windows installer + Disc 1 import from the .iso; the remaining VR parts (lens crop, pacing, mono HUD
   panel, seat keys) and three VR fixes from the user's Quest 2 tests (pose tags, stereo hold, flags with the frame);
@@ -1325,12 +1329,12 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
 - **Installer for another PC** (user's request): `installer/fm3.iss` + `installer/build-installer.ps1` (Inno Setup
   6.7.3, installed per user with winget) -> `out/installer/dist/FM3-ReGPU-Setup-<version>.exe` (~83 MB): fm3.exe +
   DLLs + pdb, launcher published self-contained, licences; per user in `%LOCALAPPDATA%\FM3-ReGPU`, no game files.
-  New launcher **Disc 1 import from the .iso** (`Disc1.cs`, Play tab Game "From .iso…", CLI `--install-disc1 <iso>
+  New launcher **Disc 1 import from the .iso** (`Disc1.cs`, Play tab Game "From .isoâ€¦", CLI `--install-disc1 <iso>
   [folder]`): default.xex hashed in the image first, extracted to the install's `game\` (3,059 files, identical to
   hl360's disc1 by list, sizes and spot `cmp`). Tested here: silent install, Disc 1 extract, boot to the menu
   (fresh user folder), silent uninstall (removes `game\` and `out\`). The user tests it on another PC.
 
-### ▶ Start here (session 39): state at the end of session 38 (2026-11-16)
+### â–¶ Start here (session 39): state at the end of session 38 (2026-11-16)
 - **In short:** VR is built through FH1R's whole plan except headset pacing, all checked on the grid without a
   headset (64 ReGPU patches; last commits 292150a, 658ea51, 829a2fc, 4e30796, c267e0d): true stereo (`vr=stereo`,
   patch 63), HUD on its own panel + F8/both-sticks recentre (patch 64), eye limit, launcher "VR headset" option, the
@@ -1424,7 +1428,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
 - Not done: XR eye images never ran with a real session (the swapchain pair path, poses per eye); the user's
   `fm3.log` from before was copied to `out/logs/user-s38/`.
 
-### ▶ Start here (session 38): state at the end of session 37 (2026-11-15)
+### â–¶ Start here (session 38): state at the end of session 37 (2026-11-15)
 - **In short (details in the bullets below):** FM2 PR 33's scan fix ported (patch 58, no effect in FM3); draw-thread
   "bigger changes" tried and dropped (ring writes on the replay thread -0.4%, draw workers -7.6%, spliced parallel
   pieces -10..-12% on 4-8 threads: weak CPUs are saturated); total CPU cut (patch 59: command processor -15%,
@@ -1489,7 +1493,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   byte-identical; `REGPU_NO_WIDE_INDEX_VIEWS=1` old, live). **Command processor 75.9/74.6% -> 64.1/63.7% of a core**
   (frozen grid, 4c/8t, equal fps); total ~-0.1 core; AI benchmark race 120 s fine (355.7 fps at the cap, p99 3.32 ms).
   Measured with `threads.ps1` at the frame cap (equal fps, CPU per thread) and fps at affinity 0x0F; both have
-  ~±2-3% noise per boot, so only the command processor's drop is clearly above it.
+  ~Â±2-3% noise per boot, so only the command processor's drop is clearly above it.
   - **Tried, no gain, removed:** PGO of the recompiled game code (`fm3_ppc`, profile from a 150 s AI race: 3.50 vs
     3.48 cores at the cap, 2c/4t +0.4%), `-mavx2` for `fm3_ppc` (no change), a fence-free head publish (no change),
     command-processor idle sleep at 2c/4t (it is not idle there) and on the iGPU (the whole game uses ~1.2 cores
@@ -1539,7 +1543,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
     recentre key, eye limits, real in-car test (user), true stereo (step 3), headset pacing, cabin pass, launcher
     option.
 
-### ▶ Start here (session 37): state at the end of session 36 (2026-11-15)
+### â–¶ Start here (session 37): state at the end of session 36 (2026-11-15)
 - **In short:** anti-aliasing filters (user's request: FXAA, EQAA, MLAA, SRAA, SSAA, TAA, CMAA, SMAA; the user chose to
   skip MLAA (SMAA's predecessor) and SRAA (needs per-sample normals FM3 never draws) and to download the originals).
   ReGPU patch 54 `regpu-postaa` + FM3 `thirdparty/aa` (SMAA MIT, CMAA 2 Apache 2.0, FXAA 3.11 NVIDIA BSD-style; pinned
@@ -1598,7 +1602,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   `REGPU_TAA_CLIP`, live via `Fm3 "env ..."`); SMAA 2x/T2x (SMAA with TAA) if wanted.
 
 
-### ▶ Start here (session 36): state at the end of session 35 (2026-11-15)
+### â–¶ Start here (session 36): state at the end of session 35 (2026-11-15)
 - **In short:** the user asked why DXC lost on the iGPU. Answer: **every translated vertex shader carried a
   `float4 vq[3][16]` array** (the `main` wrapper's point-sprite / rectangle-list path keeps the three corners' outputs,
   indexed at run time). FXC put it in scratch (816 bytes a vertex); AMD's drivers keep DXC's in registers: ~240-255
@@ -1617,7 +1621,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   shader compile times unchanged (median ~0.4 s). The first boot after this build recompiles every vertex shader.
 - **How it was found (reusable):** RGP refuses the iGPU ("GPU not supported"), and RGA's normal DX12 targets stop at
   RDNA3. But **RGA's offline mode takes the installed driver's own compiler**: `rga -s dx12 --offline --amdxc
-  <DriverStore>ȅ305...\amdxc64.dll -c gfx1036 --vs-blob .. --ps-blob .. --rs-bin out/rga/rootsig.bin --gpso ..`
+  <DriverStore>È…305...\amdxc64.dll -c gfx1036 --vs-blob .. --ps-blob .. --rs-bin out/rga/rootsig.bin --gpso ..`
   gives the iGPU's real ISA. The two GPUs run **different driver branches** (`Get-CimInstance Win32_VideoController`):
   iGPU 32.0.21045 (RDNA2 maintenance branch, amdxc64 82 MB), 7900 XTX 32.0.32015 (143 MB). Pairs of cached blobs
   (`out/user/shadercache/<key>.dxbc` vs `<key>.dxil`, same key = same HLSL) compiled side by side: vertex shaders DXC
@@ -1648,7 +1652,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
 - **Not checked by the user yet:** a drive with the new vertex shaders (on by default), plus session 34's list (launcher
   Bilinear entry, session 33 defaults). User's settings.ini untouched.
 
-### ▶ Start here (session 35): state at the end of session 34 (2026-11-15)
+### â–¶ Start here (session 35): state at the end of session 34 (2026-11-15)
 - **In short:** session 34 worked through the five remaining iGPU steps (PERF-PLAN "Session 34 outcome"). New
   ReGPU patch 49 `regpu-igpu-leads`, then patch 50 `regpu-dxc` (below; 50 patches):
 
@@ -1689,7 +1693,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   first reading is far too fast: draws skipped while compiling); a live switch that changes the specialisation id
   makes its own variants, so it A/Bs live.
 
-### ▶ Start here (session 34): state at the end of session 33 (2026-11-14)
+### â–¶ Start here (session 34): state at the end of session 33 (2026-11-14)
 - **In short:** session 33 fixed the stutters (long-frame log, index-cache sweep, texture streaming), built the
   AI-driven benchmark (game `FM3_BENCHMARK`, launcher Settings > Benchmark, `tools/bench_matrix.ps1`), worked through
   the 4K+ leads, freed most of the 4x VRAM, added the launcher's GPU choice and started the iGPU work. Details per
@@ -1922,7 +1926,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
     349.7 (-1.2%, p99 3.60) | I3 level 3 349.2 (-1.3%, p99 3.70) | half-rate shadows 358.2 (+1.3%, p99 3.47) |
     half-rate reflections 357.3 (+1.0%, p99 3.45) | distant-car detail (`FM3_CAR_LOD_FAR=3`) 356.8 (+0.9%, p99
     3.36) | long-frame stack sampler on 357.2 (+1.0%, p99 3.29). **Nothing moves the 1440p p99 beyond noise**
-    (sd ~2 fps, p99 ±0.1 ms between rounds); the sampler costs nothing measurable (the user's `long_frame_stacks=1`
+    (sd ~2 fps, p99 Â±0.1 ms between rounds); the sampler costs nothing measurable (the user's `long_frame_stacks=1`
     stays).
 - **Where 4x costs at 4K (frozen grid, `REGPU_GPU_PASSES=1`, `tools/analysis/gpupasses.py`, logs
   `out/perf/s33-passes/`):** GPU 3.18 (2x) -> 4.02 ms (4x), +0.84 ms: main scene pass 2.02 -> 2.28 (+0.26), **the
@@ -2066,7 +2070,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   preset"), the preset notes say so; the benchmark records "draw-cutting options (preset)". Low boot logs all five on.
   Checked in the browser with a sample state; the real launcher window not opened.
 
-### ▶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
+### â–¶ Start here (session 33): state at the end of session 32 (2026-11-13/14)
 - **In short:** session 32 measured where the frame goes and built the last big CPU/GPU leads. **Default changes:**
   PGO build of ReGPU (L23, +3.2% draw-thread bound; `build/rel` configured `FM3_PGO=use`). **New launcher options,
   all off by default (the user drove the half-rate ones: lag not noticeable at their frame rates):**
@@ -2219,7 +2223,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   (level 3 from level 1), off by default, read by the game (`src/hooks/mirror.cpp`; `FM3_CAR_LOD_FAR` overrides,
   0 = off). Checked: a grid boot with it logs `cars: distant cars drawn at detail level 3`, draws 2,673 -> 2,577.
 
-### ▶ Start here (session 32): state at the end of session 31 (2026-11-13)
+### â–¶ Start here (session 32): state at the end of session 31 (2026-11-13)
 - **In short:** session 31 made the **upload ring in VRAM the default** (L47: frozen grid 1440p 4x +26%, 12 s
   drives +18% to the 360 cap, 4K +22%, 0 pixels; the user's races with the perf log off clearly faster), built the
   **light performance log** (ReGPU patch 39, near-free; the full log costs -18..-25% and is kept as a deliberate
@@ -2336,7 +2340,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
 - New in `tools/perf_suite.ps1`: `Test-Drive <id> <variant> [seconds]` (unfreeze, hold RT, 1 s fps samples +
   `frametimes`); results `out/perf/s31/`.
 
-### ▶ Start here (session 31): state at the end of session 30 (2026-11-12/13)
+### â–¶ Start here (session 31): state at the end of session 30 (2026-11-12/13)
 - **In short:** session 30 cut what ReGPU's draw thread writes per draw and found the race's limit moved.
   **User's race (Crown Jewel, 1440p 4x, ring in system memory): ~256 fps (session 29) -> ~285 fps (+11%).**
   Built and on by default (ReGPU patches 35-38, each with an A/B switch, all byte-identical or picture-unchanged):
@@ -2407,7 +2411,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   user drives; then cut there. More draw-thread byte cuts will not show in races now.
 - Launcher rebuilt (session 29's tooltip). settings.ini restored after the 720p runs (vram_upload_ring=0 there now).
 
-### ▶ Start here (session 30): state at the end of session 29 (2026-11-12)
+### â–¶ Start here (session 30): state at the end of session 29 (2026-11-12)
 - **Next (user's request): L57, cut the bytes the draw thread writes per draw.** Why: racing on the user's PC is
   bound by ReGPU's draw thread (~1.41 us a draw, ~2,500-2,750 draws, 3.5-3.8 ms of a ~4 ms frame; user's drive logs
   `out/run/fm3.drive-ringoff.log` / `fm3.drive-ringon.log`, perf log on). Every byte it writes into the upload ring
@@ -2449,7 +2453,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   Headless capture: `RadeonDeveloperPanelCLI.exe -m profiling -p fm3 -a frame:12000 -o <file>.rgp` started before
   `Start-Grid`; the GUI (`RadeonGPUProfiler.exe <file>`) is the only reader, so the user sends screenshots of the panes.
 - **Results (PERF-RESULTS.md "Session 29"):** frame 3.70 ms, GPU idle 8%; **barriers 0.72%, no decompress / fast clear
-  eliminate anywhere, compression on: L46 parked.** Found instead: rectangle clears run as AMD slow clears (29-44 µs
+  eliminate anywhere, compression on: L46 parked.** Found instead: rectangle clears run as AMD slow clears (29-44 Âµs
   each), end-of-frame quads serialised behind FULL-drain barrier pairs, every surface RGBA16F 4x. New PERF-PLAN rows
   **L54 fast clears, L55 end-of-frame barrier chain, L56 render-target format**.
 - **L47 built (user chose it next):** ReGPU patch 34 `regpu-gpu-upload-ring`: OPTIONS16 log line (here: GPU upload heaps
@@ -2464,7 +2468,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   tooltip updated. A split ring would not help (the constants are both the GPU win and the CPU cost); lead L57: reuse
   unchanged constant blocks instead of rewriting them (see "Start here (session 30)").
 
-### ▶ Start here (session 29): state after session 28 (2026-11-12)
+### â–¶ Start here (session 29): state after session 28 (2026-11-12)
 - **Shader and pipeline discovery, steps 1 and 3 done (step 2, the automated tour, is next):**
   - **Disc 2 in the boot scan** (`src/static_shaders.cpp`): installed packages (`<user>/dlc/<pkg>` with a `.license`)
     are searched like the game folder (their 4 track zips hold 241 `.fxobj`; car packs none); the stamp covers them,
@@ -2524,7 +2528,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   a scratch user folder) to see what a new player's first race builds. Report the flag-4 bug upstream (needs the user's
   OK: it posts publicly). Then the audit list below.
 
-### ▶ Start here (session 28): state at the end of session 27 (2026-11-11/12)
+### â–¶ Start here (session 28): state at the end of session 27 (2026-11-11/12)
 - **Built in session 27 (all pushed, details in "Session 27" below):**
   - **L40, command processor sleeps while idle under a frame cap**, default at `max_fps` <= 144 or vsync (ReGPU
     patch 31 `regpu-cp-idle-sleep`, `REGPU_CP_IDLE_SLEEP_US=200` + `REGPU_CP_SPIN_MS=1`; `FM3_CP_SPIN=1` off; log
@@ -2631,7 +2635,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   784 shaders; seed 2,100 pipelines + 86 vertex variants.
 - Note: `quick_race=1`'s pad route stops one A short of Start Race (pre-race menu), then the track fly-over runs.
 
-### ▶ Start here (session 27): state at the end of session 26 (2026-11-11)
+### â–¶ Start here (session 27): state at the end of session 26 (2026-11-11)
 - **Built in session 26 (all pushed; details in the section below):**
   - **L36 one guest tile**, opt-in (launcher Settings > Testing "One guest tile" = settings.ini `one_tile=1`,
     `FM3_ONE_TILE=1`; logged `gpu: one guest tile on|off`): `src/hooks/one_tile.cpp` + ReGPU patch 30
@@ -2743,7 +2747,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   cockpit view uses another tiling scenario.
 - Then from PERF-PLAN "Next up": L37 rect clears as real clears, L39/L40/L14, the rest.
 
-### ▶ Start here (session 26): state at the end of session 25 (2026-11-11)
+### â–¶ Start here (session 26): state at the end of session 25 (2026-11-11)
 - **Session 25 built (all default on, pushed, the user drove both):** L12 asynchronous frame end (patch
   `regpu-async-present`; launcher Settings > Testing "Asynchronous present" = settings.ini `async_present`, logged
   `gpu: asynchronous present on|off`; `FM3_SYNC_PRESENT=1` off) and the draw-thread memos (patch
@@ -2774,7 +2778,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   `REGPU_NO_PASS_SNAPSHOT`) needs old/new exe boots instead: build the old variant to a copy, alternate boots.
   Close the game before linking (a running fm3.exe fails the link silently in a script).
 
-### ▶ Session 25, part 2 (2026-11-11): draw-thread memos; upload hashing and tile merge scoped
+### â–¶ Session 25, part 2 (2026-11-11): draw-thread memos; upload hashing and tile merge scoped
 - User: "go ahead with the four candidates" (vertex cache lock, upload hashing, pass-scale helpers, L10 tile merge).
   Re-profile after L12 (CPU-bound grid, 253.8 fps): a `Real()` wait at the swap was left (2.7%): the timer/shader
   overlays recorded their uploads on the real list. Patch **`regpu-draw-thread-memos`** (29 ReGPU patches):
@@ -2800,7 +2804,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   1% low 200.5, lowest stretch 200.3, nothing under 180 (L12 drive: lowest 197-208; short drive, views differ, so the
   log alone doesn't separate the two).
 
-### ▶ Session 25 (2026-11-11): draw thread, L12 asynchronous frame end
+### â–¶ Session 25 (2026-11-11): draw thread, L12 asynchronous frame end
 - User's pick: the draw thread. Profiled ReGPU's draw thread ("gpu draw worker") on the CPU-bound grid (settings.ini
   1280x720 msaa 1, backed up and restored) with whole call stacks: **~10% of its time was waiting at the frame end**:
   ~7% asleep inside AMD's driver (`amdxc64.dll` -> `SleepEx`) in `Present` (frame-queue throttling), ~2.5% waiting for
@@ -2827,7 +2831,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   as `module+offset`; " ~ name" = the nearest fm3.exe return addresses found on the stack (heuristic).
 - Next: PERF-PLAN "Next up" (re-profile the draw thread after L12; cockpit cam if it still feels low); ask the user.
 
-### ▶ Start here (session 25): state at the end of session 24 (2026-11-11)
+### â–¶ Start here (session 25): state at the end of session 24 (2026-11-11)
 - Session 24 built (all default on, all pushed): first-boot shader compile (static scan + pipeline seed with vertex
   variants), L30 plain-fetch shader variants, the CPU cuts (lock/getenv cuts, shader-load repeat skip, L28 register
   skip). 27 ReGPU patches. Frozen grid 1440p 4x ~225 fps (GPU and CPU limits now close); CPU-bound grid (720p 1x)
@@ -2942,7 +2946,7 @@ Written up in RESEARCH.md (index rows "cloud, 2026-11-16/17"), PERF-PLAN.md (L52
   `report_s23.py` + `make_pairs.ps1` (the picture report `out/perf/s23/report.html`).
 - `play.cmd` is back to normal (no temporary lines).
 
-### ▶ Session 23, part 2 (2026-11-11, user AFK): every testable performance lead, hands-off (start here)
+### â–¶ Session 23, part 2 (2026-11-11, user AFK): every testable performance lead, hands-off (start here)
 Full results, pictures and how to read them: **[PERF-RESULTS.md](PERF-RESULTS.md)** (summary at its top); raw numbers,
 journal and every screenshot in `out/perf/s23/` (local). Harness: `tools/perf_suite.ps1` (boot to the frozen grid
 with start-time env, fps samples, shots, interleaved live A/B, CSV), phase scripts `tools/perf/session23/s23_*.ps1` (copies of `out/perf/s23_*.ps1`).
@@ -2969,7 +2973,7 @@ with start-time env, fps samples, shots, interleaved live A/B, CSV), phase scrip
   L30 fetch variants for the car shaders, CPU-side cuts (L8/L28) to lift the ~231 ceiling, fixing the helper passes
   for FM3 (then presets could gain again), L6 RGP profile of the paint shader.
 
-### ▶ Session 23 (2026-11-11): test grid by itself + frozen world (start here)
+### â–¶ Session 23 (2026-11-11): test grid by itself + frozen world (start here)
 - **Merged** the cloud research branches (sessions 21, 21b, 22) into `main`: PERF-PLAN.md, RESEARCH.md studies, NOTES.
 - **`FM3_FREEZE_TIME`** (LiveSwitch, `src/hooks/frame_time.cpp`): main-loop dt 0, the world stops (cars, cameras,
   countdown, race clock), every frame is still drawn (~190 fps on the grid, 1440p 4x). Two screenshots of the frozen
@@ -3002,9 +3006,9 @@ with start-time env, fps samples, shots, interleaved live A/B, CSV), phase scrip
   across boots go away; maybe a "regrid" (pause > Restart > Start Race > freeze) without rebooting.
 
 
-### ▶ Session 22 (2026-11-10, cloud, research only; branch `ccr-acb8fc05-rpzqri`)
+### â–¶ Session 22 (2026-11-10, cloud, research only; branch `ccr-acb8fc05-rpzqri`)
 No code changed; the game state is as at the end of session 20/21. All findings are in RESEARCH.md (index rows marked
-session 22 at the top) and PERF-PLAN.md (new L24–L35, I8, V8; L25 rewritten). Studies: FH1R's latest perf work and its
+session 22 at the top) and PERF-PLAN.md (new L24â€“L35, I8, V8; L25 rewritten). Studies: FH1R's latest perf work and its
 ReGPU plugin, upstream ReGPU past our pin, Sonic Unleashed Recompiled, Pinyon Shift, ITC-Recomp (its interpolation:
 no perf merit for FM3), upscalers/frame generation (FSR 4 INT8 for the user's RX 7000 via FSR SDK 2.4), an FPS
 counter + graph, the legal/ESRB screens, triple screen (three instances over a virtual LAN; one instance), engine
@@ -3020,7 +3024,7 @@ and plan in RESEARCH.md "Input latency". Order proposed: latency probe -> our ow
 Also looked at FH1R's "Use FIFO latest ready" (a Vulkan present mode; our D3D12 equivalent = flip `Present(0, 0)`):
 RESEARCH.md, same section.
 
-### ▶ Start here next session (state at the end of session 20, 2026-11-10)
+### â–¶ Start here next session (state at the end of session 20, 2026-11-10)
 All work is committed and pushed (`main`, last commit "Session 20 wrap-up"). `play.cmd` is back to normal (no temporary
 lines). **21 ReGPU patches** (new: `regpu-split-alpha-test`). Session 19's open list (attract video, vertex arena A/B,
 presets in a race, grass, older items) is unchanged: it is in the session 19 block below.
@@ -3045,7 +3049,7 @@ presets in a race, grass, older items) is unchanged: it is in the session 19 blo
    logs compared), `dupdraws.py`, `pngdiff.py` (pixel diff of two shots). `REGPU_GPU_PASSES`/`REGPU_GPU_SHADERS` are
    read at start only (temporary `play.cmd` line).
 **Session 21 next (pick with the user):** the time-freeze switch (`FM3_FREEZE_TIME`, small); the car-physics RE in a race (float scan + watchpoints), which unlocks SimHub telemetry, AI throttle/brake/clutch control and the AI-driven benchmark; VRS measurement; installer decisions (ship exe or build locally, signing).
-**Session 22 (cloud):** FH1R + Sonic Unleashed perf survey (RESEARCH.md, PERF-PLAN L24–L29, I8); best next GPU-side steps: L26 GPU time by kind, I8 anisotropy from the fetch.
+**Session 22 (cloud):** FH1R + Sonic Unleashed perf survey (RESEARCH.md, PERF-PLAN L24â€“L29, I8); best next GPU-side steps: L26 GPU time by kind, I8 anisotropy from the fetch.
 **Session 21 (cloud):** [PERF-PLAN.md](PERF-PLAN.md) collects every performance item not yet built or measured (from this file, RESEARCH.md, OPEN-ISSUES.md), grouped by picture effect, target machine and live/start-time A/B, with a suggested order. Pick the next perf test from there.
 **Session 21 (cloud, research only):** RESEARCH.md "Installer for a public release" (FM2/FM4 Inno Setup + bundled Python + GitHub patch-zip updater; FH1R builds the game on the player's PC, SignPath signing; FM3 recommendation: Inno per user, the launcher's C# XISO/STFS instead of Python, self-contained launcher; decide: ship the exe or build locally) and "Benchmark tools" (FH1R hands the player car to the native race AI via the opponent factory + releasing the human override; FM3 options; **cheapest win: a live `FM3_FREEZE_TIME` in `frame_time.cpp` (dt 0) freezes the world while rendering continues**; then a dev-option search with `xref.py options`).
 **Next (the user asked how to make AI cars cheaper without visible change; pick with the user):**
@@ -3086,7 +3090,7 @@ temporary lines); test mods in `out/user/mods` are all switched off (`_lodx2`, `
    Results on the CrownJewel grid (8 cars, 1440p 4x MSAA): `keepLOD0Car` works (full model for the near AI car, +0.6%
    draws); crowd `lod0-3` scale the 3D spectators (x2: +7% draws, ~-10% fps; x0.5: halved, -3% draws, fps same);
    `fastcrowdrender` removes 3D spectators (-7% draws, fps same, flatter crowd); `fastcarrender` lowest models for every
-   car (+1.3% fps, ugly); `perfmode` = all of it + fallback UI font without `.'-ë` + broken menu car: no use;
+   car (+1.3% fps, ugly); `perfmode` = all of it + fallback UI font without `.'-Ã«` + broken menu car: no use;
    `trackfardistance`, the dev overlays (`showframerate`, metrics, PVS) and `noattractvideo` are cut from retail.
    **Key finding (corrected in session 20):** the grid frame (~4.9 ms) is **not** bound by the game's render thread t7.
    Its 98% "CPU" is mostly a spin: the session-20 profile (`out/logs/s20_t7_profile.log`, stock, paused CrownJewel grid,
@@ -3166,7 +3170,7 @@ shared its 4-page report; its code is not public, so every piece here is our own
   car bodies missing in the menu: unusable as a whole. Single flags: `fastcrowdrender` -7% draws, 0 fps, flatter crowd;
   `fastcarrender` lowest models for every car, +1.3% fps: no. Crowd x0.5 data mod: 3D spectators halved, -3% draws,
   fps unchanged (GPU-bound): the clean lever for a draw-bound low-end preset. Grass: test on another track.
-  `perfmode` in a race: -12% draws, 196 fps, low-LOD cars, no 3D crowd, font without `.'-ë`: no use. Its "slower" is
+  `perfmode` in a race: -12% draws, 196 fps, low-LOD cars, no 3D crowd, font without `.'-Ã«`: no use. Its "slower" is
   mostly run-to-run spread (stock 198.8-206.0 today); the GPU (4.7-4.8 ms of 4.9) and ReGPU's draw thread are
   both near full, so fewer cheap draws save nothing (why no LOD change moved fps here). t7 is mostly spin-waiting on
   ReGPU (session 20 profile), not the limit.
@@ -3185,7 +3189,7 @@ All work is committed and pushed (`main`). Details of everything below: session 
 **Session 18 in short:**
 1. **Music fixed (confirmed by the user, menus and races).** Two XMA decoder causes: the codec pool made the music streamer's start loop give up (a context stepped 8x while waiting now opens its codec in place), and the seek guard reset the music codec between its one-packet buffers (music now skips the guard). Switches: `FM3_XMA_POOL_WAIT_ALWAYS=1`, `FM3_XMA_GUARD_MUSIC=1` restore the old behaviour.
 2. **DLC database patches now run** (`UnpackDlcPatches`, `imports_xam.cpp`): they never had (the game looks for them as loose files beside each DLC zip). 199 DLC cars get `IsInstalled=1`, car/track merges apply. `FM3_NO_DLC_PATCHES=1` removes them (C1 A/B). **C1 stayed quiet in one race since**: keep watching for `ai drivers:` lines.
-3. **One-boot test** (`out/logs/s18-oneboot-prerace-capture.log`): ReGPU's **tile merge gives nothing on FM3** (the race scene surface is refused: "clears its tiles with rectangles"); `REGPU_UPLOAD_STABLE_REUSE` ~+2%; `REGPU_CONSTANTS_IN_RING` −21%. **Band D's edge is exactly row 256 = one 4x MSAA EDRAM tile** (same with merge on/off); capture of the pre-race menu in that log at 115.1 s, not analysed.
+3. **One-boot test** (`out/logs/s18-oneboot-prerace-capture.log`): ReGPU's **tile merge gives nothing on FM3** (the race scene surface is refused: "clears its tiles with rectangles"); `REGPU_UPLOAD_STABLE_REUSE` ~+2%; `REGPU_CONSTANTS_IN_RING` âˆ’21%. **Band D's edge is exactly row 256 = one 4x MSAA EDRAM tile** (same with merge on/off); capture of the pre-race menu in that log at 115.1 s, not analysed.
 4. **Engine sound (G):** with the virtual pad holding clutch + 45% throttle (~5,000 RPM, RSX-S) the user hears a slow tone sweep, **"AAAAEEEEOOOO"**, not dropouts. The seek guard on/off: no audible difference. Trace (`FM3_TRACE_XMA_RESTARTS=1`, live): FM3 feeds most engine streams one packet per input buffer, and 36 of 41 "restarts" came after a single packet (none on a stream's first packets: not FM2-style replayed loops). An experimental **crossfade at every restart** (launcher Settings > Testing > "Engine sound crossfade", `engine_crossfade=1`, live `FM3_XMA_LOOP_CROSSFADE`) engages (~43 per 5 s) but **sounds worse** ("AAAEAEAEEEE...": old and new pieces alternate). It stays off by default; don't spend more on it as is.
 5. Also: `FM3_*` LiveSwitches flip live via `Fm3 "env FM3_NAME 1|0"`; GPU adapter + memory log every 30 s; `upscaler=fsr4` runs as FSR 3; `FM3_TRACE_READS=<text>` logs host call stacks; `play.cmd` skips the intro movie.
 
@@ -3198,10 +3202,10 @@ Then the ranked list: (a) C1 (watch with the DLC patches in; A/B `FM3_NO_DLC_PAT
 
 ### Session 17 start-here (kept for reference)
 **Session 17 added: intro skip, "start in a quick race", Disc 2 install, FM3's developer command line.** Tested by me with the virtual pad (you allowed me to restart the game for these tests); **not yet played by you**.
-1. **Intro skip** (`src/hooks/boot_options.cpp`; settings.ini `skip_intro=1`, launcher Play tab "Skip intro", `FM3_SKIP_INTRO=1`). Title screen ~8 s after start instead of ~100 s. `sub_8225A870` builds the boot sequence (8 entries × 240 bytes at r1+80, +160 = duration double; the +172 file field is not plain text): disclaimer 6 s, ESRB 4 s, Turn 10 10 s, MSGS 10 s, Dolby 5 s, Forza intro 70 s, handed to the sequencer's setter `sub_822BD7B8` by a virtual call (`(*(0x82C2111C)+472)->vtable[88]`). The sequencer exists only once the sequence is being built, so the hook on `sub_822232C8` (string copy) wraps the setter's indirect-table entry when the Forza intro's path (`0x82007BF8`) is copied; the wrapper recognises the boot sequence by its timings (10, 10, 5, 70 s) and sets 0.05 s per entry (FM2's method). Log: `intro: sequencer setter 822BD7B8 wrapped`, `intro: skipped (legal text, logos, intro video): 6 s 4 s 10 s 10 s 5 s 70 s`. (`FM3_INTRO_LOG` was a temporary debug switch, removed.) The game's own `disablesplashintro`/`noattractvideo` options have no reader in retail.
+1. **Intro skip** (`src/hooks/boot_options.cpp`; settings.ini `skip_intro=1`, launcher Play tab "Skip intro", `FM3_SKIP_INTRO=1`). Title screen ~8 s after start instead of ~100 s. `sub_8225A870` builds the boot sequence (8 entries Ã— 240 bytes at r1+80, +160 = duration double; the +172 file field is not plain text): disclaimer 6 s, ESRB 4 s, Turn 10 10 s, MSGS 10 s, Dolby 5 s, Forza intro 70 s, handed to the sequencer's setter `sub_822BD7B8` by a virtual call (`(*(0x82C2111C)+472)->vtable[88]`). The sequencer exists only once the sequence is being built, so the hook on `sub_822232C8` (string copy) wraps the setter's indirect-table entry when the Forza intro's path (`0x82007BF8`) is copied; the wrapper recognises the boot sequence by its timings (10, 10, 5, 70 s) and sets 0.05 s per entry (FM2's method). Log: `intro: sequencer setter 822BD7B8 wrapped`, `intro: skipped (legal text, logos, intro video): 6 s 4 s 10 s 10 s 5 s 70 s`. (`FM3_INTRO_LOG` was a temporary debug switch, removed.) The game's own `disablesplashintro`/`noattractvideo` options have no reader in retail.
 2. **Start in a quick race** (settings.ini `quick_race=1`, launcher "Start in a quick race", `FM3_QUICK_RACE=1`; implies the intro skip). Feeds the existing pad-script tour (`FM3_TOUR` in `imports_xam.cpp`, FM2's approach) the route title > START > FREE PLAY > QUICK RACE > manufacturer > car > track > assists & difficulty > race (timed presses with generous gaps). Twice tested: in the race (Catalunya pre-race camera) ~55 s after launch. The car is the first one (Acura), the track the game's pick. `FM3_TOUR` set explicitly overrides the route. Risks: a slow PC or a different profile state (e.g. a first-time profile with extra prompts) can put presses out of step; pressing buttons during the route too.
-3. **Developer command line** (`FM3_CMDLINE` or settings.ini `cmdline=`). Retail FM3 still parses Turn 10's dev command line (≈180 options, strings at `82008400`–`82009400`; handler `sub_8225EF78`, options object `0x82C21C60`), but `sub_826F5D50` empties the text; the hook writes ours (log `cmdline: "…"`). Race options: `launch` (+1082), `track=<Tracks.id>` (0 = Laguna Seca; or `trackname=<MediaName> ribbon=<RibbonIndex>`), `car=<Data_Car.Id>`, `numaicars`, `aicar<N>`, `numlaps`, `startpos`, `aiskill`, `exhibition`, `freerun`, `shortrace`, `ShowPreRaceAnd321InCmdlineLaunch`. **`launch` does NOT work in retail:** it skips the front end and shows the right track's loading screen (track=0 → "Mazda Raceway Laguna Seca, Full Circuit"), then waits forever. Not a deadlock (two thread dumps: main loop `sub_821F5DE8` runs, workers idle), no file reads after the loading animation, same with no car, `exhibition`, `freerun`, START/A pressed. Something only a dev build provided is missing. Readers of `launch` (via options getter `sub_82210D10`): `sub_8231AA50`, `sub_8231B910`, `sub_8231C010`, `sub_823B29D0`, `sub_823D5600`, `sub_82238620`, `sub_8225AB70`, `sub_8225CDE0` (boot). Left as is (quick_race covers the need); a lead if someone wants a true direct launch.
-4. **Disc 2** (subagent research, then built): launcher `Stfs.cs`/`XIso.cs` (from the FM4 fork, reading packages in place inside the ISO) + `Disc2.cs` (Play tab tile "Disc 2 content": install from .iso / folder; CLI `FM3Launcher --install-disc2 <src>`; `install-disc2.cmd` picks the Disc 2 ISO in the project root). Installed to `out\user\dlc`: all 8 packages (Asian, European, American, Ultimate 1–3 car packs, Ultimate Track Pack, Road Racing Track Pack), **byte-identical to hl360's install**, licence masks 0. Runtime (`imports_xam.cpp`): the type-2 enumerator lists only packages with `.license` (written last = finished install, Q13), names cut at the first unprintable byte (Q14, `ContentFileName`), `FM3_DLC_LICENSE_MASK=<hex>` overrides the masks (Q12; hl360 grants FFFFFFFF). **In game:** after START at the title, `content: enumerating 8 packages of type 00000002` and all 8 `DLCRootN:` mounts, then the profile; no errors; menus and Quick Race fine. **User test (end of session 17): Fujimi Kaido (Disc 2, pack 0060) loaded and raced fine, more events showed in career mode;** log clean. **Disc 2 car: 2010 Pagani Zonda R (pack 0035, model only on Disc 2) drives fine (user); its decals looked maybe lower resolution than expected: unconfirmed, no reference yet. Next: same car and view in hl360 (`boot hl360.cmd`, same 8 packages) vs ours; if hl360 is as soft it is the content.** Not yet checked: the Nordschleife. Disc 1 already has Amalfi (`Tracks\AmalfiGP`); Disc 2 adds `Tracks\Amalfi` (other layouts?), Fujimi Kaido, Nürburgring Nordschleife (pack 0060) and Nürburgring GP, Test Track (0045). Test those first. Save backup before the first Disc 2 boot: `out/profile-backups/session17-pre-disc2`. Open: `XamSwapDisc` still a stub (called once at 342 s in a session-16 run, lr `8258C794`).
+3. **Developer command line** (`FM3_CMDLINE` or settings.ini `cmdline=`). Retail FM3 still parses Turn 10's dev command line (â‰ˆ180 options, strings at `82008400`â€“`82009400`; handler `sub_8225EF78`, options object `0x82C21C60`), but `sub_826F5D50` empties the text; the hook writes ours (log `cmdline: "â€¦"`). Race options: `launch` (+1082), `track=<Tracks.id>` (0 = Laguna Seca; or `trackname=<MediaName> ribbon=<RibbonIndex>`), `car=<Data_Car.Id>`, `numaicars`, `aicar<N>`, `numlaps`, `startpos`, `aiskill`, `exhibition`, `freerun`, `shortrace`, `ShowPreRaceAnd321InCmdlineLaunch`. **`launch` does NOT work in retail:** it skips the front end and shows the right track's loading screen (track=0 â†’ "Mazda Raceway Laguna Seca, Full Circuit"), then waits forever. Not a deadlock (two thread dumps: main loop `sub_821F5DE8` runs, workers idle), no file reads after the loading animation, same with no car, `exhibition`, `freerun`, START/A pressed. Something only a dev build provided is missing. Readers of `launch` (via options getter `sub_82210D10`): `sub_8231AA50`, `sub_8231B910`, `sub_8231C010`, `sub_823B29D0`, `sub_823D5600`, `sub_82238620`, `sub_8225AB70`, `sub_8225CDE0` (boot). Left as is (quick_race covers the need); a lead if someone wants a true direct launch.
+4. **Disc 2** (subagent research, then built): launcher `Stfs.cs`/`XIso.cs` (from the FM4 fork, reading packages in place inside the ISO) + `Disc2.cs` (Play tab tile "Disc 2 content": install from .iso / folder; CLI `FM3Launcher --install-disc2 <src>`; `install-disc2.cmd` picks the Disc 2 ISO in the project root). Installed to `out\user\dlc`: all 8 packages (Asian, European, American, Ultimate 1â€“3 car packs, Ultimate Track Pack, Road Racing Track Pack), **byte-identical to hl360's install**, licence masks 0. Runtime (`imports_xam.cpp`): the type-2 enumerator lists only packages with `.license` (written last = finished install, Q13), names cut at the first unprintable byte (Q14, `ContentFileName`), `FM3_DLC_LICENSE_MASK=<hex>` overrides the masks (Q12; hl360 grants FFFFFFFF). **In game:** after START at the title, `content: enumerating 8 packages of type 00000002` and all 8 `DLCRootN:` mounts, then the profile; no errors; menus and Quick Race fine. **User test (end of session 17): Fujimi Kaido (Disc 2, pack 0060) loaded and raced fine, more events showed in career mode;** log clean. **Disc 2 car: 2010 Pagani Zonda R (pack 0035, model only on Disc 2) drives fine (user); its decals looked maybe lower resolution than expected: unconfirmed, no reference yet. Next: same car and view in hl360 (`boot hl360.cmd`, same 8 packages) vs ours; if hl360 is as soft it is the content.** Not yet checked: the Nordschleife. Disc 1 already has Amalfi (`Tracks\AmalfiGP`); Disc 2 adds `Tracks\Amalfi` (other layouts?), Fujimi Kaido, NÃ¼rburgring Nordschleife (pack 0060) and NÃ¼rburgring GP, Test Track (0045). Test those first. Save backup before the first Disc 2 boot: `out/profile-backups/session17-pre-disc2`. Open: `XamSwapDisc` still a stub (called once at 342 s in a session-16 run, lr `8258C794`).
    - **C1 note (subagent):** without Disc 2 no DB patch file ran on our build, so the patch system can't have caused C1 so far; Disc 2's `0045_pri_65.zip` has `4069_merge.slt` (may touch AIPlayers): compare C1 with and without Disc 2 from now on.
 5. **Tools:** `Fm3 "env FM3_DUMP_THREADS <n>"` logs every thread's host stack (any new value = one dump; `LogAllHostThreadStacks`). `FM3_TRACE_FILES=1` + `FM3_TRACE_XAM=1` show file opens / XAM calls (the XAM trace hits its 300-line limit within ~2 s on the per-frame polls).
 6. **Seen again, not new:** OPEN-ISSUES D (lighter band over the top of the 3D view) on the pre-race camera at Amalfi and Catalunya.
@@ -3221,7 +3225,7 @@ All work is committed and pushed (`main`). **Session 16 fixed three bugs, all co
 **First thing next session:** ask the user. Ranked: (a) C1 via the DB patch lead; (b) alt-tab hang (`out/logs/session15-c1-run3.log` thread dump); (c) report the early-fence write-back bug upstream; (d) wheel test; (e) LOD distances (L); launcher features, vinyl leftovers, OPEN-ISSUES D/F/G.
 
 ### Session 15 start-here (kept for reference; (a) livery solved in session 16)
-All work is committed and pushed (`main`). **Session 15 in short:** (1) the sun flare now works with the draw workers on the draw thread (one-line ReGPU fix in patch 15), but that mode is slower than the draw thread alone (720p 1x: 195 vs 216 fps), so it stays opt-in: launcher **Settings → Testing → "Draw workers"** (`draw_workers=1` → `FM3_DRAW_THREAD_PIECES=1`); your racing A/B at 1440p 4x MSAA showed little difference (GPU-bound). (2) **Crash C1 workaround** (`src/hooks/ai_drivers.cpp`): driver 125 (C. Reed) sometimes reads back an empty Name; such a car now gets a generic driver. Cause open. (3) Two new leads from your play test: **livery breaking on some loads** and an **alt-tab hang**.
+All work is committed and pushed (`main`). **Session 15 in short:** (1) the sun flare now works with the draw workers on the draw thread (one-line ReGPU fix in patch 15), but that mode is slower than the draw thread alone (720p 1x: 195 vs 216 fps), so it stays opt-in: launcher **Settings â†’ Testing â†’ "Draw workers"** (`draw_workers=1` â†’ `FM3_DRAW_THREAD_PIECES=1`); your racing A/B at 1440p 4x MSAA showed little difference (GPU-bound). (2) **Crash C1 workaround** (`src/hooks/ai_drivers.cpp`): driver 125 (C. Reed) sometimes reads back an empty Name; such a car now gets a generic driver. Cause open. (3) Two new leads from your play test: **livery breaking on some loads** and an **alt-tab hang**.
 
 **First thing next session:**
 1. **Ask the user which topic.** Ranked: (a) **livery breaking on some loads**; (b) C1's cause; (c) the alt-tab hang; then upstream bug reports, wheel test, LOD distances (L), launcher features, vinyl leftovers, OPEN-ISSUES D/E/F/G.
@@ -3230,7 +3234,7 @@ All work is committed and pushed (`main`). **Session 15 in short:** (1) the sun 
 4. **(c) Alt-tab hang:** the run ended in a thread dump at 1225 s (`out/logs/session15-c1-run3.log`; Windows screenshot tools had stopped working before). Read which threads wait on what; reproduce by alt-tabbing in a race.
 
 ### Session 15 details: sun flare with the workers on the draw thread fixed; the serial draw thread stays the default (faster)
-**Cause:** in ReGPU's ZPD packet handler the command processor ran `if (end) seg::g_query = false;` also in draw-thread mode. `seg::g_query` (the counting query's draws go straight onto the draw thread's list) belongs to the draw thread, and the command processor runs ahead of it, so the flag was often cleared before the draw thread reached the sun's draws: they went to worker lists the D3D query does not count → 0 samples → no flare. The serial draw thread never reads the flag, so it worked. **Fix:** cleared there only without the draw thread (its `kQuery` end record clears it on the draw thread), folded into patch 15 `regpu-draw-thread-pieces`. **Test** (you, Montserrat sun spot, paused, 1440p 4x MSAA, pieces on): query answers zpass 3214 / total 3214 every frame, ~257 fps (6 samples), **flare looks right** (you). **A/B (same cars grid, paused, 1280x720 MSAA 1x, perf log off, cap 360, 7 samples each, screenshots identical):** draw thread + workers **~195 fps** (187–200), serial draw thread **~216** (212–218). Session 14's "+15% with pieces" was against the older workers-on-CP mode (175); the serial draw thread was never measured at 720p. So **the default stays the serial draw thread** (`src/gpu_host.cpp`); `FM3_DRAW_THREAD_PIECES=1` = with workers (flare now correct), `FM3_NO_DRAW_THREAD=1` = workers on the command processor. Why the workers lose on the draw thread is not known (a piece waits for the replay, `SplitMainList`; the draw thread alone may already keep up with the CP). **Your settings.ini had `perf_log=1`** (costs ~14% fps); restored as it was. **Testing note:** no race start grid shows the sun flare; flare tests need a sun-facing spot reached by driving (the Montserrat spot). Grids are fine for fps A/B.
+**Cause:** in ReGPU's ZPD packet handler the command processor ran `if (end) seg::g_query = false;` also in draw-thread mode. `seg::g_query` (the counting query's draws go straight onto the draw thread's list) belongs to the draw thread, and the command processor runs ahead of it, so the flag was often cleared before the draw thread reached the sun's draws: they went to worker lists the D3D query does not count â†’ 0 samples â†’ no flare. The serial draw thread never reads the flag, so it worked. **Fix:** cleared there only without the draw thread (its `kQuery` end record clears it on the draw thread), folded into patch 15 `regpu-draw-thread-pieces`. **Test** (you, Montserrat sun spot, paused, 1440p 4x MSAA, pieces on): query answers zpass 3214 / total 3214 every frame, ~257 fps (6 samples), **flare looks right** (you). **A/B (same cars grid, paused, 1280x720 MSAA 1x, perf log off, cap 360, 7 samples each, screenshots identical):** draw thread + workers **~195 fps** (187â€“200), serial draw thread **~216** (212â€“218). Session 14's "+15% with pieces" was against the older workers-on-CP mode (175); the serial draw thread was never measured at 720p. So **the default stays the serial draw thread** (`src/gpu_host.cpp`); `FM3_DRAW_THREAD_PIECES=1` = with workers (flare now correct), `FM3_NO_DRAW_THREAD=1` = workers on the command processor. Why the workers lose on the draw thread is not known (a piece waits for the replay, `SplitMainList`; the draw thread alone may already keep up with the CP). **Your settings.ini had `perf_log=1`** (costs ~14% fps); restored as it was. **Testing note:** no race start grid shows the sun flare; flare tests need a sun-facing spot reached by driving (the Montserrat spot). Grids are fine for fps A/B.
 
 **Crash C1 (session 15): workaround in, cause open.** Always driver 125 (C. Reed): its row exists, but its Name read back empty on some loads (on disc `_&2149404878`); the in-memory database was intact at the menu and between loads. New `src/hooks/ai_drivers.cpp`: such a car gets a generic driver, an empty name that still gets through gets a stand-in, an empty generic pool is reset; the next occurrence logs what SQLite holds (OPEN-ISSUES C1). In your long test run the stand-in caught driver 125's empty name on 9 loads with no crash (the run ended in the alt-tab hang below); the final version (generic driver instead) is built but not yet tested in play.
 
@@ -3239,17 +3243,17 @@ All work is committed and pushed (`main`). **Session 15 in short:** (1) the sun 
 **Tools added:** `tools/analysis/sqlpage.py` (decode a gamedb.slt page from the file and from a guest-memory hex dump; page snapshots of this session in `out/logs/session15-dbpages/`), the debug server's `Fm3 "find TEXT"` (guest addresses of a string) was the way to find the in-memory database.
 
 ### Session 14 state (kept for reference; its flare-with-pieces lead is solved in session 15)
-All work is committed and pushed (`main`). **Session 14 in short:** (1) the sun flare works with ReGPU's draw workers (patch 13 `regpu-worker-queries`; launcher "Accurate sun flare" option removed); (2) the sun glare was far too big: FM3 sizes it from the raw sample count, now scaled by `REGPU_ZPD_SCALE=0.6` (patch 14, matched to console footage by eye); (3) the command processor was the speed limit: **ReGPU's draw thread is the default now** (patch 15 `regpu-draw-thread-pieces`; 1440p 4x MSAA cars grid 175 → 181–184, Montserrat 225 → 240, now GPU-bound), with the workers on the draw thread opt-in only (`FM3_DRAW_THREAD_PIECES=1`, +15% at 720p but **no sun flare**: the open lead); (4) crash **C1** (OPEN-ISSUES) on some race loads; (5) your cap is 360. Sections below in that order; the next-topic list is after the performance paragraph.
+All work is committed and pushed (`main`). **Session 14 in short:** (1) the sun flare works with ReGPU's draw workers (patch 13 `regpu-worker-queries`; launcher "Accurate sun flare" option removed); (2) the sun glare was far too big: FM3 sizes it from the raw sample count, now scaled by `REGPU_ZPD_SCALE=0.6` (patch 14, matched to console footage by eye); (3) the command processor was the speed limit: **ReGPU's draw thread is the default now** (patch 15 `regpu-draw-thread-pieces`; 1440p 4x MSAA cars grid 175 â†’ 181â€“184, Montserrat 225 â†’ 240, now GPU-bound), with the workers on the draw thread opt-in only (`FM3_DRAW_THREAD_PIECES=1`, +15% at 720p but **no sun flare**: the open lead); (4) crash **C1** (OPEN-ISSUES) on some race loads; (5) your cap is 360. Sections below in that order; the next-topic list is after the performance paragraph.
 
 **How it works:** a D3D12 occlusion query only counts the draws of its own command list, and the workers record into their own lists, so with workers every query answered a fixed 1000 (no flare). Now a ZPD start flushes the open logged segment and, while the query **counts** (`RendererOcclusionCounting`, between a start and its tile-span pause or end from `regpu-zpd-tile-spans`), its draws go straight to the command processor's list (`seg::g_query` in `gpu.cpp`); between FM3's two tile spans and outside queries the workers go on. Worker draws never take a coverage draw of the command processor's query (`!C().worker`). PGR4's logged queries (3cbd0f4) were not ported: they record a query into a worker's piece, and FM3's query spans both tiles (pieces would split it, or the frame would stay one piece). Undo live: `Fm3 "switch REGPU_NO_WORKER_QUERIES 1"` (fixed answer).
 
-**Measured** (paused on a race start grid, 2560×1440 4x MSAA, `max_fps` 240, cars already gone): real queries + workers **225 fps**, workers off (old "accurate sun") 219, fixed answer + workers 232: the queries cost ~3%. You confirmed the flare is back and looks the same with workers on or off. The sun query answers zpass 5,924 / total 5,924 (fully visible, like session 8b's 5,780). Log: `out/logs/session14-worker-queries.log`.
+**Measured** (paused on a race start grid, 2560Ã—1440 4x MSAA, `max_fps` 240, cars already gone): real queries + workers **225 fps**, workers off (old "accurate sun") 219, fixed answer + workers 232: the queries cost ~3%. You confirmed the flare is back and looks the same with workers on or off. The sun query answers zpass 5,924 / total 5,924 (fully visible, like session 8b's 5,780). Log: `out/logs/session14-worker-queries.log`.
 
-**Sun glare size (fixed by eye, session 14):** at 1x the glare covered half the screen at the start grid, far bigger than console footage (YouTube `Fx4sKnongdM` 1:16–1:21, Camino Viejo de Montserrat). Ruled out: a double count (capture, `out/logs/session14-sun-capture.log`: the sun quad is drawn once per EDRAM tile, each clipped to its tile; 22,729 host = ~2,840 guest samples there), resolution scaling (you: same at 720p 1x and 1440p 4x), and hl360 as a reference (no flare at all). **Found:** FM3 sizes the glare from the query's raw sample count, not the visible share (our answer is always zpass = total, yet the glare follows the count): with the new live multiplier `REGPU_ZPD_SCALE` (ReGPU patch 14 `regpu-zpd-scale`), frame brightness on the paused grid was 43–44 (no glare) at ≤0.5, 45 / 48 / 54 / 62 at 0.6–0.9, 72 at 1 (5,341 samples), 83 / 99 / 119 / 129 at 1.1 / 1.25 / 1.5 / 2. Half the count (pixels instead of 2x samples) would mean no glare at all, which the console footage contradicts. You compared live: 0.75 still too big, 0.65 slightly too big, **0.6 about right** → FM3 default `REGPU_ZPD_SCALE=0.6` in `src/gpu_host.cpp` (env overrides). Why the console counts fewer samples is unknown (Hi-Z? the sun quad's edges?); a later lead if other occlusion effects look off. Also seen in FH1R `docs/framerate.md`: its sun-glare fade (`sub_8257E5B8`) steps 1/30 per rendered frame, so at high fps the glare fades in/out faster (not checked for FM3).
+**Sun glare size (fixed by eye, session 14):** at 1x the glare covered half the screen at the start grid, far bigger than console footage (YouTube `Fx4sKnongdM` 1:16â€“1:21, Camino Viejo de Montserrat). Ruled out: a double count (capture, `out/logs/session14-sun-capture.log`: the sun quad is drawn once per EDRAM tile, each clipped to its tile; 22,729 host = ~2,840 guest samples there), resolution scaling (you: same at 720p 1x and 1440p 4x), and hl360 as a reference (no flare at all). **Found:** FM3 sizes the glare from the query's raw sample count, not the visible share (our answer is always zpass = total, yet the glare follows the count): with the new live multiplier `REGPU_ZPD_SCALE` (ReGPU patch 14 `regpu-zpd-scale`), frame brightness on the paused grid was 43â€“44 (no glare) at â‰¤0.5, 45 / 48 / 54 / 62 at 0.6â€“0.9, 72 at 1 (5,341 samples), 83 / 99 / 119 / 129 at 1.1 / 1.25 / 1.5 / 2. Half the count (pixels instead of 2x samples) would mean no glare at all, which the console footage contradicts. You compared live: 0.75 still too big, 0.65 slightly too big, **0.6 about right** â†’ FM3 default `REGPU_ZPD_SCALE=0.6` in `src/gpu_host.cpp` (env overrides). Why the console counts fewer samples is unknown (Hi-Z? the sun quad's edges?); a later lead if other occlusion effects look off. Also seen in FH1R `docs/framerate.md`: its sun-glare fade (`sub_8257E5B8`) steps 1/30 per rendered frame, so at high fps the glare fades in/out faster (not checked for FM3).
 
 **Crash once on loading a track** (superseded by OPEN-ISSUES C1, which has the stack; timer ~36, `fm3.log` of that run lost to the next launch): the guest threw `std::out_of_range` (ThrowInfo `8219A290`, thrower near `82A78BE8`, lr `82A78C58`); our runtime can't unwind guest C++ exceptions. Did not repeat on the next load. `src/kernel/imports_rtl.cpp` now logs the guest stack (`guest exception: stack ...`) on such a throw; the save before the retry is backed up in `out/profile-backups/session14-after-crash`.
 
-**Performance: the draw thread is FM3's default now (session 14, "per-draw CP cost").** Profiling (paused on the cars grid, 3,560 draws; logs `out/logs/session14-*profile*.log`): the game's render thread spends ~74% waiting for ring space, so ReGPU's command processor was the bound; its time was spread thin (no hotspot); splitting segments into more pieces changed nothing; **`REGPU_PERF` itself costs ~14%** (151 vs 175 fps: keep the launcher's `perf_log` off except for measuring). ReGPU's draw thread (`REGPU_DRAW_THREAD`: the CP only parses and queues, one thread translates) beat the workers: cars grid 1440p 4x MSAA 175 → 181–184 fps, Montserrat spot 225 → 240 (the cap). New 15th ReGPU patch **`regpu-draw-thread-pieces`**: occlusion queries with the draw thread (answered on the CP from earlier frames, recorded on the draw thread in stream order with our tile spans: sun flare works, you confirmed) and the parallel segments on the draw thread (big segments to the workers while the CP parses: 720p 1x 175 → 202 fps). **But with the workers on the draw thread the sun flare was gone in your race (cause not found)**, so the default is the draw thread alone (`REGPU_DRAW_THREAD_SERIAL=1` set by `src/gpu_host.cpp`); `FM3_DRAW_THREAD_PIECES=1` = with workers (no flare), `FM3_NO_DRAW_THREAD=1` = workers on the CP as before. At 1440p 4x MSAA the GPU is now ~90%+ busy (your overlay), so the CPU side is no longer the limit there. Not yet measured: the serial draw thread at 720p. With the draw thread ReGPU's tile merge (dropping the second EDRAM tile's draws) is off; nothing looked wrong in your race.
+**Performance: the draw thread is FM3's default now (session 14, "per-draw CP cost").** Profiling (paused on the cars grid, 3,560 draws; logs `out/logs/session14-*profile*.log`): the game's render thread spends ~74% waiting for ring space, so ReGPU's command processor was the bound; its time was spread thin (no hotspot); splitting segments into more pieces changed nothing; **`REGPU_PERF` itself costs ~14%** (151 vs 175 fps: keep the launcher's `perf_log` off except for measuring). ReGPU's draw thread (`REGPU_DRAW_THREAD`: the CP only parses and queues, one thread translates) beat the workers: cars grid 1440p 4x MSAA 175 â†’ 181â€“184 fps, Montserrat spot 225 â†’ 240 (the cap). New 15th ReGPU patch **`regpu-draw-thread-pieces`**: occlusion queries with the draw thread (answered on the CP from earlier frames, recorded on the draw thread in stream order with our tile spans: sun flare works, you confirmed) and the parallel segments on the draw thread (big segments to the workers while the CP parses: 720p 1x 175 â†’ 202 fps). **But with the workers on the draw thread the sun flare was gone in your race (cause not found)**, so the default is the draw thread alone (`REGPU_DRAW_THREAD_SERIAL=1` set by `src/gpu_host.cpp`); `FM3_DRAW_THREAD_PIECES=1` = with workers (no flare), `FM3_NO_DRAW_THREAD=1` = workers on the CP as before. At 1440p 4x MSAA the GPU is now ~90%+ busy (your overlay), so the CPU side is no longer the limit there. Not yet measured: the serial draw thread at 720p. With the draw thread ReGPU's tile merge (dropping the second EDRAM tile's draws) is off; nothing looked wrong in your race.
 
 **Your frame cap is now 360** (`max_fps=360` in `out/user/settings.ini`, your call: not faster than the game's internal tick rate; 360 is also the maximum `src/settings.cpp` and the launcher allow). Keep it there for tests.
 
@@ -3260,18 +3264,18 @@ All work is committed and pushed (`main`). **Session 14 in short:** (1) the sun 
 ### Session 13 state (kept for reference; the flare trade-off below is solved in session 14)
 All work is committed and pushed (`main`, last `4e63e41`). **Session 13** did three things: racing-wheel support, a frame-rate unlock, and a performance pass that took the game from ~70 to ~150 fps near other cars (1440p 4x MSAA, RX 7900 XTX). Details below and in **OPEN-ISSUES.md issue P**; the step-by-step record is in the session-13 log entry.
 
-**1. Racing wheels (ported, not yet driven with a wheel).** From your FM4 fork's `wheel-support` branch (`88c12e9`): `src/input/wheel/*`, `src/kernel/imports_ff.cpp`, XAM input changes, `fm3.exe --wheel-probe`, launcher **Wheel stuff** tab, `tools/wheelprobe`, `docs/WHEELS.md`, `NOTICE-wheel.md` (FH1R BSD-3 parts). FM3 has FM4's XInputFF library: `sub_82AB6AE0` looks up xboxkrnl 0x282–0x289 and xam 0x1BA/0x208 at boot, and every lookup resolves (log `XexGetProcedureAddress ...`). **To do:** a test with a real wheel (bindings, force feedback; log `Wheel:` lines).
+**1. Racing wheels (ported, not yet driven with a wheel).** From your FM4 fork's `wheel-support` branch (`88c12e9`): `src/input/wheel/*`, `src/kernel/imports_ff.cpp`, XAM input changes, `fm3.exe --wheel-probe`, launcher **Wheel stuff** tab, `tools/wheelprobe`, `docs/WHEELS.md`, `NOTICE-wheel.md` (FH1R BSD-3 parts). FM3 has FM4's XInputFF library: `sub_82AB6AE0` looks up xboxkrnl 0x282â€“0x289 and xam 0x1BA/0x208 at boot, and every lookup resolves (log `XexGetProcedureAddress ...`). **To do:** a test with a real wheel (bindings, force feedback; log `Wheel:` lines).
 
-**2. Frame-rate unlock (working, you confirmed smooth).** `src/hooks/frame_time.cpp` + `src/gpu_host.cpp` (own code after FH1-ReImagined's `docs/framerate.md`; FH1R is GPL-3). FM3's main loop `sub_821F5DE8` runs once per guest vblank (callback `sub_822580C8`) and takes dt from the ms tick. At `max_fps` 60 nothing changes. At other caps: guest vblank = 2× cap and the vblank hook sets `mainthread30fps` (options `0x82C21C60`+1086 = `0x82C2209E`) so the main loop runs at the cap and the render thread draws every frame (divider 1 gave 120 simulated / 60 drawn); the main loop's call of `sub_821F6AF8` (lr `0x821F6004`) answers with dt from the vblank clock (120 fps: 8.332 ms, sd 0.002). Switches: `FM3_VBLANK_DIVIDER=1`, `FM3_VBLANK_HZ`, env (live via `Fm3 "env NAME 1"`) `FM3_GAME_FRAME_TIME`, `FM3_FRAMETIME_LOG`. **Your settings.ini: `max_fps=240`, vsync off**, 1440p, 4x MSAA. Not ported (no need seen): FH1's render sync, side-effect fixes, PGR4's menu hold delay / gear latch.
+**2. Frame-rate unlock (working, you confirmed smooth).** `src/hooks/frame_time.cpp` + `src/gpu_host.cpp` (own code after FH1-ReImagined's `docs/framerate.md`; FH1R is GPL-3). FM3's main loop `sub_821F5DE8` runs once per guest vblank (callback `sub_822580C8`) and takes dt from the ms tick. At `max_fps` 60 nothing changes. At other caps: guest vblank = 2Ã— cap and the vblank hook sets `mainthread30fps` (options `0x82C21C60`+1086 = `0x82C2209E`) so the main loop runs at the cap and the render thread draws every frame (divider 1 gave 120 simulated / 60 drawn); the main loop's call of `sub_821F6AF8` (lr `0x821F6004`) answers with dt from the vblank clock (120 fps: 8.332 ms, sd 0.002). Switches: `FM3_VBLANK_DIVIDER=1`, `FM3_VBLANK_HZ`, env (live via `Fm3 "env NAME 1"`) `FM3_GAME_FRAME_TIME`, `FM3_FRAMETIME_LOG`. **Your settings.ini: `max_fps=240`, vsync off**, 1440p, 4x MSAA. Not ported (no need seen): FH1's render sync, side-effect fixes, PGR4's menu hold delay / gear latch.
 
 **3. Performance (new defaults in `src/gpu_host.cpp`, each with an undo switch).** The race was bound by turn-taking between the game's render thread, ReGPU's command processor and the host GPU, not by any saturated core:
 | Default | Effect (measured) | Undo |
 |---|---|---|
-| `REGPU_NO_FENCE_ORDER` (set via `regpu::driver::SetSwitch`) | near cars 69–77 → 100–120 fps | `FM3_FENCE_ORDER=1` |
-| `REGPU_TEXTURE_CHECK_STAGGER` + `REGPU_DIRECT_DYNAMIC_INDICES` | paused grid 108 → 120 | `FM3_NO_DRAW_SHORTCUTS=1` |
-| `REGPU_EARLY_FENCES` + **our 12th ReGPU patch `regpu-early-fence-writebacks`** (ReGPU's `WriteBack` zeroed the fence that must wait for a deferred write-back: liveries came out noise/blank) | paused grid 117 → 147–153; liveries intact | `FM3_LATE_FENCES=1`; old ReGPU behaviour `REGPU_EARLY_FENCES_SKIP_WRITEBACKS=1` |
-| `REGPU_DRAW_WORKERS=3` (parallel draw translation) | behind an AI car 142 → 155 | `accurate_sun=1` in settings.ini = launcher Graphics **"Accurate sun flare"** (tooltip: ~10% fps near cars) |
-**Known trade-off:** with draw workers our ReGPU can't count occlusion queries (each answers 1000 → FM3 shows **no sun flare/glare**). You chose speed over the flare for now.
+| `REGPU_NO_FENCE_ORDER` (set via `regpu::driver::SetSwitch`) | near cars 69â€“77 â†’ 100â€“120 fps | `FM3_FENCE_ORDER=1` |
+| `REGPU_TEXTURE_CHECK_STAGGER` + `REGPU_DIRECT_DYNAMIC_INDICES` | paused grid 108 â†’ 120 | `FM3_NO_DRAW_SHORTCUTS=1` |
+| `REGPU_EARLY_FENCES` + **our 12th ReGPU patch `regpu-early-fence-writebacks`** (ReGPU's `WriteBack` zeroed the fence that must wait for a deferred write-back: liveries came out noise/blank) | paused grid 117 â†’ 147â€“153; liveries intact | `FM3_LATE_FENCES=1`; old ReGPU behaviour `REGPU_EARLY_FENCES_SKIP_WRITEBACKS=1` |
+| `REGPU_DRAW_WORKERS=3` (parallel draw translation) | behind an AI car 142 â†’ 155 | `accurate_sun=1` in settings.ini = launcher Graphics **"Accurate sun flare"** (tooltip: ~10% fps near cars) |
+**Known trade-off:** with draw workers our ReGPU can't count occlusion queries (each answers 1000 â†’ FM3 shows **no sun flare/glare**). You chose speed over the flare for now.
 Tried and not used: `REGPU_DRAW_THREAD` (marginal), `REGPU_UPLOAD_SAMPLED`, `REGPU_DYNAMIC_EXPIRE` (no effect). 720p 1x ran as fast as 1440p 4x before early fences: not GPU-bound.
 **Now:** the command processor thread is the bound (t9 ~99%); fps drops as an AI car comes close (its detailed model = more draws). ~200+ fps when no cars are in view.
 
@@ -3283,14 +3287,14 @@ Tried and not used: `REGPU_DRAW_THREAD` (marginal), `REGPU_UPLOAD_SAMPLED`, `REG
 - **LOD / render distances** (OPEN-ISSUES **L**: spectator LOD popping, FH1R's "World detail beyond the console").
 - Earlier topics still open: launcher features (import, DLC, photos, icon), high-resolution parity, vinyl leftovers (VINYLISSUES.md), OPEN-ISSUES D/E/F/G.
 
-**Testing aids learned in session 13:** pause on a race's **start grid** for stable A/B numbers (draws stay constant); start with `launcher.cmd` when you need the perf log (`perf_log=1` → `REGPU_PERF`), or add temporary `set` lines to `play.cmd` (remove after). The debug server's `switch` only accepts `REGPU_*`/`PGR4_*` names (our `FM3_*` LiveSwitches are a separate class it can't reach). `REGPU_EARLY_FENCES` is also read once at start in `gpu.cpp`, so its live switch alone is not a real A/B. Profile a guest thread with `FM3_SAMPLE_THREAD=<id>` + `FM3_SAMPLE_CALLERS=1` (at start); t7 = render thread (entry `822BDE68`), t9 = ReGPU command processor. D3D's block-on-fence: `sub_824B5048` → `sub_824B4F78` → spin `sub_824AAA68`; device `*(0x400005D0)`, +0x2A90 → GPU fence word, +0x2A9C issued fence number. Logs of each test: `out/logs/session13-*.log`.
+**Testing aids learned in session 13:** pause on a race's **start grid** for stable A/B numbers (draws stay constant); start with `launcher.cmd` when you need the perf log (`perf_log=1` â†’ `REGPU_PERF`), or add temporary `set` lines to `play.cmd` (remove after). The debug server's `switch` only accepts `REGPU_*`/`PGR4_*` names (our `FM3_*` LiveSwitches are a separate class it can't reach). `REGPU_EARLY_FENCES` is also read once at start in `gpu.cpp`, so its live switch alone is not a real A/B. Profile a guest thread with `FM3_SAMPLE_THREAD=<id>` + `FM3_SAMPLE_CALLERS=1` (at start); t7 = render thread (entry `822BDE68`), t9 = ReGPU command processor. D3D's block-on-fence: `sub_824B5048` â†’ `sub_824B4F78` â†’ spin `sub_824AAA68`; device `*(0x400005D0)`, +0x2A90 â†’ GPU fence word, +0x2A9C issued fence number. Logs of each test: `out/logs/session13-*.log`.
 
 ### Session 12 state (kept for reference)
-All work is committed and pushed (`main`). **Session 12** added the launcher (`launcher/FM3Launcher`, C# .NET 9 / Photino, ported from your FM4 fork; you tested it: works) and, from testing at 2560×1440, fixed the My Cars thumbnail ghost (11th ReGPU patch `regpu-guest-lod-short-mips`, you confirmed). Higher resolutions and 4x MSAA now run; a one-off race dip with 1440p + 4x MSAA did not reproduce. **How you test now:** `play.cmd` (unchanged) or `launcher.cmd` (same folders; profile from the Profiles tab; graphics settings in `out\user\settings.ini` apply to both). The launcher keeps the previous `fm3.log` as `fm3.prev.log`.
+All work is committed and pushed (`main`). **Session 12** added the launcher (`launcher/FM3Launcher`, C# .NET 9 / Photino, ported from your FM4 fork; you tested it: works) and, from testing at 2560Ã—1440, fixed the My Cars thumbnail ghost (11th ReGPU patch `regpu-guest-lod-short-mips`, you confirmed). Higher resolutions and 4x MSAA now run; a one-off race dip with 1440p + 4x MSAA did not reproduce. **How you test now:** `play.cmd` (unchanged) or `launcher.cmd` (same folders; profile from the Profiles tab; graphics settings in `out\user\settings.ini` apply to both). The launcher keeps the previous `fm3.log` as `fm3.prev.log`.
 
 **Pick the next topic with you** (no default chosen at the end of session 12):
 - **Launcher, next features** (Phase 6 in the work plan): game import (disc .iso / drop, the fork's `Import.cs`/`XIso.cs`/`DropTarget.cs`), DLC packs (`Stfs.cs`, the runtime already reads `user\dlc`), photos (check FM3's photo-mode save format first), an icon of our own (FM4's is game art), maybe the updater/reports later (need GitHub releases / a server). FSR 4, SMAA and the shader optimiser need a ReGPU update first (our pin lacks them; 11 patches to carry over).
-- **High-resolution parity:** play more screens at 1440p and 4x MSAA (the thumbnail bug only showed above 1×; similar "the game relies on its 720p size" cases may exist). If the race dip returns, note the timer value and keep the log.
+- **High-resolution parity:** play more screens at 1440p and 4x MSAA (the thumbnail bug only showed above 1Ã—; similar "the game relies on its 720p size" cases may exist). If the race dip returns, note the timer value and keep the log.
 - **Vinyl leftovers** (below) and the **other open issues** (OPEN-ISSUES.md).
 
 Session 11 fixed the vinyl issues **B** (cut along a straight line) and **B2** (race/photo-mode livery noise), my own **poster bug** (a bumper vinyl in a career poster), and **H** (a car vanishing from My Cars after painting another; the damaged save then crashed on buying a car). **Everything vinyl/livery-related, with how FM3 builds a livery, the fixes, switches, saves, test tools and the remaining leads, is in [VINYLISSUES.md](VINYLISSUES.md).**
@@ -3305,15 +3309,15 @@ Session 11 fixed the vinyl issues **B** (cut along a straight line) and **B2** (
 
 | # | Issue (timer) | Our log / first lead | FM2 / FM4 port |
 |---|---|---|---|
-| A ✅ | Out-of-race 3D (showroom 66.6, career-menu car 576.1, paint booth 1382.1): paint dull/matte, chrome (badges, chrome rims 655.4) **matte black** | **Fixed (session 9, you confirmed):** the showroom reflection cube (`19781000`, 256×256, mipped, read from memory) is k_2_10_10_10, which ReGPU couldn't decode → black cube. ReGPU patch `regpu-cube-2101010` | FM2: same open bug ("paint turns matte, loses reflections" in garage); null cube SRV reads black. FM4 ReGPU: cube keep/stale/mips fixes; upstream has `REGPU_NO_CUBE_KEEP`, `REGPU_NO_LIVE_CUBE`, `REGPU_DUMP_CUBES` |
-| B ✅ | Vinyls/decals invisible when applying (1509.2) and in the vinyl editor (1567.6), sometimes partly visible | **Fixed (sessions 9–11, you confirmed):** regions drawn into the car texture (patch `regpu-resolve-into-enclosing`, S9); the straight-line cut (S11): the big vinyl regions' side views are 4×MSAA passes resolved in 224-row tiles, and only the first tile reached its image (big-pass image width ≠ copy pitch; last tile 8-row-rounded past the image): patch `regpu-enclosing-big-pass`. Two small gaps left on the right side ("Start here") | FM2 fixed its vinyls in its own renderer (tall/big passes, foreign-MSAA stencil clears); not the cause here |
-| (B, session-start notes) | `resolve … (352x131) stale` at 1483; editor uses big EDRAM surfaces (1368: bases up to B40000, 1539: 1400000) | **FM2 fixed it** in its own renderer: tall 1024-row / 2048 "big pass" livery targets, stencil clears through foreign-MSAA views rescaled, tile shift for foreign views (`FM2_NO_TALL_PASS`, `_BIG_PASS`, `_FOREIGN_MSAA`, `_MSAA_SCALE`, `_FOREIGN_TILE`). Upstream ReGPU has `REGPU_NO_FOREIGN_TILE`; we force `REGPU_NO_FOREIGN_MSAA=1` (bar fix) — may matter here |
-| C ✅ | My Cars: car picture = noise blocks, centre thumbnail missing (1782.5) | **Fixed (session 9, you confirmed):** on a car change (paint saved) the game resolves a 512×256 picture and a 256×128 thumbnail, then copies them on the CPU into the car's saved images. Write-back rule in `src/gpu_host.cpp` (`FM3_NO_PICTURE_WRITEBACK`). Old saved pictures stay broken until the car changes | **FM2 fixed it**: thumbnails are rendered, resolved, then compressed/saved by the CPU → resolve write-back of those sizes, with R/B swap handled. Old saved thumbnails stay broken |
-| D | Pre-race menu (119.3) and photo mode (1219.9): upper third slightly whitened (edge ≈ y 410 of 1125 in the shot ≈ row 262 of 720) | — | FM4: photo mode's 64-bit accumulation shares an EDRAM base with the 32-bit scene; fixed with vendored-only `REGPU_COLOR_SURFACE_PER_BPP` (not in upstream). FM2: photo-mode tile fixes |
-| E ✅ (S16) | Flickering shadow on the player car's right rear from other cars (266.2, intro race) | Fixed: colour clear through a 4x MSAA view scaled (`regpu-msaa-color-clear-scale`) | **FM4 fixed a match**: soft car-shadow cascades; other cars' silhouettes come from a depth copy read as 8888 bytes → vendored-only `REGPU_DEPTH_AS_8888` + `REGPU_CASCADE_*` (FM4 `gpu_host.cpp`) |
-| B2 ✅ | **Race: a car with vinyls is covered in noise** (session 9); photo mode/countdown: other cars' decals and noise | **Fixed (session 11, you confirmed):** the game builds each car's livery at load (boot/garage) as an 8888 2048×2048 texture (close-ups) and a 1024×1024 one (racing): first strip/base resolve = whole image, other strips and vinyl regions resolved into it; its CPU then compresses them to DXT from memory. Rule in `src/gpu_host.cpp` writes both sizes back Deferred (`FM3_NO_LIVERY_WRITEBACK`, `FM3_LIVERY_WRITEBACK_NOW`); ReGPU patch `regpu-enclosing-writeback` writes each strip/region drawn into a written-back image too (`REGPU_NO_ENCLOSING_WRITEBACK`). Cars now show the same cut as the editor (B) | FM2's port wrote its race livery back (1024x1024) |
-| F | Dither/stipple on foliage and fences (365.8) | We render at host MSAA 1× (log: `anti-aliasing 1x`) | Upstream ReGPU dithers alpha-to-coverage 2×2 at 1× (Xenia-style); FM4 uses plain D3D coverage (hard cut). A/B: `REGPU_NO_ALPHA_DITHER=1` (live) |
-| G | Engine audio cutouts holding RPM (1027.1) | `xma: 5 s` stats: **0 discontinuity flushes in menus, 110–200 per 5 s in a solo race, 500–730 in the 6-car intro race**, each with codec reopens and 4–11k decoded samples dropped at "stream restarts". Our seek guard (`FM3_NO_XMA_SEEK_GUARD`) + drop-ahead (`FM3_NO_XMA_DROP_AHEAD`) fire ~30×/s while driving | Both ports have the queue depth/top-up/boost/consumed-means-delivered fixes we already carry. FM2: engine loops get a fresh codec per restart plus a seamless-loop table and crossfades (`seamless_loops.h`) |
+| A âœ… | Out-of-race 3D (showroom 66.6, career-menu car 576.1, paint booth 1382.1): paint dull/matte, chrome (badges, chrome rims 655.4) **matte black** | **Fixed (session 9, you confirmed):** the showroom reflection cube (`19781000`, 256Ã—256, mipped, read from memory) is k_2_10_10_10, which ReGPU couldn't decode â†’ black cube. ReGPU patch `regpu-cube-2101010` | FM2: same open bug ("paint turns matte, loses reflections" in garage); null cube SRV reads black. FM4 ReGPU: cube keep/stale/mips fixes; upstream has `REGPU_NO_CUBE_KEEP`, `REGPU_NO_LIVE_CUBE`, `REGPU_DUMP_CUBES` |
+| B âœ… | Vinyls/decals invisible when applying (1509.2) and in the vinyl editor (1567.6), sometimes partly visible | **Fixed (sessions 9â€“11, you confirmed):** regions drawn into the car texture (patch `regpu-resolve-into-enclosing`, S9); the straight-line cut (S11): the big vinyl regions' side views are 4Ã—MSAA passes resolved in 224-row tiles, and only the first tile reached its image (big-pass image width â‰  copy pitch; last tile 8-row-rounded past the image): patch `regpu-enclosing-big-pass`. Two small gaps left on the right side ("Start here") | FM2 fixed its vinyls in its own renderer (tall/big passes, foreign-MSAA stencil clears); not the cause here |
+| (B, session-start notes) | `resolve â€¦ (352x131) stale` at 1483; editor uses big EDRAM surfaces (1368: bases up to B40000, 1539: 1400000) | **FM2 fixed it** in its own renderer: tall 1024-row / 2048 "big pass" livery targets, stencil clears through foreign-MSAA views rescaled, tile shift for foreign views (`FM2_NO_TALL_PASS`, `_BIG_PASS`, `_FOREIGN_MSAA`, `_MSAA_SCALE`, `_FOREIGN_TILE`). Upstream ReGPU has `REGPU_NO_FOREIGN_TILE`; we force `REGPU_NO_FOREIGN_MSAA=1` (bar fix) â€” may matter here |
+| C âœ… | My Cars: car picture = noise blocks, centre thumbnail missing (1782.5) | **Fixed (session 9, you confirmed):** on a car change (paint saved) the game resolves a 512Ã—256 picture and a 256Ã—128 thumbnail, then copies them on the CPU into the car's saved images. Write-back rule in `src/gpu_host.cpp` (`FM3_NO_PICTURE_WRITEBACK`). Old saved pictures stay broken until the car changes | **FM2 fixed it**: thumbnails are rendered, resolved, then compressed/saved by the CPU â†’ resolve write-back of those sizes, with R/B swap handled. Old saved thumbnails stay broken |
+| D | Pre-race menu (119.3) and photo mode (1219.9): upper third slightly whitened (edge â‰ˆ y 410 of 1125 in the shot â‰ˆ row 262 of 720) | â€” | FM4: photo mode's 64-bit accumulation shares an EDRAM base with the 32-bit scene; fixed with vendored-only `REGPU_COLOR_SURFACE_PER_BPP` (not in upstream). FM2: photo-mode tile fixes |
+| E âœ… (S16) | Flickering shadow on the player car's right rear from other cars (266.2, intro race) | Fixed: colour clear through a 4x MSAA view scaled (`regpu-msaa-color-clear-scale`) | **FM4 fixed a match**: soft car-shadow cascades; other cars' silhouettes come from a depth copy read as 8888 bytes â†’ vendored-only `REGPU_DEPTH_AS_8888` + `REGPU_CASCADE_*` (FM4 `gpu_host.cpp`) |
+| B2 âœ… | **Race: a car with vinyls is covered in noise** (session 9); photo mode/countdown: other cars' decals and noise | **Fixed (session 11, you confirmed):** the game builds each car's livery at load (boot/garage) as an 8888 2048Ã—2048 texture (close-ups) and a 1024Ã—1024 one (racing): first strip/base resolve = whole image, other strips and vinyl regions resolved into it; its CPU then compresses them to DXT from memory. Rule in `src/gpu_host.cpp` writes both sizes back Deferred (`FM3_NO_LIVERY_WRITEBACK`, `FM3_LIVERY_WRITEBACK_NOW`); ReGPU patch `regpu-enclosing-writeback` writes each strip/region drawn into a written-back image too (`REGPU_NO_ENCLOSING_WRITEBACK`). Cars now show the same cut as the editor (B) | FM2's port wrote its race livery back (1024x1024) |
+| F | Dither/stipple on foliage and fences (365.8) | We render at host MSAA 1Ã— (log: `anti-aliasing 1x`) | Upstream ReGPU dithers alpha-to-coverage 2Ã—2 at 1Ã— (Xenia-style); FM4 uses plain D3D coverage (hard cut). A/B: `REGPU_NO_ALPHA_DITHER=1` (live) |
+| G | Engine audio cutouts holding RPM (1027.1) | `xma: 5 s` stats: **0 discontinuity flushes in menus, 110â€“200 per 5 s in a solo race, 500â€“730 in the 6-car intro race**, each with codec reopens and 4â€“11k decoded samples dropped at "stream restarts". Our seek guard (`FM3_NO_XMA_SEEK_GUARD`) + drop-ahead (`FM3_NO_XMA_DROP_AHEAD`) fire ~30Ã—/s while driving | Both ports have the queue depth/top-up/boost/consumed-means-delivered fixes we already carry. FM2: engine loops get a fresh codec per restart plus a seamless-loop table and crossfades (`seamless_loops.h`) |
 
 Also logged (not reported as visible bugs): `unimplemented import XamParseGamerTileKey/XamReadTileToTexture` (1598.9, gamer picture), `XamSwapDisc/XamSwapCancel` (2070), `XamShowMarketplaceUI` (2077); `vfs: no mapping for "Update:\media\cars\driver\*.gr2"` at each race load (title-update files we don't mount).
 
@@ -3321,15 +3325,15 @@ Also logged (not reported as visible bugs): `unimplemented import XamParseGamerT
 
 | Bug | Cause | Fix (where) | A/B switch |
 |---|---|---|---|
-| Screen-wide bar (rows ~360–511) | ReGPU "foreign MSAA" view path on FM3's two-tile 2×MSAA scene | `src/gpu_host.cpp` default `REGPU_NO_FOREIGN_MSAA=1` | `FM3_FOREIGN_MSAA=1` |
+| Screen-wide bar (rows ~360â€“511) | ReGPU "foreign MSAA" view path on FM3's two-tile 2Ã—MSAA scene | `src/gpu_host.cpp` default `REGPU_NO_FOREIGN_MSAA=1` | `FM3_FOREIGN_MSAA=1` |
 | Sun white-out + slowdown | Occlusion query counted from tile 1's start to tile 2's end (6.47M samples) | ReGPU patch `regpu-zpd-tile-spans` | `REGPU_NO_ZPD_SPANS=1` |
-| Fine dashed road streaks | Road strips rendered at track load, read from memory, never written back | `src/gpu_host.cpp`: 32×512 resolves → `Writeback::Mode::Now` | `FM3_NO_STRIP_WRITEBACK=1` |
+| Fine dashed road streaks | Road strips rendered at track load, read from memory, never written back | `src/gpu_host.cpp`: 32Ã—512 resolves â†’ `Writeback::Mode::Now` | `FM3_NO_STRIP_WRITEBACK=1` |
 | Square car shadow (my regression) | Fixed-16 fetch conversion applied to same-format reads and the border | ReGPU patch `regpu-fixed16-fetch` (corrected) | `REGPU_NO_FIXED16_FETCH=1` |
 | Smooth road bands (rotated chase cam) | Road image's lower-half rebuild filed 256 rows early as a "tile" | ReGPU patch `regpu-resolve-into-image` | `REGPU_NO_RESOLVE_INTO_IMAGE=1` |
-| (S9) My Cars picture/thumbnail noise or missing | 512×256 + 256×128 car-picture resolves read by the CPU, kept on the GPU | `src/gpu_host.cpp`: those sizes (8888) → `Writeback::Mode::Now` | `FM3_NO_PICTURE_WRITEBACK=1` |
-| (S9) Matte paint, black chrome out of races | Showroom reflection cube is k_2_10_10_10, unsupported in ReGPU → decoded black | ReGPU patch `regpu-cube-2101010` (+ cube face staging bug) | `REGPU_NO_2_10_10_10=1` |
-| (S11) Car with vinyls: noise/other cars' decals in races, countdown, photo mode (B2) | Livery textures built on the GPU, compressed to DXT by the CPU from memory | `src/gpu_host.cpp` livery rule (2048², 1024², Deferred) + ReGPU patch `regpu-enclosing-writeback` | `FM3_NO_LIVERY_WRITEBACK=1`, `REGPU_NO_ENCLOSING_WRITEBACK=1` |
-| (S11) Vinyls cut along a straight line on sides and hood (B) | Big side-view passes resolved in 4× tiles: tiles 2–3 never drawn into their image (width 1378 vs pitch 1408; last tile 88 rows vs 86) | ReGPU patch `regpu-enclosing-big-pass` | `REGPU_NO_ENCLOSING_PASS_WIDTH=1`, `REGPU_NO_ENCLOSING_ROW_CLIP=1` (at the next car load) |
+| (S9) My Cars picture/thumbnail noise or missing | 512Ã—256 + 256Ã—128 car-picture resolves read by the CPU, kept on the GPU | `src/gpu_host.cpp`: those sizes (8888) â†’ `Writeback::Mode::Now` | `FM3_NO_PICTURE_WRITEBACK=1` |
+| (S9) Matte paint, black chrome out of races | Showroom reflection cube is k_2_10_10_10, unsupported in ReGPU â†’ decoded black | ReGPU patch `regpu-cube-2101010` (+ cube face staging bug) | `REGPU_NO_2_10_10_10=1` |
+| (S11) Car with vinyls: noise/other cars' decals in races, countdown, photo mode (B2) | Livery textures built on the GPU, compressed to DXT by the CPU from memory | `src/gpu_host.cpp` livery rule (2048Â², 1024Â², Deferred) + ReGPU patch `regpu-enclosing-writeback` | `FM3_NO_LIVERY_WRITEBACK=1`, `REGPU_NO_ENCLOSING_WRITEBACK=1` |
+| (S11) Vinyls cut along a straight line on sides and hood (B) | Big side-view passes resolved in 4Ã— tiles: tiles 2â€“3 never drawn into their image (width 1378 vs pitch 1408; last tile 88 rows vs 86) | ReGPU patch `regpu-enclosing-big-pass` | `REGPU_NO_ENCLOSING_PASS_WIDTH=1`, `REGPU_NO_ENCLOSING_ROW_CLIP=1` (at the next car load) |
 
 **Open / next (pick from here):**
 1. **Vinyl leftovers** (small edge gaps; confirm the H fix in play; CRX re-check): **[VINYLISSUES.md](VINYLISSUES.md)**.
@@ -3338,7 +3342,7 @@ Also logged (not reported as visible bugs): `unimplemented import XamParseGamerT
 **How we work (agreed with you):**
 - **You start the game with `play.cmd`** (project root: debug server on, saves in `out/user`, log in `out/run/fm3.log`) and drive to where a test needs to be, then report. Don't repeat the launch steps unless `play.cmd` changes; say so when it does. Temporary test lines in it get removed afterwards.
 - I attach with `tools/fm3ctl.ps1`: `Fm3 "status"`, `Fm3 "capture"`, `ps <hash> tint|<expr>`, `hlsl <hash> out/hlsl/x.hlsl` (no spaces in that path), `switch NAME 0|1`, `Save-Fm3Shot`. I pause the game myself if needed. Rebuilding needs the game closed: ask first, then link with `tools/vcenv.cmd ninja -C build/rel fm3`.
-- Method that worked: pause → shots → live `switch` A/B → `capture` (draw list in the log, resolved images in `out/run/out/res`, textures in `out/run/out/capture/tex`) → tint candidates to find the draw → `hlsl` → show single terms with `ps` edits → **measure** (box/edge metrics) rather than judge by eye → compare with hl360 when unsure what is correct.
+- Method that worked: pause â†’ shots â†’ live `switch` A/B â†’ `capture` (draw list in the log, resolved images in `out/run/out/res`, textures in `out/run/out/capture/tex`) â†’ tint candidates to find the draw â†’ `hlsl` â†’ show single terms with `ps` edits â†’ **measure** (box/edge metrics) rather than judge by eye â†’ compare with hl360 when unsure what is correct.
 
 ### Previous status (session 7)
 **Phase 3 goal reached: `fm3.exe` boots and renders.** The runtime (ported from the FM4 port, see `NOTICE.md`) runs FM3's recompiled code on ReGPU. From a fresh user folder, with no input: ESRB screen at ~8 s (correct, see `out/shots/boot_08s.png`), logo fades, then the **R8 intro video plays** (40 s: the door close-up hl360's dump showed; 70 s: the Le Mans prototype shot). **59.6 fps average** (4,140 swaps in 69.5 s, vblank 60 Hz, frame cap 60), 54 draws/frame in the video like hl360. 15 guest threads, GPU interrupt and ring buffer OK, audio driver at 188 callbacks/s with 0 dropped frames. No unimplemented-import warnings so far; only `ExGetXConfigSetting 0003/0001` and kernel variable ordinals 0x156/0x1BF are unknown.
@@ -3349,11 +3353,11 @@ $env:FM3_USER_DIR = "G:\claude code projects\FM3-ReGPU recomp\out\user"   # keep
 cd "G:\claude code projects\FM3-ReGPU recomp\out\run"                       # fm3.log is written here
 & ..\..\build\rel\fm3.exe "G:\claude code projects\FM3-ReGPU recomp\reference\rexglue recomp reference\hl360-forza3\game\disc1"
 ```
-Build: `tools\vcenv.cmd cmake -S . -B build/rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_LINKER=lld-link`, then `tools\vcenv.cmd ninja -C build/rel fm3` (≈ 2 min incremental; the first build compiles `out/ppc`, several minutes). Screenshots: dot-source `tools/fm3_route.ps1`, set `$Fm3Run`, then `Connect-Fm3` / `Save-Shot` (works on our window too).
+Build: `tools\vcenv.cmd cmake -S . -B build/rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_LINKER=lld-link`, then `tools\vcenv.cmd ninja -C build/rel fm3` (â‰ˆ 2 min incremental; the first build compiles `out/ppc`, several minutes). Screenshots: dot-source `tools/fm3_route.ps1`, set `$Fm3Run`, then `Connect-Fm3` / `Save-Shot` (works on our window too).
 
 **Next steps (Phase 4):**
 1. Input: check keyboard/XInput reach the game (Return to skip the video), then get past the controls/loading screen to the intro race, as hl360 does in ~2.5 min.
-2. Profiles/DLC (Q11–Q16): the FM4 XAM code is untested on FM3; Disc 2 DLC lives in hl360's `user/`.
+2. Profiles/DLC (Q11â€“Q16): the FM4 XAM code is untested on FM3; Disc 2 DLC lives in hl360's `user/`.
 3. Compare frames against hl360 (`dumps/hl360/runA`) once the start grid is reachable; Phase 5's dump hook.
 4. Leftovers from Phase 2 (not hit yet): `blrl` trap in `sub_82A918F0` (SEH funclet call), SEH policy.
 5. Still your call: whether to delete the empty `githubfileignorepls`. (Licence decided 2026-11-08: MIT, `LICENSE`, copyright braaap-stututu; borrowed code keeps its notices in `NOTICE.md`.)
@@ -3361,7 +3365,7 @@ Build: `tools\vcenv.cmd cmake -S . -B build/rel -G Ninja -DCMAKE_BUILD_TYPE=Rele
 ---
 
 ### Previous status (session 6)
-**Phase 2 (first recompilation) is done.** `tools/recomp.ps1` turns `game/default.xex` into `out/ppc` (45,760 functions, 179 files, 164 MB) with **0 unresolved branches**, and **all of it compiles** with clang-cl 23 (`-DFM3_PPC_ONLY=ON` → `fm3_ppc.lib`, 118 MB, no errors). The pipeline is reproducible: re-running it with `-Prepare` gives the same config, the same switch tables and byte-identical output. The repo is on GitHub: **https://github.com/braaap-stututu/FM3-ReGPU** (`main`).
+**Phase 2 (first recompilation) is done.** `tools/recomp.ps1` turns `game/default.xex` into `out/ppc` (45,760 functions, 179 files, 164 MB) with **0 unresolved branches**, and **all of it compiles** with clang-cl 23 (`-DFM3_PPC_ONLY=ON` â†’ `fm3_ppc.lib`, 118 MB, no errors). The pipeline is reproducible: re-running it with `-Prepare` gives the same config, the same switch tables and byte-identical output. The repo is on GitHub: **https://github.com/braaap-stututu/FM3-ReGPU** (`main`).
 
 **How to recompile:**
 ```powershell
@@ -3373,7 +3377,7 @@ Outputs: `out/ppc`, `out/recomp.log`, `out/check.txt` (errors / traps / run-offs
 
 **Known leftovers for Phase 3** (none block a first boot):
 - **1 trap:** `blrl` in `sub_82A918F0`, the SEH helper that calls a filter/handler funclet by address (`mtlr r3; blrl`, with r12 = frame). Give it a `PPC_FUNC` override that does the indirect call.
-- **16 SEH `__except` resume targets** (from the scope tables at the end of `.rdata`, 82199B10–8219A150) are not function starts. hl360 lists 15 of them as functions, and the 16th (`0x82A8E440`) is the one it excluded as an "EH continuation". They are resume points inside functions, so they are not added. They matter only if the guest raises an exception: decide a policy then (log + fatal is the likely start).
+- **16 SEH `__except` resume targets** (from the scope tables at the end of `.rdata`, 82199B10â€“8219A150) are not function starts. hl360 lists 15 of them as functions, and the 16th (`0x82A8E440`) is the one it excluded as an "EH continuation". They are resume points inside functions, so they are not added. They matter only if the guest raises an exception: decide a policy then (log + fatal is the likely start).
 - **23 functions run off their end.** All end in calls that don't return: CRT `exit`/`_exit` (`825366E0`/`825366F0`), `longjmp`, `ExTerminateThread`, and assert/error paths (`82528800`, `82538110`, `82258A08`, `82AB4F18`, `822991F8`, probably no-return; not verified one by one).
 - 313 imports become weak stubs (`tools/genstubs.py`, generated into the build folder).
 
@@ -3415,7 +3419,7 @@ python -I tools/dumpdecode.py diff   dumps/hl360/runA/r01_grid_paused dumps/hl36
 **Next steps** (full phased plan under *Work plan*; we are at the start of Phase 1):
 1. Start the XenonRecomp + ReGPU project skeleton (FM2 `src/` + ReGPU wired FM4-style), with git + `.gitattributes` (`*.patch -text`, ignore `dumps/`, `game/`, `*.iso`) from day one.
 2. In that port, emit the **same `index.txt` + `tex_*.bin` dump format** from a ReGPU host hook. Then `dumpdecode.py diff` compares hl360 vs ReGPU directly, and `fm3_route.ps1` can drive both (it only needs the window and the TRIGGER folder).
-3. Optional: `pip install numpy` would make decode/diff roughly 20–50× faster (currently ~47 s for a full race frame). Needs your OK.
+3. Optional: `pip install numpy` would make decode/diff roughly 20â€“50Ã— faster (currently ~47 s for a full race frame). Needs your OK.
 
 ---
 
@@ -3425,7 +3429,7 @@ python -I tools/dumpdecode.py diff   dumps/hl360/runA/r01_grid_paused dumps/hl36
 | Game | Forza Motorsport 3 Ultimate Collection (USA) |
 | Title / Media ID | `4D53084D` / `6F74359D` |
 | default.xex | v0.0.0.8, 13,250,560 B, SHA-256 `aa15372c13bc4c899b5ef90a1cfb5634d389b0a3620cc9715f6023d61a9b8742` |
-| Image | base `0x82000000` size `0xD60000`; code `0x821E0000`–`0x82B7E128` |
+| Image | base `0x82000000` size `0xD60000`; code `0x821E0000`â€“`0x82B7E128` |
 | Discs | Disc 1 MD5 `A527154D55C7B39849EC68CD46F17281`, Disc 2 MD5 `E65FF1CDC189F3EB9B1D0F14F97BAEA4` |
 | Target stack | XenonRecomp (hedge-dev) + ReGPU (zer0ducksgiven), D3D12, Windows x64 |
 | Templates | FM2-ReGPU (`src/` layout, kernel, audio, hooks), FM4-ReGPU (ReGPU linkage, fibers, indirect table, XR patches) |
@@ -3440,44 +3444,44 @@ python -I tools/dumpdecode.py diff   dumps/hl360/runA/r01_grid_paused dumps/hl36
 ## Toolchain audit (2026-11-06)
 | Tool | Needed by | Status |
 |---|---|---|
-| Git for Windows | all | ✅ 2.56.0 (`sh` exists at `C:\Program Files\Git\usr\bin\sh.exe` but is **not on PATH**; it can be added per shell, no install needed) |
-| VS 2022 Build Tools + MSVC | all | ✅ 17.14, MSVC 14.44.35207 |
-| Windows SDK (incl. `fxc`, `d3dcompiler_47`) | all | ✅ 10.0.26100.0 |
-| CMake ≥3.25 | all | ✅ 3.31.6 bundled in VS Build Tools (on PATH after `vcvars64`) |
-| Ninja | all | ✅ 1.12.1 bundled in VS Build Tools |
-| Python ≥3.11 | XR/FM2/FM4 tools, hl360 tools | ✅ 3.15.2 |
-| **LLVM/Clang ≥20** (clang, clang++, clang-cl, lld-link) | hl360 (hard requirement, expects `C:\Program Files\LLVM\bin`), XenonRecomp, ReGPU | ✅ **23.1.5** installed 2026-11-06 at `C:\Program Files\LLVM` (see config decisions) |
-| winget | — | not available; not needed |
-| FFmpeg win64 LGPL shared | FM2/FM4 template (XMA) | ❌ missing (later phase) |
-| AMD FidelityFX SDK v2.x | ReGPU (`REGPU_FFX`, FSR1) | ❌ missing (later phase) |
+| Git for Windows | all | âœ… 2.56.0 (`sh` exists at `C:\Program Files\Git\usr\bin\sh.exe` but is **not on PATH**; it can be added per shell, no install needed) |
+| VS 2022 Build Tools + MSVC | all | âœ… 17.14, MSVC 14.44.35207 |
+| Windows SDK (incl. `fxc`, `d3dcompiler_47`) | all | âœ… 10.0.26100.0 |
+| CMake â‰¥3.25 | all | âœ… 3.31.6 bundled in VS Build Tools (on PATH after `vcvars64`) |
+| Ninja | all | âœ… 1.12.1 bundled in VS Build Tools |
+| Python â‰¥3.11 | XR/FM2/FM4 tools, hl360 tools | âœ… 3.15.2 |
+| **LLVM/Clang â‰¥20** (clang, clang++, clang-cl, lld-link) | hl360 (hard requirement, expects `C:\Program Files\LLVM\bin`), XenonRecomp, ReGPU | âœ… **23.1.5** installed 2026-11-06 at `C:\Program Files\LLVM` (see config decisions) |
+| winget | â€” | not available; not needed |
+| FFmpeg win64 LGPL shared | FM2/FM4 template (XMA) | âŒ missing (later phase) |
+| AMD FidelityFX SDK v2.x | ReGPU (`REGPU_FFX`, FSR1) | âŒ missing (later phase) |
 | SDL3 3.4.x | FM2 template | comes via submodule/thirdparty (later phase) |
-| RenderDoc | frame-capture diffing; ReGPU auto-enables its hook if `C:\Program Files\RenderDoc\renderdoc_app.h` exists | ✅ **1.47** installed 2026-11-07 (`RenderDoc_1.47_64.msi` from renderdoc.org/stable, Authenticode valid: "Baldur Scott Karlsson", Sectigo CA; SHA-256 `240e1253…7725`) |
-| Microsoft PIX | TS-style D3D12 capture (optional) | ❌ missing (optional) |
-| Vulkan SDK / vcpkg | — | not needed |
+| RenderDoc | frame-capture diffing; ReGPU auto-enables its hook if `C:\Program Files\RenderDoc\renderdoc_app.h` exists | âœ… **1.47** installed 2026-11-07 (`RenderDoc_1.47_64.msi` from renderdoc.org/stable, Authenticode valid: "Baldur Scott Karlsson", Sectigo CA; SHA-256 `240e1253â€¦7725`) |
+| Microsoft PIX | TS-style D3D12 capture (optional) | âŒ missing (optional) |
+| Vulkan SDK / vcpkg | â€” | not needed |
 
 ## Config decisions
 - **2026-11-06** Reference layout: `reference/rexglue recomp reference/{hl360-forza3,forza3-recomp}` (as requested), plus `reference/framework/{XenonRecomp,ReGPU}` and `reference/sibling-recomps/{Forza-Motorsport-2-ReGPU,Fuzzy-Rittersport-4-ReGPU}` for the target-stack mechanisms. All are shallow clones (depth 1).
 - **2026-11-06** The hl360 clone has repo-local `core.longpaths=true` (also in its submodules): `rexglue-sdk/thirdparty/vulkan-loader` failed to check out because a test file name went over the 260-char limit. This is not a system-wide change.
 - **2026-11-06** Agent-produced catalogues saved to `reference/catalogs/` as the verbatim source for FM3-QUIRKS.md (full address lists live there).
-- **2026-11-06** Installed **LLVM 23.1.5** (latest release, `LLVM-23.1.5-win64.msi`, official llvm-project GitHub release) to the default `C:\Program Files\LLVM`, user-approved. Checks: SHA-256 `288ab326…7c12` matches GitHub's asset digest, and the GPG signature is good (key `FFB3 3689 80F3 E6BB 5737 145A 316C 56D0 64CA CBA5`, Douglas Yung, from releases.llvm.org/release-keys.asc; checked against a temporary keyring). The MSI has no Authenticode signature, which is normal for LLVM. It is *not* added to the system PATH; build scripts get it through `devenv.cmd`. hl360 asks for "20 or newer" and was likely developed on 20–22, so **if the SDK build fails on new clang-23 diagnostics, fall back to LLVM 21/22** before patching code.
-- **2026-11-07** ISOs live in the project root: `FM3UC U Disc 1 (Play Disc).iso` (MD5 `A527154D…7281` ✅), `FM3UC U Disc 2 (Content Install Disc).iso` (MD5 `E65FF1CD…BAEA4` ✅). Both match hl360's reference dumps.
+- **2026-11-06** Installed **LLVM 23.1.5** (latest release, `LLVM-23.1.5-win64.msi`, official llvm-project GitHub release) to the default `C:\Program Files\LLVM`, user-approved. Checks: SHA-256 `288ab326â€¦7c12` matches GitHub's asset digest, and the GPG signature is good (key `FFB3 3689 80F3 E6BB 5737 145A 316C 56D0 64CA CBA5`, Douglas Yung, from releases.llvm.org/release-keys.asc; checked against a temporary keyring). The MSI has no Authenticode signature, which is normal for LLVM. It is *not* added to the system PATH; build scripts get it through `devenv.cmd`. hl360 asks for "20 or newer" and was likely developed on 20â€“22, so **if the SDK build fails on new clang-23 diagnostics, fall back to LLVM 21/22** before patching code.
+- **2026-11-07** ISOs live in the project root: `FM3UC U Disc 1 (Play Disc).iso` (MD5 `A527154Dâ€¦7281` âœ…), `FM3UC U Disc 2 (Content Install Disc).iso` (MD5 `E65FF1CDâ€¦BAEA4` âœ…). Both match hl360's reference dumps.
 - **2026-11-07** **Line endings (CRLF) fix for hl360.** The global git `core.autocrlf=true` checked out hl360's `patches/sdk/*.patch` and the SDK sources as CRLF, so `git apply` failed on every patch. Fixes, all repo-local and none global: (1) `thirdparty/rexglue-sdk`: `core.autocrlf=false` + re-checkout (`git rm -r --cached . && git reset --hard`) so sources are LF; (2) hl360: `*.patch -text` in `.git/info/attributes`, patches re-checked-out as LF. hl360's `.cmd` scripts stay CRLF on purpose (cmd.exe prefers it). **Same trap applies to our own repo and to XenonRecomp/ReGPU patches later; use `.gitattributes` with `*.patch -text`.**
 - **2026-11-07** hl360 SDK built with hl360's unmodified `build_sdk.cmd` on clang 23.1.5 with no source changes needed. The build registered `rexglue` in the CMake *user package registry* (`HKCU\Software\Kitware\CMake\Packages\rexglue`), a side effect of the SDK's install step.
 - **2026-11-07** **Our repo:** `git init -b main` in the project root, repo-local `core.longpaths=true`. `.gitattributes`: `* text=auto eol=lf`, `*.patch/*.diff -text`, `*.cmd/*.bat/*.ps1 eol=crlf`, binaries. `.gitignore`: `*.iso`, `*.xex(p)`, `game/`, `dumps/`, `out/`, `build/`, `reference/`, `*.log`, and the locally supplied `thirdparty/{ffmpeg,fidelityfx,dlss,sdl3,directx-headers}`.
 - **2026-11-07** **Submodules (pinned):** `thirdparty/XenonRecomp` = hedge-dev `ddd128bcca99fe8bfbb99bea583c972351fa6ace` (same commit FM4 pins; its 6 nested submodules recursive), `ignore = dirty` because our patches sit in its worktree. `thirdparty/ReGPU` = zer0ducksgiven `57143cb79e8dd4de7b776c70867313cd0b1862f2` (upstream HEAD, 2026-11-03). Both have repo-local `core.autocrlf=false` and were re-checked-out as LF (the first checkout was CRLF from the global setting).
 - **2026-11-07** **ReGPU source: upstream submodule, not FM4's vendored copy.** FM4 keeps a *plain directory* `thirdparty/ReGPU` that differs from upstream in 46 files: it has `edram*.cpp/h`, `gamma_ramp.*`, `smaa_passes.hlsl` and test tools (`edramtest`, `resolvetest`, `shadertest`, `gammatest`) that upstream lacks, while upstream has `include/regpu/driver.h` (`REGPU_GUEST_ABI=rexglue`) that FM4's lacks. Same `Host`/`Config` API for everything our `gpu_host.cpp` uses. We start on upstream (cleaner, pinnable, has the rexglue A/B mode). **If Phase 3/5 rendering lacks EDRAM/gamma behaviour FM4 has, compare with FM4's copy first.**
-- **2026-11-07** **Host tools are a separate CMake project** (`tools/hosttools` → `build/tools`), like FM4's `tools/xexdump`: XenonRecomp + XenonAnalyse + our `xexdump`. The game CMake (`CMakeLists.txt`) is FM2/FM4-style and FATALs without `out/ppc` or `thirdparty/fidelityfx`. Not yet carried over: FM2/FM4's configure-time `patch_mftb.py` (Phase 3, with the runtime's timebase), `genstubs.py` (Phase 2/3), the `.rc` icon.
-- **2026-11-07** `tools/setup.ps1` checks the patch stack by building "pinned commit + all 5 patches" in a scratch index and comparing it with the worktree (`git write-tree`): clean → apply all; equal → skip; anything else → stop. Per-patch `apply --reverse --check` doesn't work because the patches overlap.
+- **2026-11-07** **Host tools are a separate CMake project** (`tools/hosttools` â†’ `build/tools`), like FM4's `tools/xexdump`: XenonRecomp + XenonAnalyse + our `xexdump`. The game CMake (`CMakeLists.txt`) is FM2/FM4-style and FATALs without `out/ppc` or `thirdparty/fidelityfx`. Not yet carried over: FM2/FM4's configure-time `patch_mftb.py` (Phase 3, with the runtime's timebase), `genstubs.py` (Phase 2/3), the `.rc` icon.
+- **2026-11-07** `tools/setup.ps1` checks the patch stack by building "pinned commit + all 5 patches" in a scratch index and comparing it with the worktree (`git write-tree`): clean â†’ apply all; equal â†’ skip; anything else â†’ stop. Per-patch `apply --reverse --check` doesn't work because the patches overlap.
 - **2026-11-06 (planned)** Baseline frame diffing: use hl360 for the ReXGlue side. A later option is ReGPU's `REGPU_GUEST_ABI=rexglue`, so ReGPU renders under a ReXGlue host and isolates CPU-side from GPU-side differences.
 
 ## Patches applied
 - **Our project, XenonRecomp** (`ddd128b`), 2026-11-07, in this order, applied by `tools/setup.ps1`; details and provenance in `patches/README.md`:
-  1. `xenonrecomp-fm2` — PPC divides never trap; MSR[EE] → `PPC_MSR_CHANGED` (interrupt lock).
-  2. `xenonrecomp-modules` — per-image name prefix (unused: FM3 is one image); warns on unnamed import thunks.
-  3. `xenonrecomp-fm4` — XenonAnalyse jump-table back-trace (Q6), fallthrough count, XEX image size from security info.
-  4. `xenonrecomp-fm4-instructions` — VMX128 / CR-bit instruction fixes.
-  5. `xenonrecomp-switch-u32` — switch on `u32` index; `vcmpbfp` implemented.
-  **Why:** all generic recompiler fixes the FM4 port needed on the same engine family; none carries FM2/FM4 addresses. Taken unmodified from FM4 commit `69bdae4` git objects (LF). Combined: 8 files, +1241/−24.
+  1. `xenonrecomp-fm2` â€” PPC divides never trap; MSR[EE] â†’ `PPC_MSR_CHANGED` (interrupt lock).
+  2. `xenonrecomp-modules` â€” per-image name prefix (unused: FM3 is one image); warns on unnamed import thunks.
+  3. `xenonrecomp-fm4` â€” XenonAnalyse jump-table back-trace (Q6), fallthrough count, XEX image size from security info.
+  4. `xenonrecomp-fm4-instructions` â€” VMX128 / CR-bit instruction fixes.
+  5. `xenonrecomp-switch-u32` â€” switch on `u32` index; `vcmpbfp` implemented.
+  **Why:** all generic recompiler fixes the FM4 port needed on the same engine family; none carries FM2/FM4 addresses. Taken unmodified from FM4 commit `69bdae4` git objects (LF). Combined: 8 files, +1241/âˆ’24.
 - **Our project, ReGPU** (`57143cb`), session 8, in this order, applied and verified by `tools/setup.ps1`; details in `patches/README.md`. All game-neutral, each behind a `REGPU_*` switch:
   1. `regpu-fixed16-fetch`: resolved 16-bit fixed images read with the fetch's number format when it differs from the copy's (not the border colour).
   2. `regpu-zpd-tile-spans`: occlusion queries count only inside each tile's ZPD on/off pair (sun glare). Also: `REGPU_TRACE_ZPD` logs `RB_SAMPLE_COUNT_CTL`.
@@ -3485,48 +3489,48 @@ python -I tools/dumpdecode.py diff   dumps/hl360/runA/r01_grid_paused dumps/hl36
 - **ReGPU patch 15** (session 14) `regpu-draw-thread-pieces`: draw thread with occlusion queries and with the parallel segments; FM3 default = draw thread alone (`REGPU_DRAW_THREAD=1`, `REGPU_DRAW_THREAD_SERIAL=1`).
 - **ReGPU patch 14** (session 14) `regpu-zpd-scale`: `REGPU_ZPD_SCALE=<f>` multiplies occlusion answers (live via env); FM3 default 0.6 (sun glare size matched to console footage by eye).
 - **ReGPU patch 13** (session 14) `regpu-worker-queries`: occlusion queries with draw workers (a counting query's draws go to the command processor's list); `REGPU_NO_WORKER_QUERIES=1` = old fixed answer.
-- **ReGPU patches 4–12** (sessions 9–13) are listed with reasons in `patches/README.md`; the 12th (session 13) is `regpu-early-fence-writebacks`: with early fences, a fence behind a deferred resolve write-back keeps the fence `RendererFenceSubmit` returns (ReGPU's `WriteBack` zeroed it), so CPU-read resolves (FM3 liveries) are written before the game sees the fence. `REGPU_EARLY_FENCES_SKIP_WRITEBACKS=1` = old.
-- **Session 13 host defaults** (`src/gpu_host.cpp`): vblank = 2× frame cap off 60 + `mainthread30fps` (frame-rate unlock); `REGPU_NO_FENCE_ORDER`, `REGPU_TEXTURE_CHECK_STAGGER`, `REGPU_DIRECT_DYNAMIC_INDICES` (via `regpu::driver::SetSwitch`), `REGPU_EARLY_FENCES`, `REGPU_DRAW_WORKERS=3` unless `accurate_sun=1`. Table with numbers and undo switches at the top of this file.
-- **Our project, host rules** (`src/gpu_host.cpp`, not patches): `REGPU_NO_FOREIGN_MSAA=1` default (bar); 32×512 colour resolves written back `Now` (road strips); vblank 60 Hz (Q24).
-- **hl360 baseline:** its own `patches/sdk/0001–0006`, applied unmodified by `build_sdk.cmd` to ReXGlue SDK `c94f5eb` (v0.10.0+2). No changes to hl360 sources. The only changes to the checkout are repo-local git line-ending settings (see config decisions).
+- **ReGPU patches 4â€“12** (sessions 9â€“13) are listed with reasons in `patches/README.md`; the 12th (session 13) is `regpu-early-fence-writebacks`: with early fences, a fence behind a deferred resolve write-back keeps the fence `RendererFenceSubmit` returns (ReGPU's `WriteBack` zeroed it), so CPU-read resolves (FM3 liveries) are written before the game sees the fence. `REGPU_EARLY_FENCES_SKIP_WRITEBACKS=1` = old.
+- **Session 13 host defaults** (`src/gpu_host.cpp`): vblank = 2Ã— frame cap off 60 + `mainthread30fps` (frame-rate unlock); `REGPU_NO_FENCE_ORDER`, `REGPU_TEXTURE_CHECK_STAGGER`, `REGPU_DIRECT_DYNAMIC_INDICES` (via `regpu::driver::SetSwitch`), `REGPU_EARLY_FENCES`, `REGPU_DRAW_WORKERS=3` unless `accurate_sun=1`. Table with numbers and undo switches at the top of this file.
+- **Our project, host rules** (`src/gpu_host.cpp`, not patches): `REGPU_NO_FOREIGN_MSAA=1` default (bar); 32Ã—512 colour resolves written back `Now` (road strips); vblank 60 Hz (Q24).
+- **hl360 baseline:** its own `patches/sdk/0001â€“0006`, applied unmodified by `build_sdk.cmd` to ReXGlue SDK `c94f5eb` (v0.10.0+2). No changes to hl360 sources. The only changes to the checkout are repo-local git line-ending settings (see config decisions).
 - **hl360 baseline, ours: `patches/sdk/0007-frame-dump-hook.patch`** (2026-11-07, about 215 lines, written from scratch; revised twice in session 4: per-frame hash cache, never reuse an existing `frame_NNNN`). It lives in hl360's `patches/sdk/` so `build_sdk.cmd` picks it up like the others. **Why:** hl360 has no frame dump, and `--texture_dump_dir` is *not* in stock ReXGlue (it was forza3-recomp's unpublished local hook). We need guest-side texture/resolve data from the baseline to diff against ReGPU later. **What:**
   - cvar `texture_dump_dir` (hot-reload, default empty = off).
   - `TextureCache::OnGuestSwap()` is called at the top of `D3D12CommandProcessor::IssueSwap`. It closes an open capture, then checks `<dir>/TRIGGER`; if present, it deletes it and opens `<dir>/frame_NNNN/index.txt`.
   - `TextureCache::DumpDrawTextures()` runs at the top of `RequestTextures` while a capture is open. It writes one line per fetch slot per draw, and the base level of each distinct texture once as raw guest memory: `tex_<base>_<w>x<h>_f<fmt>_<xxh3>.bin`.
-  - The d3d12 command processor passes VS/PS ucode hashes via `SetDumpDrawShaders()`. `draw_util::GetResolveInfo` logs `# resolve …` lines (rect, src format → dest format, base, range, dest_info, msaa).
+  - The d3d12 command processor passes VS/PS ucode hashes via `SetDumpDrawShaders()`. `draw_util::GetResolveInfo` logs `# resolve â€¦` lines (rect, src format â†’ dest format, base, range, dest_info, msaa).
   - `SharedMemory::memory()` was made public.
-  - Index token layout matches forza3-recomp's `texdecode.py` (w=7, h=8, pitch=10, tiled=11, fmt=13, endian=14, fetch=17–22, file=last), so their decoder logic is reusable.
+  - Index token layout matches forza3-recomp's `texdecode.py` (w=7, h=8, pitch=10, tiled=11, fmt=13, endian=14, fetch=17â€“22, file=last), so their decoder logic is reusable.
   - **Limits:** D3D12 path only; base mip only; resolve-produced textures are dumped from guest memory, i.e. the `fast` readback (a frame late), not necessarily what the host GPU sampled.
 
-## Baseline config (hl360) — `out/build/win-amd64-release/fm3.user.toml`
+## Baseline config (hl360) â€” `out/build/win-amd64-release/fm3.user.toml`
 Hand-written with the same keys the launcher writes, so runs are reproducible without the launcher GUI:
 - `game_data_root` = `<hl360>\game\disc1`, `user_data_root` = `<hl360>\user` (Disc 2 DLC installed there: 8 packages + `.header` licences under `0000000000000000\4D53084D\`)
-- profile `Baseline`, XUID `E0000BA5E11E0001` (offline `0xE…`, bits 54–55 clear); language 1 / country 103 (English/US)
-- windowed **1280×720**, `resolution_scale = 1`, `anisotropic_override = -1` (game default), `swap_post_effect = none`, `present_effect = bilinear`, letterbox on
+- profile `Baseline`, XUID `E0000BA5E11E0001` (offline `0xEâ€¦`, bits 54â€“55 clear); language 1 / country 103 (English/US)
+- windowed **1280Ã—720**, `resolution_scale = 1`, `anisotropic_override = -1` (game default), `swap_post_effect = none`, `present_effect = bilinear`, letterbox on
 - `gpu_backend = d3d12`, `vsync = true` (guest vblank), `readback_resolve = fast`, `async_shader_compilation = false`
 - `mnk_mode = true` (keyboard works), `frame_stats = true` (5-second frame-interval stats in log)
 - `texture_dump_dir = 'G:\claude code projects\FM3-ReGPU recomp\dumps\hl360'` (patch 0007; idle cost is one file-exists check per frame)
 - Data paths: `game/disc1` 3,059 files / 6.8 GB, all **3,057 manifest files verified** (SHA-256 + size, 0 bad); `game/disc2` 3.4 GB; `user` 3.4 GB.
 
 ## Known-broken / observations on the baseline
-- **Frame pacing in the intro (2026-11-07):** average holds at exactly 60.0 fps (avg 16.67 ms) but **~100–150 of every 300 frames exceed 17.5 ms**, with p99 ≈ 22 ms and almost none over 33 ms. That looks like alternating short/long intervals, not dropped frames. It could be the intro video's own cadence or present-vs-vblank beat; re-measure in a race before drawing conclusions. A useful number to compare our ReGPU build against.
-- **First race (2026-11-07, user-driven intro race; log `fm3_001.log`, 13:12–13:29):**
-  - Intro/attract (13:12–13:25:45): the alternating pattern above, about 145/300 frames late.
-  - Race load (13:25:50–13:26:27): 14–42 fps, stalls up to 1.37 s (load + first-time shader compiles).
-  - **In-race (13:26:27–13:29:18): about 60 fps, only ~35–75/300 frames over 17.5 ms, p99 ~19–25 ms**, with occasional 35–48 ms spikes (likely shader compiles). Pacing is *better* in-race than in the intro.
-  - **After the race (13:29:23 → exit): locked at exactly 30.0 fps** (151/151 frames over 17.5 ms).
+- **Frame pacing in the intro (2026-11-07):** average holds at exactly 60.0 fps (avg 16.67 ms) but **~100â€“150 of every 300 frames exceed 17.5 ms**, with p99 â‰ˆ 22 ms and almost none over 33 ms. That looks like alternating short/long intervals, not dropped frames. It could be the intro video's own cadence or present-vs-vblank beat; re-measure in a race before drawing conclusions. A useful number to compare our ReGPU build against.
+- **First race (2026-11-07, user-driven intro race; log `fm3_001.log`, 13:12â€“13:29):**
+  - Intro/attract (13:12â€“13:25:45): the alternating pattern above, about 145/300 frames late.
+  - Race load (13:25:50â€“13:26:27): 14â€“42 fps, stalls up to 1.37 s (load + first-time shader compiles).
+  - **In-race (13:26:27â€“13:29:18): about 60 fps, only ~35â€“75/300 frames over 17.5 ms, p99 ~19â€“25 ms**, with occasional 35â€“48 ms spikes (likely shader compiles). Pacing is *better* in-race than in the intro.
+  - **After the race (13:29:23 â†’ exit): locked at exactly 30.0 fps** (151/151 frames over 17.5 ms).
 - **30 fps identified (2026-11-07, second run `fm3_002.log`, you noted the times):**
-  - Race 13:44:39–13:48:09 at 59.4–60.0 fps; **pause menu (~13:46) stays at 60**.
-  - **Post-race finish menu 13:48:14–13:49:00 is locked at 30.0 fps**, with even intervals (p99 36–40 ms).
-  - Race load/intro 13:44:04–13:44:34 runs at 26–43 fps.
-  - **Interpretation (unconfirmed):** the perfectly even 30.0 lock looks like the game choosing a 2-vblank present interval on that screen (a deliberate 30 fps UI), not an emulation slowdown. To confirm later: check the presentation interval the guest passes at `VdSwap` (hook point `sub_824AF280` → `VdSwap` at `0x824AF4F4`), or compare against a real console / ReGPU build. Our ReGPU build should reproduce exactly 30.0 there if it's game-native.
+  - Race 13:44:39â€“13:48:09 at 59.4â€“60.0 fps; **pause menu (~13:46) stays at 60**.
+  - **Post-race finish menu 13:48:14â€“13:49:00 is locked at 30.0 fps**, with even intervals (p99 36â€“40 ms).
+  - Race load/intro 13:44:04â€“13:44:34 runs at 26â€“43 fps.
+  - **Interpretation (unconfirmed):** the perfectly even 30.0 lock looks like the game choosing a 2-vblank present interval on that screen (a deliberate 30 fps UI), not an emulation slowdown. To confirm later: check the presentation interval the guest passes at `VdSwap` (hook point `sub_824AF280` â†’ `VdSwap` at `0x824AF4F4`), or compare against a real console / ReGPU build. Our ReGPU build should reproduce exactly 30.0 there if it's game-native.
   - Also logged: `ResolvePath(Update:\media\cars\driver) failed`, the same expected title-update probe.
 - Frame capture plan (decided 2026-11-07): use both tools for different jobs. RenderDoc answers "why" (draw-level inspection, manual); the dump hook answers "whether/where" (scriptable guest-side textures/resolves, comparable across renderers).
 - Log error on boot: `ResolvePath(update:\media.zip) failed - device not found`. Expected: no title update installed, and the game probes for one.
 - Build warnings in hl360's own `crash_handler.cpp` / `file_signatures.cpp` (macro redefined, deprecated CRT) are cosmetic. The codegen reported **0 unresolved** branches/functions.
 
 ## Known-broken / risk areas (from the reference projects; details in FM3-QUIRKS.md)
-- **Vblank pacing (Q24):** FM3 paces on guest vblank, and ReGPU fires vblank at 2× the frame cap. Start with `REGPU_VBLANK_HZ=60`.
+- **Vblank pacing (Q24):** FM3 paces on guest vblank, and ReGPU fires vblank at 2Ã— the frame cap. Start with `REGPU_VBLANK_HZ=60`.
 - **Car shadow block (Q19):** needs integer number-format handling in both resolve and fetch. Check what ReGPU supports.
 - **Road flicker / thumbnails (Q18):** needs resolve writeback rules (FM4-style `resolveWriteback`).
 - **Fibers (Q7):** need host-fiber overrides; SwitchToFiber body `0x82A82210` size `0x40C`.
@@ -3534,80 +3538,80 @@ Hand-written with the same keys the launcher writes, so runs are reproducible wi
 - Career, multiplayer, replays and most tracks are untested in both reference ports; Xbox Live is unavailable.
 
 ## Work plan (phases)
-Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.md update.
+Status legend: âœ… done Â· â–¶ next Â· â˜ later. Each phase ends with a NOTES.md update.
 
-**Phase 0 — Setup & baseline ✅** (sessions 1–4)
-- ✅ Toolchain: LLVM 23.1.5, RenderDoc 1.47; VS BT 2022 bundles CMake/Ninja.
-- ✅ References cloned, `FM3-QUIRKS.md` written (26 quirks + GPU table).
-- ✅ hl360 baseline built and running (SDK patches 0001–0006 + our 0007 dump hook); races at 60 fps.
-- ✅ Comparison kit: `tools/fm3_route.ps1` (scripted start-grid capture), `tools/dumpdecode.py` (list/decode/diff).
+**Phase 0 â€” Setup & baseline âœ…** (sessions 1â€“4)
+- âœ… Toolchain: LLVM 23.1.5, RenderDoc 1.47; VS BT 2022 bundles CMake/Ninja.
+- âœ… References cloned, `FM3-QUIRKS.md` written (26 quirks + GPU table).
+- âœ… hl360 baseline built and running (SDK patches 0001â€“0006 + our 0007 dump hook); races at 60 fps.
+- âœ… Comparison kit: `tools/fm3_route.ps1` (scripted start-grid capture), `tools/dumpdecode.py` (list/decode/diff).
 
-**Phase 1 — Project skeleton ✅ (session 5; licence: MIT, session 10)**
-1. ✅ `git init`, `.gitattributes`, `.gitignore` (see config decisions). ☐ First commit: needs your identity/OK.
-2. ✅ Layout: `config/`, `patches/`, `src/` (planned layout in `src/README.md`), `tools/`, `thirdparty/{XenonRecomp,ReGPU}` submodules, pinned.
-3. ✅ ReGPU CMake block + `src/gpu_host.cpp` (FM4-style, FM3 title, vblank 60 Hz default; compiles from Phase 3 when the runtime exists).
-4. ✅ All 5 XenonRecomp patches applied; patched XenonRecomp/XenonAnalyse build with clang-cl 23.1.5.
-5. ☐ Deps to request: FidelityFX SDK v2.x (required by ReGPU's CMake), FFmpeg win64 LGPL shared. SDL3 only if we take FM2's wheel input. Optional: numpy.
+**Phase 1 â€” Project skeleton âœ… (session 5; licence: MIT, session 10)**
+1. âœ… `git init`, `.gitattributes`, `.gitignore` (see config decisions). â˜ First commit: needs your identity/OK.
+2. âœ… Layout: `config/`, `patches/`, `src/` (planned layout in `src/README.md`), `tools/`, `thirdparty/{XenonRecomp,ReGPU}` submodules, pinned.
+3. âœ… ReGPU CMake block + `src/gpu_host.cpp` (FM4-style, FM3 title, vblank 60 Hz default; compiles from Phase 3 when the runtime exists).
+4. âœ… All 5 XenonRecomp patches applied; patched XenonRecomp/XenonAnalyse build with clang-cl 23.1.5.
+5. â˜ Deps to request: FidelityFX SDK v2.x (required by ReGPU's CMake), FFmpeg win64 LGPL shared. SDL3 only if we take FM2's wheel input. Optional: numpy.
 
-**Phase 2 — First recompilation ✅ (session 6; details in the session log)**
-1. Extract `default.xex` from Disc 1 into `game/` (or reuse `reference/.../hl360-forza3/game/disc1`). Verify SHA-256 `aa15372c…8742`.
-2. XenonAnalyse → switch tables. Find helpers (`savegprlr_14` etc.) and EH `invalid_instructions` with the FM4 `fm4_config.py` approach.
+**Phase 2 â€” First recompilation âœ… (session 6; details in the session log)**
+1. Extract `default.xex` from Disc 1 into `game/` (or reuse `reference/.../hl360-forza3/game/disc1`). Verify SHA-256 `aa15372câ€¦8742`.
+2. XenonAnalyse â†’ switch tables. Find helpers (`savegprlr_14` etc.) and EH `invalid_instructions` with the FM4 `fm4_config.py` approach.
 3. `config/fm3.toml`:
    - setjmp `0x82534B20` / longjmp `0x825345E0` (Q1)
-   - the 15–16 boundaries with sizes (Q2/Q3)
+   - the 15â€“16 boundaries with sizes (Q2/Q3)
    - the fptr union (Q4, sizes required; check with `fm4_crosscheck.py` against hl360's `fptr_functions.toml`)
    - SwitchToFiber `{0x82A82210, 0x40C}` (Q7)
 4. Run XenonRecomp; grep the log for `// ERROR` / out-of-function switch cases; iterate until clean. Generate `stubs.cpp`.
 
-**Phase 3 — Boot to first frame ✅ (session 7)**
-- ✅ Runtime ported from FM4 (`src/`, NOTICE.md); `indirect.cpp`, `PPCMsrChanged`, `PPCMmioStore32` come with it; `PPCLookupIndirect` is fatal on a miss.
-- ✅ Fiber overrides with FM3 `hooks/addresses.h`; mftb patch (`tools/patch_mftb.py`, 25 reads in 11 files); vblank 60 Hz (Q24).
-- ✅ Goal: ESRB/logos and the intro video render, ~60 fps.
-- ☐ Carried to Phase 4/5: `sub_82A918F0` blrl override and SEH policy (not hit yet); `cache:` utility drive (Q8: FM4's VFS may already mount it; check at race start); game-speed check against hl360 (timing of the intro/video).
+**Phase 3 â€” Boot to first frame âœ… (session 7)**
+- âœ… Runtime ported from FM4 (`src/`, NOTICE.md); `indirect.cpp`, `PPCMsrChanged`, `PPCMmioStore32` come with it; `PPCLookupIndirect` is fatal on a miss.
+- âœ… Fiber overrides with FM3 `hooks/addresses.h`; mftb patch (`tools/patch_mftb.py`, 25 reads in 11 files); vblank 60 Hz (Q24).
+- âœ… Goal: ESRB/logos and the intro video render, ~60 fps.
+- â˜ Carried to Phase 4/5: `sub_82A918F0` blrl override and SEH policy (not hit yet); `cache:` utility drive (Q8: FM4's VFS may already mount it; check at race start); game-speed check against hl360 (timing of the intro/video).
 
-**Phase 4 — Menus & content ▶ (partly done)**
-- ✅ Intro, controls/loading screen, intro race to the finish, pause menu, photo mode reachable (session 8, you).
-- ◐ Disc 2 DLC (Q11–Q14): installer + runtime done in session 17, all 8 packages mount; Fujimi Kaido raced fine and career shows more events (user). Licence mask all bits (Q12: `FM3_DLC_LICENSE_MASK`), profile XUID/gamertag rules (Q15), language+country pairs (Q16); career and menus beyond the intro race.
+**Phase 4 â€” Menus & content â–¶ (partly done)**
+- âœ… Intro, controls/loading screen, intro race to the finish, pause menu, photo mode reachable (session 8, you).
+- â— Disc 2 DLC (Q11â€“Q14): installer + runtime done in session 17, all 8 packages mount; Fujimi Kaido raced fine and career shows more events (user). Licence mask all bits (Q12: `FM3_DLC_LICENSE_MASK`), profile XUID/gamertag rules (Q15), language+country pairs (Q16); career and menus beyond the intro race.
 
-**Phase 5 — Race & GPU parity ▶ (started, session 8)**
-- ✅ Road: strip write-back at load (Q18 part) and road-image half placement (ReGPU patch). ✅ Car shadow correct (Q19: no square, unlike hl360). ✅ Sun glare (occlusion under tiling). ✅ Screen bar (foreign MSAA).
-- ✅ (session 9) Showroom/garage reflections (k_2_10_10_10 decode), My Cars pictures (512×256/256×128 write-back), race-load thread crash.
-- ✅ (session 11) Vinyls: B (straight-line cut) and B2 (race/photo livery noise) fixed; H (vanishing car / purchase crash on the damaged save) fixed, final build to confirm in play.
-- ◐ Vinyl leftovers: small edge gaps on big regions (Scion, Fiat incl. rear wing, Supra rear bumper), CRX re-check: [VINYLISSUES.md](VINYLISSUES.md).
-- ☐ Photo mode whitened top-third band (OPEN-ISSUES D).
-- ✅ (session 12) Above 1×: My Cars thumbnail ghost (picture texture = 512×256 at mip 0 + 256×128 thumbnail at mip 1; guest mip choice for short chains, ReGPU patch 11). 2560×1440 and 4x MSAA run.
-- ☐ More screens at 1440p / 4x MSAA (other "720p-sized" assumptions); the one-off race dip (1440p + 4x MSAA, not reproduced).
-- ☐ Car thumbnails (Q18 rest), audio queue depth (Q26), XMA path check.
-- ☐ ReGPU-side dump hook in the **same index.txt/tex_*.bin format**, then `dumpdecode.py diff` hl360-grid vs ReGPU-grid (would speed up finding the next parity bugs).
-- ☐ Post-race finish menu at exactly 30.0 fps? Full-lap fps measurement.
-- ✅ (session 13) **Performance pass** (OPEN-ISSUES P): near cars ~70 → ~150 fps at 1440p 4x MSAA (no fence order, early fences + ReGPU patch 12, two per-draw switches, draw workers).
-- ✅ (session 14) Occlusion queries with draw workers (patch 13) and with the draw thread (patch 15): sun flare and speed together; sun glare sized to console footage (patch 14, `REGPU_ZPD_SCALE=0.6`).
-- ✅ (session 14) Command-processor bound found and moved: **draw thread default** (cars grid 175 → 181–184, Montserrat 225 → 240 at 1440p 4x MSAA, now GPU-bound there).
-- ✅ (session 15) Draw thread + workers: sun flare fixed with it (`seg::g_query` cleared by the CP ahead of the draw thread); but slower than the serial draw thread (720p 1x 195 vs 216), so opt-in.
-- ◐ (session 15) Crash C1: workaround in (`src/hooks/ai_drivers.cpp`: a car whose driver reads back an empty Name gets a generic driver; held in play, no crash, no odd names). (session 16) Row 125's `Name` is NULL in the in-memory DB when it happens. ▶ **Next:** the game's DB patch system (LicenseMasks `.sql`, overwrite/merge/exec) as the likely writer. OPEN-ISSUES C1.
-- ✅ (session 16) Livery broken on some race loads: new livery image a few KB above the previous load's, pieces went into the old one (ReGPU patch 16 `regpu-livery-enclosing-recent`; also a per-texel write-back safety check). Confirmed over several reloads.
-- ✅ (session 16) OPEN-ISSUES E, other cars' shade flickering on the player's car: a colour clear through a 4x MSAA view (ReGPU patch 17 `regpu-msaa-color-clear-scale`). Confirmed paused and in races.
-- ✅ (session 16) Debug server: shots after a capture no longer stall ~30 s (patch 18). `Fm3 "shots N dir raw"` bursts + `REGPU_FREEZE_RESOLVES` = the flicker method.
-- ☐ Alt-tab hang (session 15; thread dump in `out/logs/session15-c1-run3.log`).
-- ☐ Report the early-fence write-back bug upstream (ReGPU `gpu.cpp` `WriteBack`; also in FH1's fork and PGR4). Smaller CP ideas left: FH1R's CP tricks, PGO, `-march=x86-64-v3`.
-- ◐ LOD / render distances (OPEN-ISSUES L): session 19 toolkit and results (LOD cuts don't move fps on this PC).
-- ✅ (session 20) Frame limit understood: the render thread t7 mostly spin-waits on ReGPU; at 1440p 4x the GPU is the
+**Phase 5 â€” Race & GPU parity â–¶ (started, session 8)**
+- âœ… Road: strip write-back at load (Q18 part) and road-image half placement (ReGPU patch). âœ… Car shadow correct (Q19: no square, unlike hl360). âœ… Sun glare (occlusion under tiling). âœ… Screen bar (foreign MSAA).
+- âœ… (session 9) Showroom/garage reflections (k_2_10_10_10 decode), My Cars pictures (512Ã—256/256Ã—128 write-back), race-load thread crash.
+- âœ… (session 11) Vinyls: B (straight-line cut) and B2 (race/photo livery noise) fixed; H (vanishing car / purchase crash on the damaged save) fixed, final build to confirm in play.
+- â— Vinyl leftovers: small edge gaps on big regions (Scion, Fiat incl. rear wing, Supra rear bumper), CRX re-check: [VINYLISSUES.md](VINYLISSUES.md).
+- â˜ Photo mode whitened top-third band (OPEN-ISSUES D).
+- âœ… (session 12) Above 1Ã—: My Cars thumbnail ghost (picture texture = 512Ã—256 at mip 0 + 256Ã—128 thumbnail at mip 1; guest mip choice for short chains, ReGPU patch 11). 2560Ã—1440 and 4x MSAA run.
+- â˜ More screens at 1440p / 4x MSAA (other "720p-sized" assumptions); the one-off race dip (1440p + 4x MSAA, not reproduced).
+- â˜ Car thumbnails (Q18 rest), audio queue depth (Q26), XMA path check.
+- â˜ ReGPU-side dump hook in the **same index.txt/tex_*.bin format**, then `dumpdecode.py diff` hl360-grid vs ReGPU-grid (would speed up finding the next parity bugs).
+- â˜ Post-race finish menu at exactly 30.0 fps? Full-lap fps measurement.
+- âœ… (session 13) **Performance pass** (OPEN-ISSUES P): near cars ~70 â†’ ~150 fps at 1440p 4x MSAA (no fence order, early fences + ReGPU patch 12, two per-draw switches, draw workers).
+- âœ… (session 14) Occlusion queries with draw workers (patch 13) and with the draw thread (patch 15): sun flare and speed together; sun glare sized to console footage (patch 14, `REGPU_ZPD_SCALE=0.6`).
+- âœ… (session 14) Command-processor bound found and moved: **draw thread default** (cars grid 175 â†’ 181â€“184, Montserrat 225 â†’ 240 at 1440p 4x MSAA, now GPU-bound there).
+- âœ… (session 15) Draw thread + workers: sun flare fixed with it (`seg::g_query` cleared by the CP ahead of the draw thread); but slower than the serial draw thread (720p 1x 195 vs 216), so opt-in.
+- â— (session 15) Crash C1: workaround in (`src/hooks/ai_drivers.cpp`: a car whose driver reads back an empty Name gets a generic driver; held in play, no crash, no odd names). (session 16) Row 125's `Name` is NULL in the in-memory DB when it happens. â–¶ **Next:** the game's DB patch system (LicenseMasks `.sql`, overwrite/merge/exec) as the likely writer. OPEN-ISSUES C1.
+- âœ… (session 16) Livery broken on some race loads: new livery image a few KB above the previous load's, pieces went into the old one (ReGPU patch 16 `regpu-livery-enclosing-recent`; also a per-texel write-back safety check). Confirmed over several reloads.
+- âœ… (session 16) OPEN-ISSUES E, other cars' shade flickering on the player's car: a colour clear through a 4x MSAA view (ReGPU patch 17 `regpu-msaa-color-clear-scale`). Confirmed paused and in races.
+- âœ… (session 16) Debug server: shots after a capture no longer stall ~30 s (patch 18). `Fm3 "shots N dir raw"` bursts + `REGPU_FREEZE_RESOLVES` = the flicker method.
+- â˜ Alt-tab hang (session 15; thread dump in `out/logs/session15-c1-run3.log`).
+- â˜ Report the early-fence write-back bug upstream (ReGPU `gpu.cpp` `WriteBack`; also in FH1's fork and PGR4). Smaller CP ideas left: FH1R's CP tricks, PGO, `-march=x86-64-v3`.
+- â— LOD / render distances (OPEN-ISSUES L): session 19 toolkit and results (LOD cuts don't move fps on this PC).
+- âœ… (session 20) Frame limit understood: the render thread t7 mostly spin-waits on ReGPU; at 1440p 4x the GPU is the
   limit, and the race vs time-trial gap is the AI cars' material shaders (~0.19 ms per car).
-- ✅ (session 20) Alpha-test-free pixel shaders (ReGPU patch 21 `regpu-split-alpha-test`, default on): race grid +5%,
+- âœ… (session 20) Alpha-test-free pixel shaders (ReGPU patch 21 `regpu-split-alpha-test`, default on): race grid +5%,
   picture identical; their pipelines prebuilt at boot.
-- ▶ AI-car cost without visual change: re-measure, hidden-part cull, preset shader shortcuts, overdraw count, VRS for
+- â–¶ AI-car cost without visual change: re-measure, hidden-part cull, preset shader shortcuts, overdraw count, VRS for
   distant cars (NOTES top, "Next").
 
-**Phase 6 — Polish ▶ (launcher started, session 12)**
-- ✅ Launcher `launcher/FM3Launcher` (from your FM4 fork): Play (game folder, `default.xex` SHA-256 check, language), Profiles + backups, Graphics (resolution, aspect, fullscreen, fps cap, VSync, MSAA, FSR 1/3, anisotropy, shader box), Settings (shader cache, folders, test timer, debug server, perf log). `launcher.cmd` for the dev checkout; `FM3Launcher.exe --play` starts the game without the window.
-- ☐ Launcher: game import (ISO/folder drop; Disc 1 only is used), DLC packs, photos (FM3 format unknown), icon, then maybe updater/reports. FSR 4 / SMAA / shader optimiser after a ReGPU update.
-- ☐ Unused setting: `enhance` is read by `src/settings.cpp` but FM3 doesn't apply it (gpu_host doesn't pass it). `skip_intro` works since session 17 (plus `quick_race`).
-- ✅ (session 13) Frame-rate unlock: `max_fps` 30–360, game time follows the clock (FH1's scheme, `src/hooks/frame_time.cpp`); tested at 120 and 240, smooth. Your cap since session 14: **360** (not faster than the game's tick rate). ☐ Mods (Q9 re-signing, PF+3).
-- ✅ (session 15) Launcher Settings → Testing → "Draw workers" toggle (A/B; off by default).
-- ◐ (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); ☐ test with a real wheel.
+**Phase 6 â€” Polish â–¶ (launcher started, session 12)**
+- âœ… Launcher `launcher/FM3Launcher` (from your FM4 fork): Play (game folder, `default.xex` SHA-256 check, language), Profiles + backups, Graphics (resolution, aspect, fullscreen, fps cap, VSync, MSAA, FSR 1/3, anisotropy, shader box), Settings (shader cache, folders, test timer, debug server, perf log). `launcher.cmd` for the dev checkout; `FM3Launcher.exe --play` starts the game without the window.
+- â˜ Launcher: game import (ISO/folder drop; Disc 1 only is used), DLC packs, photos (FM3 format unknown), icon, then maybe updater/reports. FSR 4 / SMAA / shader optimiser after a ReGPU update.
+- â˜ Unused setting: `enhance` is read by `src/settings.cpp` but FM3 doesn't apply it (gpu_host doesn't pass it). `skip_intro` works since session 17 (plus `quick_race`).
+- âœ… (session 13) Frame-rate unlock: `max_fps` 30â€“360, game time follows the clock (FH1's scheme, `src/hooks/frame_time.cpp`); tested at 120 and 240, smooth. Your cap since session 14: **360** (not faster than the game's tick rate). â˜ Mods (Q9 re-signing, PF+3).
+- âœ… (session 15) Launcher Settings â†’ Testing â†’ "Draw workers" toggle (A/B; off by default).
+- â— (session 13) Racing wheels + force feedback ported from the FM4 fork (launcher "Wheel stuff" tab); â˜ test with a real wheel.
 
 ## Session log
-### 2026-11-12 — session 29b (cloud: Project Forza Plus 3 research)
+### 2026-11-12 â€” session 29b (cloud: Project Forza Plus 3 research)
 - User: "research how to add Project Forza Plus 3 as an option". No code; RESEARCH.md section + NOTES top. Found
   that loose-file mods skip `.zip` paths, mods don't reach DLC files, and Q9 re-signing is missing.
 - Then four more studies on the user's questions (all RESEARCH.md, index rows at the top): **ray tracing** (screen-space
@@ -3615,13 +3619,13 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   for decompress barriers first; **ReBAR/GPU upload heaps need code in ReGPU**, lead = S18's constants-in-ring -21%),
   **Linux/Proton/Steam Deck** (PERF-PLAN L51-L53; the user's 3 dual-boot test machines in "Host machine"). The user wants
   these written up for the other 360 recomps once measured. Branch `ccr-d85d3ffd-fbzvco`, merged into `main` (user).
-### 2026-11-11/12 — session 27 (mirror analysis, L37/L39/L40/L14, audit)
+### 2026-11-11/12 â€” session 27 (mirror analysis, L37/L39/L40/L14, audit)
 - User: two-colour mirror question -> mirror captures on the user's Catalunya quick-race grids: cars are most of the
   mirror's cost; shadow blobs, car detail level, separate shadows: no gain. Experiment switches in `mirror.cpp`.
   Cockpit tiling check done. One guest tile stays opt-in (user). L37 parked (2.4% GPU), L39 not worth it, **L40 built
   (patch 31, default under caps <= 144)**, L14 tested. Audit of open leads, FH1R v0.3.2, ReGPU branches, FM2 boot
   compile; next: shader/pipeline discovery. settings.ini restored; game closed.
-### 2026-11-11 — session 26 (L38 timer, L36 one guest tile)
+### 2026-11-11 â€” session 26 (L38 timer, L36 one guest tile)
 - User: "let's continue with the performance optimization leads". L38: minimized boots were never throttled (Sleep(1)
   ~1.3 ms either way); fix kept as a safeguard. L36: found FM3's tiling scenarios and set-up, built one guest tile
   (hook + ReGPU `regpu-window-fixup-union`, patch 30), opt-in with a launcher toggle: CPU-bound grid +9.1%, picture
@@ -3632,7 +3636,7 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   Mirror threshold mod and lower-resolution mirror ruled out. One revert mistake (a `git checkout` of ReGPU's
   renderer.cpp dropped the patch stack's changes; restored from the stack, gotcha added to CLAUDE.md). User's
   settings.ini: one_tile=1, mirror_rate=2.
-### 2026-11-11 — session 25 (draw thread: L12 asynchronous frame end)
+### 2026-11-11 â€” session 25 (draw thread: L12 asynchronous frame end)
 - User: "let's tackle the draw thread next". Profiled ReGPU's draw thread with whole call stacks (sampler reworked:
   `FM3_SAMPLE_CALLERS=N`; two freezes on the way, from unwinding and getenv while the thread was stopped, fixed).
 - Found ~10% of the draw thread waiting at the frame end (Present asleep in AMD's driver, the replay wait at the swap);
@@ -3645,7 +3649,7 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - Launcher option (user request): Settings > Testing **"Asynchronous present"** (L12, on by default) writes
   `async_present=0|1` to settings.ini; the game reads it (so `play.cmd` runs follow it too) and logs
   `gpu: asynchronous present on|off`. Checked both ways with grid boots (off 245.3, on 246.7 fps at 1440p 4x).
-### 2026-11-11 — session 24 (shaders at first boot, minimized test boots)
+### 2026-11-11 â€” session 24 (shaders at first boot, minimized test boots)
 - Checked which leads are left (PERF-PLAN) and FH1R v0.3.2 (its CP split ~ our draw thread; descriptor reuse L8,
   changed-register handoff L28 and present-without-replay-wait L12 not built). User picked FM2-style shader
   precompilation: FM3 already reloaded its cache at boot; added the static scan + seed (above). Two cold boots in a
@@ -3653,23 +3657,23 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - Part 2: leftovers fixed (`regpu-seed-variants`), then L6 (RGA downloaded with the user's OK) and L30
   (`regpu-fetch-variants`, default on). All boots minimized; game closed at the end.
 
-### 2026-11-11 — session 23 part 2 (performance leads, hands-off)
+### 2026-11-11 â€” session 23 part 2 (performance leads, hands-off)
 - Phases on the frozen grid: boot check (3 boots), 1 live switches, 3 GPU time/overdraw, L11, fixed-dt, 2 start-time
   switches, 4 CPU-bound (720p 1x), 5 stacked pieces (3 rotated rounds), 6 preset bug isolation, 7 presets after the
   fix, 8 L11 frame pacing. Details and tables: PERF-RESULTS.md. Harness bug found and fixed on the way (CSV rows with
   no shot were dropped; phase 3/4 numbers kept in the journal).
-### 2026-11-11 — session 23 (research merge, frozen world, test-grid route)
+### 2026-11-11 â€” session 23 (research merge, frozen world, test-grid route)
 - Merged cloud branches `ccr-acb8fc05-rpzqri` (sessions 21/22) and `ccr-2e46a7d8-wv8coh` (21b, Anti-Lag 2/Reflex);
   conflicts were additions on both sides (kept both; the Anti-Lag session renamed 21b).
 - User put the splash-screen skip aside (screens are mostly gone already).
 - Walked the route to CrownJewel with the virtual pad (screenshots per step), then the user recorded an A-spam boot;
   `FM3_FREEZE_TIME` + `FrameTimeFreeze`, the route in `grid_test.cpp`, settings/launcher option. Details above.
-### 2026-11-10 — session 22 (cloud: research: FH1R, upstream ReGPU, Sonic Unleashed, Pinyon Shift, ITC, features, VR)
+### 2026-11-10 â€” session 22 (cloud: research: FH1R, upstream ReGPU, Sonic Unleashed, Pinyon Shift, ITC, features, VR)
 - Research only, no code (RESEARCH.md "FH1-ReImagined's latest performance work, and Sonic Unleashed Recompiled";
-  new PERF-PLAN items L24–L29, I8; L10/L23 notes).
-- FH1R since 11-05: command processor on two threads by default with ≥6 cores (+13%; −11% on 4 cores), descriptor
-  reuse (−7% CP per draw), present without the replay wait now default, a GPU profile by kind of work that found
-  render-target transfers at 30–37% of the GPU frame, a ReGPU D3D12 plugin (their fork `fh1`: `REGPU_ANISO_FROM_FETCH`,
+  new PERF-PLAN items L24â€“L29, I8; L10/L23 notes).
+- FH1R since 11-05: command processor on two threads by default with â‰¥6 cores (+13%; âˆ’11% on 4 cores), descriptor
+  reuse (âˆ’7% CP per draw), present without the replay wait now default, a GPU profile by kind of work that found
+  render-target transfers at 30â€“37% of the GPU frame, a ReGPU D3D12 plugin (their fork `fh1`: `REGPU_ANISO_FROM_FETCH`,
   no tile merge (0 gain), PGO +6%).
 - Upstream ReGPU is 15 commits past our pin (vertex reach + submit per view, one-copy queries, texture budget, live
   MSAA/fullscreen): rebase = L27.
@@ -3677,8 +3681,8 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   all XenonRecomp register options on with mid-asm hooks (FM3 keeps `non_volatile_as_local` off).
 - Suggested next on the user's PC: L26 (GPU time by kind on the race grid), then I8 (`REGPU_ANISO_FROM_FETCH` A/B).
 - Pinyon Shift (FH1, ShiftGlue; RESEARCH.md section): fetch-state shader variants (L30: our `TFetch` branches per fetch),
-  per-hash 0×Inf rule (I3 note), depth-alias copies, reflection cube rate (V8), inline register save/restore + fewer
-  MXCSR toggles (L25 rewritten: **`non_volatile_as_local` measured 20–27% slower there, so not that**), pacing (L31),
+  per-hash 0Ã—Inf rule (I3 note), depth-alias copies, reflection cube rate (V8), inline register save/restore + fewer
+  MXCSR toggles (L25 rewritten: **`non_volatile_as_local` measured 20â€“27% slower there, so not that**), pacing (L31),
   pipelines waited at submit (L32), long-frame sampler + `SetPWLGamma`/SQLite hitches (L33).
 - ITC-Recomp (Import Tuner Challenge): its frame interpolation has no performance merit for FM3 (FM3 already
   simulates every frame with a real dt; a blended frame costs the GPU the same; ITC needed it because its game has
@@ -3688,11 +3692,11 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   user's RX 7000 via FSR SDK 2.4; DLSS/DLAA code exists; XeSS; frame generation large), FPS counter + graph (a ReGPU
   patch beside the timer), the two splash screens (**need the user's screenshots**: the boot sequence is already
   cut), triple screen over a virtual LAN (FH1R's design; networking is stubbed today), single-instance triple screen
-  (flat 48:9 → homography warp → three projections), engine sound (**we apply no XMA trims: port FM2's trim
+  (flat 48:9 â†’ homography warp â†’ three projections), engine sound (**we apply no XMA trims: port FM2's trim
   handling first**, then hl360 comparison, then a loop table).
 - User: the two screens left are the **legal text and ESRB**; our skip already shortens their entries, so they likely
   cover the startup load (RESEARCH VR section, addendum: log the entries + file reads to tell). VR study after FH1R
-  (RESEARCH "VR"): virtual screen → head-tracked cockpit → true stereo in ReGPU; first step OpenXR on D3D12.
+  (RESEARCH "VR"): virtual screen â†’ head-tracked cockpit â†’ true stereo in ReGPU; first step OpenXR on D3D12.
 - **Queued (user request): start and pause on the CrownJewel career race grid by itself** (`grid_test=1` /
   `FM3_GRID_TEST=1`, launcher "Start on the test grid"). The user gets there by pressing A repeatedly from the
   title/main menu until the countdown. Plan (local, needs building and a game run; nothing written yet):
@@ -3709,19 +3713,19 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
      Baseline save restored before each run (`out/profile-backups/`), or check the route still lands on CrownJewel.
   4. Log each step (`tour: ...`) with the time, so a missed press shows in the log.
 
-### 2026-11-10 — session 21 (cloud: PERF-PLAN.md, installer study, AI-driver benchmark / frozen grid study)
+### 2026-11-10 â€” session 21 (cloud: PERF-PLAN.md, installer study, AI-driver benchmark / frozen grid study)
 - PERF-PLAN.md: every unbuilt/unmeasured performance item by picture effect, target machine, live/start-time A/B.
 - RESEARCH.md: half-rate shading (D3D12 VRS) for weak GPUs/iGPUs: design, GPU coverage, FM3 exclusions; PERF-PLAN V2 updated.
 - RESEARCH.md: telemetry out to SimHub (Forza Data Out, FM7 311-byte Dash over UDP; needs the car-physics RE shared with the AI-control study; FM3's telemetry-page getters are the shortcut).
 - RESEARCH.md: two new studies (installer for a public release; benchmark tools: AI on the player car, frozen grid). No code change; nothing checked against FM3's code (no `out/ppc` in the cloud container): first local steps are listed in each study.
 
-### 2026-11-11 — session 21b (cloud research: Anti-Lag 2 and Reflex)
+### 2026-11-11 â€” session 21b (cloud research: Anti-Lag 2 and Reflex)
 - Read ReGPU's present path (flip swap chain, 3 buffers, no latency waitable, `kFrames = 3` GPU slots), the vblank/
   `VdSwap`/limiter code and our `XamInputGetState`; checked the SDKs (AntiLag2-SDK header, NVIDIA/nvapi `nvapi.h`, both
   MIT). Result and plan: RESEARCH.md "Input latency: AMD Anti-Lag 2 and NVIDIA Reflex". No code, nothing built.
 - FH1R's "Use FIFO latest ready" (their SDK patch 0070, Vulkan `VK_PRESENT_MODE_FIFO_LATEST_READY_KHR`): read and
   mapped to DXGI in the same RESEARCH section.
-### 2026-11-10 — session 20 (render thread profile, race vs time trial, alpha-test-free shaders)
+### 2026-11-10 â€” session 20 (render thread profile, race vs time trial, alpha-test-free shaders)
 - User asked what "the render thread runs flat out" meant. Rechecked: the 96-98% is GetThreadTimes CPU time, which counts
   spinning. Profiled t7 (`FM3_SAMPLE_THREAD=7`, temporary `play.cmd` line, removed; callers on live with
   `Fm3 "env FM3_SAMPLE_CALLERS 1"`) on the paused CrownJewel grid, stock, 203 fps: ~65% in D3D's ring-space spin
@@ -3743,28 +3747,28 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
   User drove ~3 laps with it: no visual problems; the variants compiled on that first run (saved to the shader cache).
   Not yet seen on other tracks or in menus/photo mode.
 
-### 2026-11-10 — session 19, part 4 (LOD tests in races, perfmode sanity check, wrap-up)
+### 2026-11-10 â€” session 19, part 4 (LOD tests in races, perfmode sanity check, wrap-up)
 - With the user driving to the CrownJewel grid each time: keepLOD0Car (works), trackfardistance (dead), TrackSettings x2
   (all crowd), dev overlays (cut; no input combo: never read even in a race), perfmode (menu car body missing, fallback font;
   proven by restart, not the vertex arena: live arena off changed nothing), fastcrowdrender, fastcarrender, crowd x0.5,
   perfmode in a race, then a perf-log sanity check (run-to-run spread 198.8-206.0 fps; the "t7 bound" read was corrected in session 20). Results:
   OPEN-ISSUES L. User notes: stop the attract video (to do), test grass on another track later.
 
-### 2026-11-10 — session 19, part 3 (LOD research toolkit)
+### 2026-11-10 â€” session 19, part 3 (LOD research toolkit)
 - User asked for a way to research FM3's LOD levels first. Built and boot-tested: loose-file mods in `imports_io.cpp`
   (a no-op mod of all TrackSettings loaded for the menu's UIWhite/UITrack scenes, then removed), `lodsettings.py`
   (list/mod/fields), `xref.py` (strings/refs/func/floats/options/readers; `readers launch` reproduces session 17's 8
   readers), watchpoint check on `launch` (3 reads in `sub_8225CDE0` at boot) and `trackfardistance` (none at boot/menus).
 - Research plan and every lead: OPEN-ISSUES L.
 
-### 2026-11-10 — session 19, part 2 (vertex arena from FM2, on by default)
+### 2026-11-10 â€” session 19, part 2 (vertex arena from FM2, on by default)
 - Ported FM2's vertex arena (commits a6edeb7..f893212 read for the design): ReGPU patch `regpu-vertex-arena` + `Host::watchArm/
   watchClean/watchSeq`; FM3 `src/memory.cpp` write watch (FM2's, MIT), `GuestWillWrite` before NtReadFile's ReadFile.
 - First boot: "guest memory can't be made read-only (error 87)": the heap opened over the 0xA0000000 view locks its protection.
   Fix: the heap over a separate MapViewOfFile view of the same section (ReGPU `HeapViewAddress`, `REGPU_GUEST_VIEW_HEAP=1` = old).
   Second boot: arena on, zero-copy kept, verify clean on the title screen. Race test pending (user).
 
-### 2026-11-10 — session 19 (speed presets: Turbo/Hyper pieces in ReGPU, launcher slider; ReGPU branch survey)
+### 2026-11-10 â€” session 19 (speed presets: Turbo/Hyper pieces in ReGPU, launcher slider; ReGPU branch survey)
 - The user shared a 4-page ReGPU study of FM2 at 720p on a Ryzen 3 5300U (Turbo +21.8% with the same picture; Mild, Potato,
   Low, Extreme +44 to +71% trading picture). Code not public: implemented each piece ourselves (patch `regpu-turbo-hyper`,
   table in patches/README.md) and a 6-stop launcher slider (`perf_preset`). Details at the top.
@@ -3778,21 +3782,21 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - Survey (subagent, read-only git): none of the Turbo/Hyper code is in any public branch; our pin already has the
   rexglue-driver and most engine-optimisation work. Candidates: RESEARCH.md.
 
-### 2026-11-09 — session 18 (cloud: GitHub issues + sibling-port check, no code change)
+### 2026-11-09 â€” session 18 (cloud: GitHub issues + sibling-port check, no code change)
 - GitHub: no issues filed on `braaap-stututu/FM3-ReGPU` (0 open, 0 closed). Checked the FM2 and FM4 ports' commits/notes against our open list; leads in OPEN-ISSUES.md "Sibling-port check". Best lead: **C1**: FM2 found the game reads DLC DB patches from a folder named after each DLC zip (`dlczips\<zip>\media\db\patch\`), which never existed, so no DLC patch ever ran (FM2 `eda8833`). Check with `FM3_TRACE_FILES=1` whether FM3 has the same gap with Disc 2. Also: D might be FM2's photo-mode composite clipped to one 4x MSAA tile (256 rows at 720p 4x); G: FM2 decodes engine streams per stream with no seek guard.
 - New `RESEARCH.md`: 16-bit shaders for low-end GPUs (pixel shaders only, opt-in; vertex index and positions need 32-bit), music stopping for the session (hl360 fine; lead: no APC support in `NtReadFile`/`NtSetTimerEx`; check the log for `with an APC routine`), local multiplayer (untested; one signed-in user).
 - RESEARCH.md: AI cars 200 vs time trial 300 fps. Lead: ReGPU's tile merge (drops the second EDRAM tile's copy of each scene draw; PGR4 +19%, FH1R's one-pass scene +15%) is off with the draw thread, FM3's default, so AI cars are drawn twice. First: `FM3_NO_DRAW_THREAD=1` + grep `tile merge: surface`. Plus iGPU/APU options (upscaler + render scale, UMA defaults, frame cap, thread gating, sleeping GPU waits) and a `fsr4` settings bug.
 - RESEARCH.md, four more studies: (1) GPU choice in the launcher (ReGPU takes the default adapter; plan: `REGPU_ADAPTER` in high-performance order, per-adapter pipeline library, Optimus/PowerXpress exports, launcher list via DXGI P/Invoke); (2) RAM/VRAM/bandwidth (RGBA16F + D32S8 render targets at 2x the console's bytes, 4-pass texture uploads, 3x128 MB upload rings, no texture budget or memory-budget log); (3) ultrawide (ReGPU's Hor+ and HUD squeeze exist; missing: FM2-style camera-aspect hook for culling, found with `FM3_SCAN_FLOAT`); (4) shaders (FM3 uses neither `staticShaders` nor `pipelineSeed`; port FM4's `.fxobj` scan, seed from manifests; tool list incl. XenosRecomp, RGA, RenderDoc).
-### 2026-11-10 — session 18, music fixed (user-confirmed, menus and races)
+### 2026-11-10 â€” session 18, music fixed (user-confirmed, menus and races)
 - **Two causes, both in our XMA decoder (`src/audio/xma.cpp`):**
-  1. **Codec pool:** the music streamer (thread `sub_828E2E60` → `sub_827EAD40`: reads 4 x 128 KB, seeks to the last 128 KB boundary, reads it) starts a track by enabling/disabling its context `A1001900` in a tight loop, expecting the hardware to decode at once; it gives up after ~2.4 ms (386 tries). Each try found no codec in the pool (FM2's pool, refilled by the decoder thread every 2 ms), so it only waited: the earlier `386 pool waits, 0 packets decoded`. Fix: a context stepped 8 times in a row while waiting gets its codec opened in place (`CodecReady`); an engine start is stepped once or twice, so the race start keeps the pool. `FM3_XMA_POOL_WAIT_ALWAYS=1` = old behaviour.
+  1. **Codec pool:** the music streamer (thread `sub_828E2E60` â†’ `sub_827EAD40`: reads 4 x 128 KB, seeks to the last 128 KB boundary, reads it) starts a track by enabling/disabling its context `A1001900` in a tight loop, expecting the hardware to decode at once; it gives up after ~2.4 ms (386 tries). Each try found no codec in the pool (FM2's pool, refilled by the decoder thread every 2 ms), so it only waited: the earlier `386 pool waits, 0 packets decoded`. Fix: a context stepped 8 times in a row while waiting gets its codec opened in place (`CodecReady`); an engine start is stepped once or twice, so the race start keeps the pool. `FM3_XMA_POOL_WAIT_ALWAYS=1` = old behaviour.
   2. **Seek guard:** music arrives one packet per input buffer, alternating 0/1, in file order; the guard flushed the codec at most switches, the next packet then decoded to 0 frames, and the title gave up on the track (~40 s in). Fix: no guard for streams recognised as music (`d.music`); `FM3_XMA_GUARD_MUSIC=1` restores it. Check boot: 0 music flushes, 247 packets with frames, file reads continue (offset 524288+).
 - **G (engine cut-outs) A/B:** guard on vs off at a steady ~5,000 RPM (virtual pad: clutch LB + right trigger 0.45; the game's pad throttle idles below ~0.3): ~59 vs 0 flushes per 5 s, but the user heard no difference and no cut-outs on this car (RSX-S). The guard is not G's cause; details in OPEN-ISSUES G.
 - **Engine loop crossfade (experimental, off by default; launcher Testing > "Engine loop crossfade" = settings.ini `engine_crossfade=1`, read by play.cmd runs too; live `Fm3 "env FM3_XMA_LOOP_CROSSFADE 1"`):** our port of FM2's idea, fitted to our decoder. An engine sound loops by the title feeding the stream's first packet again; the seek guard then replaced the codec and dropped the audio FFmpeg still held back (about a packet) plus anything unplayed, so each pass started on a step. With the switch: a restart whose packet equals the stream's first packet (full 2 KB hash) drains the old codec, keeps its last 384 frames and blends them into the new pass's first frames (raised cosine, ~9 ms; `Decoder::LoopFade`/`BlendFade` in `xma.cpp`); other restarts are unchanged. Counted as `xma: 5 s: N engine loop restarts crossfaded`. Not FM2's offline seamless-loop table (FM2 data; FM3 would need its own from its `.fsb` banks). Not yet heard in a race.
   - **Result, same session:** the first-packet match never fired (trace `FM3_TRACE_XMA_RESTARTS=1`: FM3's engine streams are fed one packet per buffer and "restart" after 1 packet; restarts are never on one of the stream's first 8 packets). Changed to crossfade **every** guard restart (launcher label now "Engine sound crossfade"; log `stream restarts crossfaded`, ~43 per 5 s at held revs). The user heard it **worse**: without it the engine at steady revs goes "AAAAEEEEOOOO" (a slow tone sweep), with it "AAAEAEAEEEEEEOEOOEOOOOOAOAA" (old and new pieces alternating). Off by default; kept only as an A/B toggle.
 - The virtual pad (`hold LB`, `trigger R <0-1>`, `release all`) can hold steady input for audio tests; the user's own stick/trigger noise made that hard.
 - `FM3_TRACE_READS=<text>` now logs each matching read's and seek's host call stack (recompiled function chain) and event handle.
-### 2026-11-10 — session 18, local part (DLC DB patches found never applied; one-boot test prep)
+### 2026-11-10 â€” session 18, local part (DLC DB patches found never applied; one-boot test prep)
 - Merged the cloud branch (RESEARCH.md etc.) into `main`.
 - **C1 lead confirmed:** a menu boot with `FM3_TRACE_FILES=1` showed `attributes not found DLCRootN:\media\dlczips\<zip>\media\db\patch\<file>` for all 15 DLC patch files: they sit only inside each `<zip>.zip`. So no DLC DB patch ever ran on our build: the `*_execute.sql` scripts set `IsInstalled=1` for 199 DLC cars (the base `gamedb.slt` has them at 0) and Disc 2's tracks; the `*_merge.slt` files carry car data (Data_Car, engines, upgrades, decals) and Disc 2's track rows (SplitPoints, StartGridPositions, ...). Fix (`imports_xam.cpp` `UnpackDlcPatches`, as FM2 `eda8833`): unpack those members next to each zip once (stamp `.fm3-db-patches`); the next boot opened all 15 in order (merges, then executes) and reached the menus. `FM3_NO_DLC_PATCHES=1` removes them (C1 A/B). AIPlayerID is 0 for every car on disc and in the merges, so the link to driver 125 is not proven: a race test decides. Save backup before the first patched boot: `out/profile-backups/s18-before-dlc-patches`.
 - FM3_* LiveSwitches now follow their env var (thread, 4x/s, only with `REGPU_DEBUG`): `Fm3 "env FM3_NO_XMA_SEEK_GUARD 1"` flips it live (tested with `FM3_NO_XMA_BOOST`).
@@ -3800,249 +3804,249 @@ Status legend: ✅ done · ▶ next · ☐ later. Each phase ends with a NOTES.m
 - Live vs start-time (for planning A/Bs): tile merge needs `FM3_NO_DRAW_THREAD=1` at launch, then `REGPU_NO_TILE_MERGE` is live; `REGPU_NO_ANISO` is not really live (static samplers built once); `REGPU_UPLOAD_STABLE_REUSE`, `REGPU_CONSTANTS_IN_RING` are live; `REGPU_LEAN_FETCH`, `REGPU_SUBMIT_DRAWS`, `REGPU_OPTIMIZE_SHADERS` start-time.
 - No `with an APC routine` line in any kept log: RESEARCH's music lead 1 looks unlikely.
 - **One-boot race test** (user drove; temporary `play.cmd` lines `FM3_NO_DRAW_THREAD=1`, `FM3_TRACE_READS=Music`, removed after; log + shots saved as `out/logs/s18-oneboot-prerace-capture.log`, `s18_prerace_merge_{on,off}.png`):
-  - **Tile merge: no gain on FM3.** Paused career grid with AI cars, 1440p 4x, draw thread off, ~3,560 draws: merge on 169–170 fps, off 170. The race scene surface `14010500` is refused: `tile merge: surface 14010500 clears its tiles with rectangles, not merged` (only menu/other surfaces merge). RESEARCH's AI-car lead needs ReGPU to merge scenes that clear per tile with rectangles first.
-  - Same grid, live: `REGPU_UPLOAD_STABLE_REUSE=1` 173.6 fps (~+2%, small; risk: a buffer one frame stale), `REGPU_CONSTANTS_IN_RING=1` 133.7 (−21%: keep off).
+  - **Tile merge: no gain on FM3.** Paused career grid with AI cars, 1440p 4x, draw thread off, ~3,560 draws: merge on 169â€“170 fps, off 170. The race scene surface `14010500` is refused: `tile merge: surface 14010500 clears its tiles with rectangles, not merged` (only menu/other surfaces merge). RESEARCH's AI-car lead needs ReGPU to merge scenes that clear per tile with rectangles first.
+  - Same grid, live: `REGPU_UPLOAD_STABLE_REUSE=1` 173.6 fps (~+2%, small; risk: a buffer one frame stale), `REGPU_CONSTANTS_IN_RING=1` 133.7 (âˆ’21%: keep off).
   - **Band D** in the pre-race menu: the top part is not darkened like the rest; its edge is at y 512 of 1440 = **row 256 of 720 = one 4x MSAA EDRAM tile**. Same with merge on and off. Capture taken at log 115.1 s (in the saved log); not analysed yet: find the full-screen darkening draw and its tile/scissor.
   - **C1:** one career race (quit before the end) with the DLC patches in: no `ai drivers:` line at all (the workaround logs only an empty/missing driver). Not conclusive (C1 hit only some loads); keep watching.
   - **Music: none from the start.** The game reads each track's first 4 x 128 KB, then one chunk at the file's last 128 KB boundary (`Qemists_OnTheRunVocal.xma` 0..393216 then 5767168 of 5881108; `UI_BaseTelemetry.xma` likewise to 7995392), then never reads that track again, not even after a race restart. Reads use the file position (no offset pointer), so the game seeks to the end itself. Turning off `FM3_NO_XMA_SEEK_GUARD` and `FM3_NO_XMA_DROP_AHEAD` live changed nothing (no new reads). So the streamer stops asking for data: next, compare with hl360 (does it read the same tail chunk, then continue at 524288?), and look at what the title waits for after the tail read (event/XMA context state, `XMAGetOutputBufferReadOffset`/input-buffer consumed flags of voice A1001900).
-### 2026-11-09 — session 17 (intro skip, dev command line, Disc 2 install)
-- FM2 sibling checked: intro skip shortens the timed splash sequence; "into a race" there is only a pad script (`FM2_TOUR`, ported earlier as `FM3_TOUR`). FM3: same sequencer design (hooked, `boot_options.cpp`), and Turn 10's developer command line is still parsed in retail (string table at `82008400`–`82009400`), only fed an empty string: hooked to take `FM3_CMDLINE`.
+### 2026-11-09 â€” session 17 (intro skip, dev command line, Disc 2 install)
+- FM2 sibling checked: intro skip shortens the timed splash sequence; "into a race" there is only a pad script (`FM2_TOUR`, ported earlier as `FM3_TOUR`). FM3: same sequencer design (hooked, `boot_options.cpp`), and Turn 10's developer command line is still parsed in retail (string table at `82008400`â€“`82009400`), only fed an empty string: hooked to take `FM3_CMDLINE`.
 - Disc 2: subagent research (runtime mostly ready; installer missing), then launcher installer + runtime fixes; installed from the user's ISO, identical to hl360's copy; the game mounts all 8 packages.
 - `launch` stalls on the loading screen (you saw it); thread dumps (new `FM3_DUMP_THREADS`) show no deadlock; variants (no car, exhibition, freerun) the same. You allowed me to restart the game for tests. Intro skip first failed (holder address mistyped as 0x82C3111C; sequencer created later; file field not text): fixed (setter wrapped from the string-copy hook, timings signature). New `quick_race` option: Quick Race through the menus by pad script, ~55 s after launch. Launcher: "Skip intro", "Start in a quick race" switches.
 
-### 2026-11-09 — session 16 (livery on reload, shade flicker E, C1 diagnostic)
+### 2026-11-09 â€” session 16 (livery on reload, shade flicker E, C1 diagnostic)
 - Topic C1 chosen. Session-15 log: driver 125 read back empty on every load that picked it. Diagnostic split into one query per value (the combined one failed, -1 rows): Name is NULL in the in-memory DB. Lead: the game's DB patch system (LicenseMasks `.sql`, overwrite/merge/exec). Not solved; workaround holds.
 - Livery broken on reloads: write-back skips all targeted images of earlier loads; the enclosing search took the lowest base. Fix: recent images only (patch 16 `regpu-livery-enclosing-recent`, also the per-texel write-back check). Several reloads clean.
 - Shade flicker (E): 5-frame cycle measured with raw bursts; freezing resolves (`REGPU_FREEZE_RESOLVES`, live via `env`) found `159D0000`; capture showed the clear through a 4x view. Ruled out: depth packing, stale-resolve check, sun shadow maps, 64x64 ring, write-backs, occlusion answers, direct dynamic indices, texture-check stagger, the car-shadow composite (#392). Fix: patch 17 `regpu-msaa-color-clear-scale` (first version whitened the screen: limited to pitch x across < 1000).
 - Tooling: patch 18 `regpu-debug-shot-dump` (shots after a capture stalled ~30 s). Logs `out/logs/session16-run1..3.log`.
-### 2026-11-08/09 — session 15 (sun flare with the workers on the draw thread, crash C1 workaround)
-- You picked the flare bug with pieces on the draw thread. Read patch 15: the only command-processor write to the draw thread's segment state was `seg::g_query = false` at a ZPD end (the CP runs ahead → the sun's draws went to worker lists). Fixed (`end && !work::Active()`), patch 15 regenerated (only that hunk changed), `setup.ps1 -NoBuild` OK.
+### 2026-11-08/09 â€” session 15 (sun flare with the workers on the draw thread, crash C1 workaround)
+- You picked the flare bug with pieces on the draw thread. Read patch 15: the only command-processor write to the draw thread's segment state was `seg::g_query = false` at a ZPD end (the CP runs ahead â†’ the sun's draws went to worker lists). Fixed (`end && !work::Active()`), patch 15 regenerated (only that hunk changed), `setup.ps1 -NoBuild` OK.
 - Test with a temporary `play.cmd` line (`FM3_DRAW_THREAD_PIECES=1`, removed): Montserrat sun spot, 1440p 4x MSAA: answers 3214/3214, ~257 fps, flare right (you). You noted no start grid shows the flare (memory saved).
-- Made draw thread + workers the default, then A/B at 720p 1x on a paused cars grid (your settings backed up and restored, temporary `play.cmd` line removed): with workers ~195 fps, serial ~216 → serial back as the default, pieces opt-in (`FM3_DRAW_THREAD_PIECES=1`).
-- Launcher: new Testing toggle **"Draw workers"** (`draw_workers=1` in settings.ini → `FM3_DRAW_THREAD_PIECES=1` at launch, off by default) for your 1440p 4x MSAA racing A/B with the GPU overlay: **not much difference on your hardware** (GPU-bound there); you keep the toggle in case it helps weaker CPUs.
+- Made draw thread + workers the default, then A/B at 720p 1x on a paused cars grid (your settings backed up and restored, temporary `play.cmd` line removed): with workers ~195 fps, serial ~216 â†’ serial back as the default, pieces opt-in (`FM3_DRAW_THREAD_PIECES=1`).
+- Launcher: new Testing toggle **"Draw workers"** (`draw_workers=1` in settings.ini â†’ `FM3_DRAW_THREAD_PIECES=1` at launch, off by default) for your 1440p 4x MSAA racing A/B with the GPU overlay: **not much difference on your hardware** (GPU-bound there); you keep the toggle in case it helps weaker CPUs.
 - Crash C1: a hook for the generic pool (theory: pool empty) did not fire on the next crash; the id was the car's own driver (`Data_Car.AIPlayerID`). Driver 125 has its row but read back an empty Name; hooks now give such a car a generic driver and stand in for an empty name (a first stand-in also took a car-history key: your "lore drop" driver name, fixed to driver names only). Peeked the in-memory database (`find` + `peek`, decoded the SQLite page): intact at the menu and after two loads. Added row diagnostics for the next occurrence. Logs `out/logs/session15-c1-*.log`.
 - Your play test also showed livery breakage on some loads (write-back skips in the log) and an alt-tab hang: both written down as leads.
 - Hand-off: NOTES top rewritten ("Start here next session" with steps per topic), work plan updated, `tools/analysis/sqlpage.py` added, CLAUDE.md updated. GitHub had two README edits of yours; my commit was rebased on top of them.
 
-### 2026-11-08 — session 14 (sun flare with draw workers, glare size, draw thread default)
+### 2026-11-08 â€” session 14 (sun flare with draw workers, glare size, draw thread default)
 - You picked "sun flare + speed". Compared PGR4's vendored ReGPU with ours: same `seg::` structure (gpu.cpp differs by ~110 lines), PGR4 adds `kQuery` log records, thread-local query state and a direct path (`seg::g_query`) for queries outside a logged segment. Its logged path does not fit our tile spans (FM3's sun query = on/off pair per EDRAM tile, the end only on the last), so I used only the direct idea: flush at a ZPD start, draws direct while counting, workers between spans. Coverage draws: workers excluded (`!C().worker`), since they read the command processor's global query state.
 - Patch `regpu-worker-queries` (gpu.cpp, renderer.cpp/.h), stack verified with `setup.ps1 -NoBuild` (13 patches).
 - Test (you, `launcher.cmd`, 1440p 4x MSAA): flare back (timer 250.8). Live A/B on the paused grid: 225 / 219 (workers off) / 232 (fixed answer) fps. You: flare strength the same with workers off; maybe stronger than console (open).
-- Glare size: hl360 has no flare; capture ruled out a double count; with a live answer multiplier (patch `regpu-zpd-scale`) the glare turned out to follow the raw count (none ≤0.5x, max ~1.5–2x); you matched the YouTube console clip live: 0.6. A one-off `std::out_of_range` guest throw on a track load (did not repeat); guest stack logging added.
+- Glare size: hl360 has no flare; capture ruled out a double count; with a live answer multiplier (patch `regpu-zpd-scale`) the glare turned out to follow the raw count (none â‰¤0.5x, max ~1.5â€“2x); you matched the YouTube console clip live: 0.6. A one-off `std::out_of_range` guest throw on a track load (did not repeat); guest stack logging added.
 - Per-draw CP cost (you picked it, then "structural change"): profiled t7/t9 (temporary `play.cmd` lines, removed; the sampler now lists 60 lines), found the perf log's own cost, piece counts irrelevant; the draw thread beat the workers; wrote patch 15 (queries with the draw thread, then segments on the draw thread); A/B at 720p 1x no MSAA 400 cap (settings restored after): workers 175, draw thread + workers 202; the latter lost the flare in a race, so the default is the draw thread alone (flare OK, Montserrat spot 240 = cap). The AI-driver crash came back once with a stack (OPEN-ISSUES C1).
 - Removed the launcher's "Accurate sun flare" toggle (Install.cs, app.js, index.html) and `accurate_sun` in `src/gpu_host.cpp`; game and launcher rebuilt.
-### 2026-11-08 — session 13 (racing wheels; frame-rate unlock)
-- Wheel support ported from the FM4 fork's `wheel-support` branch: new files applied as-is, the changed files (`imports_xam.cpp`, `settings.*`, `main.cpp`, `CMakeLists.txt`, launcher `Bridge.cs`/`Program.cs`/`app.js`/`index.html`) merged by hand (our versions differ slightly), fm4→fm3 names. Checked that FM3 looks up the same force-feedback ordinals (`sub_82AB6AE0` callers in `ppc_recomp.169.cpp`). Probe mode starts; launcher builds. Commit `6d217bb`.
+### 2026-11-08 â€” session 13 (racing wheels; frame-rate unlock)
+- Wheel support ported from the FM4 fork's `wheel-support` branch: new files applied as-is, the changed files (`imports_xam.cpp`, `settings.*`, `main.cpp`, `CMakeLists.txt`, launcher `Bridge.cs`/`Program.cs`/`app.js`/`index.html`) merged by hand (our versions differ slightly), fm4â†’fm3 names. Checked that FM3 looks up the same force-feedback ordinals (`sub_82AB6AE0` callers in `ppc_recomp.169.cpp`). Probe mode starts; launcher builds. Commit `6d217bb`.
 - Frame-rate research (a subagent read FM2, PGR4, FH1R, the FM4 ports): details in "Session 13" at the top. Implemented FH1's frame-time scheme for FM3 (own code; FH1R is GPL-3) and the vblank-follows-cap rule. Untested in game.
-- Later: tested the unlock (120, then 240), profiled the near-cars slowdown, read ReGPU/PGR4/FH1R for CPU/threading fixes (OPEN-ISSUES P), then A/B-tested and enabled no-fence-order, the two per-draw switches, early fences (after finding and patching the ReGPU write-back fence bug) and draw workers (with the "Accurate sun flare" option). Commits `6155b95`…`4e63e41`.
+- Later: tested the unlock (120, then 240), profiled the near-cars slowdown, read ReGPU/PGR4/FH1R for CPU/threading fixes (OPEN-ISSUES P), then A/B-tested and enabled no-fence-order, the two per-draw switches, early fences (after finding and patching the ReGPU write-back fence bug) and draw workers (with the "Accurate sun flare" option). Commits `6155b95`â€¦`4e63e41`.
 - **Record as written during the session** (in the order things happened; later bullets correct earlier ones, e.g. the early-fence "rejected" note was an invalid A/B):
-- **Racing wheel support** ported from your FM4 fork's `wheel-support` branch (commit `88c12e9`): `src/input/wheel/*`, `src/kernel/imports_ff.cpp` (force feedback), the XAM input changes, `fm3.exe --wheel-probe`, the launcher's **Wheel stuff** tab, `tools/wheelprobe`, `docs/WHEELS.md`, `NOTICE-wheel.md` (FH1R's BSD-3 wheel code). FM3 has the same XInputFF library as FM4: `sub_82AB6AE0` looks up xboxkrnl ordinals 642–649 (`XInputdFF*`) and xam 442/520 at start, which the ported `HostProcedure` answers. **Test:** wheel plugged in → launcher Wheel stuff tab (devices, live view, bindings) → race; log `Wheel:` and `XexGetProcedureAddress(xboxkrnl.exe, 282..289)` lines.
-- **Frame-rate unlock** (`src/hooks/frame_time.cpp`, `src/gpu_host.cpp`), after FH1-ReImagined's `docs/framerate.md` (FM3's main loop and vblank counter match FH1's, which is FM4's engine). FH1R is GPL-3, so this is our own code from its description, not a copy. FM3's main loop `sub_821F5DE8` runs once per guest vblank (vblank callback `sub_822580C8`; options `mainthread30fps`/`frontend30fps` off by default, object `0x82C21C60`) and takes dt from the ms tick (16/17 ms snapped to 1/59.94, >4000 ms → 16 ms). So: guest vblank = the frame cap (`max_fps`, lowered to the display refresh with vsync on; 60 by default → **nothing changes at 60**), and above/below 60 the main loop's `sub_821F6AF8` call (`lr 0x821F6004`) answers true with f31 = dt from the vblank clock (nominal vblank time if the frame started within 2 ms of it, else the start time). Live switches: `FM3_GAME_FRAME_TIME` (A/B: the game's ms dt), `FM3_FRAMETIME_LOG` (dt stats every 10 s). `FM3_VBLANK_HZ` still overrides. The old Q24 "2× vblank = 2× speed" rule was never measured; this assumes game time follows the clock (as FH1 measured).
-  - **Tested at 120 (session 13, 1440p 4x MSAA, vsync off):** first build (vblank = cap, divider 1): main loop 120 but **60.0 fps drawn**: with `mainthread30fps` off the render thread draws every second main frame (poking `0x82C2209E`=1 live made the vblank counter `0x82C21C3C` release every 2nd vblank and every frame was drawn). Fixed with **divider 2** (vblank 2× cap, the vblank hook sets `mainthread30fps` before each check; `FM3_VBLANK_DIVIDER=1` for the old way). Then: main loop **120.0 fps, dt 8.332 ms sd 0.002, 0 late** (`FM3_FRAMETIME_LOG`; the game's ms dt would be 0.8 ms rms off); drawn fps follows draw count: ~3,200 draws 71–75 fps, ~2,500 85, ~1,900 105 (≈2.7 ms + 3.5 µs/draw); guest t7/t9 at ~100%, CP waits on guest memory most of the time. **You: smooth, but fps drops from 120 when other cars come near.** Next lead: per-draw cost (guest render thread vs ReGPU's per-draw work); A/B 720p no MSAA to rule out the host GPU. Render sync (FH1) not needed so far (no judder/HUD loss reported). Debug-server `switch` only takes `REGPU_*`/`PGR4_*` names, so the frame-time switches are env vars re-read every second (`Fm3 "env FM3_FRAMETIME_LOG 1"`).
-  - **Why drawn fps drops near cars (profiled, session 13; logs `out/logs/session13-t7profile.log`, `session13-drawthread.log`):** the game's render thread (t7, entry `822BDE68`) spends ~86% of its samples in D3D's ring-buffer wait (`sub_824B4F78` -> spin step `sub_824AAA68`: wait until the GPU read pointer, device +10896, passes a position; called from `sub_82AF4AA8` and the present path `sub_824AF280`). ReGPU publishes the read pointer per packet, so t7 waits on ReGPU's command processor (t9). With the default single-thread CP (parse + translate), t9 ~95% CPU but ~50% of it spinning in WAIT_REG_MEM on mem `18C27014` (swap 2, fn 3 "equal"; plus `18C27000/04`): a value the game writes, so CPU and CP take turns. A/B `REGPU_DRAW_THREAD=1` (translation on a worker): ~70 fps at 3,200–3,600 draws vs 71–75 at 3,200 before (≈3.0 vs 3.5 µs/draw, marginal); worker only ~42% busy, CP 40% spin-waiting on `18C27014`, 32% in drains. **Nothing is saturated: it's a latency/turn-taking chain (render thread ↔ CP ↔ worker ↔ the game's fence write), growing with draws.** Next leads: who writes `18C27014` and when (guest thread, after which wait), per-draw translation cost in ReGPU, CP spin/drain latency. Left `REGPU_DRAW_THREAD` off (no clear gain).
-  - **Draw workers on by default; no sun flare unless `accurate_sun=1`** (launcher Graphics "Accurate sun flare", ~10% fps near cars; your choice). Behind an AI car 142 → 155 fps. To fix both: port PGR4's logged occlusion queries onto `regpu-zpd-tile-spans` (OPEN-ISSUES P).
-  - **Later in session 13: early fences ARE the default now**, with our 12th ReGPU patch `regpu-early-fence-writebacks` (liveries intact); plus `REGPU_TEXTURE_CHECK_STAGGER` + `REGPU_DIRECT_DYNAMIC_INDICES` defaults. Paused start grid (1440p 4x, 240 cap): 108 → 147–153 fps. The "rejected" note below was based on an invalid A/B. Details: OPEN-ISSUES P.
-  - **`REGPU_EARLY_FENCES` rejected:** +5–8% at a 240 cap but breaks liveries into noise (fence before the livery write-back); left off (OPEN-ISSUES P). settings.ini is now `max_fps=240` (~135–170 fps near cars).
-  - **`REGPU_NO_FENCE_ORDER` is now FM3's default** (`FM3_FENCE_ORDER=1` undoes): near cars 69–77 → 100–120 fps, no visual change (OPEN-ISSUES P).
-  - **Performance research (read-only, session 13 end):** ReGPU branches/forks, PGR4/FM2/FM4 vendored copies and FH1R reviewed for CPU/threading fixes: **OPEN-ISSUES.md issue P** has the ranked tests. Top: live `REGPU_NO_FENCE_ORDER=1` (PGR4 86 → 147 fps), then `REGPU_EARLY_FENCES=1` (+ draw workers later); FM3 sets none of these switches today.
+- **Racing wheel support** ported from your FM4 fork's `wheel-support` branch (commit `88c12e9`): `src/input/wheel/*`, `src/kernel/imports_ff.cpp` (force feedback), the XAM input changes, `fm3.exe --wheel-probe`, the launcher's **Wheel stuff** tab, `tools/wheelprobe`, `docs/WHEELS.md`, `NOTICE-wheel.md` (FH1R's BSD-3 wheel code). FM3 has the same XInputFF library as FM4: `sub_82AB6AE0` looks up xboxkrnl ordinals 642â€“649 (`XInputdFF*`) and xam 442/520 at start, which the ported `HostProcedure` answers. **Test:** wheel plugged in â†’ launcher Wheel stuff tab (devices, live view, bindings) â†’ race; log `Wheel:` and `XexGetProcedureAddress(xboxkrnl.exe, 282..289)` lines.
+- **Frame-rate unlock** (`src/hooks/frame_time.cpp`, `src/gpu_host.cpp`), after FH1-ReImagined's `docs/framerate.md` (FM3's main loop and vblank counter match FH1's, which is FM4's engine). FH1R is GPL-3, so this is our own code from its description, not a copy. FM3's main loop `sub_821F5DE8` runs once per guest vblank (vblank callback `sub_822580C8`; options `mainthread30fps`/`frontend30fps` off by default, object `0x82C21C60`) and takes dt from the ms tick (16/17 ms snapped to 1/59.94, >4000 ms â†’ 16 ms). So: guest vblank = the frame cap (`max_fps`, lowered to the display refresh with vsync on; 60 by default â†’ **nothing changes at 60**), and above/below 60 the main loop's `sub_821F6AF8` call (`lr 0x821F6004`) answers true with f31 = dt from the vblank clock (nominal vblank time if the frame started within 2 ms of it, else the start time). Live switches: `FM3_GAME_FRAME_TIME` (A/B: the game's ms dt), `FM3_FRAMETIME_LOG` (dt stats every 10 s). `FM3_VBLANK_HZ` still overrides. The old Q24 "2Ã— vblank = 2Ã— speed" rule was never measured; this assumes game time follows the clock (as FH1 measured).
+  - **Tested at 120 (session 13, 1440p 4x MSAA, vsync off):** first build (vblank = cap, divider 1): main loop 120 but **60.0 fps drawn**: with `mainthread30fps` off the render thread draws every second main frame (poking `0x82C2209E`=1 live made the vblank counter `0x82C21C3C` release every 2nd vblank and every frame was drawn). Fixed with **divider 2** (vblank 2Ã— cap, the vblank hook sets `mainthread30fps` before each check; `FM3_VBLANK_DIVIDER=1` for the old way). Then: main loop **120.0 fps, dt 8.332 ms sd 0.002, 0 late** (`FM3_FRAMETIME_LOG`; the game's ms dt would be 0.8 ms rms off); drawn fps follows draw count: ~3,200 draws 71â€“75 fps, ~2,500 85, ~1,900 105 (â‰ˆ2.7 ms + 3.5 Âµs/draw); guest t7/t9 at ~100%, CP waits on guest memory most of the time. **You: smooth, but fps drops from 120 when other cars come near.** Next lead: per-draw cost (guest render thread vs ReGPU's per-draw work); A/B 720p no MSAA to rule out the host GPU. Render sync (FH1) not needed so far (no judder/HUD loss reported). Debug-server `switch` only takes `REGPU_*`/`PGR4_*` names, so the frame-time switches are env vars re-read every second (`Fm3 "env FM3_FRAMETIME_LOG 1"`).
+  - **Why drawn fps drops near cars (profiled, session 13; logs `out/logs/session13-t7profile.log`, `session13-drawthread.log`):** the game's render thread (t7, entry `822BDE68`) spends ~86% of its samples in D3D's ring-buffer wait (`sub_824B4F78` -> spin step `sub_824AAA68`: wait until the GPU read pointer, device +10896, passes a position; called from `sub_82AF4AA8` and the present path `sub_824AF280`). ReGPU publishes the read pointer per packet, so t7 waits on ReGPU's command processor (t9). With the default single-thread CP (parse + translate), t9 ~95% CPU but ~50% of it spinning in WAIT_REG_MEM on mem `18C27014` (swap 2, fn 3 "equal"; plus `18C27000/04`): a value the game writes, so CPU and CP take turns. A/B `REGPU_DRAW_THREAD=1` (translation on a worker): ~70 fps at 3,200â€“3,600 draws vs 71â€“75 at 3,200 before (â‰ˆ3.0 vs 3.5 Âµs/draw, marginal); worker only ~42% busy, CP 40% spin-waiting on `18C27014`, 32% in drains. **Nothing is saturated: it's a latency/turn-taking chain (render thread â†” CP â†” worker â†” the game's fence write), growing with draws.** Next leads: who writes `18C27014` and when (guest thread, after which wait), per-draw translation cost in ReGPU, CP spin/drain latency. Left `REGPU_DRAW_THREAD` off (no clear gain).
+  - **Draw workers on by default; no sun flare unless `accurate_sun=1`** (launcher Graphics "Accurate sun flare", ~10% fps near cars; your choice). Behind an AI car 142 â†’ 155 fps. To fix both: port PGR4's logged occlusion queries onto `regpu-zpd-tile-spans` (OPEN-ISSUES P).
+  - **Later in session 13: early fences ARE the default now**, with our 12th ReGPU patch `regpu-early-fence-writebacks` (liveries intact); plus `REGPU_TEXTURE_CHECK_STAGGER` + `REGPU_DIRECT_DYNAMIC_INDICES` defaults. Paused start grid (1440p 4x, 240 cap): 108 â†’ 147â€“153 fps. The "rejected" note below was based on an invalid A/B. Details: OPEN-ISSUES P.
+  - **`REGPU_EARLY_FENCES` rejected:** +5â€“8% at a 240 cap but breaks liveries into noise (fence before the livery write-back); left off (OPEN-ISSUES P). settings.ini is now `max_fps=240` (~135â€“170 fps near cars).
+  - **`REGPU_NO_FENCE_ORDER` is now FM3's default** (`FM3_FENCE_ORDER=1` undoes): near cars 69â€“77 â†’ 100â€“120 fps, no visual change (OPEN-ISSUES P).
+  - **Performance research (read-only, session 13 end):** ReGPU branches/forks, PGR4/FM2/FM4 vendored copies and FH1R reviewed for CPU/threading fixes: **OPEN-ISSUES.md issue P** has the ranked tests. Top: live `REGPU_NO_FENCE_ORDER=1` (PGR4 86 â†’ 147 fps), then `REGPU_EARLY_FENCES=1` (+ draw workers later); FM3 sets none of these switches today.
   - Your settings.ini is now `max_fps=120` (was 360, which used to be ignored and now really means 360).
-  - **Test:** `max_fps` 120 (launcher Graphics), race; I attach and `switch FM3_FRAMETIME_LOG 1`; compare the race clock/countdown with the on-screen timer over a lap (does game time keep real time?), 0–100 feel, menus (auto-repeat speed: PGR4 needed a hold delay), HUD dropouts or judder (FH1's "render sync" if the render thread falls behind), crowd/garage camera speed (FH1 fixed both), gear taps. Then 240/360.
-  - Not ported yet (do if the test shows the need): FH1's render sync (main loop waits for the render thread), divider-2 pacing, the side-effect fixes (fixed 1/30 s steps: search `.rdata` for `3C888889`/`3D088889`), PGR4's menu hold delay and gear latch. Research notes: FM2/PGR4 uncap with ReGPU's `max_fps` + 2× vblank alone (their games keep time by the clock); FH1R `forza-recomp/src/hooks/frame_time.cpp`, `docs/framerate.md`; PGR4 `src/hooks/gear_latch.cpp`, `src/kernel/imports_xam.cpp` (menu hold). Clones: `reference/sibling-recomps/{PGR4-ReGPU,ForzaHorizon1-ReImagined}`.
+  - **Test:** `max_fps` 120 (launcher Graphics), race; I attach and `switch FM3_FRAMETIME_LOG 1`; compare the race clock/countdown with the on-screen timer over a lap (does game time keep real time?), 0â€“100 feel, menus (auto-repeat speed: PGR4 needed a hold delay), HUD dropouts or judder (FH1's "render sync" if the render thread falls behind), crowd/garage camera speed (FH1 fixed both), gear taps. Then 240/360.
+  - Not ported yet (do if the test shows the need): FH1's render sync (main loop waits for the render thread), divider-2 pacing, the side-effect fixes (fixed 1/30 s steps: search `.rdata` for `3C888889`/`3D088889`), PGR4's menu hold delay and gear latch. Research notes: FM2/PGR4 uncap with ReGPU's `max_fps` + 2Ã— vblank alone (their games keep time by the clock); FH1R `forza-recomp/src/hooks/frame_time.cpp`, `docs/framerate.md`; PGR4 `src/hooks/gear_latch.cpp`, `src/kernel/imports_xam.cpp` (menu hold). Clones: `reference/sibling-recomps/{PGR4-ReGPU,ForzaHorizon1-ReImagined}`.
 
-### 2026-11-08 — session 12 (launcher, from the FM4 fork)
+### 2026-11-08 â€” session 12 (launcher, from the FM4 fork)
 - Ported the launcher from your FM4 fork (`braaap-stututu/Fuzzy-Rittersport-4-ReGPU-testing`, `launcher/FM4Launcher`, commit `69bdae44`; reference clone in `reference/sibling-recomps/Fuzzy-Rittersport-4-ReGPU-testing`) to `launcher/FM3Launcher`. Installed the **.NET 9 SDK 9.0.320** (winget `Microsoft.DotNet.SDK.9`). Builds with 0 warnings; page checked in the browser pane with a stand-in host (all tabs, no script errors); the real window opens. You then tested it (below): works.
 - Why it ports cleanly: our `src/settings.cpp` is the same file as the fork's (same 14 `settings.ini` keys), and the profile layout (`profiles\<name>\content` + `xuid`, FNV-1a name fallback in `imports_xam.cpp`) is identical, so `Profiles.cs` is the fork's minus photos.
-- Kept (your pick): Play (game folder pick + SHA-256 check of `default.xex` against `aa15372c…8742`, language from the Disc 1 string tables, Play), Graphics (only what our ReGPU has: resolution, aspect, fullscreen, frame cap, VSync, MSAA 1/2/4, FSR 1/3 + quality + sharpening, anisotropy, shader-box toggle), Settings (shader cache, folders), Profiles and backups. Added for our workflow: test timer (`FM3_NO_TIMER`), debug server (`REGPU_DEBUG`), performance log (`REGPU_PERF`) toggles.
+- Kept (your pick): Play (game folder pick + SHA-256 check of `default.xex` against `aa15372câ€¦8742`, language from the Disc 1 string tables, Play), Graphics (only what our ReGPU has: resolution, aspect, fullscreen, frame cap, VSync, MSAA 1/2/4, FSR 1/3 + quality + sharpening, anisotropy, shader-box toggle), Settings (shader cache, folders), Profiles and backups. Added for our workflow: test timer (`FM3_NO_TIMER`), debug server (`REGPU_DEBUG`), performance log (`REGPU_PERF`) toggles.
 - Left out for now: game import (ISO/drop), DLC, photos, Reports, Updater, Linux/Proton; FSR 4, SMAA, shader optimiser, debug views and fast mode (our ReGPU pin lacks them or they're untested on FM3: `REGPU_EARLY_FENCES`). Enhance and skip_intro are read by `settings.cpp` but not used by FM3 yet, so not offered. No icon yet (FM4's is game art from its xex).
-- **Your launcher test (session 12):** no launcher issues; 2560×1440 + 4x MSAA run fine. Two new observations in that run (VSync off, 360 cap, perf log on): (1) **car thumbnails in My Cars looked wrong** (screenshot at 302.5 s: white smear right of the selected car's thumbnail); (2) **race frame dip**: 159–163 s at 30 fps (~3,600 draws/frame, renderer draw only ~5.5 ms, two host threads at 100%, "waiting on host GPU 0"), plus single 50–67 ms frames at 135/137 s; and in a menu at 47–58 s, 183 ms frames each with a 2048² livery write-back. **A/B at 1280×720, MSAA off, same route:** no race dip (no second under 59 fps between ~89 and 213 s, same ~3,600 draw peak), thumbnails fine, no 183 ms menu frames (only 8 livery write-backs that route). GPU use was 40–50% in both runs, so not GPU-bound. Not yet split between 1440p and 4x MSAA; one run each, so the race dip could also be chance. Note: `fm3.log` is overwritten each run; the 1440p log is gone (numbers above are from it).
-- **Thumbnail ghost fixed (you confirmed):** at 1440p (MSAA on or off) each My Cars carousel thumbnail showed a faint second, larger car. Cause: the car's picture texture (8888 512×256, fetch dword 4 = `0x43` → mip levels 0–1, mip address = base + 0x80000) holds the **512×256 picture at level 0 and the 256×128 side-view thumbnail at level 1** (the two picture write-backs of issue C). The carousel draws it small enough that the console always picks level 1; at 2× the host's derivatives are half, so it picked between 0 and 1 and blended the big picture in. Found by: vs edit tinting by transform (ghost = same draw as the thumbnail), ps edit `float4(r2.xyz, 1)` (the ghost is in what the GPU samples; memory copy clean), fetch decode. Note `ps` edits name registers `r2`, not `r[2]` (compile error → draw silently skipped; check the log for `failed to compile`). Fix: **11th ReGPU patch `regpu-guest-lod-short-mips`**: textures whose mip chain stops early (smallest level ≥ 64 texels) get LOD bias + log2(draw scale) above 1×, i.e. the console's mip choice; full chains keep the sharper host pick. `REGPU_NO_GUEST_LOD_SHORT_MIPS=1` (live) off.
-- **Race dip not reproduced:** 1440p MSAA off: no second under 59 fps in the race (peak ~3,500 draws), as at 720p. The dip (159–163 s, guest threads at 100%) was seen once, only in the 1440p + 4x MSAA run; you couldn't reproduce it. The 30 fps stretches in every run are the race intro/countdown and loading (game-native). Open, low priority: if it comes back, note the time and keep `fm3.log` (the launcher keeps the previous one as `fm3.prev.log`).
+- **Your launcher test (session 12):** no launcher issues; 2560Ã—1440 + 4x MSAA run fine. Two new observations in that run (VSync off, 360 cap, perf log on): (1) **car thumbnails in My Cars looked wrong** (screenshot at 302.5 s: white smear right of the selected car's thumbnail); (2) **race frame dip**: 159â€“163 s at 30 fps (~3,600 draws/frame, renderer draw only ~5.5 ms, two host threads at 100%, "waiting on host GPU 0"), plus single 50â€“67 ms frames at 135/137 s; and in a menu at 47â€“58 s, 183 ms frames each with a 2048Â² livery write-back. **A/B at 1280Ã—720, MSAA off, same route:** no race dip (no second under 59 fps between ~89 and 213 s, same ~3,600 draw peak), thumbnails fine, no 183 ms menu frames (only 8 livery write-backs that route). GPU use was 40â€“50% in both runs, so not GPU-bound. Not yet split between 1440p and 4x MSAA; one run each, so the race dip could also be chance. Note: `fm3.log` is overwritten each run; the 1440p log is gone (numbers above are from it).
+- **Thumbnail ghost fixed (you confirmed):** at 1440p (MSAA on or off) each My Cars carousel thumbnail showed a faint second, larger car. Cause: the car's picture texture (8888 512Ã—256, fetch dword 4 = `0x43` â†’ mip levels 0â€“1, mip address = base + 0x80000) holds the **512Ã—256 picture at level 0 and the 256Ã—128 side-view thumbnail at level 1** (the two picture write-backs of issue C). The carousel draws it small enough that the console always picks level 1; at 2Ã— the host's derivatives are half, so it picked between 0 and 1 and blended the big picture in. Found by: vs edit tinting by transform (ghost = same draw as the thumbnail), ps edit `float4(r2.xyz, 1)` (the ghost is in what the GPU samples; memory copy clean), fetch decode. Note `ps` edits name registers `r2`, not `r[2]` (compile error â†’ draw silently skipped; check the log for `failed to compile`). Fix: **11th ReGPU patch `regpu-guest-lod-short-mips`**: textures whose mip chain stops early (smallest level â‰¥ 64 texels) get LOD bias + log2(draw scale) above 1Ã—, i.e. the console's mip choice; full chains keep the sharper host pick. `REGPU_NO_GUEST_LOD_SHORT_MIPS=1` (live) off.
+- **Race dip not reproduced:** 1440p MSAA off: no second under 59 fps in the race (peak ~3,500 draws), as at 720p. The dip (159â€“163 s, guest threads at 100%) was seen once, only in the 1440p + 4x MSAA run; you couldn't reproduce it. The 30 fps stretches in every run are the race intro/countdown and loading (game-native). Open, low priority: if it comes back, note the time and keep `fm3.log` (the launcher keeps the previous one as `fm3.prev.log`).
 - How it starts the game: `build\rel\fm3.exe <game dir>` in `out\run` (so `fm3.log` and the debug server's files land where `play.cmd` puts them), `FM3_PROFILE` removed so the Profiles tab decides. `launcher.cmd` (dev) sets `FM3_GAME_DIR` (hl360 Disc 1) and `FM3_USER_DIR=out\user` like `play.cmd`, and seeds `out\user\settings.ini` with `profile=Baseline` if missing. Note: graphics settings saved by the launcher also apply to `play.cmd` runs (same `settings.ini`); `play.cmd`'s `FM3_PROFILE` still wins for the profile.
 
-### 2026-11-08 — session 11 (B2, B and H fixed; VINYLISSUES.md)
+### 2026-11-08 â€” session 11 (B2, B and H fixed; VINYLISSUES.md)
 - End of session: all vinyl/livery knowledge moved into **VINYLISSUES.md** (livery pipeline, fixes, switches, saves, tools, leads, lessons); NOTES.md's "Start here" points there. `play.cmd` defaults to the `Baseline` profile. Patches: 10 ReGPU (`regpu-enclosing-writeback`, `regpu-enclosing-big-pass`, `regpu-writeback-safety` new this session).
-- **B speed test:** temporary switch `REGPU_PACKET_SPIN_US` (spin per type-3 packet, live via `env`) slowed normal frames to traced speed (a traced frame: 22,651 packets in ~1.6 s ≈ 70 µs each). At 80–100 µs (1–2 fps) the editor edits went through (layer X 7.00 → −0.50, held stick 4 s) and the vinyl stayed cut (green top 262). Short nudges with `Fm3 "capture"` also stayed cut, including one whose traced frame was a rebuild (1317–1333 draws vs 1229–1232 idle): the session-10 "traced = complete" result doesn't hold in a clean build. Switch removed afterwards (result recorded here). New script `tools/analysis/greentop.py`.
-- **B2:** (1) `FM3_WRITEBACK 1024x1024` set at the pre-race screen: race noise gone but no vinyls/badges; photo mode/countdown still showed other cars' decals + noise (they use a separate close-up livery). (2) Traced a race restart: **no livery build at race load**; the 1024×1024 resolves at `01005000`/`01805000`/`01C05000` (colour base `100`) are something else (race start, photo mode). (3) Trace from boot (temporary `play.cmd` lines): the livery is built at **boot ≈22.6 s**: 2048×512 strips to `0B508000`/`0B908000`/`0BD08000`/`0C108000` (declared heights 2048/1536/1024/512, so the hook sees them as 2048×2048, 2048×1536, …: my first `2048x512` filter matched only the last strip), side-view passes, regions (1288×600, 1416×544, 1416×568, …) into the texture, then the strips again with colour base `0C0`; at ≈28.9 s the 1024×1024 livery (`04E12000`) the same way. (4) `FM3_WRITEBACK=2048x2048,1024x1024` + new ReGPU code that writes back an image again when a region is drawn into it: **no noise, no wrong decals in race, countdown and photo mode** (you confirmed); the car shows the editor's cut. Cost with `Now`: 13 × ~55 ms for the 2048 image. (5) Final: rule in `src/gpu_host.cpp` (2048×2048 and 1024×1024, 8888, top 0 → `Deferred`) and the ReGPU part queues a Deferred write-back of just the region's rectangle (patch `regpu-enclosing-writeback`, 8th ReGPU patch, `setup.ps1 -NoBuild`: all 8 applied). You confirmed no visual change vs (4); log: `livery writeback:` lines at boot, no stalls.
-- Livery rule also matches the three non-livery 1024×1024 images above (written back Deferred, harmless so far).
+- **B speed test:** temporary switch `REGPU_PACKET_SPIN_US` (spin per type-3 packet, live via `env`) slowed normal frames to traced speed (a traced frame: 22,651 packets in ~1.6 s â‰ˆ 70 Âµs each). At 80â€“100 Âµs (1â€“2 fps) the editor edits went through (layer X 7.00 â†’ âˆ’0.50, held stick 4 s) and the vinyl stayed cut (green top 262). Short nudges with `Fm3 "capture"` also stayed cut, including one whose traced frame was a rebuild (1317â€“1333 draws vs 1229â€“1232 idle): the session-10 "traced = complete" result doesn't hold in a clean build. Switch removed afterwards (result recorded here). New script `tools/analysis/greentop.py`.
+- **B2:** (1) `FM3_WRITEBACK 1024x1024` set at the pre-race screen: race noise gone but no vinyls/badges; photo mode/countdown still showed other cars' decals + noise (they use a separate close-up livery). (2) Traced a race restart: **no livery build at race load**; the 1024Ã—1024 resolves at `01005000`/`01805000`/`01C05000` (colour base `100`) are something else (race start, photo mode). (3) Trace from boot (temporary `play.cmd` lines): the livery is built at **boot â‰ˆ22.6 s**: 2048Ã—512 strips to `0B508000`/`0B908000`/`0BD08000`/`0C108000` (declared heights 2048/1536/1024/512, so the hook sees them as 2048Ã—2048, 2048Ã—1536, â€¦: my first `2048x512` filter matched only the last strip), side-view passes, regions (1288Ã—600, 1416Ã—544, 1416Ã—568, â€¦) into the texture, then the strips again with colour base `0C0`; at â‰ˆ28.9 s the 1024Ã—1024 livery (`04E12000`) the same way. (4) `FM3_WRITEBACK=2048x2048,1024x1024` + new ReGPU code that writes back an image again when a region is drawn into it: **no noise, no wrong decals in race, countdown and photo mode** (you confirmed); the car shows the editor's cut. Cost with `Now`: 13 Ã— ~55 ms for the 2048 image. (5) Final: rule in `src/gpu_host.cpp` (2048Ã—2048 and 1024Ã—1024, 8888, top 0 â†’ `Deferred`) and the ReGPU part queues a Deferred write-back of just the region's rectangle (patch `regpu-enclosing-writeback`, 8th ReGPU patch, `setup.ps1 -NoBuild`: all 8 applied). You confirmed no visual change vs (4); log: `livery writeback:` lines at boot, no stalls.
+- Livery rule also matches the three non-livery 1024Ã—1024 images above (written back Deferred, harmless so far).
 - **Issue H (end of session):** a car vanished after painting another car; the damaged save then crashed on buying (hl360 too). Reproduced on a clean copy of hl360's save (Scion lost after buying+painting a Supra and painting the Fiat; hl360 kept it). Every losing run had my poster bug (big-pass width match on ordinary passes); with it fixed, plus an FM4-style reuse check for late write-backs and a stale written-back mark cleared, the car survives the same sequence (patch `regpu-writeback-safety`). Details in "Start here". `src/indirect.cpp` logs the caller stack on a null indirect call.
-- **B solved (end of session).** Your test with big vinyls on every tab: bumpers complete, sides and hood cut → only the regions drawn as big passes (scale 0.72–0.77) were cut. Stale-resolve check ruled out live (`REGPU_NO_STALE_RESOLVES 1`: no change). A fresh capture of a rebuild (`out/logs/s11_cap4.txt`) showed the right-side compose (`ps a9a8e665892877de`) reading `t0=1400x534@0EC90000`, a **4×MSAA side-view pass resolved in three tiles** (rows 0–223, 224–447, 448–533 to dests 0x134000 apart, pitch 1408) with **no `also drawn into` line for tiles 2–3**; the region image (`out/res/0CABC000_1024x1109_v0.png`) had green to host row 182 = region row 252 = `t0` row 224 exactly. Cause 1: the big-pass image is 1378 wide (pitch·64/65 of the 1400 surface) and `ResolveIntoEnclosing` required width == copy pitch (1408). Fixed → right side whole up to the windows (green top 262 → 215, px ×2), left side bottom and a hood corner still missing. Cause 2: the last tile's rect is 8-row rounded (88 copied, 86 declared; hood pass 80 vs 76) and was refused for running past the image; now clipped. → you confirmed: ~99% covered on every side; green top 124, px 80,235. Both in ReGPU patch `regpu-enclosing-big-pass` (9th; switches `REGPU_NO_ENCLOSING_PASS_WIDTH`, `REGPU_NO_ENCLOSING_ROW_CLIP`). Live A/B by nudging shows nothing: edits recompose from 1× side views; the 4× tiled passes run at car load.
+- **B solved (end of session).** Your test with big vinyls on every tab: bumpers complete, sides and hood cut â†’ only the regions drawn as big passes (scale 0.72â€“0.77) were cut. Stale-resolve check ruled out live (`REGPU_NO_STALE_RESOLVES 1`: no change). A fresh capture of a rebuild (`out/logs/s11_cap4.txt`) showed the right-side compose (`ps a9a8e665892877de`) reading `t0=1400x534@0EC90000`, a **4Ã—MSAA side-view pass resolved in three tiles** (rows 0â€“223, 224â€“447, 448â€“533 to dests 0x134000 apart, pitch 1408) with **no `also drawn into` line for tiles 2â€“3**; the region image (`out/res/0CABC000_1024x1109_v0.png`) had green to host row 182 = region row 252 = `t0` row 224 exactly. Cause 1: the big-pass image is 1378 wide (pitchÂ·64/65 of the 1400 surface) and `ResolveIntoEnclosing` required width == copy pitch (1408). Fixed â†’ right side whole up to the windows (green top 262 â†’ 215, px Ã—2), left side bottom and a hood corner still missing. Cause 2: the last tile's rect is 8-row rounded (88 copied, 86 declared; hood pass 80 vs 76) and was refused for running past the image; now clipped. â†’ you confirmed: ~99% covered on every side; green top 124, px 80,235. Both in ReGPU patch `regpu-enclosing-big-pass` (9th; switches `REGPU_NO_ENCLOSING_PASS_WIDTH`, `REGPU_NO_ENCLOSING_ROW_CLIP`). Live A/B by nudging shows nothing: edits recompose from 1Ã— side views; the 4Ã— tiled passes run at car load.
 
-### 2026-11-08 — session 10 (repo audit, licence, hl360 launcher, vinyl issues B/B2)
+### 2026-11-08 â€” session 10 (repo audit, licence, hl360 launcher, vinyl issues B/B2)
 - Read-only audit for going public: no game files in the repository, its history (28 commits at the time) or on GitHub (private, one branch); `.gitignore` covers discs, `game/`, `dumps/`, `out/`, `build/`, `reference/`. Licence: every related project is MIT (FM2/FM4 ports, ReGPU, XenonRecomp); added `LICENSE` (MIT, braaap-stututu); `NOTICE.md` keeps the FM4/FM2 credit.
 - `boot hl360.cmd`: starts the hl360 baseline from its folder (its `fm3.user.toml`, Baseline profile), refuses if an `fm3.exe` already runs.
-- hl360 has neither vinyl issue. Its race dump gave the correct race livery (DXT5 1024×1024). RenderDoc captures of hl360's editor (`out/rdc/`, scripts in `tools/analysis/`) gave its side-view pass and stencil for comparison.
+- hl360 has neither vinyl issue. Its race dump gave the correct race livery (DXT5 1024Ã—1024). RenderDoc captures of hl360's editor (`out/rdc/`, scripts in `tools/analysis/`) gave its side-view pass and stencil for comparison.
 - ReGPU patch `regpu-capture-vertex-floats`: traced frames log small vertex buffers in full (7th ReGPU patch).
 - B investigation, chronological (several early readings were wrong and are marked):
-  **B: vinyls cut along a straight line in the editor.** State: vinyl regions now reach the car texture (patch `regpu-resolve-into-enclosing`). The cut is earlier, in the game's **704×267 side-view vinyl pass** (surface pitch 720, 1×, EDRAM colour base 0, depth/stencil base `099`; resolved twice per edit with rect 0,0-704,272, declared height 267): rows ≥ ≈181 of that pass come out empty. The side view is stored upside down, so the car's **upper** body is what's missing.
-  1. While you move a layer: `Fm3 "capture"` (twice; not every frame rebuilds). In the log, find the resolves with `rect 0,0-704,272` and the draws before them (stencil setup on `98d34caab368b2cc`, mask `5d606c137f9a8ddc`/`cb430dd1cfd2f804` with a k_8 1024×1024 mask, vinyl layers `7061152fe7f7fc72`/`a0d8cbb7f2f8ce9a`, n 141).
+  **B: vinyls cut along a straight line in the editor.** State: vinyl regions now reach the car texture (patch `regpu-resolve-into-enclosing`). The cut is earlier, in the game's **704Ã—267 side-view vinyl pass** (surface pitch 720, 1Ã—, EDRAM colour base 0, depth/stencil base `099`; resolved twice per edit with rect 0,0-704,272, declared height 267): rows â‰¥ â‰ˆ181 of that pass come out empty. The side view is stored upside down, so the car's **upper** body is what's missing.
+  1. While you move a layer: `Fm3 "capture"` (twice; not every frame rebuilds). In the log, find the resolves with `rect 0,0-704,272` and the draws before them (stencil setup on `98d34caab368b2cc`, mask `5d606c137f9a8ddc`/`cb430dd1cfd2f804` with a k_8 1024Ã—1024 mask, vinyl layers `7061152fe7f7fc72`/`a0d8cbb7f2f8ce9a`, n 141).
   2. Look at the pass's resolved image in `out/run/out/res` (`<addr>_704x267_v0.png`, check the file time is this run's) and find the cut row exactly.
-  3. Leads, in order: (a) where ReGPU puts that pass's **depth/stencil** on the host (EDRAM depth base 0x99 = tile 153, i.e. right after 17 tile rows of a 720-wide colour surface): does something else alias those host rows, or is the host depth surface shorter than the pass? Check `C().depth` sizing/offset for base 099 and `REGPU_TRACE_TILE_PHASE`; (b) the **stencil reset** draws #72/#74 go through a 4× view (surface `05820168`, pitch 360) and are scaled by `REGPU_NO_DEPTH_VIEW_SCALE`'s path — turning that off moved the line a little, so the reset area is involved: log the reset rectangles' real vertex values (the log prints only 8 dwords; dump the whole buffer in the capture instead of `peek` later, the ring is reused); (c) compare with **hl360** on the same screen (`reference/.../hl360-forza3`, it has a vinyl editor too) to see whether its side view is whole.
+  3. Leads, in order: (a) where ReGPU puts that pass's **depth/stencil** on the host (EDRAM depth base 0x99 = tile 153, i.e. right after 17 tile rows of a 720-wide colour surface): does something else alias those host rows, or is the host depth surface shorter than the pass? Check `C().depth` sizing/offset for base 099 and `REGPU_TRACE_TILE_PHASE`; (b) the **stencil reset** draws #72/#74 go through a 4Ã— view (surface `05820168`, pitch 360) and are scaled by `REGPU_NO_DEPTH_VIEW_SCALE`'s path â€” turning that off moved the line a little, so the reset area is involved: log the reset rectangles' real vertex values (the log prints only 8 dwords; dump the whole buffer in the capture instead of `peek` later, the ring is reused); (c) compare with **hl360** on the same screen (`reference/.../hl360-forza3`, it has a vinyl editor too) to see whether its side view is whole.
   4. Already ruled out (don't repeat): the mask's content (a big vinyl stops at a straight line), `REGPU_NO_FOREIGN_MSAA` 0/1, window offset (0), `REGPU_NO_STENCIL`. (The "pass everywhere" mask test I did was invalid: that shader keeps alpha == 0, so `float4(1,1,1,1)` blocked everything.)
 
-  **hl360 reference (2026-11-08):** hl360 has **neither** vinyl issue (same car and track; you painted every layer tab a different colour, covering all it can). Its race frame dump (`dumps/hl360/frame_0001`, decoded PNGs in `out/logs/hl360_race_png`) shows the race livery as a **DXT5 1024×1024** texture (`15349000` in that run; find it by its solid vinyl colours, e.g. `tools/dumpdecode.py decode` then rank by saturation) with every panel fully covered. Its right-side panel (upside down, window hole) has exactly the shape of the editor's k_8 mask, so the mask is right and the editor cut (B) is ours.
-  In the **editor**, an hl360 dump (`dumps/hl360/frame_0002`) shows the car's 8888 2048×2048 composite as **all zero in guest memory**, like ours: hl360 keeps it (and the side-view pass) on its GPU too, so memory dumps can't compare B. For B, compare with a **RenderDoc** capture of hl360's editor (RenderDoc 1.47 installed) while a layer moves: its 704×267 side-view pass draw by draw against ours.
-  **hl360 under RenderDoc (2026-11-08, `out/rdc/hl360_editor_frame*.rdc`, 5 captures in the vinyl editor; #3 = frame 2494 mid-move):** hl360's side-view pass found by its EDRAM names (`RT @ 0t, <9t>` colour, `RT @ 153t, <9t>` depth/stencil; Xenia converts EDRAM between the 1× and 4× views with full-surface transfer draws). Events map 1:1 to ours: 704/720 = #71, 730/746 (depth @0t as 4×) = #72, 756–810 (depth @153t 1×→4×→1×) = #73/#74, **828 = mask (#75)**, **861/867 = vinyl layers (#76/#77)**. Stencil per 30-row band (rows 0–299): **0 everywhere already before the resets** (events 756–799), still 0 after them (810), 1 inside the mask over the **full 0–269 rows** after 828, changed only under the vinyl after 867. So in hl360 the stencil is clean before this pass (likely the previous pass's resolve clear); in ours rows ≥≈181 keep old non-zero stencil and block the vinyls. **Next (needs a ReGPU logging change + rebuild):** log the full vertex data of small rect-list draws (#71–#74 rectangles; today only 8 dwords) and the clear rectangle each resolve applies to depth/stencil (the side-view pass resolves twice with `control 00100300`), then find which one leaves rows ≥181 uncleared. Scripts: `tools/analysis/rd_list.py` (every draw: viewport, scissor, targets) and `tools/analysis/rd_save.py` (save targets incl. depth/stencil as PNG), run with `qrenderdoc.exe --python <script>` and `RD_CAPTURE`/`RD_OUT`/`RD_OUTDIR`/`RD_EVENTS` env vars. Launch: `renderdoccmd capture -d <hl360 dir> -c out\rdc\<name> <hl360 dir>\fm3.exe`, F12 in game to capture.
-  **Reset rectangles are fine** (the capture log's `rect corners` lines, which I had missed): 4× view #72/#74 = (−0.5,−0.5)–(319.5,127.5) → 640×256 in 1×; 1× #71/#73 = (639.5,−0.5)–(699.5,266.5), plus a second rectangle the log doesn't print. Full coverage either way, which is why `REGPU_NO_DEPTH_VIEW_SCALE` barely moved the line. hl360's post-mask stencil (`out/rdc/e2494/e828_stencil_vis.png`) is the car-side silhouette (mask texels from (262,270), our draw #75 gets the same UVs 0.256/0.264), rows 0–≈250, window hole ≈170–245. **Our cut is a straight full-width line at ≈181**: not a mask shape, so suspect EDRAM/surface bookkeeping (depth @153t = 272 rows below the colour; #72 resets a 4× depth at base 0, over the colour area). **Next: live switch sweep in our build** (big green vinyl, nudge between flips): `REGPU_NO_STENCIL` (redo properly; earlier attempt likely without a redraw), `REGPU_NO_TILE_MERGE`, `REGPU_NO_TILE_MERGE_LATER_CLEAR`, `REGPU_NO_CLEAR_EXTEND`, `REGPU_NO_ALIASED_DEPTH_CLEAR`, `REGPU_SURFACE_BY_BASE`, `REGPU_RECT_BACK_STENCIL`.
-  **(Superseded below: the "big passes lose rows below 256" reading was wrong.)** **Session 10 correction (B): the side view is fine and the stencil isn't involved.** Fresh capture: the 704×267 side view is the full silhouette with all vinyls (yesterday's "cut at 181" on a circle was the window hole). Live sweep with nudges via the virtual stick (`Fm3 "stick L 0.6 0 120"`), green top edge measured: `REGPU_NO_STENCIL`, `NO_TILE_MERGE`, `NO_CLEAR_EXTEND`, `NO_ALIASED_DEPTH_CLEAR`, `SURFACE_BY_BASE`, `RECT_BACK_STENCIL`, `NO_TALL_VIEW`, `NO_MSAA_SCALE`, `NO_FOREIGN_TILE`, `NO_RECT_SNAP`: no change; `NO_TILE_MERGE_LATER_CLEAR`, `NO_BIG_PASS`, `NO_TALL_PASS`: vinyl gone entirely. **The loss is in the big passes (EDRAM surfaces wider than 1280): everything below their first 256 rows is missing.** The right-side region compose (draw `ps a9a8e665892877de`, pitch 1440, rect 1416×568, host scissor 0–410 rows at scale 0.723) has green only to row 252 of the region. The whole car texture shows it too (your observation, vs hl360's race livery in the same atlas layout): per 128-row band (1024 scale), ours 81.5 / **5.7** / 51.2 / **14.9** / 14.7 / 11.4 / 11.1 / 20.0 % non-black, hl360 70–91 % everywhere: in each 512-row strip the lower 256 rows are (nearly) empty, so seats, dashboard and front/rear/roof panels are missing too, not only vinyls. **Next:** a ReGPU change logs small vertex buffers in full in captures (`vf%u floats:`, ≤ 64 dwords; built, not yet committed); capture a vinyl edit and read the region/strip draws' quad corners: do they reach row 568/512 (ReGPU loses rows: big-pass scaling, 256-row tile handling) or stop at 256 (the game splits the pass into tiles and ReGPU drops the later ones)?
-  **Session 10, later (B): it's a timing difference, not geometry.** Full vertex logging (ReGPU patch `regpu-capture-vertex-floats`) shows every region drawn as one full quad, e.g. (0,0)–(1416,568) with UVs covering the whole side view and atlas rows 512–1080, so the game splits nothing. The decisive observation: **vinyl edits made during traced (captured) frames produce a complete car texture and a complete car on screen** (green over the whole side up to the windows; four captures in a row, `out/logs/s10_multi/`), and **one edit in normal frames brings the cut back** (green top edge 129–158 → 261–271, green px 7109 → 2564). The game does the same work either way: same 8 strips, region updates and side-view resolves per edit frame at normal speed (`REGPU_TRACE_RESOLVES`, `out/logs/s10_normal_resolves.txt`). The editor's selection flash (yellow) also covers the full side. Ruled out with live A/B (nudges via `Fm3 "stick L 0.5 0 200"`, green edge measured with a scratch script like `greentop.py`): stencil, mask, side view, resets, region geometry, big/tall-pass rules, tile merge, draw workers (off by default anyway), stale-resolve check, and the per-frame texture cache (a drop-on-resolve fix and a cache-off switch were tried, changed nothing, and were removed). `REGPU_NO_TEXTURE_PREHASH` changes the result (less green) but doesn't fix it. **What traced frames change besides the texture cache is speed** (every packet and draw logged synchronously): so look for a race between the CPU and ReGPU's GPU work: something the game reads back or waits on (a fence/event/query, a CPU read of a resolved image, the texture pre-hash workers' timing), or a resolve whose host copy is read before the GPU has written it. Next ideas: slow normal frames down without tracing (e.g. a frame cap or a sleep switch) to see whether speed alone fixes it; log fences/queries the editor waits on; compare the order of CP packets around the region resolves at normal speed vs traced.
-  **→ B2 shortcut to try first:** the race livery is the composite downscaled to 1024×1024 and compressed; our race-load trace has **four 1024×1024 resolves** (`rect 0,0-1024,1024`, pitch 1024): whole-image copies the existing write-back can do. Test live before writing new ReGPU code: in our build, `Fm3 "env FM3_WRITEBACK 1024x1024"`, then load a race and look at the car (session 9 only tried the 2048 sizes). If the car is right but without vinyls, the 1024 downscale reads the in-memory 2048 texture that lacks the region copies: then the region write-back below is needed too.
+  **hl360 reference (2026-11-08):** hl360 has **neither** vinyl issue (same car and track; you painted every layer tab a different colour, covering all it can). Its race frame dump (`dumps/hl360/frame_0001`, decoded PNGs in `out/logs/hl360_race_png`) shows the race livery as a **DXT5 1024Ã—1024** texture (`15349000` in that run; find it by its solid vinyl colours, e.g. `tools/dumpdecode.py decode` then rank by saturation) with every panel fully covered. Its right-side panel (upside down, window hole) has exactly the shape of the editor's k_8 mask, so the mask is right and the editor cut (B) is ours.
+  In the **editor**, an hl360 dump (`dumps/hl360/frame_0002`) shows the car's 8888 2048Ã—2048 composite as **all zero in guest memory**, like ours: hl360 keeps it (and the side-view pass) on its GPU too, so memory dumps can't compare B. For B, compare with a **RenderDoc** capture of hl360's editor (RenderDoc 1.47 installed) while a layer moves: its 704Ã—267 side-view pass draw by draw against ours.
+  **hl360 under RenderDoc (2026-11-08, `out/rdc/hl360_editor_frame*.rdc`, 5 captures in the vinyl editor; #3 = frame 2494 mid-move):** hl360's side-view pass found by its EDRAM names (`RT @ 0t, <9t>` colour, `RT @ 153t, <9t>` depth/stencil; Xenia converts EDRAM between the 1Ã— and 4Ã— views with full-surface transfer draws). Events map 1:1 to ours: 704/720 = #71, 730/746 (depth @0t as 4Ã—) = #72, 756â€“810 (depth @153t 1Ã—â†’4Ã—â†’1Ã—) = #73/#74, **828 = mask (#75)**, **861/867 = vinyl layers (#76/#77)**. Stencil per 30-row band (rows 0â€“299): **0 everywhere already before the resets** (events 756â€“799), still 0 after them (810), 1 inside the mask over the **full 0â€“269 rows** after 828, changed only under the vinyl after 867. So in hl360 the stencil is clean before this pass (likely the previous pass's resolve clear); in ours rows â‰¥â‰ˆ181 keep old non-zero stencil and block the vinyls. **Next (needs a ReGPU logging change + rebuild):** log the full vertex data of small rect-list draws (#71â€“#74 rectangles; today only 8 dwords) and the clear rectangle each resolve applies to depth/stencil (the side-view pass resolves twice with `control 00100300`), then find which one leaves rows â‰¥181 uncleared. Scripts: `tools/analysis/rd_list.py` (every draw: viewport, scissor, targets) and `tools/analysis/rd_save.py` (save targets incl. depth/stencil as PNG), run with `qrenderdoc.exe --python <script>` and `RD_CAPTURE`/`RD_OUT`/`RD_OUTDIR`/`RD_EVENTS` env vars. Launch: `renderdoccmd capture -d <hl360 dir> -c out\rdc\<name> <hl360 dir>\fm3.exe`, F12 in game to capture.
+  **Reset rectangles are fine** (the capture log's `rect corners` lines, which I had missed): 4Ã— view #72/#74 = (âˆ’0.5,âˆ’0.5)â€“(319.5,127.5) â†’ 640Ã—256 in 1Ã—; 1Ã— #71/#73 = (639.5,âˆ’0.5)â€“(699.5,266.5), plus a second rectangle the log doesn't print. Full coverage either way, which is why `REGPU_NO_DEPTH_VIEW_SCALE` barely moved the line. hl360's post-mask stencil (`out/rdc/e2494/e828_stencil_vis.png`) is the car-side silhouette (mask texels from (262,270), our draw #75 gets the same UVs 0.256/0.264), rows 0â€“â‰ˆ250, window hole â‰ˆ170â€“245. **Our cut is a straight full-width line at â‰ˆ181**: not a mask shape, so suspect EDRAM/surface bookkeeping (depth @153t = 272 rows below the colour; #72 resets a 4Ã— depth at base 0, over the colour area). **Next: live switch sweep in our build** (big green vinyl, nudge between flips): `REGPU_NO_STENCIL` (redo properly; earlier attempt likely without a redraw), `REGPU_NO_TILE_MERGE`, `REGPU_NO_TILE_MERGE_LATER_CLEAR`, `REGPU_NO_CLEAR_EXTEND`, `REGPU_NO_ALIASED_DEPTH_CLEAR`, `REGPU_SURFACE_BY_BASE`, `REGPU_RECT_BACK_STENCIL`.
+  **(Superseded below: the "big passes lose rows below 256" reading was wrong.)** **Session 10 correction (B): the side view is fine and the stencil isn't involved.** Fresh capture: the 704Ã—267 side view is the full silhouette with all vinyls (yesterday's "cut at 181" on a circle was the window hole). Live sweep with nudges via the virtual stick (`Fm3 "stick L 0.6 0 120"`), green top edge measured: `REGPU_NO_STENCIL`, `NO_TILE_MERGE`, `NO_CLEAR_EXTEND`, `NO_ALIASED_DEPTH_CLEAR`, `SURFACE_BY_BASE`, `RECT_BACK_STENCIL`, `NO_TALL_VIEW`, `NO_MSAA_SCALE`, `NO_FOREIGN_TILE`, `NO_RECT_SNAP`: no change; `NO_TILE_MERGE_LATER_CLEAR`, `NO_BIG_PASS`, `NO_TALL_PASS`: vinyl gone entirely. **The loss is in the big passes (EDRAM surfaces wider than 1280): everything below their first 256 rows is missing.** The right-side region compose (draw `ps a9a8e665892877de`, pitch 1440, rect 1416Ã—568, host scissor 0â€“410 rows at scale 0.723) has green only to row 252 of the region. The whole car texture shows it too (your observation, vs hl360's race livery in the same atlas layout): per 128-row band (1024 scale), ours 81.5 / **5.7** / 51.2 / **14.9** / 14.7 / 11.4 / 11.1 / 20.0 % non-black, hl360 70â€“91 % everywhere: in each 512-row strip the lower 256 rows are (nearly) empty, so seats, dashboard and front/rear/roof panels are missing too, not only vinyls. **Next:** a ReGPU change logs small vertex buffers in full in captures (`vf%u floats:`, â‰¤ 64 dwords; built, not yet committed); capture a vinyl edit and read the region/strip draws' quad corners: do they reach row 568/512 (ReGPU loses rows: big-pass scaling, 256-row tile handling) or stop at 256 (the game splits the pass into tiles and ReGPU drops the later ones)?
+  **Session 10, later (B): it's a timing difference, not geometry.** Full vertex logging (ReGPU patch `regpu-capture-vertex-floats`) shows every region drawn as one full quad, e.g. (0,0)â€“(1416,568) with UVs covering the whole side view and atlas rows 512â€“1080, so the game splits nothing. The decisive observation: **vinyl edits made during traced (captured) frames produce a complete car texture and a complete car on screen** (green over the whole side up to the windows; four captures in a row, `out/logs/s10_multi/`), and **one edit in normal frames brings the cut back** (green top edge 129â€“158 â†’ 261â€“271, green px 7109 â†’ 2564). The game does the same work either way: same 8 strips, region updates and side-view resolves per edit frame at normal speed (`REGPU_TRACE_RESOLVES`, `out/logs/s10_normal_resolves.txt`). The editor's selection flash (yellow) also covers the full side. Ruled out with live A/B (nudges via `Fm3 "stick L 0.5 0 200"`, green edge measured with a scratch script like `greentop.py`): stencil, mask, side view, resets, region geometry, big/tall-pass rules, tile merge, draw workers (off by default anyway), stale-resolve check, and the per-frame texture cache (a drop-on-resolve fix and a cache-off switch were tried, changed nothing, and were removed). `REGPU_NO_TEXTURE_PREHASH` changes the result (less green) but doesn't fix it. **What traced frames change besides the texture cache is speed** (every packet and draw logged synchronously): so look for a race between the CPU and ReGPU's GPU work: something the game reads back or waits on (a fence/event/query, a CPU read of a resolved image, the texture pre-hash workers' timing), or a resolve whose host copy is read before the GPU has written it. Next ideas: slow normal frames down without tracing (e.g. a frame cap or a sleep switch) to see whether speed alone fixes it; log fences/queries the editor waits on; compare the order of CP packets around the region resolves at normal speed vs traced.
+  **â†’ B2 shortcut to try first:** the race livery is the composite downscaled to 1024Ã—1024 and compressed; our race-load trace has **four 1024Ã—1024 resolves** (`rect 0,0-1024,1024`, pitch 1024): whole-image copies the existing write-back can do. Test live before writing new ReGPU code: in our build, `Fm3 "env FM3_WRITEBACK 1024x1024"`, then load a race and look at the car (session 9 only tried the 2048 sizes). If the car is right but without vinyls, the 1024 downscale reads the in-memory 2048 texture that lacks the region copies: then the region write-back below is needed too.
 
-  **B2: a car with vinyls is noise in races.** At race load the game resolves the vinyl regions (e.g. `rect 0,0-1416,568`, pitch 2048, declared height 1536) **into the car's 8888 2048×2048 texture in memory** (no resolved image there), then its CPU code compresses that to DXT for the race. ReGPU writes nothing to memory; the `FM3_WRITEBACK` experiment can't help because `WriteResolveToGuest` writes a whole image at its own width, not a rectangle at a tile (x, y) of a 2048-pitch tiled image.
-  1. Plan: a ReGPU write-back of a **resolve rectangle into a tiled destination at its place**: from the destination address compute (x, y) as `ResolveIntoEnclosing` does (tile = 32×32 × bpp bytes, row-major tiles of pitch/32), read the rectangle back from the GPU, and write it with the Xenos 2D tiling (`TextureTiledOffset` in `texture.cpp`) at (x + i, y + j) with the image's pitch. Then a game rule in `src/gpu_host.cpp` asks for it (`Writeback::Mode::Now`) for colour resolves whose pitch is 2048 and whose declared height + y = 2048 (car textures); check the race-load resolve list with `REGPU_TRACE_RESOLVES` (session 9 trace: `out/logs/s9_raceload_resolves.txt`).
-  2. Also the 1024×1024 resolves at race load (four, pitch 1024): find out what they are (another livery level? the body texture?) before deciding whether they need writing back too.
+  **B2: a car with vinyls is noise in races.** At race load the game resolves the vinyl regions (e.g. `rect 0,0-1416,568`, pitch 2048, declared height 1536) **into the car's 8888 2048Ã—2048 texture in memory** (no resolved image there), then its CPU code compresses that to DXT for the race. ReGPU writes nothing to memory; the `FM3_WRITEBACK` experiment can't help because `WriteResolveToGuest` writes a whole image at its own width, not a rectangle at a tile (x, y) of a 2048-pitch tiled image.
+  1. Plan: a ReGPU write-back of a **resolve rectangle into a tiled destination at its place**: from the destination address compute (x, y) as `ResolveIntoEnclosing` does (tile = 32Ã—32 Ã— bpp bytes, row-major tiles of pitch/32), read the rectangle back from the GPU, and write it with the Xenos 2D tiling (`TextureTiledOffset` in `texture.cpp`) at (x + i, y + j) with the image's pitch. Then a game rule in `src/gpu_host.cpp` asks for it (`Writeback::Mode::Now`) for colour resolves whose pitch is 2048 and whose declared height + y = 2048 (car textures); check the race-load resolve list with `REGPU_TRACE_RESOLVES` (session 9 trace: `out/logs/s9_raceload_resolves.txt`).
+  2. Also the 1024Ã—1024 resolves at race load (four, pitch 1024): find out what they are (another livery level? the body texture?) before deciding whether they need writing back too.
   3. Verify: the car's race texture (find the DXT bound on the car's draws in a capture) and the car on the grid; FM2's port fixed the same thing by writing its race livery back.
 
-### 2026-11-07 — session 9 (timer overlay, exploring past the intro race)
-- Added the on-screen timer you asked for: ReGPU patch `regpu-timer-overlay.patch` (4th ReGPU patch; `setup.ps1` verifies it). A 136×34 white-on-black GDI panel copied onto the back buffer by the presenter after the game's frame (and during the shader-compile hold); text = `LogSeconds()`, which both logs now export. The game's own `src/log.cpp` is the one linked (it defines the same symbols as ReGPU's), so the timer and `fm3.log` share one clock. The shader-compile panel moves below it. You confirmed it works.
-- You explored career menus, the upgrade shop, paint booth, vinyl apply/editor, My Cars, a solo race and photo mode, with 12 timed screenshots → issue list A–G in the status section.
+### 2026-11-07 â€” session 9 (timer overlay, exploring past the intro race)
+- Added the on-screen timer you asked for: ReGPU patch `regpu-timer-overlay.patch` (4th ReGPU patch; `setup.ps1` verifies it). A 136Ã—34 white-on-black GDI panel copied onto the back buffer by the presenter after the game's frame (and during the shader-compile hold); text = `LogSeconds()`, which both logs now export. The game's own `src/log.cpp` is the one linked (it defines the same symbols as ReGPU's), so the timer and `fm3.log` share one clock. The shader-compile panel moves below it. You confirmed it works.
+- You explored career menus, the upgrade shop, paint booth, vinyl apply/editor, My Cars, a solo race and photo mode, with 12 timed screenshots â†’ issue list Aâ€“G in the status section.
 - Two read-only searches of the FM2 and FM4 ports (both repos are one squashed commit, so only code comments/docs count as evidence). FM2 has its own renderer (not ReGPU) with `FM2_*` switches; FM4 vendors a ReGPU fork that is not a superset of upstream (~90 switches each side only). Results per issue are in the table.
 - Reported first as you asked; you picked issue A.
-- **Issue A fixed.** Reading `GetCubeTexture` first turned up a real but minor bug: for cubes read from memory, level 0 of face i was written at `offset + faceBytes·i` but copied from the running offset (all faces = face 0, or other levels' bytes). Fixed behind `REGPU_NO_CUBE_FACE_STAGING`; A/B screenshots looked the same, so not the cause. The showroom capture (`out/logs/s9_showroom_capture.txt`) then showed two cubes bound on the car draws, both format `?7` = **k_2_10_10_10**, neither resolved: `19781000` (mipped, real data in memory: `C1E0781E` = grey 30/1023 per channel, fetch exp adjust +3) and `1832E000` (no mips, all zero in memory, no resolve into it: unused or live-only slot; left alone). ReGPU's `Info()` had no entry for format 7, so `DecodeTexture` failed and the faces were zero-filled. Added the format (8 bits of 10 kept). Measured A/B at almost the same angle: near-black pixels on the car 116,945 → 65,802, paint mean R 112.8 → 124.9, highlights 9.0 → 11.7%; mirror, xD badge and exhaust tip back. You confirmed shiny paint and chrome in the dealer (R8) and the chrome rim list.
-- **Issue C fixed.** Entering My Cars renders nothing (resolve trace `REGPU_TRACE_RESOLVES`, live): the pictures are stored with the car, made when it changes. Added a live experiment to the write-back hook, `FM3_WRITEBACK="WxH,..."` (set with `Fm3 "env FM3_WRITEBACK 512x256"`, re-read on change; kept as a tool). Repaints: (1) 256x256+512x512 written back → thumbnail noise, big picture now **empty** (its buffer `120DC000`, 512×256 8888, all zero); (2) traced repaint: once per save, `512x256` resolve to `14C5F000` and `256x128` to `1205F000` (8888, swap bit set), plus 5×256x256 icon passes; (3) write-back of 512x256+256x128 → both pictures correct, colours right. Permanent rule (8888, top 0, those two sizes, `Now`) built; a 4th repaint without the experiment: fixed, log `picture writeback: 141A6000 512x256`, `1206B000 256x128`. FM2's port had the same bug (its sizes 256x128 + 1024x1024).
-- **Issue B (vinyls), partly fixed.** Resolve trace while editing: the car's 2048×2048 8888 texture is rebuilt in four 2048×512 strips (dest base +0/512/1024/1536 rows, each declaring the rows left) and, per edit, one rectangle per changed region at a tile (x, y) inside it (e.g. 1416×568 at 512,512: `0BAC9000` = tile 1040 of a 64-tile-wide 32×32 tiling). ReGPU made each an image of its own; the car read only strip 1. First try (strips only, GPU copy) was too narrow (regions are partial and at another host scale); then the enclosing match picked a strip's own image instead of the base (fixed: outermost wins). Now vinyls reach the car. **Still open:** a straight cut along the car: the game's 704×267 side-view vinyl pass (stencil-masked: a 1024×1024 k_8 mask sampled at the pixel position, alpha == 0 passes) already loses its rows ≥≈181. Ruled out: the mask (a big vinyl stops at a straight line), colour foreign-MSAA (`REGPU_NO_FOREIGN_MSAA` 0/1 same), window offset (0), stencil (`REGPU_NO_STENCIL` no change), 4× stencil-reset scale (`REGPU_NO_DEPTH_VIEW_SCALE` moves the line a little). Next: that pass's host depth/stencil placement (EDRAM depth base 099, pitch 720), and hl360 on the same screen.
+- **Issue A fixed.** Reading `GetCubeTexture` first turned up a real but minor bug: for cubes read from memory, level 0 of face i was written at `offset + faceBytesÂ·i` but copied from the running offset (all faces = face 0, or other levels' bytes). Fixed behind `REGPU_NO_CUBE_FACE_STAGING`; A/B screenshots looked the same, so not the cause. The showroom capture (`out/logs/s9_showroom_capture.txt`) then showed two cubes bound on the car draws, both format `?7` = **k_2_10_10_10**, neither resolved: `19781000` (mipped, real data in memory: `C1E0781E` = grey 30/1023 per channel, fetch exp adjust +3) and `1832E000` (no mips, all zero in memory, no resolve into it: unused or live-only slot; left alone). ReGPU's `Info()` had no entry for format 7, so `DecodeTexture` failed and the faces were zero-filled. Added the format (8 bits of 10 kept). Measured A/B at almost the same angle: near-black pixels on the car 116,945 â†’ 65,802, paint mean R 112.8 â†’ 124.9, highlights 9.0 â†’ 11.7%; mirror, xD badge and exhaust tip back. You confirmed shiny paint and chrome in the dealer (R8) and the chrome rim list.
+- **Issue C fixed.** Entering My Cars renders nothing (resolve trace `REGPU_TRACE_RESOLVES`, live): the pictures are stored with the car, made when it changes. Added a live experiment to the write-back hook, `FM3_WRITEBACK="WxH,..."` (set with `Fm3 "env FM3_WRITEBACK 512x256"`, re-read on change; kept as a tool). Repaints: (1) 256x256+512x512 written back â†’ thumbnail noise, big picture now **empty** (its buffer `120DC000`, 512Ã—256 8888, all zero); (2) traced repaint: once per save, `512x256` resolve to `14C5F000` and `256x128` to `1205F000` (8888, swap bit set), plus 5Ã—256x256 icon passes; (3) write-back of 512x256+256x128 â†’ both pictures correct, colours right. Permanent rule (8888, top 0, those two sizes, `Now`) built; a 4th repaint without the experiment: fixed, log `picture writeback: 141A6000 512x256`, `1206B000 256x128`. FM2's port had the same bug (its sizes 256x128 + 1024x1024).
+- **Issue B (vinyls), partly fixed.** Resolve trace while editing: the car's 2048Ã—2048 8888 texture is rebuilt in four 2048Ã—512 strips (dest base +0/512/1024/1536 rows, each declaring the rows left) and, per edit, one rectangle per changed region at a tile (x, y) inside it (e.g. 1416Ã—568 at 512,512: `0BAC9000` = tile 1040 of a 64-tile-wide 32Ã—32 tiling). ReGPU made each an image of its own; the car read only strip 1. First try (strips only, GPU copy) was too narrow (regions are partial and at another host scale); then the enclosing match picked a strip's own image instead of the base (fixed: outermost wins). Now vinyls reach the car. **Still open:** a straight cut along the car: the game's 704Ã—267 side-view vinyl pass (stencil-masked: a 1024Ã—1024 k_8 mask sampled at the pixel position, alpha == 0 passes) already loses its rows â‰¥â‰ˆ181. Ruled out: the mask (a big vinyl stops at a straight line), colour foreign-MSAA (`REGPU_NO_FOREIGN_MSAA` 0/1 same), window offset (0), stencil (`REGPU_NO_STENCIL` no change), 4Ã— stencil-reset scale (`REGPU_NO_DEPTH_VIEW_SCALE` moves the line a little). Next: that pass's host depth/stencil placement (EDRAM depth base 099, pitch 720), and hl360 on the same screen.
 - **Race-load crash (new path once the car had vinyls), fixed.** A thread at `822974B0` is created at race load; its `ThreadObject` was kept alive only by the title's handle, so a handle closed before the host thread first ran freed it: the thread read a freed `GuestThread` (garbage id, TLS -1) and crashed in `KeTlsGetValue`. `src/kernel/thread.cpp`: the host thread now gets its own strong reference from `StartThread`. The crash handler had hidden it (it faulted on a stale `ctx` before writing anything): `src/crash.cpp` now flushes early and reads guest registers under SEH.
 - **Race livery noise (B2)** found after that: see the issue table; not caused by the session-9 changes.
 - Possible follow-up: if reflections show banding, keep all 10 bits with a native `R10G10B10A2_UNORM` upload (the 2D path already uploads BC/half-float textures natively; the cube path always decodes to 8-bit).
-### 2026-11-07 — session 8f (smooth bands fixed)
-- You parked on the start grid with the chase cam rotated (bands visible) and paused. Two 16×16 boxes measured (smooth band at (875,635), grainy at (990,620)) across `ps` outputs: the slot-0 sample alone already differs (detail 9.5 vs 23.4), while its mip level and derivatives are identical (≈ level 1.4). So the **road image's content** was banded, and my earlier "t0 looks uniform" by eye was wrong.
-- Capture: road image `05A1B000` level 0 had a **sharp top half and a blurred bottom half**; a phantom `0599B000` 512×768 image (256 rows earlier) held the fresh half. Cause: the half resolve `rect 0,256-512,512 dest 05A1B000` went through ReGPU's tile rule (`base = dest - top·pitch`). The existing `REGPU_RESOLVE_IMAGE_BASE` didn't apply (it only takes partial-width rectangles).
+### 2026-11-07 â€” session 8f (smooth bands fixed)
+- You parked on the start grid with the chase cam rotated (bands visible) and paused. Two 16Ã—16 boxes measured (smooth band at (875,635), grainy at (990,620)) across `ps` outputs: the slot-0 sample alone already differs (detail 9.5 vs 23.4), while its mip level and derivatives are identical (â‰ˆ level 1.4). So the **road image's content** was banded, and my earlier "t0 looks uniform" by eye was wrong.
+- Capture: road image `05A1B000` level 0 had a **sharp top half and a blurred bottom half**; a phantom `0599B000` 512Ã—768 image (256 rows earlier) held the fresh half. Cause: the half resolve `rect 0,256-512,512 dest 05A1B000` went through ReGPU's tile rule (`base = dest - topÂ·pitch`). The existing `REGPU_RESOLVE_IMAGE_BASE` didn't apply (it only takes partial-width rectangles).
 - Fix (ReGPU, `regpu-resolve-into-image.patch`): if an image already exists at the destination with the same width covering the rows, place the rectangle in it. Tiles name their own row, where no image starts, so FM3's scene tiles are unchanged (screen checked: no bar). Verified: you saw the bands gone; the capture shows the road image sharp throughout.
 - Why only after rotating the chase cam: before that the game rebuilds the road image whole (correctly placed); turning the camera starts the half-at-a-time rebuilds.
 - hl360 comparison (earlier): no bands there. Your console: none. Consistent with a ReGPU-only bug.
 
-### 2026-11-07 — session 8d (smooth road bands)
+### 2026-11-07 â€” session 8d (smooth road bands)
 - You confirmed from your console: the whole road is high-res asphalt; the smooth bands are a bug. Key clue from you: they appear **only in the chase camera after rotating it** (not in hood/bumper cam), and reset when cycling cameras.
-- No new strips are rendered while rotating (40 s resolve trace). The composition shader `0d1ce823ed690669` (one full-target axis-aligned rect, prim 8) turns each pixel into rotated strip coordinates (`pc[1]`–`pc[4]`), samples DXT1 strip pairs t1/t2 and t3/t4, blends each pair by `pc[5].x`, and combines them with the base DXT5's luma/alpha (`pc[6]`). The camera angle selects the strips and weights.
+- No new strips are rendered while rotating (40 s resolve trace). The composition shader `0d1ce823ed690669` (one full-target axis-aligned rect, prim 8) turns each pixel into rotated strip coordinates (`pc[1]`â€“`pc[4]`), samples DXT1 strip pairs t1/t2 and t3/t4, blends each pair by `pc[5].x`, and combines them with the base DXT5's luma/alpha (`pc[6]`). The camera angle selects the strips and weights.
 - Tried and **reverted** (unproven): measuring the rect-list right angle in screen pixels. The composition rect turned out to be axis-aligned, so it can't be the cause.
-- **Dumped all 64 DXT1 strips from guest memory** (`peek` on the physical mirror `A6375000`, 32 KB each, tiled, pitch 128, endian 8in16; decoded with `dumpdecode.decode_texture`, PNGs in `out/strips/`): every strip is **nearly flat** (detail 0.2–0.4 vs ~9 for the road), even/odd strips at mean 72 / 51. They should carry rotated, pre-filtered asphalt. So the CPU-side compression at load produces flat strips: either from wrong input (the 8888 strips as written back) or because the compressor code itself misbehaves in the recompile (VMX128-heavy code is a candidate).
+- **Dumped all 64 DXT1 strips from guest memory** (`peek` on the physical mirror `A6375000`, 32 KB each, tiled, pitch 128, endian 8in16; decoded with `dumpdecode.decode_texture`, PNGs in `out/strips/`): every strip is **nearly flat** (detail 0.2â€“0.4 vs ~9 for the road), even/odd strips at mean 72 / 51. They should carry rotated, pre-filtered asphalt. So the CPU-side compression at load produces flat strips: either from wrong input (the 8888 strips as written back) or because the compressor code itself misbehaves in the recompile (VMX128-heavy code is a candidate).
 - The 8888 strip memory is reused after load (now holds index lists), so it can only be inspected during the load.
 - **Next:** a write watchpoint on a DXT1 strip at load (`FM3_WATCHW`, crash.cpp) to name the compressor function; then check its input and its vector instructions.
 
-### 2026-11-07 — session 8e (smooth bands, continued; not solved)
+### 2026-11-07 â€” session 8e (smooth bands, continued; not solved)
 - **Watchpoint** (`FM3_WATCHW=A6375000`, temporary `play.cmd` line, removed again; it watches all three physical aliases): 3 writes, all at boot: allocator memset (0.3 s), then `sub_8252EE40` copying 0x7F80 bytes from `4656DDFC` to `A6371100` (1.3 s, a resource loaded from the game files). **Nothing writes the strips at track load.** So the four bound DXT1 strips are static textures, and "flat strips = broken compressor" was wrong.
 - **Composition constants** with and without bands (you rotated the chase cam and paused): identical. `pc5 = (0,0,0,1)`, `pc6 = (0,0,0,1)`: the strips get weight 0 and the composed road image is just the base texture's luma/alpha. The composition is not where the bands come from.
 - **Road shader inputs** shown live one by one with their real coordinates (slot 0 colour and alpha, slot 1 alpha, slot 2 both lookups, slot 7, slot 11 `.x`@`o[3]` and `.y`@`o[4]`): all clean, no bands. The road shader paints the whole road (tint test), yet its output has bands. `REGPU_SKIP_SCREEN_PASSES` changes nothing.
-- **Open leads:** (1) the shader's lighting/specular arithmetic (normals from `o[0]`/`o[1]`, `pc[223]`–`pc[255]` terms); compare intermediates numerically between a band and a non-band pixel rather than by eye; (2) whether hl360 shows the same bands in the rotated chase cam (yes = game-logic/CPU side shared by both; no = ReGPU-side); (3) LOD/derivatives: bands look like a lower mip; compare `ddx/ddy` of slot 0's coordinates across a band edge.
+- **Open leads:** (1) the shader's lighting/specular arithmetic (normals from `o[0]`/`o[1]`, `pc[223]`â€“`pc[255]` terms); compare intermediates numerically between a band and a non-band pixel rather than by eye; (2) whether hl360 shows the same bands in the rotated chase cam (yes = game-logic/CPU side shared by both; no = ReGPU-side); (3) LOD/derivatives: bands look like a lower mip; compare `ddx/ddy` of slot 0's coordinates across a band edge.
 - Tooling added in the scratchpad (not in the repo): `crop.py` (crop and enlarge shots), `strips.py` (dump/decode via `peek`), `compose_pc.ps1` (capture a draw's constants).
 - **hl360 check (you, rotated chase cam): no bands.** So the bands are **ReGPU-specific** (hl360 and your console are both clean).
 - A block-wise detail measurement (final vs composed texture vs shader intermediates `r0`/`r1`/`r4`/`r6`/`r9`/`r10`) pointed at `r9`, but that was confounded by road markings landing in the "normal" blocks; not a finding.
 - **Next:** park on plain asphalt (no lines or markers in view), rotate the chase cam until bands show, pause; then read intermediates numerically at a band pixel and a non-band pixel (e.g. `ps` edits that output a scaled single term, compared with `pngstat`), to find the first term that diverges. Also compare the slot-0 fetch's LOD: output `ddx`/`ddy` of its coordinates across a band edge.
 
-### 2026-11-07 — session 8c (road streaks, square shadow)
-- You reported the streaks still there after the sun fix. Live shader edits (`ps <hash> <expr>` on the road shader `08a4eb8fbebd07fe`) showed each input separately: slot 0 (`8888 512×512`, a runtime-composed road detail image) carries the streak pattern; slot 11 (shadow) does not.
-- The detail image: rebuilt half per frame (`rect 0,0-512,256` / `0,256-512,512`), mip chain resolved after it (256² at +1 MB, then 128², 64², … padded to 32×32 / 4 KB; ReGPU assembles that chain fine). Its fresh half had the streaks. The composition draw (ps `0d1ce823ed690669`) reads `t0 = DXT5 512×512` (base asphalt) and **`t1–t4 = DXT1 32×512`** strips (32 KB apart). Those strips, decoded, were **pieces of car paint**.
-- 90 s resolve trace while you drove: no 32-wide resolves and nothing into the strip region, so they're made at load. Strip write-back rule (32×512): 64 strips caught at load (`05B75000`–`05F65000`), but Deferred → no change; Now → the fine dashed lines are gone (your test).
-- `REGPU_CAPTURE_ON_RESOLVE=05B75000` (temporary line in `play.cmd`, removed again) captured the load frame: ~49 strip draws alternating two shaders, both reading the base DXT5 with rotated coordinates and min/max tracking (compression preparation); A uses colour·luma, B uses alpha.
-- **Square shadow (regression I caused):** the road's shadow map `18708000` is resolved as an unsigned **fraction** (`dest_info 00000C82`), and ReGPU already returns fractions correctly. My patch divided it by 65535 anyway (lit ≈ 0 → square) and converted the white border too. Now the conversion uses both the copy's and the fetch's number format (identity when equal) and skips the border (`gBorderHit` in `TFetchRaw`). You confirmed the square is gone. `patches/regpu-fixed16-fetch.patch` regenerated; `setup.ps1` verifies both ReGPU patches.
+### 2026-11-07 â€” session 8c (road streaks, square shadow)
+- You reported the streaks still there after the sun fix. Live shader edits (`ps <hash> <expr>` on the road shader `08a4eb8fbebd07fe`) showed each input separately: slot 0 (`8888 512Ã—512`, a runtime-composed road detail image) carries the streak pattern; slot 11 (shadow) does not.
+- The detail image: rebuilt half per frame (`rect 0,0-512,256` / `0,256-512,512`), mip chain resolved after it (256Â² at +1 MB, then 128Â², 64Â², â€¦ padded to 32Ã—32 / 4 KB; ReGPU assembles that chain fine). Its fresh half had the streaks. The composition draw (ps `0d1ce823ed690669`) reads `t0 = DXT5 512Ã—512` (base asphalt) and **`t1â€“t4 = DXT1 32Ã—512`** strips (32 KB apart). Those strips, decoded, were **pieces of car paint**.
+- 90 s resolve trace while you drove: no 32-wide resolves and nothing into the strip region, so they're made at load. Strip write-back rule (32Ã—512): 64 strips caught at load (`05B75000`â€“`05F65000`), but Deferred â†’ no change; Now â†’ the fine dashed lines are gone (your test).
+- `REGPU_CAPTURE_ON_RESOLVE=05B75000` (temporary line in `play.cmd`, removed again) captured the load frame: ~49 strip draws alternating two shaders, both reading the base DXT5 with rotated coordinates and min/max tracking (compression preparation); A uses colourÂ·luma, B uses alpha.
+- **Square shadow (regression I caused):** the road's shadow map `18708000` is resolved as an unsigned **fraction** (`dest_info 00000C82`), and ReGPU already returns fractions correctly. My patch divided it by 65535 anyway (lit â‰ˆ 0 â†’ square) and converted the white border too. Now the conversion uses both the copy's and the fetch's number format (identity when equal) and skips the border (`gBorderHit` in `TFetchRaw`). You confirmed the square is gone. `patches/regpu-fixed16-fetch.patch` regenerated; `setup.ps1` verifies both ReGPU patches.
 - Photo mode shows a whitened band in the top third (you said: ignore for now, not seen in races).
 
-### 2026-11-07 — session 8b (sun white-out)
+### 2026-11-07 â€” session 8b (sun white-out)
 - You drove to a spot facing the sun and paused, with the debug server on (later runs via `play.cmd`, made at your request; you start the game and report when in position, and I don't repeat the launch steps).
-- Switch sweep facing the sun: only `REGPU_FAKE_OCCLUSION` removed the white-out (brightness 152 → 38). fps 39–40, 53 with fake answers, 55 without coverage draws.
+- Switch sweep facing the sun: only `REGPU_FAKE_OCCLUSION` removed the white-out (brightness 152 â†’ 38). fps 39â€“40, 53 with fake answers, 55 without coverage draws.
 - `REGPU_TRACE_ZPD_RESULTS`: one query per frame answering **zpass 6,472,508**. A capture showed it beginning before the 6-vertex sun quad in tile 1 and ending after tile 2's, with 621 tile-2 draws inside. The trace showed 3 plain ZPD events + 1 end per frame, i.e. a count-on/off pair per tile.
 - Fix in ReGPU (`RendererOcclusionBegin`: a start while counting = pause, then resume in a new D3D query part; the end sums them; swap finalises a paused query; `REGPU_NO_ZPD_SPANS` A/B). The ZPD trace now prints `RB_SAMPLE_COUNT_CTL` (00000002 for all four events in FM3, so the control register doesn't separate begin from end here; the pairing does) and is no longer capped at 12 lines per run.
 - Result: zpass 5,780; normal glare; 60 fps. Saved as `patches/regpu-zpd-tile-spans.patch` (split from the working tree with a scratch index); `setup.ps1` verifies both ReGPU patches.
 
-### 2026-11-07 — session 8 (visual bugs: bar, asphalt, sun)
+### 2026-11-07 â€” session 8 (visual bugs: bar, asphalt, sun)
 - You reported: race playable to the finish; input + audio fine; three visual bugs (screen-wide bar, sun white-out + slowdown, asphalt streaks worse in motion).
 - `tools/fm3ctl.ps1` (own TCP client for ReGPU's debug server, port 7341). The debug pad's presses reach the game (A skips the intro; START pauses after the countdown, not on "GO!").
-- **Bar:** a hard edge at row 512. hl360's grid dump shows FM3 resolves the 2x-MSAA scene in two tiles (`1280×512` + `1280×208`, contiguous), and ReGPU's trace shows it handles the tile replay. On a paused frame I swept ~60 live switches with a row-brightness metric; only `REGPU_NO_FOREIGN_MSAA` removed the band (rows 496–511: 114 → 64). Made it an FM3 default.
-- **Asphalt:** swept texture/sampler switches with an edge-energy metric (only `REGPU_NO_FETCH_BOUNDS` helped partly, a red herring). `capture` → pixel shaders bound to the shadow maps → tinting each found the road shader `08a4eb8fbebd07fe`. Its slot 11 = `18708000` (256×256 `k_16_16` VSM). The resolved images themselves were clean (`out/run/out/res`). Fetch constant `8200D802 … 01281690 … 00000219`: clamp to border (white), unsigned, fraction. The resolve had been signed integer with exp bias +10 (`dest_info 000A6C81`). ReGPU's fetch setup never applied the fetch's number format/sign to resolved fixed-16 images → fix in ReGPU (`regpu-fixed16-fetch.patch`; `setup.ps1` now applies ReGPU patch stacks too).
+- **Bar:** a hard edge at row 512. hl360's grid dump shows FM3 resolves the 2x-MSAA scene in two tiles (`1280Ã—512` + `1280Ã—208`, contiguous), and ReGPU's trace shows it handles the tile replay. On a paused frame I swept ~60 live switches with a row-brightness metric; only `REGPU_NO_FOREIGN_MSAA` removed the band (rows 496â€“511: 114 â†’ 64). Made it an FM3 default.
+- **Asphalt:** swept texture/sampler switches with an edge-energy metric (only `REGPU_NO_FETCH_BOUNDS` helped partly, a red herring). `capture` â†’ pixel shaders bound to the shadow maps â†’ tinting each found the road shader `08a4eb8fbebd07fe`. Its slot 11 = `18708000` (256Ã—256 `k_16_16` VSM). The resolved images themselves were clean (`out/run/out/res`). Fetch constant `8200D802 â€¦ 01281690 â€¦ 00000219`: clamp to border (white), unsigned, fraction. The resolve had been signed integer with exp bias +10 (`dest_info 000A6C81`). ReGPU's fetch setup never applied the fetch's number format/sign to resolved fixed-16 images â†’ fix in ReGPU (`regpu-fixed16-fetch.patch`; `setup.ps1` now applies ReGPU patch stacks too).
 - **My mistake, caught by you:** the first version of the shader helper used a loop writing `v[c]`; fxc can't unroll that (X3500/X3511), so **160 shaders failed to compile** and the scene went black with a broken UI. Rewritten with vector selects: 0 failures. Lesson: after any change to ReGPU's HLSL preamble, boot and grep `failed to compile` before looking at anything else.
 - **FM4's vendored ReGPU A/B:** added CMake `FM3_REGPU_DIR` / `FM3_REGPU_FM4` (crash.cpp has an `#if`), but building FM4's copy from `reference/` was **blocked by the permission classifier** (third-party code in the reference clones). Not needed for these two fixes.
 - My scripted A presses carried into the race (the car drove off); the scene changes in the first sweep were you rotating the camera, so that sweep was discarded and redone on a paused frame.
 - Stray file: ReGPU's `hlsl` debug command cut my path at the first space and wrote `G:\claude`; moved it into `out/ps_road.hlsl`. Use paths without spaces for that command.
 
-### 2026-11-07 — session 7 (FFmpeg + Phase 3: runtime port, first boot)
-- **FFmpeg** (you asked me to get the right one): BtbN release `latest`, asset `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` (80,407,192 B). SHA-256 `9cb911fc…04c0` matches both GitHub's asset digest and BtbN's `checksums.sha256`. Downloaded to an empty scratch folder, extracted to `thirdparty/ffmpeg` (gitignored). Version n8.1.3-34-ga35157abb9 (2026-11-07), LGPL v3 (`--enable-version3`, no `--enable-gpl`), with `xma1`/`xma2` decoders; DLLs avcodec-62, avutil-60, swresample-6.
+### 2026-11-07 â€” session 7 (FFmpeg + Phase 3: runtime port, first boot)
+- **FFmpeg** (you asked me to get the right one): BtbN release `latest`, asset `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip` (80,407,192 B). SHA-256 `9cb911fcâ€¦04c0` matches both GitHub's asset digest and BtbN's `checksums.sha256`. Downloaded to an empty scratch folder, extracted to `thirdparty/ffmpeg` (gitignored). Version n8.1.3-34-ga35157abb9 (2026-11-07), LGPL v3 (`--enable-version3`, no `--enable-gpl`), with `xma1`/`xma2` decoders; DLLs avcodec-62, avutil-60, swresample-6.
 - **Runtime port:** copied FM4's `src/` from its git objects (51 files) and adapted it:
   - fibers re-addressed (`hooks/addresses.h`: 82A7B098 / 82A7B128 / 82A7B178 / 82A7B258 / 82A82210; FM4-identical object layout confirmed in disassembly);
   - single-image `recomp_modules.cpp` (from `ppc_config.h`);
-  - `Fm2Timebase` → `GuestTimebase`; `FM2_*`/`FM4_*` env switches → `FM3_*`; log `fm3.log`; user dir `Documents\fm3` (`FM3_USER_DIR`);
+  - `Fm2Timebase` â†’ `GuestTimebase`; `FM2_*`/`FM4_*` env switches â†’ `FM3_*`; log `fm3.log`; user dir `Documents\fm3` (`FM3_USER_DIR`);
   - removed: the test launcher call, the FM2 ring-dump addresses in `crash.cpp`, FM2/FM4 ui.zip patches (behind `FM3_LEGACY_UI_PATCHES`), benchmark mode and the draw-worker profiler (FM4's vendored ReGPU API);
-  - `regpu::RendererLogCrashContext` → upstream `regpu::LogCrashContext`.
+  - `regpu::RendererLogCrashContext` â†’ upstream `regpu::LogCrashContext`.
   - Not copied: boot screen (FM4 art), static shader scan (`.fxobj`), pipeline seed, updater, launcher, `.rc`.
 - CMake: mftb patch at configure time (`tools/patch_mftb.py`, own), FFmpeg linkage and DLL copies, `winhttp`.
 - **Build:** 4 compile errors (benchmark calls), then 2 link errors (FM4-vendored ReGPU symbols), then `fm3.exe` links (40 MB).
 - **First boot** (`out/run`, `FM3_USER_DIR=out/user`, game = hl360's verified `game/disc1`): runs, swaps, intro video. Screenshots `out/shots/boot_{08,20,40,70}s.png`: ESRB, white logo fade, R8 door, LMP cars. 59.6 fps. Audio trace: 188 callbacks/s, 0 dropped. XMA: 0 packets in the intro (FM3's video audio likely isn't XMA; check in menus/race).
-- **Credit fix:** the FM4 repo is Aiden-Piercee's (`Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`); its MIT notice is FM2's (© zer0ducksgiven). I had credited zer0ducksgiven alone in `patches/README.md` and the README; corrected, with `NOTICE.md` holding the licence text.
+- **Credit fix:** the FM4 repo is Aiden-Piercee's (`Aiden-Piercee/Fuzzy-Rittersport-4-ReGPU`); its MIT notice is FM2's (Â© zer0ducksgiven). I had credited zer0ducksgiven alone in `patches/README.md` and the README; corrected, with `NOTICE.md` holding the licence text.
 
-### 2026-11-07 — session 6b (dependencies)
+### 2026-11-07 â€” session 6b (dependencies)
 - You installed FFmpeg via winget and extracted FidelityFX-SDK 2.1.0 to `G:\claude code projects\tools\`.
-- FidelityFX: the layout matches (`Kits/FidelityFX/upscalers/fsr3/include/gpu/fsr1/ffx_fsr1.h`, `signedbin/*_dx12.{dll,lib}`; DLLs dated 2025-12-09: loader, upscaler, framegeneration, denoiser, radiancecache). All 5 DLLs: Authenticode **Valid**, CN=Advanced Micro Devices. Junction `thirdparty/fidelityfx` → SDK root (gitignored, no copy). FM2/FM4 used v2.3.0; 2.1.0 compiles fine for ReGPU.
+- FidelityFX: the layout matches (`Kits/FidelityFX/upscalers/fsr3/include/gpu/fsr1/ffx_fsr1.h`, `signedbin/*_dx12.{dll,lib}`; DLLs dated 2025-12-09: loader, upscaler, framegeneration, denoiser, radiancecache). All 5 DLLs: Authenticode **Valid**, CN=Advanced Micro Devices. Junction `thirdparty/fidelityfx` â†’ SDK root (gitignored, no copy). FM2/FM4 used v2.3.0; 2.1.0 compiles fine for ReGPU.
 - `cmake -S . -B build/rel` (full game) configures; `ninja regpu` 20/20 (warnings only: `-Wswitch` in AMD's `ffx_api_dx12.h`, `-Wformat` DWORD in ReGPU `renderer.cpp:10629`); `regpu_linkcheck` links.
-- FFmpeg: winget's `Gyan.FFmpeg` = `ffmpeg-9.0.2-full_build`, `--enable-gpl --enable-static`, executables only → unusable for linking (and GPL). Left installed, not referenced.
+- FFmpeg: winget's `Gyan.FFmpeg` = `ffmpeg-9.0.2-full_build`, `--enable-gpl --enable-static`, executables only â†’ unusable for linking (and GPL). Left installed, not referenced.
 
-### 2026-11-07 — session 6 (Phase 2: first recompilation)
-- `game/default.xex` copied from hl360's verified `game/disc1` (SHA-256 matches). `xexdump` → `out/fm3.bin` + `out/fm3.sections`.
+### 2026-11-07 â€” session 6 (Phase 2: first recompilation)
+- `game/default.xex` copied from hl360's verified `game/disc1` (SHA-256 matches). `xexdump` â†’ `out/fm3.bin` + `out/fm3.sections`.
 - **New tools (own code):** `build/tools/ppcdis.exe` (XenonRecomp's disassembler over the loaded image), `tools/fm3_config.py` (helpers, EH words, setjmp/longjmp candidates; `--write`), `tools/fm3_check.py` (output checks), `tools/genstubs.py`, `tools/recomp.ps1` (whole pipeline). FM4's `fm4_config.py`/`fallthrough.py`/`genstubs.py` were read for the approach, not run.
 - **Helpers:** all 8 match exactly once: restgprlr `82530230`, savegprlr `825301E0`, restfpr `8253147C`, savefpr `82531430`, restvmx14 `82531828`, savevmx14 `82531590`, restvmx64 `825318BC`, savevmx64 `82531624`.
-- **.pdata:** 32,352 functions (0x8F8244 bytes); 413 carry exception data, with handler words `82A89918` (349), `82B6747C` (63), `82A91B00` (1) → `invalid_instructions`.
-- **Q1 confirmed in disassembly:** setjmp `82534B20` (no .pdata; optional hook through the word at `82CE72D8`, then f14–f31 @0, r13–r31 @152, v64+) and longjmp `825345E0` (r1 @144, LR @308, unwind flag @312): the same CRT layout as FM4. The other run-matches: `82A82224`/`82A82418` = inside SwitchToFiber; `82A91994` = EH context restore.
-- **Q7 confirmed:** thunk `82A7B2B8` = `b 0x82A82210`; body `82A82210`–`82A8261C` (0x40C, ends `b 0x82B67B1C`, no .pdata). The new-fiber trampoline `82A82200` (0x10, no .pdata) was added as a function too.
-- **XenonAnalyse:** 262 jump tables, **251 of them only found by FM4's back-trace patch** (so Q6's guess was right). The 2 "unresolved" `bctr`s (`82923EE4`, `82923F1C`) are indirect tail calls through function-pointer tables `82C08488`/`82C08528` (index r3·10+r4, 40 words); all 31 non-null entries are already function starts.
-- **First recompile:** 15 unresolved branches in 3 functions with no .pdata that each hold a byte-offset jump table (`82354668`, `825F16B8`, `829D5508`). XenonAnalyse found the tables, but the sweep ended each function at its `bctr` and made every case a function of its own. Fixed with explicit `functions` sizes (0x15C, 0xAC, 0x1F8) → **0 errors**. (My first guess, that `nop`s broke the trace, was wrong: the tables' `base` field is the first table instruction, not the `bctr`.)
+- **.pdata:** 32,352 functions (0x8F8244 bytes); 413 carry exception data, with handler words `82A89918` (349), `82B6747C` (63), `82A91B00` (1) â†’ `invalid_instructions`.
+- **Q1 confirmed in disassembly:** setjmp `82534B20` (no .pdata; optional hook through the word at `82CE72D8`, then f14â€“f31 @0, r13â€“r31 @152, v64+) and longjmp `825345E0` (r1 @144, LR @308, unwind flag @312): the same CRT layout as FM4. The other run-matches: `82A82224`/`82A82418` = inside SwitchToFiber; `82A91994` = EH context restore.
+- **Q7 confirmed:** thunk `82A7B2B8` = `b 0x82A82210`; body `82A82210`â€“`82A8261C` (0x40C, ends `b 0x82B67B1C`, no .pdata). The new-fiber trampoline `82A82200` (0x10, no .pdata) was added as a function too.
+- **XenonAnalyse:** 262 jump tables, **251 of them only found by FM4's back-trace patch** (so Q6's guess was right). The 2 "unresolved" `bctr`s (`82923EE4`, `82923F1C`) are indirect tail calls through function-pointer tables `82C08488`/`82C08528` (index r3Â·10+r4, 40 words); all 31 non-null entries are already function starts.
+- **First recompile:** 15 unresolved branches in 3 functions with no .pdata that each hold a byte-offset jump table (`82354668`, `825F16B8`, `829D5508`). XenonAnalyse found the tables, but the sweep ended each function at its `bctr` and made every case a function of its own. Fixed with explicit `functions` sizes (0x15C, 0xAC, 0x1F8) â†’ **0 errors**. (My first guess, that `nop`s broke the trace, was wrong: the tables' `base` field is the first table instruction, not the `bctr`.)
 - **Q2/Q3** entries added with hl360's sizes (11 + 4).
-- **Q4 cross-check** (hl360 `fptr_functions.toml` + `codegen.toml` + forza3-recomp manifest, plus our own data/`lis+addi` scan, with jump-table loads, inline tables and `loc_` labels filtered out): of 19,469 pointer targets, 19,453 are already function starts. XenonRecomp's gap sweep finds the pointer-only functions by itself; **no fptr entries needed**. The remaining 16 are the SEH resume targets above. Parsing note: the forza3-recomp manifest has addresses in comments ("data ref 0x…"), so only entry keys are read.
-- **Compile check:** `cmake -S . -B build/ppc -DFM3_PPC_ONLY=ON` + `ninja fm3_ppc`: 180/181 steps, no errors. `src/ppc_hooks.h` (own, same contract as FM4's) provides `PPC_MSR_CHANGED`, `PPC_MM_STORE_U32` (17 uses), `ppc_half_to_float` (298) / `ppc_float_to_half` (2), and `PPC_CALL_INDIRECT_FUNC` (42,574) → fatal-on-miss `PPCLookupIndirect`.
+- **Q4 cross-check** (hl360 `fptr_functions.toml` + `codegen.toml` + forza3-recomp manifest, plus our own data/`lis+addi` scan, with jump-table loads, inline tables and `loc_` labels filtered out): of 19,469 pointer targets, 19,453 are already function starts. XenonRecomp's gap sweep finds the pointer-only functions by itself; **no fptr entries needed**. The remaining 16 are the SEH resume targets above. Parsing note: the forza3-recomp manifest has addresses in comments ("data ref 0xâ€¦"), so only entry keys are read.
+- **Compile check:** `cmake -S . -B build/ppc -DFM3_PPC_ONLY=ON` + `ninja fm3_ppc`: 180/181 steps, no errors. `src/ppc_hooks.h` (own, same contract as FM4's) provides `PPC_MSR_CHANGED`, `PPC_MM_STORE_U32` (17 uses), `ppc_half_to_float` (298) / `ppc_float_to_half` (2), and `PPC_CALL_INDIRECT_FUNC` (42,574) â†’ fatal-on-miss `PPCLookupIndirect`.
 - Gotcha: Windows PowerShell 5.1's `>` writes UTF-16, which the Python tools can't parse. `recomp.ps1` redirects through `cmd /c`.
 
-### 2026-11-07 — session 5 (Phase 1 skeleton)
+### 2026-11-07 â€” session 5 (Phase 1 skeleton)
 - Studied FM2-ReGPU (`c5e71cd`) and FM4-ReGPU (`69bdae4`) layouts. FM2 has its own embedded renderer (`src/gpu`), so **FM4 is the template for ReGPU linkage** (its CMake, `src/gpu_host.cpp`). Found FM4's ReGPU is a vendored, diverged copy (config decisions).
 - `git init`; added the two submodules from GitHub at the pinned commits; fixed their CRLF checkout.
-- Copied FM4's 5 XenonRecomp patches. The copies from FM4's working tree were CRLF and every hunk failed; re-extracted with `git show HEAD:patches/…` (LF) and all 5 applied cleanly.
+- Copied FM4's 5 XenonRecomp patches. The copies from FM4's working tree were CRLF and every hunk failed; re-extracted with `git show HEAD:patches/â€¦` (LF) and all 5 applied cleanly.
 - Wrote: `CMakeLists.txt` (game), `tools/hosttools/{CMakeLists.txt,xexdump.cpp}`, `tools/setup.ps1`, `tools/vcenv.cmd`, `src/gpu_host.cpp`, `README.md`, `patches/README.md`, `src/README.md`, `config/README.md`.
 - `setup.ps1` first run: PowerShell 5.1 + `$ErrorActionPreference='Stop'` threw on git's stderr, and per-patch reverse checks fail on overlapping patches; fixed both (scratch-index tree comparison). Second run: submodules OK, "all 5 patches already applied", `build\tools` 36/36 steps, clean.
 - **xexdump on FM3** (`hl360-forza3/game/disc1/default.xex`, SHA-256 matches): base `82000000`, size `D60000`, **entry `82529DD8`**. Code sections: `.text` 821E0000+987BCC, `_TEXT` 82B67C00+39C, `.embsec_` 82B68000+4E18, `PAGELK` 82B6D000+984, `BINK` 82B6DA00+10728 (ends `82B7E128`, matching the code range above). Data includes `BINKCONS`, `BINKBSS`, `BINKDATA`, `.XBMOVIE`, `.tls` 82CE7C00+1821.
-  - XenonUtils reads 8-byte section names as C strings, so full-length names (`BINKCONS`, `.embsec_N…`) run into the next bytes. Our xexdump cuts at 8; **XenonRecomp itself has the same behaviour**, so watch for odd section-name matches in Phase 2 logs.
+  - XenonUtils reads 8-byte section names as C strings, so full-length names (`BINKCONS`, `.embsec_Nâ€¦`) run into the next bytes. Our xexdump cuts at 8; **XenonRecomp itself has the same behaviour**, so watch for odd section-name matches in Phase 2 logs.
 - Top-level CMake configure checked: it stops with the intended "out/ppc is empty" message.
 - Nothing installed.
 - **Session 5b (publish):** you created `braaap-stututu/FM3-ReGPU` and asked for the project there. Remote `origin` added; its one commit (`24563c0`, an empty `githubfileignorepls`) became our parent, so no force-push and nothing of yours removed. Scanned the staged files for personal data first (none: no email, user paths only as `G:\claude code projects`). Pushed `65f82d0` (25 files; `reference/`, `dumps/`, ISOs, `build/` stay ignored). `gh` CLI is not installed; push went through Git Credential Manager.
 
-### 2026-11-06 — session 1 (setup)
+### 2026-11-06 â€” session 1 (setup)
 - Audited the toolchain (table above). LLVM is the only blocker for building the baseline; the game ISO is also needed.
 - Cloned 6 repos (commits in FM3-QUIRKS.md header); initialised hl360's `rexglue-sdk` submodule recursively (needed the long-paths fix).
 - Mined both ReXGlue FM3 ports and the XR/ReGPU/FM2/FM4 repos; wrote `FM3-QUIRKS.md` (26 quirks + GPU fix table + tooling map).
 - Main cross-project findings: both ports independently agree on setjmp/longjmp, the 15 boundaries, fptr lists, fibers and `cache:`. They disagree on readback mode (`fast` vs `some`) and on the car-shadow fix (TS's resolve+fetch number-format fix is the more complete one). The SwitchToFiber address "conflict" is thunk (`0x82A7B2B8`) vs body (`0x82A82210`).
 - Nothing recompiled, nothing installed.
 
-### 2026-11-06 — session 1b (LLVM)
+### 2026-11-06 â€” session 1b (LLVM)
 - Installed and verified LLVM 23.1.5 with your approval (details under config decisions). Confirmed that hl360's `scripts\devenv.cmd` resolves clang/clang++/clang-cl/lld-link from `C:\Program Files\LLVM\bin` and cmake 3.31.6 / ninja 1.12.1 from VS Build Tools. vcvars prints a harmless "vswhere.exe not recognized" line.
 - The hl360 baseline is now blocked only on the Disc 1 ISO; the SDK build can go ahead without it.
 
-### 2026-11-07 — session 2 (hl360 baseline build + first run)
+### 2026-11-07 â€” session 2 (hl360 baseline build + first run)
 - You supplied both ISOs in the project root; MD5s match.
 - First `build_sdk.cmd` failed: all 6 patches rejected because of CRLF conversion from the global `core.autocrlf=true`. Fixed repo-locally (see config decisions); then all patches applied.
 - Built the SDK (840/840 steps, clang 23.1.5, no source changes), then `fm3tool`, then ran `install_game.cmd` with both ISOs: Disc 1 3,059 files, Disc 2 55 files, 8 DLC packages installed. `default.xex` SHA-256 matches; the full 3,057-file manifest verifies.
-- `build.cmd release`: codegen + 186 steps in about 1.5 minutes → `fm3.exe` (61 MB), `fm3-launcher.exe`, `fm3tool.exe`.
+- `build.cmd release`: codegen + 186 steps in about 1.5 minutes â†’ `fm3.exe` (61 MB), `fm3-launcher.exe`, `fm3tool.exe`.
 - Wrote the baseline `fm3.user.toml` and launched `fm3.exe`. The window opened and rendered the intro (R8 at Montserrat), holding 60.0 fps average over a minute; see the frame-pacing observation above.
 - You then completed the intro race on the baseline. It reaches the race and runs at about 60 fps in-race; after the race it drops to a locked 30 fps (cause unknown; see Known-broken).
-- Capture tooling question: **RenderDoc + texture/resolve dumps are complementary, not redundant.** Note that `--texture_dump_dir` is **not** in stock ReXGlue v0.10.0 (grep finds nothing in the SDK). It was forza3-recomp's local, unpublished SDK hook; only its shape survives in TS's `tools/analysis/port_dump_to_canary.py` and `texdecode.py`. So on the baseline it would be a small SDK patch we write ourselves (`patches/sdk/0007-…`). On the ReGPU side the equivalents already exist (`REGPU_DUMP_RESOLVES`, `REGPU_DUMP_AT`, built-in RenderDoc hook).
+- Capture tooling question: **RenderDoc + texture/resolve dumps are complementary, not redundant.** Note that `--texture_dump_dir` is **not** in stock ReXGlue v0.10.0 (grep finds nothing in the SDK). It was forza3-recomp's local, unpublished SDK hook; only its shape survives in TS's `tools/analysis/port_dump_to_canary.py` and `texdecode.py`. So on the baseline it would be a small SDK patch we write ourselves (`patches/sdk/0007-â€¦`). On the ReGPU side the equivalents already exist (`REGPU_DUMP_RESOLVES`, `REGPU_DUMP_AT`, built-in RenderDoc hook).
 
-### 2026-11-07 — session 4b (hand-off)
+### 2026-11-07 â€” session 4b (hand-off)
 - Wrote the project `CLAUDE.md` (orientation, layout, baseline commands, toolchain, gotchas) and replaced the stale "Baseline plan" with the phased *Work plan* (Phase 0 done, Phase 1 next). No code or build changes.
 
-### 2026-11-07 — session 4 (capture route + dump decoder)
+### 2026-11-07 â€” session 4 (capture route + dump decoder)
 - **`tools/dumpdecode.py`** (own code, pure Python 3, no numpy): `list` / `decode` / `diff`.
-  - Implements Xenos 2D tiling (same formula as the SDK's `GetTiledOffset2D`), endian modes 8in16/8in32/16in32, and the fetch-constant swizzle (dword 3 bits 1–12).
+  - Implements Xenos 2D tiling (same formula as the SDK's `GetTiledOffset2D`), endian modes 8in16/8in32/16in32, and the fetch-constant swizzle (dword 3 bits 1â€“12).
   - Formats: 8, 1_5_5_5, 5_6_5, 6_5_5, 8888(_A), 2_10_10_10, 8_8, 4_4_4_4, 10_11_11, 11_11_10, DXT1, DXT2_3, DXT4_5, 24_8, 24_8_FLOAT, 16, 16_16, 16_16_16_16, 16/16_16/16_16_16_16 FLOAT, 32, 32_FLOAT, 32_32_FLOAT, DXN, DXT3A, DXT5A, CTX1. Base level only.
   - Validated on: the intro video (linear k_8 Y/U/V); a tiled 8888 resolve with the R/B-swap bit (correct only with the swizzle applied: the red R8 came out blue without it); and a full race frame (455 textures: DXT1/DXT4_5/DXN/DXT5A/16_16/24_8/2_10_10_10/8888/32F all decode coherently, 47 s).
   - `diff` matches by **content hash first, then by (w,h,fmt) + first-use order**, and compares resolves with addresses stripped. **Guest addresses differ between runs** (allocation order shifts by 0x1000s), so address matching left about 390 textures "only in A" on the first try.
 - **`tools/fm3_route.ps1`** (own code; forza3-recomp's `drive.ps1` only read for the PostMessage approach). Functions: Start-Fm3 `-Fresh`, Connect-Fm3, Send-Key, Save-Shot (PrintWindow, DPI-aware), Test-Paused / Wait-Paused / Resume-Race, Request-Dump, Get-FrameStats, Stop-Fm3, Invoke-Fm3Route.
   - Uses a dedicated profile `E0000BA5E11E0002` passed on the command line (CLI outranks `fm3.user.toml`: SDK `cvar::Outranks`). `-Fresh` deletes only that profile's save. Your `Baseline` save (`E0000BA5E11E0001`) is untouched.
-  - **Observed fresh-profile flow:** ESRB → Turn 10 → Microsoft → Dolby → R8 intro video → controls/loading screen (~72 s) → R8 car intro cutscene → intro race at Montserrat (start grid; the car doesn't move without throttle). Return skips cutscenes and toggles the in-race pause menu.
-  - **Lessons:** timed Return presses drift out of step (Return both skips and pauses), so the route is state-aware. Pause is detected by the RESUME bar's shape (red inside x 86–312 / y 202–230, not red just outside), confirmed twice 300 ms apart (the red R8 in the intro video gave false positives), and re-confirmed 2 s later (a pause menu can appear before the race and then the game loads on). Captures under 100 textures are flagged.
+  - **Observed fresh-profile flow:** ESRB â†’ Turn 10 â†’ Microsoft â†’ Dolby â†’ R8 intro video â†’ controls/loading screen (~72 s) â†’ R8 car intro cutscene â†’ intro race at Montserrat (start grid; the car doesn't move without throttle). Return skips cutscenes and toggles the in-race pause menu.
+  - **Lessons:** timed Return presses drift out of step (Return both skips and pauses), so the route is state-aware. Pause is detected by the RESUME bar's shape (red inside x 86â€“312 / y 202â€“230, not red just outside), confirmed twice 300 ms apart (the red R8 in the intro video gave false positives), and re-confirmed 2 s later (a pause menu can appear before the race and then the game loads on). Captures under 100 textures are flagged.
   - Dump of a full race frame takes a few seconds; the timeout is 90 s.
-- **Hook fixes (0007 rev 2/3):** (a) it hashed every texture *per binding* (2,315 draws → about 16 s for one frame); now it hashes once per distinct texture per frame. (b) Frame numbering restarted at `frame_0001` each session and wrote into leftover folders (this mixed my first intro test with a race capture); now it skips existing names.
-- **Determinism result** (runA vs runB, start grid paused, both fresh profiles): 419 identical content + 6 equal after decode out of about 471; 27 differ, all render targets (HDR 2_10_10_10 buffers, the 256×256 k_16_16 car footprint/VSM map, 24_8 depth, small 8888 RTs), because the pause lands a few frames apart. The resolve sequence is identical (28, addresses ignored). **Interpretation:** static assets compare exactly; per-frame render targets need the same scene to compare, so judge them by eye or with tolerance, or later pair with input replay.
-- **FM3 finding:** the start-grid frame has a **256×256 k_16_16 + k_24_8 pair showing top-down car footprints** (draws ~582/583). That's very likely the car shadow/variance map behind FM3-QUIRKS Q19, and the exact texture to check in the ReGPU port.
+- **Hook fixes (0007 rev 2/3):** (a) it hashed every texture *per binding* (2,315 draws â†’ about 16 s for one frame); now it hashes once per distinct texture per frame. (b) Frame numbering restarted at `frame_0001` each session and wrote into leftover folders (this mixed my first intro test with a race capture); now it skips existing names.
+- **Determinism result** (runA vs runB, start grid paused, both fresh profiles): 419 identical content + 6 equal after decode out of about 471; 27 differ, all render targets (HDR 2_10_10_10 buffers, the 256Ã—256 k_16_16 car footprint/VSM map, 24_8 depth, small 8888 RTs), because the pause lands a few frames apart. The resolve sequence is identical (28, addresses ignored). **Interpretation:** static assets compare exactly; per-frame render targets need the same scene to compare, so judge them by eye or with tolerance, or later pair with input replay.
+- **FM3 finding:** the start-grid frame has a **256Ã—256 k_16_16 + k_24_8 pair showing top-down car footprints** (draws ~582/583). That's very likely the car shadow/variance map behind FM3-QUIRKS Q19, and the exact texture to check in the ReGPU port.
 - Captures on disk: `dumps\hl360\runA`, `runB` (~160 MB each), `dumps\diff_runA_runB_grid\` (diff PNGs), `dumps\route\` (exploration shots). All game-derived; never commit.
 
-### 2026-11-07 — session 3 (30 fps check, RenderDoc, dump hook)
+### 2026-11-07 â€” session 3 (30 fps check, RenderDoc, dump hook)
 - Relaunched the baseline (`fm3_002.log`); you raced again and noted the times. Pause menu = 60 fps; **post-race finish menu = locked 30.0 fps** (details under Known-broken).
 - Installed RenderDoc 1.47 with your approval (signature verified; see the toolchain table).
 - Wrote SDK patch `0007-frame-dump-hook` (see Patches applied). Rebuilt the SDK incrementally (30 steps, clang 23, clean) and `fm3.exe` (4 steps). The new `rexgpu-xenos.dll` was copied beside the exe by the build.
-- Patch generation trick: staged the tree with 0001–0006 applied (`git add -A`), edited, then `git diff` = only 0007's hunks. Stripped the 4 `thirdparty/*` submodule-dirty gitlink entries from the diff, then `git reset`. `git apply --reverse --check` confirms the patch matches the tree.
-- **Test capture:** booted, created `dumps\hl360\TRIGGER` after 40 s. It was consumed and wrote `frame_0001` at guest swap 2358: 54 draws, 4 distinct textures, 2 resolves, 5 MB. That frame was the intro video (three linear k_8 planes, 1280×720 + 2× 640×360 = Y/U/V). Decoded the 1280×720 plane with my own minimal decoder: a clean image (the R8's door), so trigger → index → raw dump → decode works.
+- Patch generation trick: staged the tree with 0001â€“0006 applied (`git add -A`), edited, then `git diff` = only 0007's hunks. Stripped the 4 `thirdparty/*` submodule-dirty gitlink entries from the diff, then `git reset`. `git apply --reverse --check` confirms the patch matches the tree.
+- **Test capture:** booted, created `dumps\hl360\TRIGGER` after 40 s. It was consumed and wrote `frame_0001` at guest swap 2358: 54 draws, 4 distinct textures, 2 resolves, 5 MB. That frame was the intro video (three linear k_8 planes, 1280Ã—720 + 2Ã— 640Ã—360 = Y/U/V). Decoded the 1280Ã—720 plane with my own minimal decoder: a clean image (the R8's door), so trigger â†’ index â†’ raw dump â†’ decode works.
 - Running forza3-recomp's `tools/texdecode.py` directly was **denied by the auto-mode permission classifier** (external code). I used my own script instead; a proper decoder of our own is on the next-steps list.
 - New folder: `dumps\hl360\` in the project root (captures; game-derived data, never commit).
