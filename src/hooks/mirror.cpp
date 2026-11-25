@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <string>
 
+#include "hooks/data_out.h"
 #include "hooks/live_camera.h"
 #include "kernel/imports.h"
 #include "log.h"
@@ -225,6 +226,7 @@ PPC_FUNC(sub_828329C8)
         // (FM3_LIVE: each car the main view draws, src/hooks/live_camera.cpp)
         const uint32_t args[7] = { ctx.r3.u32, ctx.r5.u32, ctx.r6.u32, ctx.r7.u32, ctx.r8.u32, ctx.r9.u32, ctx.r10.u32 };
         LiveCarDrawn(base, ctx.r4.u32, args);
+        DataOutCarDrawn(base, ctx.r4.u32); // (FM3_DATA_OUT: Forza Data Out telemetry)
     }
     if (farLod > 0 && uint32_t(ctx.lr) == 0x82837F0C)
     {
@@ -256,7 +258,10 @@ PPC_FUNC_IMPL(__imp__sub_821ED218);
 PPC_FUNC(sub_821ED218)
 {
     if (uint32_t(ctx.lr) == 0x821F2044)
+    {
         LivePlayerPhysics(ctx.r3.u32);
+        DataOutPlayerPhysics(ctx.r3.u32);
+    }
     __imp__sub_821ED218(ctx, base);
 }
 

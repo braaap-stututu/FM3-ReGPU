@@ -23,6 +23,18 @@
     slip angle / peak (+520), contact (+796), surface (+337), spring rest (+860). **+2672 is not a clutch** (0.12 in
     2nd, 0.5-1.0 under wheelspin in 1st): a slip / traction value; rename it before a Data Out packet uses it.
     cobalt-shift (arcanite24's FM3 port) has no telemetry. frame-ir `LIVE.md` "arcanite24's Forza ports".
+  - **Forza "Data Out" telemetry** (`src/hooks/data_out.cpp`, the same evening): `FM3_DATA_OUT=1 | <port> |
+    <ipv4>:<port>[,horizon]` (or settings.ini `data_out=`; 1 = 127.0.0.1:5300) sends the player car as Forza
+    Motorsport 7 "Dash" packets (311 bytes; `,horizon` = the FH4/5 324-byte layout), so SimHub, dashboards and motion
+    rigs work with FM3: rpm / redline, car-frame acceleration, velocity and angular velocity, yaw / pitch / roll,
+    suspension (normalised over the range seen, and metres from the grid), wheel rotation speed, tyre temperatures (F),
+    position, speed, distance, throttle / brake / handbrake / steering, gear. New fields found in the physics object
+    (two AI drives, differences against each other: slope 1.00, correlations 0.90-0.97): **+2544 world position,
+    +2560 world velocity, +2512 world acceleration** (x y z, a NaN 4th word). The player's car = the drawn car whose
+    body position (car +0x10 matrix, row 3) is the physics object's; its axes give the car frame (z points to the rear:
+    turned round). Still 0: slip ratio / angle, surface rumble, power / torque, lap data, car ordinal / class / PI.
+    Check: `python -I tools/analysis/dataout_listen.py [--csv f]` (decodes and prints a line a second); an AI race on
+    the test grid (live_compare.ps1 -AiPlayer) gave ~25 packets a second (one per drawn frame, at most 60).
 
 ### ▶ 2026-11-25 afternoon (second PC): LZX decoder fix (`src/lzx.cpp`)
 - An odd-length uncompressed LZX block that spans several 32 KB chunks has **no pad byte** after it. Our decoder
