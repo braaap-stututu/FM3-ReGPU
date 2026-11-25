@@ -11,7 +11,8 @@
   - v5 (838763d): speed m/s +2792 (= the page's km/h), wheel speeds +4164 + 1040 x i (wheel order FL FR RR RL;
     each wheel block also has its position in the car at +284 and radius at +108);
   - v6 (7cfe63a): tyre temperatures, deg C = the mean of three zones in deg F at +3492 + 1040 x i (the page's values
-    to 0.05 C).
+    to 0.05 C);
+  - v7: suspension position, m, at +3440 + 1040 x i (the page's travel in cm = (value - rest) x 100).
   Engine speed +324 and redline +452 are FH1's ICarDynamics offsets. Local commits, not pushed. Details: frame-ir
   `LIVE.md` "Telemetry from the car-physics object" (the SimHub idea in RESEARCH.md can use these).
 
