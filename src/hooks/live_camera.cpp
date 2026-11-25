@@ -451,6 +451,16 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
                 if (named[k] == car)
                     break;
             }
+        if (slot < 0)
+        {
+            // (all 16 taken, by cars of earlier screens too: the menus' and Free Play's car selection fill the table
+            // before the race; without this a race car could stay unnamed (Catalunya's FTO, Silverstone's B.Giese).
+            // The slot named longest ago goes: a car still drawn is named again within a second.)
+            slot = 0;
+            for (int k = 1; k < 16; k++)
+                if (namedAt[k] < namedAt[slot])
+                    slot = k;
+        }
         if (slot >= 0 && named[slot] != car)
         {
             // Diagnostic (FM3_LIVE_DUMP_CARS=1): the car object's first 16 KB to live_car_<addr>.bin in the working
@@ -472,11 +482,11 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
                 }
             }
         }
-        if (slot >= 0 && (named[slot] != car || p.time - namedAt[slot] > 1.0))
-        {
-            named[slot] = car;
-            namedAt[slot] = p.time;
-            const uint32_t list = Load32(base, car + kCarSettingsList);
+        // The name of car nc (slot ns) to the viewer. Sent when a car first shows up, and every car in the table again once a
+        // second, drawn this frame or not: a car the game stops drawing (culled, or another draw path while the world is
+        // frozen) was named only before the viewer started (Catalunya's FTO, Silverstone's B.Giese: never loaded).
+        auto sendName = [&](uint32_t nc, int ns) {
+            const uint32_t list = Load32(base, nc + kCarSettingsList);
             if (list >= 0x40000000 && list < 0x80000000)
             {
                 char text[256] = {};
@@ -489,7 +499,7 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
                 NamePacket n = {};
                 memcpy(n.magic, "FM3N", 4);
                 n.version = 1;
-                n.car = car;
+                n.car = nc;
                 n.metallic = strstr(text, "\\Metallic.xml") ? 1 : 0;
                 if (const char* c = strstr(text, "\\ColorShaderSettings"))
                 {
@@ -513,15 +523,32 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
                     memcpy(n.name, start, len);
                 }
                 static uint32_t logged[16] = {};
-                if (logged[slot] != car)
+                if (logged[ns] != nc)
                 {
-                    logged[slot] = car;
-                    Log("live: car %08X settings \"%s\" -> FM3N \"%s\" colour %u", car, text, n.name, n.color);
+                    logged[ns] = nc;
+                    Log("live: car %08X settings \"%s\" -> FM3N \"%s\" colour %u", nc, text, n.name, n.color);
                 }
                 n.time = p.time;
                 sendto(s, reinterpret_cast<const char*>(&n), int(sizeof(n)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
                        int(sizeof(target.addr)));
             }
+        };
+        if (slot >= 0 && named[slot] != car)
+        {
+            named[slot] = car;
+            namedAt[slot] = p.time;
+            sendName(car, slot);
+        }
+        static double allAt = 0;
+        if (p.time - allAt > 1.0)
+        {
+            allAt = p.time;
+            for (int k = 0; k < 16; k++)
+                if (named[k])
+                {
+                    namedAt[k] = p.time;
+                    sendName(named[k], k);
+                }
         }
     }
     // The player's engine ("FM3E"), at most every 4 ms (the car loop runs once per car per frame).
