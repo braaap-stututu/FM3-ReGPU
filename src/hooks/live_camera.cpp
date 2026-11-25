@@ -288,9 +288,18 @@ struct EnginePacket
     uint32_t lock; // degrees of wheel travel for full steering on a racing wheel (wheel_lock); 0 = no wheel
     float brake; // player 1's brake input, 0..1 (v3; the player's brake lights)
     double time;
+    // v4 (2026-11-25): the car's own controls and gear from its physics object, found by dumping it while the race AI
+    // drove the player's car (frame-ir tools/research/camrec.ps1): +3408 throttle 0..1, +3412 brake 0..1 (the same block
+    // repeats at +2744 / +2780: this one changes first), +3416 steering, byte +1937 the gear (1 = first), +2672 clutch.
+    // (FH1's ICarDynamics keeps the controls at +3904; FM3's engine speed +324 and redline +452 match FH1's.)
+    float throttle;
+    float carBrake;
+    uint32_t gear;
+    float clutch;
 };
 #pragma pack(pop)
-static_assert(sizeof(EnginePacket) == 40, "live engine packet layout");
+static_assert(sizeof(EnginePacket) == 56, "live engine packet layout");
+constexpr uint32_t kThrottle = 3408, kCarBrake = 3412, kGear = 1937, kClutch = 2672;
 
 // The car object's shader settings list (a pointer to "Game:\Media\Cars\ShaderSettings\Normal.xml;...;
 // Game:\Media\Cars\<CAR>\ColorShaderSettings<n>.xml"; found 2026-11-24 by searching the car objects for pointers to
@@ -560,7 +569,7 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
             lastSent = p.time;
             EnginePacket e = {};
             memcpy(e.magic, "FM3E", 4);
-            e.version = 3;
+            e.version = 4;
             e.physics = phys;
             e.steer = g_steer.load(std::memory_order_relaxed);
             e.lock = g_steerLock.load(std::memory_order_relaxed);
@@ -574,6 +583,10 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
             constexpr float kRpm = 9.5492966f; // 60 / 2pi
             e.rpm = f(phys + kEngineSpeed) * kRpm;
             e.redline = f(phys + kEngineRedline) * kRpm;
+            e.throttle = f(phys + kThrottle);
+            e.carBrake = f(phys + kCarBrake);
+            e.gear = base[phys + kGear];
+            e.clutch = f(phys + kClutch);
             e.time = p.time;
             sendto(s, reinterpret_cast<const char*>(&e), int(sizeof(e)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
                    int(sizeof(target.addr)));
