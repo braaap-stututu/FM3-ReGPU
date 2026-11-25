@@ -2,6 +2,20 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ 2026-11-25 afternoon (second PC): LZX decoder fix (`src/lzx.cpp`)
+- An odd-length uncompressed LZX block that spans several 32 KB chunks has **no pad byte** after it. Our decoder
+  skipped one anyway, so 2 of the game's 193,042 zip members failed to decode: `Tracks\Autopark\bin.zip`
+  `_0x00000F03.bix` (a 66,625-byte block over three chunks) and Disc 2 pack 0045's `PhysicsTrack_pri_65.zip`
+  `_0x00000267_B.bix`. Fixed: the pad byte is skipped only when the block starts and ends in one chunk.
+- **Checks:**
+  - Both members now decode CRC-exact.
+  - 30,486 members of seven zips re-decoded CRC-exact (four track bins incl. Autopark and PhysicsTrack, two cars, UI).
+  - The whole game had been CRC-checked with the fixed decoder (0 bad of 193,042).
+  - Not booted.
+- **Who uses this decoder:** only the host-side helpers (`UnpackDlcPatches`, `zip_overlay.cpp`, the static shader
+  scan). The game decodes its zips with its own recompiled code, so play was never affected.
+- The scan found the failures while unpacking every game file into `..\FM3-files` (catalogue: `FM3-files\CATALOGUE.md`).
+
 ### ▶ 2026-11-24/25 night (second PC), for the Godot live mirror on the other tracks
 - `src/hooks/live_camera.cpp` (commit 9a645e7, local): FM3N names a car whose settings list has no
   `ColorShaderSettings<n>.xml` (the player's custom paint) from its own `ShaderSettings.xml` folder (colour 0); each

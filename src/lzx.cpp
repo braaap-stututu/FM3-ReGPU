@@ -86,6 +86,8 @@ struct Decoder
     Tree mainTree, lengthTree, alignedTree;
     uint32_t r0 = 1, r1 = 1, r2 = 1;
     int blockType = 0;
+    bool padPending = false;
+    bool blockInThisChunk = false;  // the uncompressed block began in the chunk being read
     uint32_t blockRemaining = 0, blockLength = 0;
     bool headerRead = false, intelStarted = false;
     uint32_t intelSize = 0;
@@ -145,6 +147,7 @@ struct Decoder
     bool Frame(Bits& bits, std::vector<uint8_t>& out, size_t& pos, size_t frameSize)
     {
         const size_t frameStart = pos, frameEnd = pos + frameSize;
+        blockInThisChunk = false;
         if (!headerRead)
         {
             headerRead = true;
@@ -160,14 +163,18 @@ struct Decoder
             {
                 if (blockType == 3)
                 {
-                    if (blockLength & 1)
+                    // (2026-11-25: an odd uncompressed block's pad byte follows its data in the same
+                    // chunk; skipped right after the copy below, here only when the chunk ended before it)
+                    if (padPending && bits.p < bits.end)
                         bits.p++;
+                    padPending = false;
                     bits.buf = 0;
                     bits.left = 0;
                 }
                 blockType = int(bits.Read(3));
                 const uint32_t hi = bits.Read(16);
                 blockRemaining = blockLength = (hi << 8) | bits.Read(8);
+                blockInThisChunk = true;
                 if (blockType == 2)
                 {
                     for (int i = 0; i < kAligned; i++)
@@ -215,6 +222,15 @@ struct Decoder
                 bits.p += n;
                 pos += n;
                 blockRemaining -= uint32_t(n);
+                // (an odd uncompressed block is padded to an even length only when it starts and ends in one chunk:
+                // Autopark bin.zip _0x00000F03.bix, a 66625-byte block over three chunks, has no pad byte after it)
+                if (blockRemaining == 0 && (blockLength & 1) && blockInThisChunk)
+                {
+                    if (bits.p < bits.end)
+                        bits.p++;
+                    else
+                        padPending = true;
+                }
                 continue;
             }
 
