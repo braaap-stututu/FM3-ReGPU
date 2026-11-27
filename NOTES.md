@@ -2,6 +2,22 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ 2026-11-27 (second PC): race clock, position and lap data in the live stream (FM3E v9, FM3_LIVE only)
+- **FM3E v9** (`src/hooks/live_camera.cpp`, 132 bytes): + the race clock (s, physics object **+2772**: the HUD's race
+  time to the millisecond on four frozen frames), the race position (1-based, u32 **+280 from where the player's race
+  participant object holds its pointer to the physics object**: 8 -> 7 -> 6 -> 5 -> 4 with the HUD over a race) and that
+  participant's track segment (u32 +92 from the same place: rises along the lap, drops back at the start / finish
+  line; the Godot viewer counts laps from the drops). The participant is found by a scan of the guest heap
+  (0x40000000-0x50000000) for a pointer to the physics object whose word 500 bytes before it is 0x8286B06C (the
+  participant class's code pointer); once per physics object, re-checked each packet (log `live: player race
+  participant XXXXXXXX`). Not found: a lap counter field (not within +-2 KB of the participant's pointer) and the
+  race's lap total.
+- **Debug server:** `findf LO HI [MAX]` (big-endian floats in a range) and `findu LO HI [MAX]` (u32 values in a hex
+  range), in `thirdparty/ReGPU/src/debug.cpp`; recorded as `patches/regpu-debug-findf-findu.patch` (applies to the
+  submodule's HEAD 604dd2b; not in braaap-stututu/ReGPU's Vulkan branch: the working tree carries it, like the
+  uncommitted fir tap). How they found the values: frame-ir `tools/research/raceclock.ps1` and LIVE.md "HUD race data".
+- The physics object's +2704 is another clock (the simulation's, rising from before the race start).
+
 ### ▶ 2026-11-25 evening (second PC): the live stream's car telemetry (`src/hooks/live_camera.cpp`, FM3_LIVE only)
 - The "FM3E" engine packet now carries the player car's own state, read from its car-physics object (address logged as
   `live: player car physics XXXXXXXX`), found by dumping it while the race AI drove the player's car and checked

@@ -1,0 +1,99 @@
+diff --git a/src/debug.cpp b/src/debug.cpp
+index c3b7279..a7b3bcc 100644
+--- a/src/debug.cpp
++++ b/src/debug.cpp
+@@ -13,6 +13,7 @@
+ #include <condition_variable>
+ #include <cstdio>
+ #include <cstdlib>
++#include <cstring>
+ #include <deque>
+ #include <filesystem>
+ #include <mutex>
+@@ -549,6 +550,86 @@ std::string Handle(const std::string& line)
+         }
+         return Ok("\"hits\":[" + out + "]");
+     }
++    // findf LO HI [MAX]: guest addresses holding a big-endian float in [LO, HI], at 4-byte aligned places, the first MAX
++    // (default 256). For values known only approximately, e.g. a race clock read off the HUD with the game frozen
++    // (FM3 port, Godot viewer work 2026-11-27).
++    if (cmd == "findf")
++    {
++        float lo = 0.0f, hi = 0.0f;
++        int maxHits = 256;
++        in >> lo >> hi;
++        if (!(in >> maxHits))
++            maxHits = 256;
++        if (!(hi >= lo))
++            return Error("findf LO HI [MAX]");
++        std::string out;
++        int found = 0;
++        for (uint64_t a = 0x10000; a < 0x100000000ull && found < maxHits;)
++        {
++            MEMORY_BASIC_INFORMATION mi{};
++            if (!VirtualQuery(g_base + a, &mi, sizeof(mi)))
++                break;
++            const uint64_t start = uint64_t(static_cast<uint8_t*>(mi.BaseAddress) - g_base), end = start + mi.RegionSize;
++            if (mi.State == MEM_COMMIT && !(mi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
++            {
++                const uint8_t* p = g_base + start;
++                for (uint64_t o = (4 - (start & 3)) & 3; o + 4 <= end - start && found < maxHits; o += 4)
++                {
++                    const uint32_t w = (uint32_t(p[o]) << 24) | (uint32_t(p[o + 1]) << 16) | (uint32_t(p[o + 2]) << 8) | p[o + 3];
++                    float v;
++                    memcpy(&v, &w, 4);
++                    if (v >= lo && v <= hi)
++                    {
++                        char buf[48];
++                        snprintf(buf, sizeof(buf), "%s[\"%08llX\",%.4f]", out.empty() ? "" : ",", (unsigned long long)(start + o), v);
++                        out += buf;
++                        found++;
++                    }
++                }
++            }
++            a = end;
++        }
++        return Ok("\"hits\":[" + out + "]");
++    }
++    // findu LO HI [MAX]: guest addresses holding a big-endian u32 in [LO, HI] (hex), 4-byte aligned, the first MAX
++    // (default 256): e.g. every pointer into an object whose start is not known (FM3 port, 2026-11-27).
++    if (cmd == "findu")
++    {
++        std::string los, his;
++        int maxHits = 256;
++        in >> los >> his;
++        if (!(in >> maxHits))
++            maxHits = 256;
++        if (los.empty() || his.empty())
++            return Error("findu LO HI [MAX] (hex)");
++        const uint32_t lo = uint32_t(std::stoul(los, nullptr, 16)), hi = uint32_t(std::stoul(his, nullptr, 16));
++        std::string out;
++        int found = 0;
++        for (uint64_t a = 0x10000; a < 0x100000000ull && found < maxHits;)
++        {
++            MEMORY_BASIC_INFORMATION mi{};
++            if (!VirtualQuery(g_base + a, &mi, sizeof(mi)))
++                break;
++            const uint64_t start = uint64_t(static_cast<uint8_t*>(mi.BaseAddress) - g_base), end = start + mi.RegionSize;
++            if (mi.State == MEM_COMMIT && !(mi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
++            {
++                const uint8_t* p = g_base + start;
++                for (uint64_t o = (4 - (start & 3)) & 3; o + 4 <= end - start && found < maxHits; o += 4)
++                {
++                    const uint32_t w = (uint32_t(p[o]) << 24) | (uint32_t(p[o + 1]) << 16) | (uint32_t(p[o + 2]) << 8) | p[o + 3];
++                    if (w >= lo && w <= hi)
++                    {
++                        char buf[40];
++                        snprintf(buf, sizeof(buf), "%s[\"%08llX\",\"%08X\"]", out.empty() ? "" : ",", (unsigned long long)(start + o), w);
++                        out += buf;
++                        found++;
++                    }
++                }
++            }
++            a = end;
++        }
++        return Ok("\"hits\":[" + out + "]");
++    }
+     // env NAME [value]: set (or clear) an environment variable, for the switches that take a value (read once
+     // at their first use, so mostly before that happens).
+     if (cmd == "env")

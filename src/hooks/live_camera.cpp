@@ -316,9 +316,42 @@ struct EnginePacket
     // v8 (2026-11-25): the car's acceleration in its own frame, m/s2: x right, y up, z forward (the physics object's world
     // acceleration +2512 turned into the car body's axes; src/hooks/data_out.cpp). 0 until the player's car is drawn.
     float accel[3];
+    // v9 (2026-11-27, for the Godot viewer's HUD; found with the debug server's findf / findhex against the game's own
+    // HUD on frozen frames, frame-ir tools/research/raceclock.ps1): the race clock, s (physics object +2772: equals the
+    // HUD's race time to the millisecond); the race position, 1-based (+280 from where the player's race participant
+    // object holds its pointer to the physics object: 8 -> 7 -> 6 -> 5 -> 4 with the HUD); the participant's track
+    // segment (+92 from the same place: rises along the lap and drops back at the start / finish line: the viewer counts
+    // laps from it). 0 / 0 when the participant has not been found (it is found by a scan of the guest heap once per
+    // physics object: the pointer to it whose word 500 bytes before is the participant class's 0x8286B06C).
+    float raceClock;
+    uint32_t place;
+    uint32_t segment;
 };
 #pragma pack(pop)
-static_assert(sizeof(EnginePacket) == 120, "live engine packet layout");
+static_assert(sizeof(EnginePacket) == 132, "live engine packet layout");
+
+// The player's race participant: the guest address holding its pointer to the physics object (see EnginePacket v9).
+static uint32_t FindParticipant(const uint8_t* base, uint32_t phys)
+{
+    const uint32_t want = __builtin_bswap32(phys);
+    for (uint64_t a = 0x40000000; a < 0x50000000ull;)
+    {
+        MEMORY_BASIC_INFORMATION mi{};
+        if (!VirtualQuery(base + a, &mi, sizeof(mi)))
+            break;
+        const uint64_t start = uint64_t(static_cast<const uint8_t*>(mi.BaseAddress) - base), end = start + mi.RegionSize;
+        if (mi.State == MEM_COMMIT && (mi.Protect & (PAGE_READWRITE | PAGE_READONLY | PAGE_EXECUTE_READWRITE)) &&
+            !(mi.Protect & PAGE_GUARD))
+        {
+            const uint32_t* p = reinterpret_cast<const uint32_t*>(base + start);
+            for (uint64_t i = 125; i < (end - start) / 4; i++)
+                if (p[i] == want && p[i - 125] == __builtin_bswap32(0x8286B06Cu))
+                    return uint32_t(start + i * 4);
+        }
+        a = end;
+    }
+    return 0;
+}
 constexpr uint32_t kThrottle = 3408, kCarBrake = 3412, kGear = 1937, kClutch = 2672;
 constexpr uint32_t kSpeed = 2792, kWheelSpeed = 4164, kWheelStride = 1040, kTyreTemp = 3492, kSuspension = 3440;
 
@@ -617,6 +650,24 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
                 e.suspension[i] = f(phys + kSuspension + kWheelStride * i);
             }
             DataOutPlayerAccel(e.accel);
+            // v9: race clock, place and track segment (the participant re-found when the physics object changes, or
+            // when its pointer no longer reads back, at most every 2 s)
+            e.version = 9;
+            e.raceClock = f(phys + 2772);
+            static uint32_t part = 0, partPhys = 0;
+            static double lastScan = -10.0;
+            if ((partPhys != phys || part == 0 || Load32(base, part) != phys) && p.time - lastScan >= 2.0)
+            {
+                lastScan = p.time;
+                partPhys = phys;
+                part = FindParticipant(base, phys);
+                Log("live: player race participant %08X (physics %08X)", part, phys);
+            }
+            if (part && Load32(base, part) == phys)
+            {
+                e.place = Load32(base, part + 280);
+                e.segment = Load32(base, part + 92);
+            }
             e.time = p.time;
             sendto(s, reinterpret_cast<const char*>(&e), int(sizeof(e)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
                    int(sizeof(target.addr)));
