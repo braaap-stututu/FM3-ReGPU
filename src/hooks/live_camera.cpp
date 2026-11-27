@@ -806,17 +806,21 @@ bool LiveCarProbe(uint32_t)
 // fetch watch records every vertex buffer read as fetch 95 (a car part's vertices: 40 bytes each) with the draw's world
 // translation (vc11) and its damage table (fetch 94: which car's), in one frame (the one with the most). A car's attached
 // parts all share its translation exactly; loose ones have their own. Per known car the sizes of the buffers drawn at its
-// translation (its largest group) are sent; the viewer hides library parts whose buffer is no longer among them.
+// translation (its largest group) are sent, and each loose part's size with its world matrix (c8-c11, v3); the viewer hides
+// library parts no longer on the car and draws the loose ones where the game does.
 #pragma pack(push, 1)
 struct PartsPacket
 {
     char magic[4]; // "FM3P"
-    uint32_t version; // 2
+    uint32_t version; // 3
     uint32_t car;
-    uint32_t count; // sizes drawn at the car's own translation (first in bytes)
-    uint32_t loose; // sizes of the car's buffers drawn at another translation (after them): parts off, hanging or lying
-    uint32_t bytes[255];
+    uint32_t count; // sizes of the buffers drawn at the car's own translation
+    uint32_t loose; // the car's buffers drawn at another translation: parts off, hanging or lying
+    uint32_t bytes[200]; // (count)
+    uint32_t looseBytes[24]; // (loose)
+    float looseMatrix[24][12]; // each loose part's world matrix as drawn: rows c8, c9, c10 (x, y, z), then c11 (x, y, z)
 };
+static_assert(sizeof(PartsPacket) == 2068, "live parts packet layout");
 #pragma pack(pop)
 
 static void PartsProbeDone(uint8_t* base, SOCKET s, const Target& target)
@@ -883,7 +887,7 @@ static void PartsProbeDone(uint8_t* base, SOCKET s, const Target& target)
                 best = g;
         PartsPacket p = {};
         memcpy(p.magic, "FM3P", 4);
-        p.version = 2;
+        p.version = 3;
         p.car = g_known[k];
         if (best >= 0)
         {
@@ -893,11 +897,19 @@ static void PartsProbeDone(uint8_t* base, SOCKET s, const Target& target)
                 if (hits[i].frame == frame && hits[i].aux == g_carTable[k] && w[0] == groups[best].x && w[1] == groups[best].y && w[2] == groups[best].z)
                     p.bytes[p.count++] = hits[i].bytes;
             }
-            for (size_t i = 0; i < n && p.count + p.loose < 255; i++)
+            for (size_t i = 0; i < n && p.loose < 24; i++)
             {
                 const float* w = hits[i].constants[0];
                 if (hits[i].frame == frame && hits[i].aux == g_carTable[k] && !(w[0] == groups[best].x && w[1] == groups[best].y && w[2] == groups[best].z))
-                    p.bytes[p.count + p.loose++] = hits[i].bytes;
+                {
+                    p.looseBytes[p.loose] = hits[i].bytes;
+                    for (int rr = 0; rr < 3; rr++)
+                        for (int c = 0; c < 3; c++)
+                            p.looseMatrix[p.loose][rr * 3 + c] = hits[i].constants[1 + rr][c];
+                    for (int c = 0; c < 3; c++)
+                        p.looseMatrix[p.loose][9 + c] = w[c];
+                    p.loose++;
+                }
             }
         }
         Log("live: car %08X parts: %u buffers on the car, %d drawn elsewhere (%d groups; frame %u of %zu hits)", g_known[k], p.count,
@@ -978,7 +990,7 @@ static void DamageFrame(uint8_t* base, SOCKET s, const Target& target, double ti
     else if (g_probe == 0 && g_partsWanted && !unmapped && StageB() && now >= g_partsAt)
     {
         // (the cars' part buffers: vertex fetch 95, any size, with the draw's world translation vc11)
-        static const uint32_t consts[6] = { 11, 0, 0, 0, 0, 0 };
+        static const uint32_t consts[6] = { 11, 8, 9, 10, 0, 0 }; // (c8-c11: the part's world matrix as drawn)
         regpu::SetFetchWatchAux(94); // (each hit's damage table: which car's)
         regpu::SetFetchWatch(true, 95, 0, consts);
         StageBHold(true);
