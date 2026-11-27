@@ -8,6 +8,18 @@
   known car by position (physics +2544 against the body's), and SendBrakes sends every car's brake (+3412) and
   throttle (+3408) once a frame. Grid race, AI driving: 8 of 8 matched, each braking 10-16% of the time. The game's
   own shots: its brake lamps are binary (the CR-X's fully lit at a 7% brake, dark at 0).
+- **Stage B round trip checked:** tools/tour.ps1's Invoke-TourStop on RoadAtlanta with stage B on (race, cameras,
+  pause menu, photo mode, quit + confirm, post-race menu, continue, back to environment select): all its checks
+  passed; the UIWhite menu scene loaded -> stage B off -> the front end at 60, the viewer back on the game's frames.
+- **Animations, research (`src/hooks/anim_dump.cpp`, off by default):** `FM3_ANIM_LOG=1` logs the 'QUAT_BITSTREAM'
+  codec's calls: sub_82AABED0 (sample at a time) gets r3 = an animation instance, f1 = time, r10 = the track count,
+  r6 = the output (48 bytes a track: quaternion, translation, scale); `FM3_ANIM_DUMP=1` samples each animation it is
+  called with 181 times (0-6 s) into out/run/anim_dump/. On the grid race only 12 / 13-track animations come through
+  (eight 13-track ones that sample as identity: pose / blend sources, likely the drivers'; one 12-track one that moves up
+  to 11 degrees); the crowd's 17-bone animations do not, nor do the codec's other entries (82AABE78 / 82AABEB0) get
+  called: the crowd is animated some other way (to find: the crowd draw's bone palette, sub_828878C0's path).
+- **Damage research:** the car draw's arguments are logged on a car's first sight (live_camera.cpp); details of the
+  damage lattice in frame-ir LIVE.md.
 
 ### ▶ 2026-11-27 (second PC, afternoon): stage B, the game leaves the race's drawing to the Godot viewer (a switch)
 - **What:** `src/hooks/stage_b.cpp` (user request: boot the game and race without its own rendering costing the frame
