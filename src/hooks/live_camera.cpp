@@ -682,7 +682,7 @@ void SendKnownCars(uint8_t* base, SOCKET s, const Target& target, double time, u
 struct BrakePacket
 {
     char magic[4]; // "FM3B"
-    uint32_t version; // 2 (2026-11-27: + steering)
+    uint32_t version; // 3 (2026-11-27: + steering, + the wheels' surface)
     uint32_t count;
     struct
     {
@@ -690,11 +690,13 @@ struct BrakePacket
         float brake; // 0..1 (physics +3412)
         float throttle; // 0..1 (physics +3408)
         float steer; // the car's own steering (physics +3416: the AI's too; the viewer turns its steering wheel by it)
+        float loose[4]; // per wheel (FL FR RR RL), its block (+4164 + 1040 k) +352: 0 on asphalt, 1 on the gravel trap
+        uint8_t surface[4]; // per wheel, the block's byte +621: 0 on asphalt, 0x2D on CrownJewel's gravel (a surface id)
     } cars[16];
     double time;
 };
 #pragma pack(pop)
-static_assert(sizeof(BrakePacket) == 276, "live brake packet layout");
+static_assert(sizeof(BrakePacket) == 596, "live brake packet layout");
 static void MapPhysics(uint8_t* base)
 {
     const uint32_t player = g_playerPhysics.load();
@@ -742,7 +744,7 @@ static void SendBrakes(uint8_t* base, SOCKET s, const Target& target, double tim
     MapPhysics(base);
     BrakePacket b = {};
     memcpy(b.magic, "FM3B", 4);
-    b.version = 2;
+    b.version = 3;
     auto f = [&](uint32_t a) {
         const uint32_t v = Load32(base, a);
         float x;
@@ -756,6 +758,11 @@ static void SendBrakes(uint8_t* base, SOCKET s, const Target& target, double tim
             b.cars[b.count].brake = f(g_knownPhys[k] + kCarBrake);
             b.cars[b.count].throttle = f(g_knownPhys[k] + kThrottle);
             b.cars[b.count].steer = f(g_knownPhys[k] + kSteering);
+            for (int w = 0; w < 4; w++)
+            {
+                b.cars[b.count].loose[w] = f(g_knownPhys[k] + 4164 + 1040 * w + 352);
+                b.cars[b.count].surface[w] = base[g_knownPhys[k] + 4164 + 1040 * w + 621];
+            }
             b.count++;
         }
     if (!b.count)
