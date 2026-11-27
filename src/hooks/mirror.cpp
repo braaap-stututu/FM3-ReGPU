@@ -179,7 +179,22 @@ bool SkipInMirror(uint32_t function, uint32_t lr)
         __imp__sub_##addr(ctx, base);                             \
     }
 // The scene renderer sub_8283A220's steps (its direct calls, apart from small helpers).
-FM3_MIRROR_STEP(828374C8)
+// (sub_828374C8 sets up the frame's view in its render object: the main view's one gives the live stream its frame,
+// LiveMainViewSetUp; stage B keeps it running)
+PPC_FUNC_IMPL(__imp__sub_828374C8);
+PPC_FUNC(sub_828374C8)
+{
+    if (SkipInMirror(0x828374C8, uint32_t(ctx.lr)))
+    {
+        ctx.r3.u64 = 0;
+        return;
+    }
+    const uint32_t regs[8] = { ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r7.u32, ctx.r8.u32, ctx.r9.u32, ctx.r10.u32 };
+    const bool mirror = g_inMirror;
+    __imp__sub_828374C8(ctx, base);
+    if (!mirror)
+        LiveMainViewSetUp(base, regs);
+}
 FM3_MIRROR_STEP(82855790)
 FM3_MIRROR_STEP(82839508)
 FM3_MIRROR_STEP(828363C0)

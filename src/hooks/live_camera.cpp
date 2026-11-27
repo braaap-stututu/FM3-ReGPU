@@ -430,8 +430,266 @@ static void ScanForCamera(const uint8_t* base, const uint32_t args[7])
     }
 }
 
+// The frame's drawn camera ("FM3V") from a main-view render object, when it changed (2026-11-27: shared by the car
+// draws and the main view's set-up, LiveMainViewSetUp).
+bool SendDrawnView(uint8_t* base, SOCKET s, const Target& target, uint32_t view, double time)
+{
+        static float last[16] = {};
+        Packet v = {};
+        memcpy(v.magic, "FM3V", 4);
+        v.version = 1;
+        for (int i = 0; i < 16; i++)
+        {
+            const uint32_t bits = Load32(base, view + i * 4);
+            memcpy(&v.view[i], &bits, 4);
+        }
+        if (memcmp(v.view, last, sizeof(last)) == 0)
+            return false; // (the same frame)
+        {
+            memcpy(last, v.view, sizeof(last));
+            static uint32_t vseq = 0;
+            v.seq = ++vseq;
+            v.director = view;
+            if (const uint32_t director = g_lastDirector.load())
+            {
+                const uint32_t fovBits = Load32(base, director + kDirectorFov);
+                memcpy(&v.fov, &fovBits, 4);
+                const uint32_t camera = Load32(base, director + kDirectorActive);
+                v.cameraVtable = camera ? Load32(base, camera) : 0;
+            }
+            v.time = time;
+            sendto(s, reinterpret_cast<const char*>(&v), int(sizeof(v)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
+                   int(sizeof(target.addr)));
+        }
+    return true;
+}
+
+// The player's telemetry ("FM3E", at most every 4 ms).
+void SendEngine(uint8_t* base, SOCKET s, const Target& target, double time)
+{
+    if (const uint32_t phys = g_playerPhysics.load(); phys >= 0x40000000 && phys < 0x80000000)
+    {
+        static double lastSent = 0;
+        if (time - lastSent >= 0.004)
+        {
+            lastSent = time;
+            EnginePacket e = {};
+            memcpy(e.magic, "FM3E", 4);
+            e.version = 8;
+            e.physics = phys;
+            e.steer = g_steer.load(std::memory_order_relaxed);
+            e.lock = g_steerLock.load(std::memory_order_relaxed);
+            e.brake = g_brake.load(std::memory_order_relaxed);
+            auto f = [&](uint32_t a) {
+                const uint32_t b = Load32(base, a);
+                float v;
+                memcpy(&v, &b, 4);
+                return v;
+            };
+            constexpr float kRpm = 9.5492966f; // 60 / 2pi
+            e.rpm = f(phys + kEngineSpeed) * kRpm;
+            e.redline = f(phys + kEngineRedline) * kRpm;
+            e.throttle = f(phys + kThrottle);
+            e.carBrake = f(phys + kCarBrake);
+            e.gear = base[phys + kGear];
+            e.clutch = f(phys + kClutch);
+            e.speed = f(phys + kSpeed);
+            for (int i = 0; i < 4; i++)
+            {
+                e.wheelSpeed[i] = f(phys + kWheelSpeed + kWheelStride * i);
+                const uint32_t t = phys + kTyreTemp + kWheelStride * i;
+                e.tyreTemp[i] = ((f(t) + f(t + 4) + f(t + 8)) / 3.0f - 32.0f) / 1.8f;
+                e.suspension[i] = f(phys + kSuspension + kWheelStride * i);
+            }
+            DataOutPlayerAccel(e.accel);
+            // v9: race clock, place and track segment (the participant re-found when the physics object changes, or
+            // when its pointer no longer reads back, at most every 2 s)
+            e.version = 9;
+            e.raceClock = f(phys + 2772);
+            static uint32_t part = 0, partPhys = 0;
+            static double lastScan = -10.0;
+            if ((partPhys != phys || part == 0 || Load32(base, part) != phys) && time - lastScan >= 2.0)
+            {
+                lastScan = time;
+                partPhys = phys;
+                part = FindParticipant(base, phys);
+                Log("live: player race participant %08X (physics %08X)", part, phys);
+            }
+            if (part && Load32(base, part) == phys)
+            {
+                e.place = Load32(base, part + 280);
+                e.segment = Load32(base, part + 92);
+            }
+            e.time = time;
+            sendto(s, reinterpret_cast<const char*>(&e), int(sizeof(e)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
+                   int(sizeof(target.addr)));
+        }
+    }
+}
+
+// A car's body ("FM3K", built by the caller) and wheels ("FM3W").
+void SendCar(uint8_t* base, SOCKET s, const Target& target, const CarPacket& p)
+{
+    const uint32_t car = p.car;
+    sendto(s, reinterpret_cast<const char*>(&p), int(sizeof(p)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
+           int(sizeof(target.addr)));
+    {
+        WheelPacket w = {};
+        memcpy(w.magic, "FM3W", 4);
+        w.version = 1;
+        w.seq = p.seq;
+        w.car = car;
+        for (int k = 0; k < 4; k++)
+            for (int i = 0; i < 16; i++)
+            {
+                const uint32_t bits = Load32(base, car + kCarWheels + k * 0x40 + i * 4);
+                memcpy(&w.wheel[k][i], &bits, 4);
+            }
+        w.time = p.time;
+        sendto(s, reinterpret_cast<const char*>(&w), int(sizeof(w)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
+               int(sizeof(target.addr)));
+    }
+}
+
+// Every car the main view has drawn in this race (2026-11-27). The game streams a car only when its main view draws it,
+// so in the cockpit view the player's own car (drawn there by another path) dropped out of the stream: the viewer kept it
+// where it was last seen and took the car ahead, now the nearest to the camera, for the player's (its body hidden: "the
+// back half cut away"). LiveMainViewSetUp now sends every known car each frame, drawn or not; a car whose body matrix
+// stops being a rotation and a position is forgotten, and the list is cleared when the renderer's scenario changes.
+namespace
+{
+uint32_t g_known[16] = {};
+uint32_t g_mainViews[4] = {}; // render objects the main view's car draws use (args[6] at 82837F0C)
+bool CarMatrixOk(uint8_t* base, uint32_t car)
+{
+    float m[16];
+    for (int i = 0; i < 16; i++)
+    {
+        const uint32_t b = Load32(base, car + kCarBody + i * 4);
+        memcpy(&m[i], &b, 4);
+    }
+    for (int r = 0; r < 3; r++)
+    {
+        const float l = m[r * 4] * m[r * 4] + m[r * 4 + 1] * m[r * 4 + 1] + m[r * 4 + 2] * m[r * 4 + 2];
+        if (!(l > 0.8f && l < 1.2f))
+            return false;
+    }
+    return std::isfinite(m[12]) && std::isfinite(m[13]) && std::isfinite(m[14]) && fabsf(m[12]) < 1e5f && fabsf(m[13]) < 1e5f && fabsf(m[14]) < 1e5f;
+}
+}
+
+void LiveKnowCar(uint8_t* base, uint32_t car)
+{
+    for (uint32_t& c : g_known)
+        if (c == car)
+            return;
+    for (uint32_t& c : g_known)
+        if (!c)
+        {
+            c = car;
+            return;
+        }
+}
+
+void LiveResetCars()
+{
+    for (uint32_t& c : g_known)
+        c = 0;
+    for (uint32_t& v : g_mainViews)
+        v = 0;
+}
+
+// Every known car's body and wheels (but `except`, which the caller sends itself).
+void SendKnownCars(uint8_t* base, SOCKET s, const Target& target, double time, uint32_t except)
+{
+    static uint32_t seq = 0x80000000u;
+    for (uint32_t& car : g_known)
+    {
+        if (!car || car == except)
+            continue;
+        if (!CarMatrixOk(base, car))
+        {
+            Log("live: car %08X forgotten (its body matrix is no longer one)", car);
+            car = 0;
+            continue;
+        }
+        CarPacket p = {};
+        memcpy(p.magic, "FM3K", 4);
+        p.version = 1;
+        p.seq = ++seq;
+        p.car = car;
+        for (int i = 0; i < 16; i++)
+        {
+            const uint32_t bits = Load32(base, car + kCarBody + i * 4);
+            memcpy(&p.body[i], &bits, 4);
+        }
+        p.time = time;
+        SendCar(base, s, target, p);
+    }
+}
+
+// The main view's set-up (mirror.cpp's hook of sub_828374C8, which fills the frame's render object): its registers at
+// the call; the one that is a known main-view render object gives the frame. Sends the frame's camera, every known car
+// and the player's telemetry, so all three keep coming whatever the main view draws (the cockpit, an empty road ahead).
+void LiveMainViewSetUp(uint8_t* base, const uint32_t regs[8])
+{
+    const Target& target = CurrentTarget();
+    if (!target.on)
+        return;
+    uint32_t view = 0;
+    static int foundReg = -1, foundOff = -1; // (where it was found last: tried first)
+    auto at = [&](int r, int off) -> uint32_t {
+        if (off < 0)
+            return regs[r];
+        if (regs[r] < 0x40000000 || regs[r] >= 0x7FFFF000)
+            return 0;
+        return Load32(base, regs[r] + uint32_t(off));
+    };
+    auto known = [&](uint32_t x) {
+        for (uint32_t v : g_mainViews)
+            if (v && x == v)
+                return true;
+        return false;
+    };
+    if (foundReg >= 0 && known(at(foundReg, foundOff)))
+        view = at(foundReg, foundOff);
+    for (int r = 0; r < 8 && !view; r++)
+        for (int off = -1; off < 0x400 && !view; off += off < 0 ? 1 : 4)
+            if (const uint32_t x = at(r, off); known(x))
+            {
+                view = x;
+                if (foundReg != r || foundOff != off)
+                    Log("live: the main view's set-up reaches its render object %08X through r%d%s%X: camera and every car sent each frame",
+                        x, r + 3, off < 0 ? " itself" : " + 0x", off < 0 ? 0 : off);
+                foundReg = r, foundOff = off;
+            }
+    if (!view)
+        return;
+    const SOCKET s = Socket();
+    if (s == INVALID_SOCKET)
+        return;
+    const double time = Seconds();
+    SendDrawnView(base, s, target, view, time);
+    SendKnownCars(base, s, target, time, 0);
+    SendEngine(base, s, target, time);
+}
+
 void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
 {
+    if (const uint32_t view = args[6]; view >= 0x40000000 && view < 0x80000000)
+    {
+        bool have = false;
+        for (uint32_t v : g_mainViews)
+            have = have || v == view;
+        if (!have)
+            for (uint32_t& v : g_mainViews)
+                if (!v)
+                {
+                    v = view;
+                    Log("live: main view render object %08X", view);
+                    break;
+                }
+    }
     const Target& target = CurrentTarget();
     if (!target.on || !car)
         return;
@@ -482,34 +740,8 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
     // changes, so a viewer gets cars and camera from the same frame; the camera hand-off's "FM3C" runs ahead of both (on
     // the logic thread at 360 Hz), which shook the cars against the camera.
     if (const uint32_t view = args[6]; view >= 0x40000000 && view < 0x80000000)
-    {
-        static float last[16] = {};
-        Packet v = {};
-        memcpy(v.magic, "FM3V", 4);
-        v.version = 1;
-        for (int i = 0; i < 16; i++)
-        {
-            const uint32_t bits = Load32(base, view + i * 4);
-            memcpy(&v.view[i], &bits, 4);
-        }
-        if (memcmp(v.view, last, sizeof(last)) != 0)
-        {
-            memcpy(last, v.view, sizeof(last));
-            static uint32_t vseq = 0;
-            v.seq = ++vseq;
-            v.director = view;
-            if (const uint32_t director = g_lastDirector.load())
-            {
-                const uint32_t fovBits = Load32(base, director + kDirectorFov);
-                memcpy(&v.fov, &fovBits, 4);
-                const uint32_t camera = Load32(base, director + kDirectorActive);
-                v.cameraVtable = camera ? Load32(base, camera) : 0;
-            }
-            v.time = p.time;
-            sendto(s, reinterpret_cast<const char*>(&v), int(sizeof(v)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
-                   int(sizeof(target.addr)));
-        }
-    }
+        if (SendDrawnView(base, s, target, view, p.time))
+            SendKnownCars(base, s, target, p.time, car); // (a new frame: the cars it does not draw, e.g. the player's in the cockpit)
     // Which car this is ("FM3N", about once a second per car; 2026-11-24): the car object's +0xC44 points at its shader
     // settings list, "Game:\Media\Cars\ShaderSettings\<Normal|Metallic>.xml;Game:\Media\Cars\<CAR>\ShaderSettings.xml;
     // Game:\Media\Cars\<CAR>\ColorShaderSettings<n>.xml": the car's media name, its paint type and its colour, n = the
@@ -627,83 +859,10 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
         }
     }
     // The player's engine ("FM3E"), at most every 4 ms (the car loop runs once per car per frame).
-    if (const uint32_t phys = g_playerPhysics.load(); phys >= 0x40000000 && phys < 0x80000000)
-    {
-        static double lastSent = 0;
-        if (p.time - lastSent >= 0.004)
-        {
-            lastSent = p.time;
-            EnginePacket e = {};
-            memcpy(e.magic, "FM3E", 4);
-            e.version = 8;
-            e.physics = phys;
-            e.steer = g_steer.load(std::memory_order_relaxed);
-            e.lock = g_steerLock.load(std::memory_order_relaxed);
-            e.brake = g_brake.load(std::memory_order_relaxed);
-            auto f = [&](uint32_t a) {
-                const uint32_t b = Load32(base, a);
-                float v;
-                memcpy(&v, &b, 4);
-                return v;
-            };
-            constexpr float kRpm = 9.5492966f; // 60 / 2pi
-            e.rpm = f(phys + kEngineSpeed) * kRpm;
-            e.redline = f(phys + kEngineRedline) * kRpm;
-            e.throttle = f(phys + kThrottle);
-            e.carBrake = f(phys + kCarBrake);
-            e.gear = base[phys + kGear];
-            e.clutch = f(phys + kClutch);
-            e.speed = f(phys + kSpeed);
-            for (int i = 0; i < 4; i++)
-            {
-                e.wheelSpeed[i] = f(phys + kWheelSpeed + kWheelStride * i);
-                const uint32_t t = phys + kTyreTemp + kWheelStride * i;
-                e.tyreTemp[i] = ((f(t) + f(t + 4) + f(t + 8)) / 3.0f - 32.0f) / 1.8f;
-                e.suspension[i] = f(phys + kSuspension + kWheelStride * i);
-            }
-            DataOutPlayerAccel(e.accel);
-            // v9: race clock, place and track segment (the participant re-found when the physics object changes, or
-            // when its pointer no longer reads back, at most every 2 s)
-            e.version = 9;
-            e.raceClock = f(phys + 2772);
-            static uint32_t part = 0, partPhys = 0;
-            static double lastScan = -10.0;
-            if ((partPhys != phys || part == 0 || Load32(base, part) != phys) && p.time - lastScan >= 2.0)
-            {
-                lastScan = p.time;
-                partPhys = phys;
-                part = FindParticipant(base, phys);
-                Log("live: player race participant %08X (physics %08X)", part, phys);
-            }
-            if (part && Load32(base, part) == phys)
-            {
-                e.place = Load32(base, part + 280);
-                e.segment = Load32(base, part + 92);
-            }
-            e.time = p.time;
-            sendto(s, reinterpret_cast<const char*>(&e), int(sizeof(e)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
-                   int(sizeof(target.addr)));
-        }
-    }
+    SendEngine(base, s, target, p.time);
     // (After the frame's camera: a viewer groups the car datagrams that follow an "FM3V" into that frame.)
-    sendto(s, reinterpret_cast<const char*>(&p), int(sizeof(p)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
-           int(sizeof(target.addr)));
-    {
-        WheelPacket w = {};
-        memcpy(w.magic, "FM3W", 4);
-        w.version = 1;
-        w.seq = p.seq;
-        w.car = car;
-        for (int k = 0; k < 4; k++)
-            for (int i = 0; i < 16; i++)
-            {
-                const uint32_t bits = Load32(base, car + kCarWheels + k * 0x40 + i * 4);
-                memcpy(&w.wheel[k][i], &bits, 4);
-            }
-        w.time = p.time;
-        sendto(s, reinterpret_cast<const char*>(&w), int(sizeof(w)), 0, reinterpret_cast<const sockaddr*>(&target.addr),
-               int(sizeof(target.addr)));
-    }
+    SendCar(base, s, target, p);
+    LiveKnowCar(base, car);
     static uint32_t seen[16] = {};
     for (uint32_t& c : seen)
     {

@@ -37,6 +37,7 @@ uint32_t FrontEndLimit()
 }
 
 uint32_t StageBRaceCap(); // src/hooks/stage_b.cpp: the race's cap with stage B on (0 = off)
+bool StageBEnabled(); // stage_b.cpp: the switch is on (any scenario)
 void StageBScenario(uint32_t index);
 
 namespace
@@ -52,7 +53,9 @@ void ApplyCapFor(uint32_t index)
         g_applied = userCap;
     uint32_t cap = userCap;
     const char* why = "race";
-    if (index == 0 && limit && limit < userCap)
+    if (index == 0 && StageBEnabled() && std::min(limit ? limit : userCap, userCap) > 60)
+        cap = 60, why = "front end with stage B: the Godot window shows it through the 60 Hz frame feed, and the GPU is shared";
+    else if (index == 0 && limit && limit < userCap)
         cap = std::max(limit, 30u), why = "front end, menus animate per frame";
     else if (index != 0)
         if (const uint32_t b = StageBRaceCap())

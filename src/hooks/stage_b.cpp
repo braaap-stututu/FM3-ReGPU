@@ -29,6 +29,7 @@
 
 #include <regpu/regpu.h>
 
+#include "hooks/live_camera.h"
 #include "log.h"
 #include "settings.h"
 
@@ -74,6 +75,10 @@ void Update(bool now_ = false)
             if (!GetEnvironmentVariableA("REGPU_FRAME_FEED", f, sizeof(f)))
             {
                 _putenv_s("REGPU_FRAME_FEED", "frame_feed.bin");
+                // (60 a second: in a race the viewer lays the game's HUD and menus over its picture from it)
+                char hz[8] = {};
+                if (!GetEnvironmentVariableA("REGPU_FRAME_FEED_HZ", hz, sizeof(hz)))
+                    _putenv_s("REGPU_FRAME_FEED_HZ", "60");
                 Log("stage B: the game's frames to frame_feed.bin for the Godot window (menus)");
             }
         }
@@ -95,6 +100,13 @@ bool StageB()
 {
     Update();
     return g_active.load(std::memory_order_relaxed);
+}
+
+// The switch is on (in any scenario; frontend_rate.cpp caps the front end at 60 with it).
+bool StageBEnabled()
+{
+    Update();
+    return g_enabled.load(std::memory_order_relaxed);
 }
 
 // FM3_STAGE_B_KEEP=<hex>[,<hex>...] (live; a diagnosis switch): scene steps (mirror.cpp's list) that still run in stage B.
@@ -144,6 +156,7 @@ uint32_t StageBRaceCap()
 // The renderer's scenario as it is set up (one_tile.cpp's hook of sub_82798890): 0 front end (and photo mode), 1 race.
 void StageBScenario(uint32_t index)
 {
-    g_scenario.store(index, std::memory_order_relaxed);
+    if (g_scenario.exchange(index, std::memory_order_relaxed) != index)
+        LiveResetCars(); // (live_camera.cpp: the cars of the last scenario are gone)
     Update(true);
 }

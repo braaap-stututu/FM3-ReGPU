@@ -31,7 +31,16 @@
   Bisected live on a running Free Play race (`FM3_STAGE_B_KEEP=<hex,...>`, steps that still run in stage B; packets
   counted by a UDP listener): `sub_828374C8` sets up the frame's view in the render object; stage B now always runs it
   (FM3V back at 60 a second, 304 draws a frame against ~300). Checked: RoadAtlanta, AI driving the player, the viewer in
-  the chase view behind the car mid-race. Not yet tested: leaving a race back to the menus (the scenario hook turns it off), the race's own menus
+  the chase view behind the car mid-race. **Then (user's drive: shadows, cockpit, pause menu, pre-race orbit):**
+  the cockpit view lost the player's car (the stream sends a car only when the main view draws it; in the cockpit the
+  player's is drawn by another path), so the viewer took the car ahead for the player's and hid its body. Now every car
+  the main view has drawn in the race is kept (`g_known`, cleared per scenario, dropped when its matrix stops being
+  one) and sent whenever a car draw starts a new frame (`SendKnownCars`; checked: RoadAtlanta in-car, the RSX's cockpit
+  and the Charger ahead whole). Open: with no other car in view the frame's camera still comes from a car draw only
+  (`LiveMainViewSetUp` from the view set-up `sub_828374C8` is in place but its registers did not reach the render
+  object; next: find the object it fills). The pre-race orbit is the front end (scenario 0), so stage B is not on yet:
+  the viewer shows the game's own frames there; with stage B the front end now runs at 60 (`frontend_rate.cpp`: the
+  feed's rate, and the GPU is shared) and the feed at 60 a second (`REGPU_FRAME_FEED_HZ`). Not yet tested: leaving a race back to the menus (the scenario hook turns it off), the race's own menus
   (pre-race, pause) are only in the game's window. Next: the game's frame in the Godot window for the menus, the
   grey-keyed HUD / menus laid over Godot's race, the remaining fixed GPU passes.
 
