@@ -18,6 +18,8 @@
 #include "loader.h"
 #include "kernel/vfs.h"
 
+void LiveTrackFileOpened(const char* guest); // src/hooks/live_camera.cpp
+
 namespace fs = std::filesystem;
 std::string CurrentHostStack(int maxFrames); // crash.cpp
 
@@ -334,6 +336,9 @@ uint32_t OpenFile(uint32_t handleOut, uint32_t access, uint32_t attributes, uint
 
     fs::path host;
     bool readOnly = false;
+    {
+        LiveTrackFileOpened(guest.c_str()); // (src/hooks/live_camera.cpp: the track the game loads, "FM3T")
+    }
     if (!VfsResolve(guest, host, &readOnly))
     {
         Log("vfs: no mapping for \"%s\"", guest.c_str());

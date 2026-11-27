@@ -45,6 +45,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -717,11 +718,84 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
     }
 }
 
+// The track the game loads ("FM3T", 2026-11-27, for stage B: the viewer loads the same track's scene): the last folder
+// under Media\Tracks the game opened a file in (src/kernel/imports_io.cpp OpenFile), with its layout (Ribbon_NN) if
+// the path had one; the menus' own scenes (UI*) are left out. Sent once a second with the camera.
+#pragma pack(push, 1)
+struct TrackPacket
+{
+    char magic[4]; // "FM3T"
+    uint32_t version; // 1
+    char track[32]; // the folder's name as the game wrote it, e.g. CrownJewel
+    char ribbon[8]; // e.g. 04, or empty
+    double time;
+};
+#pragma pack(pop)
+static_assert(sizeof(TrackPacket) == 56, "live track packet layout");
+namespace
+{
+SRWLOCK g_trackLock = SRWLOCK_INIT;
+char g_track[32] = {}, g_ribbon[8] = {};
+}
+
+void LiveTrackFileOpened(const char* guest)
+{
+    // (case-insensitive: "media/tracks/<track>/[ribbon_NN/]", with backslashes)
+    const char* key = "\\media\\tracks\\";
+    const size_t kn = strlen(key);
+    const char* at = nullptr;
+    for (const char* q = guest; *q; q++)
+        if (_strnicmp(q, key, kn) == 0)
+        {
+            at = q + kn;
+            break;
+        }
+    if (!at)
+        return;
+    const char* end = strchr(at, '\\');
+    if (!end || end == at || size_t(end - at) >= sizeof(g_track) || _strnicmp(at, "UI", 2) == 0)
+        return;
+    char track[32] = {}, ribbon[8] = {};
+    memcpy(track, at, size_t(end - at));
+    if (_strnicmp(end + 1, "Ribbon_", 7) == 0)
+        for (int i = 0; i < 4 && isdigit(uint8_t(end[8 + i])); i++)
+            ribbon[i] = end[8 + i];
+    AcquireSRWLockExclusive(&g_trackLock);
+    const bool newTrack = _stricmp(track, g_track) != 0;
+    const bool changed = newTrack || (ribbon[0] && strcmp(ribbon, g_ribbon) != 0);
+    if (newTrack)
+        memcpy(g_track, track, sizeof(g_track));
+    if (newTrack || ribbon[0])
+        memcpy(g_ribbon, ribbon, sizeof(g_ribbon)); // (a new track's ribbon is known once a path names it)
+    ReleaseSRWLockExclusive(&g_trackLock);
+    if (changed)
+        Log("live: track %s%s%s (FM3T)", track, ribbon[0] ? " ribbon " : "", ribbon);
+}
+
 void LiveCameraHandOff(uint8_t* base, uint32_t view)
 {
     const Target& target = CurrentTarget();
     if (!target.on || !view)
         return;
+    {
+        static ULONGLONG lastTrack = 0;
+        const ULONGLONG now = GetTickCount64();
+        if (now - lastTrack >= 1000)
+        {
+            lastTrack = now;
+            TrackPacket t = {};
+            memcpy(t.magic, "FM3T", 4);
+            t.version = 1;
+            AcquireSRWLockShared(&g_trackLock);
+            memcpy(t.track, g_track, sizeof(t.track));
+            memcpy(t.ribbon, g_ribbon, sizeof(t.ribbon));
+            ReleaseSRWLockShared(&g_trackLock);
+            t.time = double(now) / 1000.0;
+            const SOCKET ts = Socket();
+            if (t.track[0] && ts != INVALID_SOCKET)
+                sendto(ts, reinterpret_cast<const char*>(&t), int(sizeof(t)), 0, reinterpret_cast<const sockaddr*>(&target.addr), int(sizeof(target.addr)));
+        }
+    }
     const uint32_t director = Load32(base, view + 4);
     if (!director)
         return;

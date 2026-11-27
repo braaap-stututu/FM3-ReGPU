@@ -21,7 +21,11 @@
   is turned on by stage B (`out/run/frame_feed.bin`, ~30 frames a second, no GPU wait), tagged with the scenario and
   whether stage B is active; the viewer (frame-ir world_view.gd `_game_feed_update`) shows the game's frames full-window
   unless stage B is active, so one window shows the game's menus, then Godot's race (checked: the title screen came
-  through; the race drawn by the viewer). Not yet tested: leaving a race back to the menus (the scenario hook turns it off), the race's own menus
+  through; the race drawn by the viewer). **The viewer follows the game's track:** "FM3T" packets (live_camera.cpp,
+  once a second: the last `Media\Tracks\<track>\[Ribbon_NN]` folder the game opened a file in, from
+  `src/kernel/imports_io.cpp` OpenFile; the menus' UI* scenes left out); the viewer restarts itself on
+  `out/world/<track>.gltf` when it differs (checked: started on CrownJewel, the game loaded RoadAtlanta from Free Play,
+  the viewer came back on RoadAtlanta and drew it). Not yet tested: leaving a race back to the menus (the scenario hook turns it off), the race's own menus
   (pre-race, pause) are only in the game's window. Next: the game's frame in the Godot window for the menus, the
   grey-keyed HUD / menus laid over Godot's race, the remaining fixed GPU passes.
 
