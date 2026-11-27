@@ -785,8 +785,10 @@ namespace
 {
 float g_carLattice[16][4][4] = {};
 uint64_t g_carTableHash[16] = {};
-int g_probe = 0; // 0 idle, 1 collecting (stage B held)
+int g_probe = 0; // 0 idle, 1 collecting damage tables, 2 collecting the cars' part buffers (stage B held)
 ULONGLONG g_probeAt = 0, g_probeTry = 0;
+bool g_partsWanted = false; // a parts probe is due (after a damage change, and once when all tables are mapped)
+ULONGLONG g_partsAt = 0;
 }
 
 bool LiveProbeFrame()
@@ -799,6 +801,114 @@ bool LiveCarProbe(uint32_t)
     return false;
 }
 
+// The cars' parts ("FM3P", 2026-11-27): a crash knocks parts off (the game's CR-X left its rear bumper on the ground),
+// which the lattice does not show. After a damage change (and once as a baseline) stage B pauses for 0.5 s while ReGPU's
+// fetch watch records every vertex buffer read as fetch 95 (a car part's vertices: 40 bytes each) with the draw's world
+// translation (vc11) and its damage table (fetch 94: which car's), in one frame (the one with the most). A car's attached
+// parts all share its translation exactly; loose ones have their own. Per known car the sizes of the buffers drawn at its
+// translation (its largest group) are sent; the viewer hides library parts whose buffer is no longer among them.
+#pragma pack(push, 1)
+struct PartsPacket
+{
+    char magic[4]; // "FM3P"
+    uint32_t version; // 2
+    uint32_t car;
+    uint32_t count; // sizes drawn at the car's own translation (first in bytes)
+    uint32_t loose; // sizes of the car's buffers drawn at another translation (after them): parts off, hanging or lying
+    uint32_t bytes[255];
+};
+#pragma pack(pop)
+
+static void PartsProbeDone(uint8_t* base, SOCKET s, const Target& target)
+{
+    void StageBHold(bool);
+    static regpu::FetchWatchHit hits[65536];
+    const size_t n = regpu::TakeFetchWatch(hits, 65536);
+    regpu::SetFetchWatch(false, 0, 0, nullptr);
+    regpu::SetFetchWatchAux(0xFFFFFFFFu);
+    StageBHold(false);
+    g_probe = 0;
+    (void)base;
+    // one frame: the one with the most hits (each frame's hits are the buffers it drew)
+    uint32_t frame = 0;
+    {
+        uint32_t frames[64] = {}, counts[64] = {};
+        int nf = 0;
+        for (size_t i = 0; i < n; i++)
+        {
+            int q = 0;
+            while (q < nf && frames[q] != hits[i].frame)
+                q++;
+            if (q == nf)
+            {
+                if (nf == 64)
+                    continue;
+                frames[nf++] = hits[i].frame;
+            }
+            counts[q]++;
+        }
+        uint32_t most = 0;
+        for (int q = 0; q < nf; q++)
+            if (counts[q] > most)
+                most = counts[q], frame = frames[q];
+    }
+    for (int k = 0; k < 16; k++)
+    {
+        if (!g_known[k] || !g_carTable[k])
+            continue;
+        // the car's draws (those reading its damage table), grouped by their exact translation
+        struct Group { float x, y, z; int count; };
+        Group groups[32];
+        int ng = 0, mine = 0;
+        for (size_t i = 0; i < n; i++)
+        {
+            if (hits[i].frame != frame || hits[i].aux != g_carTable[k])
+                continue;
+            mine++;
+            const float* w = hits[i].constants[0];
+            int g = 0;
+            while (g < ng && !(groups[g].x == w[0] && groups[g].y == w[1] && groups[g].z == w[2]))
+                g++;
+            if (g == ng)
+            {
+                if (ng == 32)
+                    continue;
+                groups[ng++] = { w[0], w[1], w[2], 0 };
+            }
+            groups[g].count++;
+        }
+        int best = -1;
+        for (int g = 0; g < ng; g++)
+            if (best < 0 || groups[g].count > groups[best].count)
+                best = g;
+        PartsPacket p = {};
+        memcpy(p.magic, "FM3P", 4);
+        p.version = 2;
+        p.car = g_known[k];
+        if (best >= 0)
+        {
+            for (size_t i = 0; i < n && p.count < 200; i++)
+            {
+                const float* w = hits[i].constants[0];
+                if (hits[i].frame == frame && hits[i].aux == g_carTable[k] && w[0] == groups[best].x && w[1] == groups[best].y && w[2] == groups[best].z)
+                    p.bytes[p.count++] = hits[i].bytes;
+            }
+            for (size_t i = 0; i < n && p.count + p.loose < 255; i++)
+            {
+                const float* w = hits[i].constants[0];
+                if (hits[i].frame == frame && hits[i].aux == g_carTable[k] && !(w[0] == groups[best].x && w[1] == groups[best].y && w[2] == groups[best].z))
+                    p.bytes[p.count + p.loose++] = hits[i].bytes;
+            }
+        }
+        Log("live: car %08X parts: %u buffers on the car, %d drawn elsewhere (%d groups; frame %u of %zu hits)", g_known[k], p.count,
+            mine - int(p.count), ng, frame, n);
+        if (!p.count)
+            continue; // (not drawn in that frame: nothing to say)
+        for (int r = 0; r < 3; r++) // (three times: a lost packet would leave the parts as they were)
+            sendto(s, reinterpret_cast<const char*>(&p), int(sizeof(p)), 0, reinterpret_cast<const sockaddr*>(&target.addr), int(sizeof(target.addr)));
+    }
+}
+
 static void DamageFrame(uint8_t* base, SOCKET s, const Target& target, double time)
 {
     bool StageB();
@@ -809,37 +919,6 @@ static void DamageFrame(uint8_t* base, SOCKET s, const Target& target, double ti
     {
         static regpu::FetchWatchHit hits[4096];
         const size_t n = regpu::TakeFetchWatch(hits, 4096);
-        {
-            // (what the draws hold: each distinct table once, its vc11 beside the known cars' positions)
-            static int dumps = 0;
-            if (dumps++ < 2)
-            {
-                uint32_t seenT[32] = {};
-                int ns = 0;
-                for (size_t i = 0; i < n && ns < 32; i++)
-                {
-                    bool dup = false;
-                    for (int q = 0; q < ns; q++)
-                        dup = dup || seenT[q] == hits[i].address;
-                    if (dup)
-                        continue;
-                    seenT[ns++] = hits[i].address;
-                    Log("live: damage probe: table %08X vc11 %.2f %.2f %.2f %.2f vc41 %.2f %.2f %.2f", hits[i].address, hits[i].constants[4][0],
-                        hits[i].constants[4][1], hits[i].constants[4][2], hits[i].constants[4][3], hits[i].constants[0][0], hits[i].constants[0][1],
-                        hits[i].constants[0][2]);
-                }
-                auto ff = [&](uint32_t a) {
-                    const uint32_t b = Load32(base, a);
-                    float v;
-                    memcpy(&v, &b, 4);
-                    return v;
-                };
-                for (int k = 0; k < 16; k++)
-                    if (g_known[k])
-                        Log("live: damage probe: car %08X at %.2f %.2f %.2f", g_known[k], ff(g_known[k] + kCarBody + 48), ff(g_known[k] + kCarBody + 52),
-                            ff(g_known[k] + kCarBody + 56));
-            }
-        }
         regpu::SetFetchWatch(false, 0, 0, nullptr);
         StageBHold(false);
         g_probe = 0;
@@ -878,7 +957,11 @@ static void DamageFrame(uint8_t* base, SOCKET s, const Target& target, double ti
         for (int k = 0; k < 16; k++)
             known += g_known[k] != 0, have += g_known[k] && g_carTable[k];
         Log("live: damage tables: %zu draws seen, %d cars newly matched, %d of %d known cars have theirs", n, mapped, have, known);
+        if (have == known && known)
+            g_partsWanted = true, g_partsAt = now;
     }
+    if (g_probe == 2 && now - g_probeAt >= 500)
+        PartsProbeDone(base, s, target);
     if (!StageBEnabled())
         return;
     bool unmapped = false;
@@ -891,6 +974,17 @@ static void DamageFrame(uint8_t* base, SOCKET s, const Target& target, double ti
         StageBHold(true);
         g_probe = 1;
         g_probeAt = g_probeTry = now;
+    }
+    else if (g_probe == 0 && g_partsWanted && !unmapped && StageB() && now >= g_partsAt)
+    {
+        // (the cars' part buffers: vertex fetch 95, any size, with the draw's world translation vc11)
+        static const uint32_t consts[6] = { 11, 0, 0, 0, 0, 0 };
+        regpu::SetFetchWatchAux(94); // (each hit's damage table: which car's)
+        regpu::SetFetchWatch(true, 95, 0, consts);
+        StageBHold(true);
+        g_probe = 2;
+        g_probeAt = now;
+        g_partsWanted = false;
     }
     // the tables: checked 4 times a second, marked to send when they change and every 2 s; sent one car (4 packets) a
     // call (a frame): 32 packets of 8 KB at once were mostly dropped by the socket (one car's arrived in 15 s)
@@ -911,7 +1005,10 @@ static void DamageFrame(uint8_t* base, SOCKET s, const Target& target, double ti
             for (int i = 0; i < 32000; i += 8)
                 h = (h ^ *reinterpret_cast<const uint64_t*>(t + i)) * 0x100000001B3ull;
             if (h != g_carTableHash[k] && g_carTableHash[k])
+            {
                 Log("live: car %08X damage table changed", g_known[k]);
+                g_partsWanted = true, g_partsAt = now + 1500; // (parts may have come off: look again once it settles)
+            }
             if (h != g_carTableHash[k] || all)
                 pending[k] = true;
             g_carTableHash[k] = h;

@@ -1,5 +1,5 @@
 diff --git a/include/regpu/regpu.h b/include/regpu/regpu.h
-index f5c857e..195f89c 100644
+index f5c857e..8664096 100644
 --- a/include/regpu/regpu.h
 +++ b/include/regpu/regpu.h
 @@ -4,6 +4,7 @@
@@ -10,33 +10,39 @@ index f5c857e..195f89c 100644
  #include <cstdint>
  #include <filesystem>
  #include <string>
-@@ -286,6 +287,15 @@ void SetFrameLimit(uint32_t maxFps, bool vsync);
+@@ -286,6 +287,20 @@ void SetFrameLimit(uint32_t maxFps, bool vsync);
  // REGPU_FRAME_FEED (renderer.cpp): a number the host writes into the feed's header with every frame (the FM3 port: its
  // renderer scenario and stage B), so a reader knows what the frames show.
  void SetFrameFeedTag(uint32_t tag);
 +// A watch on one vertex fetch constant (renderer.cpp FetchWatchDraw): while on, each draw reading fetch constant `slot`
-+// with a buffer of `bytes` is recorded (its address and six float4 constants of the draw), in draw order.
++// with a buffer of `bytes` (0: any size) is recorded (its address, size and six float4 constants of the draw), each
++// address once a frame.
 +struct FetchWatchHit
 +{
 +    uint32_t address;
++    uint32_t bytes;
++    uint32_t frame; // (frames ended so far: hits of one frame share it)
++    uint32_t aux; // (the address in the fetch constant SetFetchWatchAux names, 0 without)
 +    float constants[6][4];
 +};
 +void SetFetchWatch(bool on, uint32_t slot, uint32_t bytes, const uint32_t constants[6]);
 +size_t TakeFetchWatch(FetchWatchHit* out, size_t max);
++void SetFetchWatchAux(uint32_t slot); // (0xFFFFFFFF: none)
  // Texture filtering while the game runs: -1 the fetch's own anisotropy (the default), 0 none, else
  // that many samples at most (2-16) for every wrapping linear fetch. Applies to the 2D pixel fetches of
  // REGPU_LEAN_FETCH (its sampler table); others keep their samplers.
 diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
-index 57b7bfa..5a32cfe 100644
+index 57b7bfa..b6890c5 100644
 --- a/src/gpu/renderer.cpp
 +++ b/src/gpu/renderer.cpp
-@@ -14896,6 +14896,62 @@ void CullResetQueries(UINT frameIndex)
+@@ -14896,6 +14896,53 @@ void CullResetQueries(UINT frameIndex)
      ResetSlotQueries(DrawCull::g_queries, 0);
  }
  
 +// regpu::SetFetchWatch (2026-11-27, for the FM3 port's Godot renderer: which car's damage table is which): while on,
 +// each draw whose vertex shader reads vertex fetch constant `slot` with a buffer of `bytes` appends its address and
-+// six float4 constants (the slots given) to a list the host drains with regpu::TakeFetchWatch (each address once).
++// six float4 constants (the slots given) to a list the host drains with regpu::TakeFetchWatch (each address once a frame,
++// with the frame's number and the address in a second fetch constant, regpu::SetFetchWatchAux).
 +namespace
 +{
 +std::mutex g_watchMutex;
@@ -44,38 +50,29 @@ index 57b7bfa..5a32cfe 100644
 +uint32_t g_watchSlot = 0, g_watchBytes = 0;
 +uint32_t g_watchConst[6] = {};
 +std::vector<regpu::FetchWatchHit> g_watchHits;
++std::unordered_set<uint64_t> g_watchSeen;
++std::atomic<uint64_t> g_watchFrame{ 0 }; // (frames ended: RendererOnSwapImpl)
++uint32_t g_watchAux = 0xFFFFFFFFu; // (a second fetch constant whose address each hit carries, regpu::SetFetchWatchAux)
 +}
 +
 +void FetchWatchDraw(const CompiledShader& vs)
 +{
 +    if (!g_watchOn)
 +        return;
-+    {
-+        static int draws = 0;
-+        if (draws < 3 && getenv("REGPU_FETCH_WATCH_LOG"))
-+        {
-+            draws++;
-+            Log("fetch watch: a draw while on (vs %016llx, %zu fetch constants)", (unsigned long long)vs.hash, vs.info.vertexFetchConstants.size());
-+        }
-+    }
 +    bool reads = false;
 +    for (uint32_t k : vs.info.vertexFetchConstants)
 +        reads = reads || k == g_watchSlot;
 +    if (!reads)
 +        return;
 +    const uint32_t d0 = gpureg::Get(gpureg::FetchConstants + g_watchSlot * 2), d1 = gpureg::Get(gpureg::FetchConstants + g_watchSlot * 2 + 1);
-+    {
-+        static int logged = 0;
-+        if (logged < 12 && getenv("REGPU_FETCH_WATCH_LOG"))
-+        {
-+            logged++;
-+            Log("fetch watch: vs %016llx reads vf%u: %08X size %u", (unsigned long long)vs.hash, g_watchSlot, d0 & 0xFFFFFFFC, ((d1 >> 2) & 0xFFFFFF) * 4);
-+        }
-+    }
-+    if (((d1 >> 2) & 0xFFFFFF) * 4 != g_watchBytes)
++    const uint32_t size = ((d1 >> 2) & 0xFFFFFF) * 4;
++    if (g_watchBytes && size != g_watchBytes)
 +        return;
 +    regpu::FetchWatchHit h{};
 +    h.address = d0 & 0xFFFFFFFC;
++    h.bytes = size;
++    h.frame = uint32_t(g_watchFrame.load(std::memory_order_relaxed));
++    h.aux = g_watchAux < 96 ? gpureg::Get(gpureg::FetchConstants + g_watchAux * 2) & 0xFFFFFFFC : 0;
 +    for (int c = 0; c < 6; c++)
 +        for (int j = 0; j < 4; j++)
 +        {
@@ -83,17 +80,16 @@ index 57b7bfa..5a32cfe 100644
 +            memcpy(&h.constants[c][j], &bits, 4);
 +        }
 +    std::lock_guard lock(g_watchMutex);
-+    for (const regpu::FetchWatchHit& o : g_watchHits)
-+        if (o.address == h.address)
-+            return; // (each table once: a car draws it for many parts)
-+    if (g_watchHits.size() < 4096)
++    if (!g_watchSeen.insert((uint64_t(h.frame) << 32) | h.address).second)
++        return; // (each buffer once a frame: e.g. a car draws its damage table for many parts)
++    if (g_watchHits.size() < 65536)
 +        g_watchHits.push_back(h);
 +}
 +
  void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
  {
      // (PassScales: asks in this draw after the first skip the register reads; 0 again when the draw returns.)
-@@ -15005,6 +15061,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
+@@ -15005,6 +15052,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
          ~PsAlias() { C().psHash = real; C().vsHash = realVs; }
      } psAlias;
      const CompiledShader& vs = GetShader(C().vsHash, C().vsCode, false);
@@ -101,7 +97,7 @@ index 57b7bfa..5a32cfe 100644
      // Memory export (eA/eM registers) is not emulated: its writes are dropped. Say so once per shader, so a title that
      // builds data with it (PGR3 port: a lighting table that stays zero) shows up in the log, not only in a capture.
      if (vs.info.memExport)
-@@ -18467,6 +18524,27 @@ void regpu::SetFrameFeedTag(uint32_t tag)
+@@ -18467,8 +18515,38 @@ void regpu::SetFrameFeedTag(uint32_t tag)
      g_feedTag.store(tag, std::memory_order_relaxed);
  }
  
@@ -113,7 +109,14 @@ index 57b7bfa..5a32cfe 100644
 +    for (int c = 0; c < 6; c++)
 +        g_watchConst[c] = constants ? constants[c] : 0;
 +    g_watchHits.clear();
++    g_watchSeen.clear();
 +    g_watchOn = on;
++}
++
++void regpu::SetFetchWatchAux(uint32_t slot)
++{
++    std::lock_guard lock(g_watchMutex);
++    g_watchAux = slot;
 +}
 +
 +size_t regpu::TakeFetchWatch(FetchWatchHit* out, size_t max)
@@ -123,9 +126,13 @@ index 57b7bfa..5a32cfe 100644
 +    for (size_t i = 0; i < n; i++)
 +        out[i] = g_watchHits[i];
 +    g_watchHits.clear();
++    g_watchSeen.clear();
 +    return n;
 +}
 +
  void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
  {
++    g_watchFrame.fetch_add(1, std::memory_order_relaxed);
      LogSurfaceUse();
+     if (regpu::GetHost().onSwap)
+         regpu::GetHost().onSwap(g_r.frame);
