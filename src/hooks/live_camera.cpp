@@ -788,7 +788,7 @@ uint64_t g_carTableHash[16] = {};
 int g_probe = 0; // 0 idle, 1 collecting damage tables, 2 collecting the cars' part buffers (stage B held)
 ULONGLONG g_probeAt = 0, g_probeTry = 0;
 bool g_partsWanted = false; // a parts probe is due (after a damage change, and once when all tables are mapped)
-ULONGLONG g_partsAt = 0;
+ULONGLONG g_partsAt = 0, g_partsLast = 0;
 }
 
 bool LiveProbeFrame()
@@ -987,8 +987,11 @@ static void DamageFrame(uint8_t* base, SOCKET s, const Target& target, double ti
         g_probe = 1;
         g_probeAt = g_probeTry = now;
     }
-    else if (g_probe == 0 && g_partsWanted && !unmapped && StageB() && now >= g_partsAt)
+    else if (g_probe == 0 && g_partsWanted && !unmapped && StageB() && now >= g_partsAt && now - g_partsLast >= 5000)
     {
+        // (at most every 5 s: a car scraping along a wall changes its table all the time, and each probe is a 0.5 s
+        // pause of stage B, the game drawing everything)
+        g_partsLast = now;
         // (the cars' part buffers: vertex fetch 95, any size, with the draw's world translation vc11)
         static const uint32_t consts[6] = { 11, 8, 9, 10, 0, 0 }; // (c8-c11: the part's world matrix as drawn)
         regpu::SetFetchWatchAux(94); // (each hit's damage table: which car's)
