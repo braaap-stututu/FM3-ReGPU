@@ -29,6 +29,8 @@
 #include "log.h"
 #include "settings.h"
 
+bool StageB(); // src/hooks/stage_b.cpp: the game leaves the race's drawing to the Godot viewer
+
 namespace
 {
 int Rate()
@@ -130,6 +132,10 @@ bool SkipInMirror(uint32_t function, uint32_t lr)
 {
     if (!g_inMirror)
     {
+        // (stage B: every world step of the scene renderer, all but the cars' loop sub_82837530, whose per-car calls
+        // still feed the live stream: sub_828329C8 below)
+        if (function != 0x82837530 && function != 0x828329C8 && StageB())
+            return true;
         ReadSkips();
         for (int i = 0; i < g_sceneSkipCount; i++)
             if (g_sceneSkip[i] == lr || g_sceneSkip[i] == function)
@@ -182,6 +188,9 @@ FM3_MIRROR_STEP(828339F0)
 FM3_MIRROR_STEP(82833A78)
 FM3_MIRROR_STEP(8283A128)
 FM3_MIRROR_STEP(82835E18)
+// (2026-11-27, stage B: what the scene renderer still drew with the steps above skipped, from a render-thread profile:
+// sub_828878C0 -> sub_82886CE8 -> sub_82886280; the crowd's draw, by its picture)
+FM3_MIRROR_STEP(828878C0)
 
 // Car detail in the mirror (session 27). sub_82837530 draws the cars; per car it calls sub_828329C8 with r10 = an
 // object whose +596 holds the car's detail level. The main view ranks the cars and sets +596 = 0 for the nearest
@@ -228,6 +237,11 @@ PPC_FUNC(sub_828329C8)
         LiveCarDrawn(base, ctx.r4.u32, args);
         DataOutCarDrawn(base, ctx.r4.u32); // (FM3_DATA_OUT: Forza Data Out telemetry)
     }
+    if (StageB())
+    {
+        ctx.r3.u64 = 0;
+        return; // (stage B: the car is streamed above, Godot draws it)
+    }
     if (farLod > 0 && uint32_t(ctx.lr) == 0x82837F0C)
     {
         const uint32_t field = ctx.r10.u32 + 596;
@@ -272,6 +286,8 @@ PPC_FUNC(sub_827FDB88)
     const int rate = Rate();
     if (rate > 1 && calls++ % uint64_t(rate) != 0)
         return; // (the mirror keeps last frame's picture)
+    if (StageB())
+        return; // (stage B: the viewer draws the mirror's view, if any)
     ReadSkips();
     g_inMirror = true;
     __imp__sub_827FDB88(ctx, base);

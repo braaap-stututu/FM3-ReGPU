@@ -49,10 +49,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 #include "hooks/data_out.h"
 #include "hooks/live_camera.h"
 #include "log.h"
+#include "settings.h"
 
 namespace
 {
@@ -131,7 +133,16 @@ const Target& CurrentTarget()
         return target;
     lastRead = now;
     char buf[128] = {};
-    GetEnvironmentVariableA("FM3_LIVE", buf, sizeof(buf));
+    if (!GetEnvironmentVariableA("FM3_LIVE", buf, sizeof(buf)))
+    {
+        // (no FM3_LIVE in the environment: settings.ini live=<1 | host:port>, or stage_b=1, which needs the stream:
+        // stage_b.cpp, 2026-11-27)
+        static const std::string fromSettings = [] {
+            const std::string l = GetSettings().Extra("live");
+            return !l.empty() && l != "0" ? l : GetSettings().Extra("stage_b") == "1" ? std::string("1") : std::string();
+        }();
+        strncpy_s(buf, fromSettings.c_str(), sizeof(buf) - 1);
+    }
     if (strcmp(buf, last) == 0)
         return target;
     strcpy_s(last, buf);

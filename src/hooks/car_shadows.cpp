@@ -64,7 +64,8 @@ PPC_FUNC(sub_827B5088)
 {
     static uint64_t frames = 0;
     const int rate = Rate();
-    g_skipPasses = rate > 1 && frames++ % uint64_t(rate) != 0;
+    bool StageB(); // src/hooks/stage_b.cpp: the Godot viewer draws the car shadows
+    g_skipPasses = (rate > 1 && frames++ % uint64_t(rate) != 0) || StageB();
     __imp__sub_827B5088(ctx, base);
     g_skipPasses = false;
 }

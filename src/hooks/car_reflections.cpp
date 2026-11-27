@@ -63,5 +63,8 @@ PPC_FUNC(sub_827FF238)
     const uint64_t c = calls++;
     if (rate > 1 && (c / group) % uint64_t(rate) != 0)
         return; // (the faces keep their last images)
+    bool StageB(); // src/hooks/stage_b.cpp
+    if (StageB())
+        return; // (stage B: the Godot viewer renders its own reflection cube)
     __imp__sub_827FF238(ctx, base);
 }

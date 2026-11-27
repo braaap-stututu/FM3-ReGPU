@@ -704,6 +704,10 @@
         <div><div class="toggle-title">Telemetry out (SimHub)</div><div class="toggle-sub">Forza Data Out on 127.0.0.1:5300, off by default</div></div>
         <button class="switch" id="telemetryOut" role="switch"></button>
       </div>
+      <div class="toggle-row" data-tip="Stage B of the Godot renderer: in races the game stops drawing the track, the cars, the crowd, the mirror, the car reflections and the shadows (its window keeps only its HUD) and streams the race to the Godot viewer (frame-ir live.cmd), which draws it. The menus are drawn by the game as before. Races run at 120 fps (stage_b_fps= in settings.ini). Turns the live stream on. Read when the game starts; FM3_STAGE_B=0/1 switches it live.">
+        <div><div class="toggle-title">Godot renders races (stage B)</div><div class="toggle-sub">Needs the Godot viewer running, off by default</div></div>
+        <button class="switch" id="stageB" role="switch"></button>
+      </div>
     </section>
     </div>
   </main>

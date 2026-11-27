@@ -36,17 +36,44 @@ uint32_t FrontEndLimit()
 }
 }
 
-void FrontEndRateScenario(uint32_t index)
+uint32_t StageBRaceCap(); // src/hooks/stage_b.cpp: the race's cap with stage B on (0 = off)
+void StageBScenario(uint32_t index);
+
+namespace
+{
+uint32_t g_lastIndex = 0;
+uint32_t g_applied = 0;
+
+void ApplyCapFor(uint32_t index)
 {
     // (Our settings keep the player's cap; regpu::SetFrameLimit changes ReGPU's copy only.)
     const uint32_t userCap = GetSettings().maxFps, limit = FrontEndLimit();
-    if (!limit || limit >= userCap)
+    if (!g_applied)
+        g_applied = userCap;
+    uint32_t cap = userCap;
+    const char* why = "race";
+    if (index == 0 && limit && limit < userCap)
+        cap = std::max(limit, 30u), why = "front end, menus animate per frame";
+    else if (index != 0)
+        if (const uint32_t b = StageBRaceCap())
+            cap = b, why = "race, stage B";
+    if (cap == g_applied)
         return;
-    static uint32_t applied = userCap;
-    const uint32_t cap = index == 0 ? std::max(limit, 30u) : userCap;
-    if (cap == applied)
-        return;
-    applied = cap;
+    g_applied = cap;
     regpu::SetFrameLimit(cap, GetSettings().vsync);
-    Log("front end: frame limit %u fps (%s; cap %u)", cap, index == 0 ? "front end, menus animate per frame" : "race", userCap);
+    Log("front end: frame limit %u fps (%s; cap %u)", cap, why, userCap);
+}
+}
+
+void FrontEndRateScenario(uint32_t index)
+{
+    g_lastIndex = index;
+    StageBScenario(index);
+    ApplyCapFor(index);
+}
+
+// Stage B turned on or off (stage_b.cpp): the cap for the scenario as it is.
+void FrontEndRateRefresh()
+{
+    ApplyCapFor(g_lastIndex);
 }

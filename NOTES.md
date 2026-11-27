@@ -2,6 +2,25 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ 2026-11-27 (second PC, afternoon): stage B, the game leaves the race's drawing to the Godot viewer (a switch)
+- **What:** `src/hooks/stage_b.cpp` (user request: boot the game and race without its own rendering costing the frame
+  rate; a switch for now). While a race runs (renderer scenario 1; the front end draws as before) the game skips the
+  scene renderer's world steps (mirror.cpp's FM3_MIRROR_STEP list but the cars' loop, plus `sub_828878C0` = the crowd,
+  found by a render-thread profile with the rest skipped), each car's draw `sub_828329C8` *after* the live stream and
+  Data Out took the car and the drawn camera (main view call 82837F0C), the mirror (`sub_827FDB88`), the reflection
+  cube's faces (`sub_827FF238`) and the car shadow passes. The game's window keeps its HUD over a flat grey. Races run
+  at `stage_b_fps` (default 120; 0 = the player's cap); the frame cap is now decided in one place
+  (`frontend_rate.cpp` ApplyCapFor: front end 120, race the player's cap, stage B race its own).
+- **Switches:** settings.ini `stage_b=1` (launcher Settings toggle "Godot renders races (stage B)"), `FM3_STAGE_B=0/1`
+  (live, read 4x a second), `FM3_STAGE_B_FPS` / `stage_b_fps`. The live stream now also starts from settings.ini
+  (`live=1` or `host:port`, or `stage_b=1`); FM3_LIVE in the environment still wins.
+- **Measured** (frozen CrownJewel grid, 1280x720 4x MSAA, same boot, cap lifted): off 2,663-2,686 draws, 225-237 fps;
+  on 278-302 draws, 360 fps (the cap), GPU 1.6 ms a frame (clears, post-processing and the HUD at 4x), draw thread
+  ~25% busy. Racing with stage_b=1 from settings.ini alone: 120 fps, 278 draws, the viewer drew the race from the
+  stream. Not yet tested: leaving a race back to the menus (the scenario hook turns it off), the race's own menus
+  (pre-race, pause) are only in the game's window. Next: the game's frame in the Godot window for the menus, the
+  grey-keyed HUD / menus laid over Godot's race, the remaining fixed GPU passes.
+
 ### ▶ 2026-11-27 (second PC): race clock, position and lap data in the live stream (FM3E v9, FM3_LIVE only)
 - **FM3E v9** (`src/hooks/live_camera.cpp`, 132 bytes): + the race clock (s, physics object **+2772**: the HUD's race
   time to the millisecond on four frozen frames), the race position (1-based, u32 **+280 from where the player's race
