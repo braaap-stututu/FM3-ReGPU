@@ -30,6 +30,7 @@
 #include "settings.h"
 
 bool StageB(); // src/hooks/stage_b.cpp: the game leaves the race's drawing to the Godot viewer
+bool StageBKeeps(uint32_t function); // (stage_b.cpp: FM3_STAGE_B_KEEP, diagnosis)
 
 namespace
 {
@@ -133,8 +134,11 @@ bool SkipInMirror(uint32_t function, uint32_t lr)
     if (!g_inMirror)
     {
         // (stage B: every world step of the scene renderer, all but the cars' loop sub_82837530, whose per-car calls
-        // still feed the live stream: sub_828329C8 below)
-        if (function != 0x82837530 && function != 0x828329C8 && StageB())
+        // still feed the live stream: sub_828329C8 below, and sub_828374C8, which sets up the frame's view in the
+        // render object the stream reads its drawn camera from (FM3V): without it no FM3V came, and the viewer kept
+        // the last camera from before the race, e.g. the intro's start-line view (2026-11-27, found by bisecting the
+        // steps live with FM3_STAGE_B_KEEP on a running Free Play race))
+        if (function != 0x82837530 && function != 0x828329C8 && function != 0x828374C8 && StageB() && !StageBKeeps(function))
             return true;
         ReadSkips();
         for (int i = 0; i < g_sceneSkipCount; i++)

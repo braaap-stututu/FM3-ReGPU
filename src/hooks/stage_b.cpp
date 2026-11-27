@@ -97,6 +97,41 @@ bool StageB()
     return g_active.load(std::memory_order_relaxed);
 }
 
+// FM3_STAGE_B_KEEP=<hex>[,<hex>...] (live; a diagnosis switch): scene steps (mirror.cpp's list) that still run in stage B.
+bool StageBKeeps(uint32_t function)
+{
+    static uint32_t keep[16] = {};
+    static int count = 0;
+    static int64_t next = 0;
+    const int64_t now = std::chrono::steady_clock::now().time_since_epoch().count();
+    if (now >= next)
+    {
+        next = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::milliseconds(250)).count();
+        char v[256] = {};
+        GetEnvironmentVariableA("FM3_STAGE_B_KEEP", v, sizeof(v));
+        static std::string last;
+        if (last != v)
+        {
+            last = v;
+            count = 0;
+            for (const char* p = v; *p && count < 16;)
+            {
+                char* end = nullptr;
+                const unsigned long a = strtoul(p, &end, 16);
+                if (end == p)
+                    break;
+                keep[count++] = uint32_t(a);
+                p = *end ? end + 1 : end;
+            }
+            Log("stage B: keeping %d scene step(s): %s", count, v[0] ? v : "(none)");
+        }
+    }
+    for (int i = 0; i < count; i++)
+        if (keep[i] == function)
+            return true;
+    return false;
+}
+
 // The race's frame cap with stage B active (0: not active), for frontend_rate.cpp.
 uint32_t StageBRaceCap()
 {

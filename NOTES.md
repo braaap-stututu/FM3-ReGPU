@@ -25,7 +25,13 @@
   once a second: the last `Media\Tracks\<track>\[Ribbon_NN]` folder the game opened a file in, from
   `src/kernel/imports_io.cpp` OpenFile; the menus' UI* scenes left out); the viewer restarts itself on
   `out/world/<track>.gltf` when it differs (checked: started on CrownJewel, the game loaded RoadAtlanta from Free Play,
-  the viewer came back on RoadAtlanta and drew it). Not yet tested: leaving a race back to the menus (the scenario hook turns it off), the race's own menus
+  the viewer came back on RoadAtlanta and drew it). **Fixed the same day (user report: the viewer stayed on a
+  start-line camera when the race began):** with every scene step skipped no FM3V (the drawn camera) came at all, so the
+  viewer kept the last one from before the race (the grid test skips the intro, so the CrownJewel tests missed it).
+  Bisected live on a running Free Play race (`FM3_STAGE_B_KEEP=<hex,...>`, steps that still run in stage B; packets
+  counted by a UDP listener): `sub_828374C8` sets up the frame's view in the render object; stage B now always runs it
+  (FM3V back at 60 a second, 304 draws a frame against ~300). Checked: RoadAtlanta, AI driving the player, the viewer in
+  the chase view behind the car mid-race. Not yet tested: leaving a race back to the menus (the scenario hook turns it off), the race's own menus
   (pre-race, pause) are only in the game's window. Next: the game's frame in the Godot window for the menus, the
   grey-keyed HUD / menus laid over Godot's race, the remaining fixed GPU passes.
 
