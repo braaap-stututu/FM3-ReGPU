@@ -108,9 +108,11 @@ void AnimDump(PPCContext& ctx, uint8_t* base)
     for (int i = 0; i < kSamples; i++)
     {
         ctx = saved;
-        ctx.f1.f64 = double(i) / 30.0;
+        // (the codec's time is normalized, 0 .. 1 over the animation: the race load samples at 0 and 1, and past 1 it
+        // extrapolates; the samples are evenly spaced over it, the file's t = their place 0 .. 1)
+        ctx.f1.f64 = double(i) / double(kSamples - 1);
         __imp__sub_82AABED0(ctx, base);
-        const float t = float(i) / 30.0f;
+        const float t = float(i) / float(kSamples - 1);
         fwrite(&t, 4, 1, f);
         fwrite(base + out, 1, size_t(tracks) * 48, f);
     }
