@@ -59,11 +59,14 @@ bool AnimDumpOn()
 void AnimDump(PPCContext& ctx, uint8_t* base)
 {
     const uint32_t inst = ctx.r3.u32;
-    const uint32_t data = LoadBE32(inst + 0x0C);
+    // (the animation's own data: +0x00 for the crowd's 17-bone instances, which share +0x0C and live in the A0000000
+    // mirror of physical memory; +0x0C for the drivers')
+    const uint32_t data0 = LoadBE32(inst + 0x00);
+    const uint32_t data = (data0 >= 0xA0000000u && data0 < 0xC0000000u) ? data0 : LoadBE32(inst + 0x0C);
     const uint32_t tracks = ctx.r10.u32;
-    if (tracks == 0 || tracks > 128 || data < 0x40000000 || data >= 0x7FFFF000)
+    if (tracks == 0 || tracks > 128 || data < 0x40000000)
         return;
-    static uint32_t done[64] = {};
+    static uint32_t done[128] = {};
     for (uint32_t& d : done)
     {
         if (d == data)
@@ -80,8 +83,15 @@ void AnimDump(PPCContext& ctx, uint8_t* base)
     FILE* f = fopen(path, "wb");
     if (!f)
         return;
-    constexpr int kSamples = 181;
-    const uint32_t header[4] = { 0x41334D46u /* 'FM3A' little-endian */, tracks, kSamples, data };
+    // (181 samples (0-6 s at 30 a second), or the animation's own length when its record says it: frames at +34)
+    int kSamples = 181;
+    if (memcmp(base + data, "animation", 9) == 0)
+    {
+        const uint32_t frames = (uint32_t(base[data + 34]) << 8) | base[data + 35];
+        if (frames > 0 && frames < 2000)
+            kSamples = int(frames) + 1;
+    }
+    const uint32_t header[4] = { 0x41334D46u /* 'FM3A' little-endian */, tracks, uint32_t(kSamples), data };
     fwrite(header, 4, 4, f);
     fwrite(base + inst, 1, 64, f);
     fwrite(base + data, 1, 256, f);
@@ -119,7 +129,7 @@ PPC_FUNC(sub_82AABED0)
         __imp__sub_82AABED0(ctx, base);
         return;
     }
-    static uint32_t seen[8] = {};
+    static uint32_t seen[128] = {};
     static int calls = 0;
     const uint32_t anim = ctx.r3.u32;
     bool fresh = false;
