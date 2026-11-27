@@ -3,6 +3,13 @@
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
 ### ▶ 2026-11-27 (second PC, evening, 14:09-24:00 session): the user's notes worked through
+- **Crash damage per car ("FM3D", 2026-11-27 ~16:00):** each car's 32,000-byte damage lattice (vertex fetch 94) is
+  mapped to its car by ReGPU's new fetch watch (patch `regpu-fetch-watch.patch`, `regpu::SetFetchWatch`/`TakeFetchWatch`):
+  `live_camera.cpp` DamageFrame holds stage B for 0.5 s (`stage_b.cpp` StageBHold) while cars lack a table, and gives
+  each recorded table to the car nearest the draw's vc11 (8 of 8 on the CrownJewel grid in ~15 s). Tables are hashed 4x
+  a second and sent when changed / every 2 s, one car (4 x 8,080-byte packets) a frame, 1 MB socket send buffer (bursts
+  of 32 were dropped). The viewer deforms the library cars (frame-ir LIVE.md "Crash damage, built"). Tested by poking
+  tables through the debug server; not yet with a real crash.
 - **Brake lights per car ("FM3B"):** `live_camera.cpp` FindAllPhysics finds every race participant's physics object
   (the participant class word 500 bytes before the pointer, the player's physics vtable), MapPhysics matches each to a
   known car by position (physics +2544 against the body's), and SendBrakes sends every car's brake (+3412) and
