@@ -54,6 +54,8 @@
 
 #include "hooks/data_out.h"
 #include "hooks/live_camera.h"
+#include <regpu/regpu.h>
+
 #include "log.h"
 #include "settings.h"
 
@@ -594,6 +596,7 @@ void SendCar(uint8_t* base, SOCKET s, const Target& target, const CarPacket& p)
 namespace
 {
 uint32_t g_known[16] = {};
+uint32_t g_carTable[16] = {}; // (per known car: its damage table's physical address, 0 = not mapped: DamageFrame)
 uint32_t g_knownPhys[16] = {}; // (each known car's physics object, 0 = not matched: MapPhysics)
 uint32_t g_mainViews[4] = {}; // render objects the main view's car draws use (args[6] at 82837F0C)
 bool CarMatrixOk(uint8_t* base, uint32_t car)
@@ -631,6 +634,8 @@ void LiveResetCars()
 {
     for (uint32_t& c : g_known)
         c = 0;
+    for (uint32_t& c : g_carTable)
+        c = 0;
     for (uint32_t& c : g_knownPhys)
         c = 0;
     for (uint32_t& v : g_mainViews)
@@ -638,6 +643,7 @@ void LiveResetCars()
 }
 
 static void SendBrakes(uint8_t* base, SOCKET s, const Target& target, double time); // (below)
+static void DamageFrame(uint8_t* base, SOCKET s, const Target& target, double time); // (below)
 // Every known car's body and wheels (but `except`, which the caller sends itself).
 void SendKnownCars(uint8_t* base, SOCKET s, const Target& target, double time, uint32_t except)
 {
@@ -752,6 +758,171 @@ static void SendBrakes(uint8_t* base, SOCKET s, const Target& target, double tim
         return;
     b.time = time;
     sendto(s, reinterpret_cast<const char*>(&b), int(sizeof(b)), 0, reinterpret_cast<const sockaddr*>(&target.addr), int(sizeof(target.addr)));
+}
+
+// Crash damage ("FM3D", 2026-11-27). Each car's paint and parts deform by a 10 x 10 x 10 lattice around the car (vertex
+// fetch 94: 1,000 cells of 32 bytes, each cell's 8 corner amounts; the lattice's origin / inverse extent / the model's
+// offset / the clamps in vertex constants 41 / 42 / 190 / 58; frame-ir LIVE.md "Crash damage"). Which table is which car's
+// is not found in memory; it is taken from the draws: when cars have no table yet, stage B pauses for 0.5 s (the game
+// draws normally) while ReGPU's fetch watch records each draw reading a 32,000-byte fetch 94 with those constants and
+// the draw's world translation (vc11); each table goes to the known car whose body is nearest that position. Then each
+// mapped car's table is hashed 4 times a second and sent when it changes (and every 2 s), in 4 packets of 8,000 bytes.
+#pragma pack(push, 1)
+struct DamagePacket
+{
+    char magic[4]; // "FM3D"
+    uint32_t version; // 1
+    uint32_t car;
+    uint32_t chunk; // 0..3: bytes chunk * 8000 .. +8000 of the 32,000-byte table (big-endian floats, as in memory)
+    float constants[4][4]; // vc41 (origin), vc42 (inverse extent), vc190 (model offset), vc58 (clamps)
+    uint8_t data[8000];
+};
+#pragma pack(pop)
+static_assert(sizeof(DamagePacket) == 8080, "live damage packet layout");
+namespace
+{
+float g_carLattice[16][4][4] = {};
+uint64_t g_carTableHash[16] = {};
+int g_probe = 0; // 0 idle, 1 collecting (stage B held)
+ULONGLONG g_probeAt = 0, g_probeTry = 0;
+}
+
+bool LiveProbeFrame()
+{
+    return false;
+}
+
+bool LiveCarProbe(uint32_t)
+{
+    return false;
+}
+
+static void DamageFrame(uint8_t* base, SOCKET s, const Target& target, double time)
+{
+    bool StageB();
+    bool StageBEnabled();
+    void StageBHold(bool);
+    const ULONGLONG now = GetTickCount64();
+    if (g_probe == 1 && now - g_probeAt >= 500)
+    {
+        static regpu::FetchWatchHit hits[4096];
+        const size_t n = regpu::TakeFetchWatch(hits, 4096);
+        {
+            // (what the draws hold: each distinct table once, its vc11 beside the known cars' positions)
+            static int dumps = 0;
+            if (dumps++ < 2)
+            {
+                uint32_t seenT[32] = {};
+                int ns = 0;
+                for (size_t i = 0; i < n && ns < 32; i++)
+                {
+                    bool dup = false;
+                    for (int q = 0; q < ns; q++)
+                        dup = dup || seenT[q] == hits[i].address;
+                    if (dup)
+                        continue;
+                    seenT[ns++] = hits[i].address;
+                    Log("live: damage probe: table %08X vc11 %.2f %.2f %.2f %.2f vc41 %.2f %.2f %.2f", hits[i].address, hits[i].constants[4][0],
+                        hits[i].constants[4][1], hits[i].constants[4][2], hits[i].constants[4][3], hits[i].constants[0][0], hits[i].constants[0][1],
+                        hits[i].constants[0][2]);
+                }
+                auto ff = [&](uint32_t a) {
+                    const uint32_t b = Load32(base, a);
+                    float v;
+                    memcpy(&v, &b, 4);
+                    return v;
+                };
+                for (int k = 0; k < 16; k++)
+                    if (g_known[k])
+                        Log("live: damage probe: car %08X at %.2f %.2f %.2f", g_known[k], ff(g_known[k] + kCarBody + 48), ff(g_known[k] + kCarBody + 52),
+                            ff(g_known[k] + kCarBody + 56));
+            }
+        }
+        regpu::SetFetchWatch(false, 0, 0, nullptr);
+        StageBHold(false);
+        g_probe = 0;
+        auto f = [&](uint32_t a) {
+            const uint32_t b = Load32(base, a);
+            float v;
+            memcpy(&v, &b, 4);
+            return v;
+        };
+        int mapped = 0;
+        for (size_t i = 0; i < n; i++)
+        {
+            const float* w = hits[i].constants[4]; // vc11: the draw's world translation
+            int best = -1;
+            float bd = 4.0f; // (within 2 m)
+            for (int k = 0; k < 16; k++)
+            {
+                if (!g_known[k])
+                    continue;
+                const float dx = f(g_known[k] + kCarBody + 48) - w[0], dy = f(g_known[k] + kCarBody + 52) - w[1], dz = f(g_known[k] + kCarBody + 56) - w[2];
+                const float d = dx * dx + dy * dy + dz * dz;
+                if (d < bd)
+                    bd = d, best = k;
+            }
+            if (best >= 0 && g_carTable[best] != hits[i].address)
+            {
+                if (!g_carTable[best])
+                    mapped++;
+                g_carTable[best] = hits[i].address;
+                memcpy(g_carLattice[best], hits[i].constants, sizeof(g_carLattice[best]));
+                g_carTableHash[best] = 0;
+            }
+        }
+        int have = 0, known = 0;
+        for (int k = 0; k < 16; k++)
+            known += g_known[k] != 0, have += g_known[k] && g_carTable[k];
+        Log("live: damage tables: %zu draws seen, %d cars newly matched, %d of %d known cars have theirs", n, mapped, have, known);
+    }
+    if (!StageBEnabled())
+        return;
+    bool unmapped = false;
+    for (int k = 0; k < 16; k++)
+        unmapped = unmapped || (g_known[k] && !g_carTable[k]);
+    if (g_probe == 0 && unmapped && StageB() && now - g_probeTry > 2000)
+    {
+        static const uint32_t consts[6] = { 41, 42, 190, 58, 11, 0 };
+        regpu::SetFetchWatch(true, 94, 32000, consts);
+        StageBHold(true);
+        g_probe = 1;
+        g_probeAt = g_probeTry = now;
+    }
+    // the tables: sent when they change (4 times a second at most) and every 2 s
+    static ULONGLONG lastCheck = 0, lastAll = 0;
+    if (now - lastCheck < 250)
+        return;
+    lastCheck = now;
+    const bool all = now - lastAll >= 2000;
+    if (all)
+        lastAll = now;
+    for (int k = 0; k < 16; k++)
+    {
+        if (!g_known[k] || !g_carTable[k])
+            continue;
+        const uint8_t* t = base + 0xA0000000u + g_carTable[k];
+        uint64_t h = 0xCBF29CE484222325ull;
+        for (int i = 0; i < 32000; i += 8)
+            h = (h ^ *reinterpret_cast<const uint64_t*>(t + i)) * 0x100000001B3ull;
+        if (h == g_carTableHash[k] && !all)
+            continue;
+        if (h != g_carTableHash[k] && g_carTableHash[k])
+            Log("live: car %08X damage table changed", g_known[k]);
+        g_carTableHash[k] = h;
+        DamagePacket d = {};
+        memcpy(d.magic, "FM3D", 4);
+        d.version = 1;
+        d.car = g_known[k];
+        memcpy(d.constants, g_carLattice[k], sizeof(d.constants));
+        for (uint32_t c = 0; c < 4; c++)
+        {
+            d.chunk = c;
+            memcpy(d.data, t + c * 8000, 8000);
+            sendto(s, reinterpret_cast<const char*>(&d), int(sizeof(d)), 0, reinterpret_cast<const sockaddr*>(&target.addr), int(sizeof(target.addr)));
+        }
+    }
+    (void)time;
 }
 
 // The main view's set-up (mirror.cpp's hook of sub_828374C8, which fills the frame's render object): its registers at
@@ -1087,6 +1258,8 @@ void LiveCameraHandOff(uint8_t* base, uint32_t view)
     const Target& target = CurrentTarget();
     if (!target.on || !view)
         return;
+    if (const SOCKET ds = Socket(); ds != INVALID_SOCKET)
+        DamageFrame(base, ds, target, 0.0); // (every logic frame: its own clock; a still camera sends no new frames)
     {
         static ULONGLONG lastTrack = 0;
         const ULONGLONG now = GetTickCount64();

@@ -100,10 +100,20 @@ void Update(bool now_ = false)
 }
 
 // Stage B is on and the renderer is set up for a race (render thread; cheap: the environment is read 4 times a second).
+std::atomic<bool> g_stageBHold{ false };
+
 bool StageB()
 {
     Update();
-    return g_active.load(std::memory_order_relaxed);
+    return g_active.load(std::memory_order_relaxed) && !g_stageBHold.load(std::memory_order_relaxed);
+}
+
+// A short pause of stage B (live_camera.cpp: the game draws the cars normally for a moment, so ReGPU's fetch watch sees
+// each car's damage table): StageB() is false while held; the frame cap is left as it is.
+void StageBHold(bool hold)
+{
+    if (hold != g_stageBHold.exchange(hold))
+        Log("stage B: %s", hold ? "held (the game draws a moment: the cars' damage tables)" : "resumed");
 }
 
 // The switch is on (in any scenario; frontend_rate.cpp caps the front end at 60 with it).

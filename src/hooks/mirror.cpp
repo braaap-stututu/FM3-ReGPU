@@ -31,6 +31,7 @@
 
 bool StageB(); // src/hooks/stage_b.cpp: the game leaves the race's drawing to the Godot viewer
 bool StageBKeeps(uint32_t function); // (stage_b.cpp: FM3_STAGE_B_KEEP, diagnosis)
+bool LiveProbeFrame(); // (live_camera.cpp: this frame draws the cars for their damage tables)
 
 namespace
 {
@@ -138,7 +139,9 @@ bool SkipInMirror(uint32_t function, uint32_t lr)
         // render object the stream reads its drawn camera from (FM3V): without it no FM3V came, and the viewer kept
         // the last camera from before the race, e.g. the intro's start-line view (2026-11-27, found by bisecting the
         // steps live with FM3_STAGE_B_KEEP on a running Free Play race))
-        if (function != 0x82837530 && function != 0x828329C8 && function != 0x828374C8 && StageB() && !StageBKeeps(function))
+        // (and none in a damage probe frame, live_camera.cpp LiveCarProbe: the car draws only queue their draws, the steps
+        // submit them)
+        if (function != 0x82837530 && function != 0x828329C8 && function != 0x828374C8 && StageB() && !StageBKeeps(function) && !LiveProbeFrame())
             return true;
         ReadSkips();
         for (int i = 0; i < g_sceneSkipCount; i++)
@@ -256,7 +259,8 @@ PPC_FUNC(sub_828329C8)
         LiveCarDrawn(base, ctx.r4.u32, args);
         DataOutCarDrawn(base, ctx.r4.u32); // (FM3_DATA_OUT: Forza Data Out telemetry)
     }
-    if (StageB())
+    bool LiveCarProbe(uint32_t car); // (live_camera.cpp: a probe frame draws the main view's cars, for their damage tables)
+    if (StageB() && !(uint32_t(ctx.lr) == 0x82837F0C && LiveCarProbe(ctx.r4.u32)))
     {
         ctx.r3.u64 = 0;
         return; // (stage B: the car is streamed above, Godot draws it)
