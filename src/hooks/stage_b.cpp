@@ -38,6 +38,8 @@ void FrontEndRateRefresh(); // frontend_rate.cpp: the frame cap for the scenario
 
 namespace
 {
+std::atomic<uint32_t> g_feedTagBase{ 0 }; // (the frame feed's tag without the hold bit)
+std::atomic<bool> g_stageBHoldTag{ false };
 std::atomic<uint32_t> g_scenario{ 0xFFFFFFFFu }; // the renderer's scenario (0 front end, 1 race), from one_tile.cpp
 std::atomic<bool> g_enabled{ false };
 std::atomic<bool> g_active{ false };
@@ -86,7 +88,8 @@ void Update(bool now_ = false)
                 Log("stage B: the game's frames to frame_feed.bin for the Godot window (menus)");
             }
         }
-        regpu::SetFrameFeedTag(0x80000000u | (scenario & 0xFFu) | (active ? 0x100u : 0u));
+        g_feedTagBase.store(0x80000000u | (scenario & 0xFFu) | (active ? 0x100u : 0u), std::memory_order_relaxed);
+        regpu::SetFrameFeedTag(g_feedTagBase.load(std::memory_order_relaxed) | (g_stageBHoldTag.load(std::memory_order_relaxed) ? 0x200u : 0u));
     }
     if (active != g_active.exchange(active, std::memory_order_relaxed))
     {
@@ -114,6 +117,10 @@ void StageBHold(bool hold)
 {
     if (hold != g_stageBHold.exchange(hold))
         Log("stage B: %s", hold ? "held (the game draws a moment: the cars' damage tables)" : "resumed");
+    // (the frame feed's tag bit 9 while held: those frames show the game's own world, which the viewer must not lay
+    // over its picture as the HUD; it keeps its last overlay)
+    g_stageBHoldTag.store(hold, std::memory_order_relaxed);
+    regpu::SetFrameFeedTag(g_feedTagBase.load(std::memory_order_relaxed) | (hold ? 0x200u : 0u));
 }
 
 // The switch is on (in any scenario; frontend_rate.cpp caps the front end at 60 with it).
