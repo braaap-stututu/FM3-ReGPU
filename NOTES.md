@@ -3,6 +3,16 @@
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
 ### ▶ 2026-11-27 (second PC, evening, 14:09-24:00 session): the user's notes worked through
+- **Late evening (2026-11-27 ~19:40-23:20), the game side of the viewer work:** FM3B v3 (each wheel's surface byte
+  +621 and loose-surface value +352; 1c2621d) was the last recomp change. The rest was read from captures, no code
+  here: the crowd pixel shader b32f44c528968ecc (TrackSettings Crowds dark / light by n.l); the cockpit's light (vs
+  6190a07aa58ac0a9 / 618013738ec64643, ps 3bb8846d34e89025 / 1074f157fdbf9db8 / 4d69c5933acf8189 ...: the vertices'
+  SH transfer against the cockpit hemisphere and the sun, the shadow map, per-material parameters MinDiffuse /
+  UseDiffuseInsteadOfSH / CockpitSpecular* / MinShadowValue, named by shaders_v11.fxobj containers 65 / 66 / 71 /
+  78 / 79). Method: a capture per camera view (`press RB 500`; the first press is dropped), `REGPU_TRACE_VC=1` to log
+  the vertex constants (the "(read)" marks map the packed ranks to the game's numbers), and draws matched to the car's
+  subsets by their first indices. Trap: `ps <hash> tint` takes several seconds to show; a tint shot 4 s after the
+  edit can show the previous shader's tint. All in frame-ir LIVE.md "The cockpit's light" / "The crowd's light".
 - **Parts and loose parts ("FM3P" v3), the crowd buffer, the hold tag (2026-11-27 16:30-18:15):** live_camera.cpp
   PartsProbeDone: after a damage change a 0.5 s stage B hold records every fetch-95 vertex buffer per frame with its
   size, world matrix (c8-c11) and damage table (aux fetch 94 = which car); per car the buffers at its own translation
