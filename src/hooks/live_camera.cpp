@@ -368,7 +368,7 @@ static uint32_t FindParticipant(const uint8_t* base, uint32_t phys)
     }
     return 0;
 }
-constexpr uint32_t kThrottle = 3408, kCarBrake = 3412, kGear = 1937, kClutch = 2672;
+constexpr uint32_t kThrottle = 3408, kCarBrake = 3412, kSteering = 3416, kGear = 1937, kClutch = 2672;
 
 // Every race participant's physics object (2026-11-27, for each car's brake lights: the viewer guessed the AI cars'
 // from their deceleration, which lit them when a car only lifted off): the participants are found as FindParticipant
@@ -682,18 +682,19 @@ void SendKnownCars(uint8_t* base, SOCKET s, const Target& target, double time, u
 struct BrakePacket
 {
     char magic[4]; // "FM3B"
-    uint32_t version; // 1
+    uint32_t version; // 2 (2026-11-27: + steering)
     uint32_t count;
     struct
     {
         uint32_t car;
         float brake; // 0..1 (physics +3412)
         float throttle; // 0..1 (physics +3408)
+        float steer; // the car's own steering (physics +3416: the AI's too; the viewer turns its steering wheel by it)
     } cars[16];
     double time;
 };
 #pragma pack(pop)
-static_assert(sizeof(BrakePacket) == 212, "live brake packet layout");
+static_assert(sizeof(BrakePacket) == 276, "live brake packet layout");
 static void MapPhysics(uint8_t* base)
 {
     const uint32_t player = g_playerPhysics.load();
@@ -741,7 +742,7 @@ static void SendBrakes(uint8_t* base, SOCKET s, const Target& target, double tim
     MapPhysics(base);
     BrakePacket b = {};
     memcpy(b.magic, "FM3B", 4);
-    b.version = 1;
+    b.version = 2;
     auto f = [&](uint32_t a) {
         const uint32_t v = Load32(base, a);
         float x;
@@ -754,6 +755,7 @@ static void SendBrakes(uint8_t* base, SOCKET s, const Target& target, double tim
             b.cars[b.count].car = g_known[k];
             b.cars[b.count].brake = f(g_knownPhys[k] + kCarBrake);
             b.cars[b.count].throttle = f(g_knownPhys[k] + kThrottle);
+            b.cars[b.count].steer = f(g_knownPhys[k] + kSteering);
             b.count++;
         }
     if (!b.count)
