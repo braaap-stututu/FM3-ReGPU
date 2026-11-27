@@ -2,6 +2,13 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ 2026-11-27 (second PC, evening, 14:09-24:00 session): the user's notes worked through
+- **Brake lights per car ("FM3B"):** `live_camera.cpp` FindAllPhysics finds every race participant's physics object
+  (the participant class word 500 bytes before the pointer, the player's physics vtable), MapPhysics matches each to a
+  known car by position (physics +2544 against the body's), and SendBrakes sends every car's brake (+3412) and
+  throttle (+3408) once a frame. Grid race, AI driving: 8 of 8 matched, each braking 10-16% of the time. The game's
+  own shots: its brake lamps are binary (the CR-X's fully lit at a 7% brake, dark at 0).
+
 ### ▶ 2026-11-27 (second PC, afternoon): stage B, the game leaves the race's drawing to the Godot viewer (a switch)
 - **What:** `src/hooks/stage_b.cpp` (user request: boot the game and race without its own rendering costing the frame
   rate; a switch for now). While a race runs (renderer scenario 1; the front end draws as before) the game skips the

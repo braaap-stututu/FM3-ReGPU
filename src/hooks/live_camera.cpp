@@ -365,6 +365,41 @@ static uint32_t FindParticipant(const uint8_t* base, uint32_t phys)
     return 0;
 }
 constexpr uint32_t kThrottle = 3408, kCarBrake = 3412, kGear = 1937, kClutch = 2672;
+
+// Every race participant's physics object (2026-11-27, for each car's brake lights: the viewer guessed the AI cars'
+// from their deceleration, which lit them when a car only lifted off): the participants are found as FindParticipant
+// finds the player's (the word 500 bytes before the pointer is the class's 0x8286B06C), keeping the pointers to objects
+// with the player's physics vtable.
+static int FindAllPhysics(const uint8_t* base, uint32_t vtable, uint32_t out[16])
+{
+    int n = 0;
+    for (uint64_t a = 0x40000000; a < 0x50000000ull && n < 16;)
+    {
+        MEMORY_BASIC_INFORMATION mi{};
+        if (!VirtualQuery(base + a, &mi, sizeof(mi)))
+            break;
+        const uint64_t start = uint64_t(static_cast<const uint8_t*>(mi.BaseAddress) - base), end = start + mi.RegionSize;
+        if (mi.State == MEM_COMMIT && (mi.Protect & (PAGE_READWRITE | PAGE_READONLY | PAGE_EXECUTE_READWRITE)) &&
+            !(mi.Protect & PAGE_GUARD))
+        {
+            const uint32_t* p = reinterpret_cast<const uint32_t*>(base + start);
+            for (uint64_t i = 125; i < (end - start) / 4 && n < 16; i++)
+                if (p[i - 125] == __builtin_bswap32(0x8286B06Cu))
+                {
+                    const uint32_t phys = __builtin_bswap32(p[i]);
+                    if (phys < 0x40000000 || phys >= 0x7FFFF000 || Load32(const_cast<uint8_t*>(base), phys) != vtable)
+                        continue;
+                    bool dup = false;
+                    for (int k = 0; k < n; k++)
+                        dup = dup || out[k] == phys;
+                    if (!dup)
+                        out[n++] = phys;
+                }
+        }
+        a = end;
+    }
+    return n;
+}
 constexpr uint32_t kSpeed = 2792, kWheelSpeed = 4164, kWheelStride = 1040, kTyreTemp = 3492, kSuspension = 3440;
 
 // The car object's shader settings list (a pointer to "Game:\Media\Cars\ShaderSettings\Normal.xml;...;
@@ -559,6 +594,7 @@ void SendCar(uint8_t* base, SOCKET s, const Target& target, const CarPacket& p)
 namespace
 {
 uint32_t g_known[16] = {};
+uint32_t g_knownPhys[16] = {}; // (each known car's physics object, 0 = not matched: MapPhysics)
 uint32_t g_mainViews[4] = {}; // render objects the main view's car draws use (args[6] at 82837F0C)
 bool CarMatrixOk(uint8_t* base, uint32_t car)
 {
@@ -595,10 +631,13 @@ void LiveResetCars()
 {
     for (uint32_t& c : g_known)
         c = 0;
+    for (uint32_t& c : g_knownPhys)
+        c = 0;
     for (uint32_t& v : g_mainViews)
         v = 0;
 }
 
+static void SendBrakes(uint8_t* base, SOCKET s, const Target& target, double time); // (below)
 // Every known car's body and wheels (but `except`, which the caller sends itself).
 void SendKnownCars(uint8_t* base, SOCKET s, const Target& target, double time, uint32_t except)
 {
@@ -626,6 +665,93 @@ void SendKnownCars(uint8_t* base, SOCKET s, const Target& target, double time, u
         p.time = time;
         SendCar(base, s, target, p);
     }
+    SendBrakes(base, s, target, time);
+}
+
+// Each known car's brake and throttle ("FM3B", once a frame with the known cars): from its physics object, matched to
+// the car by position (physics +2544 against the car body's).
+#pragma pack(push, 1)
+struct BrakePacket
+{
+    char magic[4]; // "FM3B"
+    uint32_t version; // 1
+    uint32_t count;
+    struct
+    {
+        uint32_t car;
+        float brake; // 0..1 (physics +3412)
+        float throttle; // 0..1 (physics +3408)
+    } cars[16];
+    double time;
+};
+#pragma pack(pop)
+static_assert(sizeof(BrakePacket) == 212, "live brake packet layout");
+static void MapPhysics(uint8_t* base)
+{
+    const uint32_t player = g_playerPhysics.load();
+    if (player < 0x40000000 || player >= 0x80000000)
+        return;
+    bool missing = false;
+    for (int k = 0; k < 16; k++)
+        missing = missing || (g_known[k] && !g_knownPhys[k]);
+    static ULONGLONG last = 0;
+    const ULONGLONG now = GetTickCount64();
+    if (!missing || (last && now - last < 5000))
+        return;
+    last = now;
+    uint32_t phys[16] = {};
+    const int n = FindAllPhysics(base, Load32(base, player), phys);
+    auto f = [&](uint32_t a) {
+        const uint32_t b = Load32(base, a);
+        float v;
+        memcpy(&v, &b, 4);
+        return v;
+    };
+    int matched = 0;
+    for (int k = 0; k < 16; k++)
+    {
+        if (!g_known[k])
+            continue;
+        const uint32_t car = g_known[k];
+        const float cx = f(car + kCarBody + 48), cy = f(car + kCarBody + 52), cz = f(car + kCarBody + 56);
+        float best = 9.0f; // (within 3 m)
+        g_knownPhys[k] = 0;
+        for (int j = 0; j < n; j++)
+        {
+            const float dx = f(phys[j] + 2544) - cx, dy = f(phys[j] + 2548) - cy, dz = f(phys[j] + 2552) - cz;
+            const float d = dx * dx + dy * dy + dz * dz;
+            if (d < best)
+                best = d, g_knownPhys[k] = phys[j];
+        }
+        matched += g_knownPhys[k] != 0;
+    }
+    Log("live: %d physics objects found, %d of the known cars matched to theirs (brake lights, FM3B)", n, matched);
+}
+
+static void SendBrakes(uint8_t* base, SOCKET s, const Target& target, double time)
+{
+    MapPhysics(base);
+    BrakePacket b = {};
+    memcpy(b.magic, "FM3B", 4);
+    b.version = 1;
+    auto f = [&](uint32_t a) {
+        const uint32_t v = Load32(base, a);
+        float x;
+        memcpy(&x, &v, 4);
+        return x;
+    };
+    for (int k = 0; k < 16; k++)
+        if (g_known[k] && g_knownPhys[k] && Load32(base, g_knownPhys[k]) == Load32(base, g_playerPhysics.load()))
+        {
+            b.cars[b.count].car = g_known[k];
+            b.cars[b.count].brake = f(g_knownPhys[k] + kCarBrake);
+            b.cars[b.count].throttle = f(g_knownPhys[k] + kThrottle);
+            b.count++;
+        }
+    if (!b.count)
+        return;
+    b.time = time;
+    sendto(s, reinterpret_cast<const char*>(&b), int(sizeof(b)), 0, reinterpret_cast<const sockaddr*>(&target.addr), int(sizeof(target.addr)));
 }
 
 // The main view's set-up (mirror.cpp's hook of sub_828374C8, which fills the frame's render object): its registers at
