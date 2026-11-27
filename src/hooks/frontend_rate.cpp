@@ -53,13 +53,13 @@ void ApplyCapFor(uint32_t index)
         g_applied = userCap;
     uint32_t cap = userCap;
     const char* why = "race";
-    if (index == 0 && StageBEnabled() && std::min(limit ? limit : userCap, userCap) > 60)
+    if (const uint32_t b = StageBRaceCap())
+        cap = b, why = "stage B: race or pre-race";
+    else if (index == 0 && StageBEnabled() && std::min(limit ? limit : userCap, userCap) > 60)
         cap = 60, why = "front end with stage B: the Godot window shows it through the 60 Hz frame feed, and the GPU is shared";
     else if (index == 0 && limit && limit < userCap)
         cap = std::max(limit, 30u), why = "front end, menus animate per frame";
-    else if (index != 0)
-        if (const uint32_t b = StageBRaceCap())
-            cap = b, why = "race, stage B";
+
     if (cap == g_applied)
         return;
     g_applied = cap;

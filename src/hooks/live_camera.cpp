@@ -895,6 +895,7 @@ namespace
 {
 SRWLOCK g_trackLock = SRWLOCK_INIT;
 char g_track[32] = {}, g_ribbon[8] = {};
+std::atomic<bool> g_lastUi{ true }; // (the last Media/Tracks folder opened was a menu's UI* scene; true until one opens)
 }
 
 void LiveTrackFileOpened(const char* guest)
@@ -912,7 +913,18 @@ void LiveTrackFileOpened(const char* guest)
     if (!at)
         return;
     const char* end = strchr(at, '\\');
-    if (!end || end == at || size_t(end - at) >= sizeof(g_track) || _strnicmp(at, "UI", 2) == 0)
+    if (!end || end == at || size_t(end - at) >= sizeof(g_track))
+        return;
+    // (the kind of scene loaded last: a menu's own (UI*: the garage, the car showroom) or a real track (the pre-race
+    // orbit and menu, then the race), for stage B: stage_b.cpp LiveRealTrackLoaded; the cars of the scene before are
+    // forgotten when it changes)
+    const bool ui = _strnicmp(at, "UI", 2) == 0;
+    if (ui != g_lastUi.exchange(ui))
+    {
+        LiveResetCars();
+        Log("live: %s scene loaded (%.*s)", ui ? "a menu's" : "a real track's", int(end - at), at);
+    }
+    if (ui)
         return;
     char track[32] = {}, ribbon[8] = {};
     memcpy(track, at, size_t(end - at));
@@ -929,6 +941,18 @@ void LiveTrackFileOpened(const char* guest)
     ReleaseSRWLockExclusive(&g_trackLock);
     if (changed)
         Log("live: track %s%s%s (FM3T)", track, ribbon[0] ? " ribbon " : "", ribbon);
+    if (newTrack)
+        LiveResetCars();
+}
+
+// A real track (not a menu's UI* scene) is what the game loaded last: the front end is then the pre-race orbit and
+// menu, which stage B leaves to the viewer too (stage_b.cpp).
+bool LiveRealTrackLoaded()
+{
+    AcquireSRWLockShared(&g_trackLock);
+    const bool known = g_track[0] != 0;
+    ReleaseSRWLockShared(&g_trackLock);
+    return known && !g_lastUi.load();
 }
 
 void LiveCameraHandOff(uint8_t* base, uint32_t view)

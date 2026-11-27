@@ -33,6 +33,7 @@
 #include "log.h"
 #include "settings.h"
 
+bool LiveRealTrackLoaded(); // live_camera.cpp: the last scene loaded is a real track, not a menu's
 void FrontEndRateRefresh(); // frontend_rate.cpp: the frame cap for the scenario (front end, race, stage B race)
 
 namespace
@@ -61,7 +62,10 @@ void Update(bool now_ = false)
     const bool on = GetEnvironmentVariableA("FM3_STAGE_B", v, sizeof(v)) ? (v[0] && v[0] != '0') : fromSettings;
     g_enabled.store(on, std::memory_order_relaxed);
     const uint32_t scenario = g_scenario.load(std::memory_order_relaxed);
-    const bool active = on && scenario == 1;
+    // (the race, and the front end while a real track is loaded: the pre-race orbit and menu, 2026-11-27, user: "the
+    // pre-race orbit is still kinda unsmooth" through the game's frames; the garage and showroom (UI* scenes) stay the
+    // game's)
+    const bool active = on && (scenario == 1 || (scenario == 0 && LiveRealTrackLoaded()));
     if (on)
     {
         // (the game's frames for the Godot window's menus: ReGPU's frame feed, renderer.cpp REGPU_FRAME_FEED, into
@@ -87,7 +91,7 @@ void Update(bool now_ = false)
     if (active != g_active.exchange(active, std::memory_order_relaxed))
     {
         if (active)
-            Log("stage B: on in the race: the game leaves the world, cars, mirror, reflections and shadows to the Godot viewer");
+            Log("stage B: on (race or pre-race): the game leaves the world, cars, mirror, reflections and shadows to the Godot viewer");
         else
             Log("stage B: off (the game draws everything)");
         FrontEndRateRefresh();

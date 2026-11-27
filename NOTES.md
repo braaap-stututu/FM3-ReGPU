@@ -40,7 +40,11 @@
   (`LiveMainViewSetUp` from the view set-up `sub_828374C8` is in place but its registers did not reach the render
   object; next: find the object it fills). The pre-race orbit is the front end (scenario 0), so stage B is not on yet:
   the viewer shows the game's own frames there; with stage B the front end now runs at 60 (`frontend_rate.cpp`: the
-  feed's rate, and the GPU is shared) and the feed at 60 a second (`REGPU_FRAME_FEED_HZ`). Not yet tested: leaving a race back to the menus (the scenario hook turns it off), the race's own menus
+  feed's rate, and the GPU is shared) and the feed at 60 a second (`REGPU_FRAME_FEED_HZ`). **The pre-race in stage B
+  too** (user: the orbit still unsmooth through the game's frames): `live_camera.cpp` notes whether the last
+  Media/Tracks folder opened was a menu's UI* scene or a real track (`LiveRealTrackLoaded`, cars forgotten when it
+  changes); stage B is active in the front end while a real track is loaded, so the viewer draws the pre-race orbit
+  (checked: RoadAtlanta, "a real track's scene loaded" then stage B on, the cap at 120). Not yet tested: leaving a race back to the menus (the scenario hook turns it off), the race's own menus
   (pre-race, pause) are only in the game's window. Next: the game's frame in the Godot window for the menus, the
   grey-keyed HUD / menus laid over Godot's race, the remaining fixed GPU passes.
 
