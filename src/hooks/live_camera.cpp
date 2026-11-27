@@ -997,7 +997,8 @@ void LiveCarDrawn(uint8_t* base, uint32_t car, const uint32_t args[7])
         if (c == 0)
         {
             c = car;
-            Log("live: car %08X at (%.3f %.3f %.3f)", car, p.body[12], p.body[13], p.body[14]);
+            Log("live: car %08X at (%.3f %.3f %.3f); draw args r3 %08X r5 %08X r6 %08X r7 %08X r8 %08X r9 %08X r10 %08X", car, p.body[12], p.body[13],
+                p.body[14], args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
             break;
         }
     }
