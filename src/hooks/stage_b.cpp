@@ -59,7 +59,26 @@ void Update(bool now_ = false)
     char v[8] = {};
     const bool on = GetEnvironmentVariableA("FM3_STAGE_B", v, sizeof(v)) ? (v[0] && v[0] != '0') : fromSettings;
     g_enabled.store(on, std::memory_order_relaxed);
-    const bool active = on && g_scenario.load(std::memory_order_relaxed) == 1;
+    const uint32_t scenario = g_scenario.load(std::memory_order_relaxed);
+    const bool active = on && scenario == 1;
+    if (on)
+    {
+        // (the game's frames for the Godot window's menus: ReGPU's frame feed, renderer.cpp REGPU_FRAME_FEED, into
+        // out/run/frame_feed.bin unless the environment names another file; its header carries this tag: bits 0-7 the
+        // scenario, bit 8 stage B active, bit 31 set by the game)
+        static bool feedSet = false;
+        if (!feedSet)
+        {
+            feedSet = true;
+            char f[8] = {};
+            if (!GetEnvironmentVariableA("REGPU_FRAME_FEED", f, sizeof(f)))
+            {
+                _putenv_s("REGPU_FRAME_FEED", "frame_feed.bin");
+                Log("stage B: the game's frames to frame_feed.bin for the Godot window (menus)");
+            }
+        }
+        regpu::SetFrameFeedTag(0x80000000u | (scenario & 0xFFu) | (active ? 0x100u : 0u));
+    }
     if (active != g_active.exchange(active, std::memory_order_relaxed))
     {
         if (active)

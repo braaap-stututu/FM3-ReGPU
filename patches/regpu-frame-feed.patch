@@ -1,0 +1,228 @@
+diff --git a/include/regpu/regpu.h b/include/regpu/regpu.h
+index 2ccad39..f5c857e 100644
+--- a/include/regpu/regpu.h
++++ b/include/regpu/regpu.h
+@@ -283,6 +283,9 @@ void SetMsaa(uint32_t samples);
+ // Changes the frame cap and vsync while the game runs (a host's options screen); Config's maxFps
+ // and vsync are the starting values.
+ void SetFrameLimit(uint32_t maxFps, bool vsync);
++// REGPU_FRAME_FEED (renderer.cpp): a number the host writes into the feed's header with every frame (the FM3 port: its
++// renderer scenario and stage B), so a reader knows what the frames show.
++void SetFrameFeedTag(uint32_t tag);
+ // Texture filtering while the game runs: -1 the fetch's own anisotropy (the default), 0 none, else
+ // that many samples at most (2-16) for every wrapping linear fetch. Applies to the 2D pixel fetches of
+ // REGPU_LEAN_FETCH (its sampler table); others keep their samplers.
+diff --git a/src/gpu/renderer.cpp b/src/gpu/renderer.cpp
+index 88481b0..57b7bfa 100644
+--- a/src/gpu/renderer.cpp
++++ b/src/gpu/renderer.cpp
+@@ -18121,6 +18281,192 @@ void PrecompileAll()
+         std::chrono::duration<double>(std::chrono::steady_clock::now() - compileStart).count(), compiling.size() - size_t(toCompile), leftBehind);
+ }
+ 
++// REGPU_FRAME_FEED=<file> (start-time; 2026-11-27, for the FM3 port's Godot renderer, whose window shows the game's own
++// frame while the game is in its menus): about REGPU_FRAME_FEED_HZ (default 30) times a second the shown frame is copied
++// into one of two readback buffers and, once that frame's fence has passed (nothing waits for the GPU), written into a
++// memory-mapped file: a 64-byte header (u32 'FM3F', version 1, sequence (odd while being written), width, height,
++// the host's tag (regpu::SetFrameFeedTag), the source size, then u64 microseconds), then width x height RGBA8 rows,
++// at most 1280 wide (nearest-sampled down). Formats other than 8-bit RGBA / BGRA are skipped (logged once).
++namespace
++{
++struct FeedSlot
++{
++    BufferRef buf;
++    uint32_t w = 0, h = 0, pitch = 0;
++    bool bgra = false;
++    uint64_t fence = 0; // 0: recorded this frame, fence not known yet
++    bool pending = false;
++};
++struct FrameFeed
++{
++    bool init = false, on = false;
++    std::string path;
++    double hz = 30.0;
++    FeedSlot slot[2];
++    std::chrono::steady_clock::time_point last{};
++    HANDLE file = INVALID_HANDLE_VALUE, mapping = nullptr;
++    uint8_t* view = nullptr;
++    size_t viewBytes = 0;
++    uint32_t seq = 0;
++};
++FrameFeed g_feed;
++std::atomic<uint32_t> g_feedTag{ 0 };
++
++bool FeedOn()
++{
++    // (read again every 2 s while off: a host may turn it on after start, as the FM3 port's stage B does)
++    static std::chrono::steady_clock::time_point nextLook{};
++    if (!g_feed.on && std::chrono::steady_clock::now() >= nextLook)
++    {
++        nextLook = std::chrono::steady_clock::now() + std::chrono::seconds(2);
++        const char* p = getenv("REGPU_FRAME_FEED");
++        g_feed.on = p && *p && strcmp(p, "0") != 0;
++        if (g_feed.on)
++        {
++            g_feed.path = p;
++            if (const char* h = getenv("REGPU_FRAME_FEED_HZ"))
++                g_feed.hz = std::clamp(atof(h), 1.0, 240.0);
++            Log("frame feed: the shown frame into %s, %.0f a second", p, g_feed.hz);
++        }
++    }
++    return g_feed.on;
++}
++
++// While the frame is recorded: the shown image into a free slot, if one is due.
++void FeedCopy(vk::Image* src)
++{
++    if (!FeedOn() || !src)
++        return;
++    const auto now = std::chrono::steady_clock::now();
++    if (std::chrono::duration<double>(now - g_feed.last).count() < 1.0 / g_feed.hz)
++        return;
++    FeedSlot* s = !g_feed.slot[0].pending ? &g_feed.slot[0] : !g_feed.slot[1].pending ? &g_feed.slot[1] : nullptr;
++    if (!s)
++        return;
++    const VkFormat f = src->desc.format;
++    const bool rgba = f == VK_FORMAT_R8G8B8A8_UNORM || f == VK_FORMAT_R8G8B8A8_SRGB, bgra = f == VK_FORMAT_B8G8R8A8_UNORM || f == VK_FORMAT_B8G8R8A8_SRGB;
++    if (!rgba && !bgra)
++    {
++        static bool logged = false;
++        if (!logged)
++            Log("frame feed: shown image format %d is not 8-bit RGBA: not fed", int(f));
++        logged = true;
++        return;
++    }
++    const uint32_t w = src->desc.width, h = src->desc.height, pitch = (w * 4 + 255) & ~255u;
++    if (!s->buf || s->w != w || s->h != h)
++    {
++        s->buf = MakeBuffer(VkDeviceSize(pitch) * h, VK_BUFFER_USAGE_TRANSFER_DST_BIT, vk::Memory::Readback, "frame feed");
++        if (!s->buf)
++            return;
++    }
++    s->w = w, s->h = h, s->pitch = pitch, s->bgra = bgra;
++    const vk::ImageState before = src->state;
++    vk::Transition(*C().vkList, *src, vk::Use::CopySource);
++    CopyToBuffer(*C().vkList, *src, s->buf->buffer, 0, pitch, 4, 0, 0, w, h);
++    vk::Transition(*C().vkList, *src, before.layout == VK_IMAGE_LAYOUT_UNDEFINED ? vk::StateFor(vk::Use::CopySource) : before);
++    ReadbackBarrier(*C().vkList);
++    s->pending = true;
++    s->fence = 0;
++    g_feed.last = now;
++}
++
++void FeedWrite(const FeedSlot& s)
++{
++    const uint32_t ow = std::min(s.w, 1280u), oh = uint32_t(uint64_t(s.h) * ow / std::max(s.w, 1u));
++    const size_t bytes = 64 + size_t(1280) * 1440 * 4; // (room for any shape up to 1280 x 1440)
++    if (!g_feed.view)
++    {
++        g_feed.file = CreateFileA(g_feed.path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
++            FILE_ATTRIBUTE_NORMAL, nullptr);
++        if (g_feed.file == INVALID_HANDLE_VALUE)
++        {
++            Log("frame feed: cannot open %s (error %lu): feed off", g_feed.path.c_str(), GetLastError());
++            g_feed.on = false;
++            return;
++        }
++        g_feed.mapping = CreateFileMappingA(g_feed.file, nullptr, PAGE_READWRITE, 0, DWORD(bytes), nullptr);
++        g_feed.view = g_feed.mapping ? static_cast<uint8_t*>(MapViewOfFile(g_feed.mapping, FILE_MAP_WRITE, 0, 0, bytes)) : nullptr;
++        if (!g_feed.view)
++        {
++            Log("frame feed: cannot map %s (error %lu): feed off", g_feed.path.c_str(), GetLastError());
++            g_feed.on = false;
++            return;
++        }
++        g_feed.viewBytes = bytes;
++    }
++    if (64 + size_t(ow) * oh * 4 > g_feed.viewBytes)
++        return;
++    const uint8_t* data = ReadbackData(*s.buf);
++    if (!data)
++        return;
++    volatile uint32_t* hdr = reinterpret_cast<volatile uint32_t*>(g_feed.view);
++    g_feed.seq = (g_feed.seq + 1) | 1u; // (odd: being written)
++    hdr[2] = g_feed.seq;
++    std::atomic_thread_fence(std::memory_order_release);
++    uint8_t* px = g_feed.view + 64;
++    for (uint32_t y = 0; y < oh; y++)
++    {
++        const uint8_t* row = data + size_t(uint64_t(y) * s.h / oh) * s.pitch;
++        uint8_t* o = px + size_t(y) * ow * 4;
++        if (ow == s.w && !s.bgra)
++            memcpy(o, row, size_t(ow) * 4);
++        else
++            for (uint32_t x = 0; x < ow; x++)
++            {
++                const uint8_t* i = row + size_t(uint64_t(x) * s.w / ow) * 4;
++                o[x * 4 + 0] = s.bgra ? i[2] : i[0];
++                o[x * 4 + 1] = i[1];
++                o[x * 4 + 2] = s.bgra ? i[0] : i[2];
++                o[x * 4 + 3] = 255;
++            }
++    }
++    hdr[0] = 0x46334D46u; // 'FM3F'
++    hdr[1] = 1;
++    hdr[3] = ow;
++    hdr[4] = oh;
++    hdr[5] = g_feedTag.load(std::memory_order_relaxed);
++    hdr[6] = s.w;
++    hdr[7] = s.h;
++    const uint64_t us = uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
++    hdr[8] = uint32_t(us);
++    hdr[9] = uint32_t(us >> 32);
++    std::atomic_thread_fence(std::memory_order_release);
++    g_feed.seq += 1; // (even: complete)
++    hdr[2] = g_feed.seq;
++}
++}
++
++uint64_t FenceCompleted(); // (the renderer's fence, above)
++
++namespace
++{
++// After the frame's fence is known: the slots recorded this frame take it; finished ones are written out.
++void FeedAfterFrame(uint64_t fence)
++{
++    if (!g_feed.on)
++        return;
++    const uint64_t done = FenceCompleted();
++    for (FeedSlot& s : g_feed.slot)
++    {
++        if (!s.pending)
++            continue;
++        if (!s.fence)
++            s.fence = fence;
++        else if (done >= s.fence)
++        {
++            FeedWrite(s);
++            s.pending = false;
++        }
++    }
++}
++}
++
++void regpu::SetFrameFeedTag(uint32_t tag)
++{
++    g_feedTag.store(tag, std::memory_order_relaxed);
++}
++
+ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+ {
+     LogSurfaceUse();
+@@ -18338,6 +18684,8 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         vk::Transition(*C().vkList, *src, before.layout == VK_IMAGE_LAYOUT_UNDEFINED ? vk::StateFor(vk::Use::CopySource) : before);
+         ReadbackBarrier(*C().vkList);
+     }
++    else if (shown && FeedOn())
++        FeedCopy(gradeJob ? GradeIntoTexture(gradeJob) : shown); // (REGPU_FRAME_FEED, above)
+     // REGPU_DUMP_RESOLVES=1 (with REGPU_DUMP_FRAME): also write every resolved texture to out/res.
+     static std::vector<ResolveDump> resolveDumps;
+     resolveDumps.clear();
+@@ -18475,6 +18834,7 @@ void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
+         overwrite::EndFrame(g_r.frameIndex, Frame().fence, g_r.frame);
+     }
+     g_r.listOpen = false;
++    FeedAfterFrame(Frame().fence); // (REGPU_FRAME_FEED)
+ 
+     if (dump)
+     {

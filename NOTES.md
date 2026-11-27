@@ -17,7 +17,11 @@
 - **Measured** (frozen CrownJewel grid, 1280x720 4x MSAA, same boot, cap lifted): off 2,663-2,686 draws, 225-237 fps;
   on 278-302 draws, 360 fps (the cap), GPU 1.6 ms a frame (clears, post-processing and the HUD at 4x), draw thread
   ~25% busy. Racing with stage_b=1 from settings.ini alone: 120 fps, 278 draws, the viewer drew the race from the
-  stream. Not yet tested: leaving a race back to the menus (the scenario hook turns it off), the race's own menus
+  stream. **The menus in the Godot window:** ReGPU's frame feed (`patches/regpu-frame-feed.patch`, `REGPU_FRAME_FEED`)
+  is turned on by stage B (`out/run/frame_feed.bin`, ~30 frames a second, no GPU wait), tagged with the scenario and
+  whether stage B is active; the viewer (frame-ir world_view.gd `_game_feed_update`) shows the game's frames full-window
+  unless stage B is active, so one window shows the game's menus, then Godot's race (checked: the title screen came
+  through; the race drawn by the viewer). Not yet tested: leaving a race back to the menus (the scenario hook turns it off), the race's own menus
   (pre-race, pause) are only in the game's window. Next: the game's frame in the Godot window for the menus, the
   grey-keyed HUD / menus laid over Godot's race, the remaining fixed GPU passes.
 
