@@ -192,6 +192,8 @@ SOCKET Socket()
         {
             u_long nonBlocking = 1;
             ioctlsocket(u, FIONBIO, &nonBlocking);
+            int sndbuf = 1 << 20; // (1 MB: the damage tables are 8 KB packets; with the default buffer bursts were dropped)
+            setsockopt(u, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char*>(&sndbuf), int(sizeof(sndbuf)));
         }
         return u;
     }();
@@ -867,6 +869,7 @@ static void DamageFrame(uint8_t* base, SOCKET s, const Target& target, double ti
                 if (!g_carTable[best])
                     mapped++;
                 g_carTable[best] = hits[i].address;
+                Log("live: car %08X damage table %08X (draw at %.2f %.2f %.2f)", g_known[best], hits[i].address, w[0], w[1], w[2]);
                 memcpy(g_carLattice[best], hits[i].constants, sizeof(g_carLattice[best]));
                 g_carTableHash[best] = 0;
             }
@@ -889,27 +892,43 @@ static void DamageFrame(uint8_t* base, SOCKET s, const Target& target, double ti
         g_probe = 1;
         g_probeAt = g_probeTry = now;
     }
-    // the tables: sent when they change (4 times a second at most) and every 2 s
+    // the tables: checked 4 times a second, marked to send when they change and every 2 s; sent one car (4 packets) a
+    // call (a frame): 32 packets of 8 KB at once were mostly dropped by the socket (one car's arrived in 15 s)
     static ULONGLONG lastCheck = 0, lastAll = 0;
-    if (now - lastCheck < 250)
-        return;
-    lastCheck = now;
-    const bool all = now - lastAll >= 2000;
-    if (all)
-        lastAll = now;
-    for (int k = 0; k < 16; k++)
+    static bool pending[16] = {};
+    if (now - lastCheck >= 250)
     {
-        if (!g_known[k] || !g_carTable[k])
+        lastCheck = now;
+        const bool all = now - lastAll >= 2000;
+        if (all)
+            lastAll = now;
+        for (int k = 0; k < 16; k++)
+        {
+            if (!g_known[k] || !g_carTable[k])
+                continue;
+            const uint8_t* t = base + 0xA0000000u + g_carTable[k];
+            uint64_t h = 0xCBF29CE484222325ull;
+            for (int i = 0; i < 32000; i += 8)
+                h = (h ^ *reinterpret_cast<const uint64_t*>(t + i)) * 0x100000001B3ull;
+            if (h != g_carTableHash[k] && g_carTableHash[k])
+                Log("live: car %08X damage table changed", g_known[k]);
+            if (h != g_carTableHash[k] || all)
+                pending[k] = true;
+            g_carTableHash[k] = h;
+        }
+    }
+    static int next = 0;
+    for (int n = 0; n < 16; n++)
+    {
+        const int k = (next + n) % 16;
+        if (!pending[k] || !g_known[k] || !g_carTable[k])
+        {
+            pending[k] = false;
             continue;
+        }
+        pending[k] = false;
+        next = (k + 1) % 16;
         const uint8_t* t = base + 0xA0000000u + g_carTable[k];
-        uint64_t h = 0xCBF29CE484222325ull;
-        for (int i = 0; i < 32000; i += 8)
-            h = (h ^ *reinterpret_cast<const uint64_t*>(t + i)) * 0x100000001B3ull;
-        if (h == g_carTableHash[k] && !all)
-            continue;
-        if (h != g_carTableHash[k] && g_carTableHash[k])
-            Log("live: car %08X damage table changed", g_known[k]);
-        g_carTableHash[k] = h;
         DamagePacket d = {};
         memcpy(d.magic, "FM3D", 4);
         d.version = 1;
@@ -921,6 +940,7 @@ static void DamageFrame(uint8_t* base, SOCKET s, const Target& target, double ti
             memcpy(d.data, t + c * 8000, 8000);
             sendto(s, reinterpret_cast<const char*>(&d), int(sizeof(d)), 0, reinterpret_cast<const sockaddr*>(&target.addr), int(sizeof(target.addr)));
         }
+        break;
     }
     (void)time;
 }
