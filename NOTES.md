@@ -3,6 +3,15 @@
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
 ### ▶ 2026-11-27 (second PC, evening, 14:09-24:00 session): the user's notes worked through
+- **Parts and loose parts ("FM3P" v3), the crowd buffer, the hold tag (2026-11-27 16:30-18:15):** live_camera.cpp
+  PartsProbeDone: after a damage change a 0.5 s stage B hold records every fetch-95 vertex buffer per frame with its
+  size, world matrix (c8-c11) and damage table (aux fetch 94 = which car); per car the buffers at its own translation
+  and the loose ones with their matrices go to the viewer, which hides / draws the parts. ReGPU fetch watch extended
+  (any size, frame number, aux fetch; `regpu-fetch-watch.patch` regenerated). The frame feed tag gets bit 9 while held
+  (stage_b.cpp) so the viewer does not lay the game's own world over its picture. anim_dump.cpp: the crowd's
+  17-bone instances (data at +0x00), 128 remembered, full-length samples, normalized codec time. The game's baked
+  crowd animation buffer (vs 6ee601730a7f9f87 fetch 94, 1,201,992 bytes) decoded: frame-ir LIVE.md "The crowd's
+  animations".
 - **Crash damage per car ("FM3D", 2026-11-27 ~16:00):** each car's 32,000-byte damage lattice (vertex fetch 94) is
   mapped to its car by ReGPU's new fetch watch (patch `regpu-fetch-watch.patch`, `regpu::SetFetchWatch`/`TakeFetchWatch`):
   `live_camera.cpp` DamageFrame holds stage B for 0.5 s (`stage_b.cpp` StageBHold) while cars lack a table, and gives
