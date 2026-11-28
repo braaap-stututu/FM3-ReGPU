@@ -2,6 +2,16 @@
 
 ## ▶ Current status / next step  (updated 2026-11-20, end of session 47)
 
+### ▶ 2026-11-28 (second PC, afternoon): the in-car view, from the game's own draws (no recomp code changed)
+- The player's first-person arms are drawn with four in-car-only skinning shaders (vs 56916c22af0dc846,
+  11a5ef0a6d894766, 52849793850ea0d3, 0fe492477011ede7: four bones a vertex, a world-space palette of 3 float4 rows per
+  bone from c60), over one 8,227-vertex x 40-byte buffer (the Granny hands model the game decompresses at load), not
+  Driver.skinbin (that is the driver in the other cars, vs 3fd7a3519ea31c8e). Read out of the running game for the
+  viewer: frame-ir tools/research/armsdump.ps1. **The capture's buffer addresses are physical: `peek` them at
+  0xA0000000 + address** (1 KB reads; one index list still stops partway). The car's and cockpit's material parameters
+  for every material: Media/Cars/ShaderSettings/Normal.xml (cockpit_headliner CockpitHeadlinerColor 0.24, ...).
+  Details: frame-ir LIVE.md "The first-person arms", "The roof liner and A-pillar as the game draws them".
+
 ### ▶ 2026-11-27 (second PC, evening, 14:09-24:00 session): the user's notes worked through
 - **Late evening (2026-11-27 ~19:40-23:20), the game side of the viewer work:** FM3B v3 (each wheel's surface byte
   +621 and loose-surface value +352; 1c2621d) was the last recomp change. The rest was read from captures, no code
